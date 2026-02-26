@@ -5,14 +5,14 @@ import cheryLogo from '../assets/chery.png';
 
 const DisplayBoard = ({ processedQueue, formatTime }) => {
   return (
-    <div className="p-6 max-w-[1100px] mx-auto animate-fade-in">
-      <div className="flex justify-between items-center mb-10 px-4">
-        <div className="flex items-center gap-8">
-          <img src={cheryLogo} alt="Chery Logo" className="h-24 object-contain" />
-          <div className="h-14 w-[2px] bg-zinc-200"></div>
+    <div className="p-4 sm:p-6 max-w-[1400px] mx-auto animate-fade-in">
+      <div className="flex flex-col sm:flex-row justify-between items-center mb-6 sm:mb-10 px-2 sm:px-4 gap-4 sm:gap-0">
+        <div className="flex items-center gap-4 sm:gap-8">
+          <img src={cheryLogo} alt="Chery Logo" className="h-12 sm:h-24 object-contain" />
+          <div className="h-8 sm:h-14 w-[2px] bg-zinc-200"></div>
           <div className="space-y-0.5">
             <span className="text-[10px] font-black uppercase tracking-[0.3em] text-red-600">Workshop Live Status</span>
-            <h2 className="text-4xl font-extrabold tracking-tighter text-zinc-900 leading-none">Antrian  Bengkel </h2>
+            <h2 className="text-xl sm:text-4xl font-extrabold tracking-tighter text-zinc-900 leading-none">Antrian Bengkel</h2>
           </div>
         </div>
         <div className="text-right">
@@ -24,10 +24,10 @@ const DisplayBoard = ({ processedQueue, formatTime }) => {
         {processedQueue.map((item, index) => (
           <div 
             key={item.id} 
-            className={`relative bg-white border ${item.category === 'Booking' ? 'border-red-200 ring-1 ring-red-50' : 'border-zinc-100'} rounded-[1.2rem] px-8 py-4 flex justify-between items-center shadow-lg shadow-zinc-200/40 transition-all duration-300`}
+            className={`relative bg-white border ${item.category === 'Booking' ? 'border-red-200 ring-1 ring-red-50' : 'border-zinc-100'} rounded-[1.2rem] px-4 sm:px-8 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center shadow-lg shadow-zinc-200/40 transition-all duration-300 gap-4 sm:gap-0`}
           >
-            <div className="flex items-center gap-10">
-              <div className="text-5xl font-black text-zinc-900 italic min-w-[60px] select-none">
+            <div className="flex items-center gap-4 sm:gap-10 w-full sm:w-auto">
+              <div className="text-2xl sm:text-5xl font-black text-zinc-900 italic min-w-[40px] sm:min-w-[60px] select-none">
                 #{index + 1}
               </div>
               
@@ -43,21 +43,21 @@ const DisplayBoard = ({ processedQueue, formatTime }) => {
                     </span>
                   )}
                 </div>
-                <h3 className="text-5xl font-black tracking-tighter text-zinc-900 font-sans uppercase leading-none">
+                <h3 className="text-2xl sm:text-5xl font-black tracking-tighter text-zinc-900 font-sans uppercase leading-none">
                   {item.bk}
                 </h3>
-                <p className="text-base text-zinc-700 font-black italic mt-1 uppercase tracking-tight">
+                <p className="text-xs sm:text-base text-zinc-700 font-black italic mt-1 uppercase tracking-tight">
                   {item.tipe}
                 </p>
-                <p className="text-[10px] font-bold text-red-600/70 mt-1 uppercase tracking-widest">
+                <p className="text-[8px] sm:text-[10px] font-bold text-red-600/70 mt-1 uppercase tracking-widest">
                   Service Advisor: {item.addedBy || 'System'}
                 </p>
               </div>
             </div>
 
-            <div className="text-right flex flex-col items-end">
+            <div className="text-left sm:text-right flex flex-col items-start sm:items-end w-full sm:w-auto border-t sm:border-none pt-3 sm:pt-0 border-zinc-50">
               <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Estimasi Selesai</span>
-              <div className={`text-6xl font-black tabular-nums tracking-tighter leading-none ${item.estimasi < 300 && item.estimasi > 0 ? 'text-red-600 animate-pulse' : item.estimasi === 0 ? 'text-green-500' : 'text-zinc-900'}`}>
+              <div className={`text-4xl sm:text-6xl font-black tabular-nums tracking-tighter leading-none ${item.estimasi < 300 && item.estimasi > 0 ? 'text-red-600 animate-pulse' : item.estimasi === 0 ? 'text-green-500' : 'text-zinc-900'}`}>
                 {formatTime(item.estimasi)}
               </div>
             </div>
