@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { LayoutDashboard, Settings } from 'lucide-react';
+import { ref, onValue, set, push, remove, update } from "firebase/database";
+import { db } from "./firebase";
 
 // Import Komponen Terpisah
 import DisplayBoard from './components/DisplayBoard';
@@ -22,32 +24,35 @@ const App = () => {
     const savedUser = localStorage.getItem('chery_auth_user');
     return savedUser ? JSON.parse(savedUser) : null;
   });
-  const [queue, setQueue] = useState(() => {
-    const savedQueue = localStorage.getItem('chery_workshop_queue');
-    return savedQueue ? JSON.parse(savedQueue) : [];
-  });
+  const [queue, setQueue] = useState([]);
+  const [now, setNow] = useState(Date.now());
   const [formData, setFormData] = useState({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler' });
   const [isEditing, setIsEditing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
 
-  // Timer Logic
+  // Sinkronisasi Realtime dengan Firebase
   useEffect(() => {
-    const interval = setInterval(() => {
-      setQueue((prevQueue) => 
-        prevQueue.map((item) => ({
-          ...item,
-          estimasi: item.estimasi > 0 ? item.estimasi - 1 : 0
-        }))
-      );
-    }, 1000);
-    return () => clearInterval(interval);
+    const queueRef = ref(db, 'workshop_queue');
+    return onValue(queueRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const list = Object.keys(data).map(key => ({
+          firebaseId: key,
+          ...data[key]
+        }));
+        setQueue(list);
+      } else {
+        setQueue([]);
+      }
+    });
   }, []);
 
-  // Simpan data ke LocalStorage setiap kali queue berubah
+  // Update waktu lokal setiap detik untuk countdown
   useEffect(() => {
-    localStorage.setItem('chery_workshop_queue', JSON.stringify(queue));
-  }, [queue]);
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Simpan status user ke LocalStorage
   useEffect(() => {
@@ -55,14 +60,19 @@ const App = () => {
   }, [user]);
 
   const processedQueue = useMemo(() => {
-    return [...queue]
+    return queue
+      .map(item => {
+        // Hitung sisa detik berdasarkan target waktu selesai
+        const diff = Math.max(0, Math.floor((item.targetTime - now) / 1000));
+        return { ...item, estimasi: diff };
+      })
       .sort((a, b) => {
         if (a.category === 'Booking' && b.category !== 'Booking') return -1;
         if (a.category !== 'Booking' && b.category === 'Booking') return 1;
         return 0;
       })
       .slice(0, 5); 
-  }, [queue]);
+  }, [queue, now]);
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -91,26 +101,48 @@ const App = () => {
       setTimeout(() => setErrorMessage(""), 3000);
       return;
     }
+
+    const targetTime = Date.now() + (totalSeconds * 1000);
+    const queueRef = ref(db, 'workshop_queue');
+
     if (isEditing) {
-      setQueue(prev => prev.map(q => q.id === formData.id ? { ...formData, estimasi: totalSeconds } : q));
+      update(ref(db, `workshop_queue/${formData.firebaseId}`), {
+        bk: formData.bk.toUpperCase(),
+        tipe: formData.tipe,
+        category: formData.category,
+        targetTime: targetTime
+      });
       setIsEditing(false);
     } else {
-      setQueue(prev => [...prev, { id: Date.now(), bk: formData.bk.toUpperCase(), tipe: formData.tipe, estimasi: totalSeconds, category: formData.category, addedBy: user.name }]);
+      push(queueRef, {
+        id: Date.now(),
+        bk: formData.bk.toUpperCase(),
+        tipe: formData.tipe,
+        targetTime: targetTime,
+        category: formData.category,
+        addedBy: user.name
+      });
     }
     // Reset form setelah save
     setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler' });
   };
 
-  const deleteItem = (id) => setQueue(prev => prev.filter(q => q.id !== id));
+  const deleteItem = (firebaseId) => remove(ref(db, `workshop_queue/${firebaseId}`));
 
   const clearQueue = () => {
     if (window.confirm("Apakah Anda yakin ingin menghapus semua antrean?")) {
-      setQueue([]);
+      set(ref(db, 'workshop_queue'), null);
     }
   };
 
   const editItem = (item) => {
-    setFormData({ ...item, jam: Math.floor(item.estimasi / 3600), menit: Math.floor((item.estimasi % 3600) / 60), detik: item.estimasi % 60 });
+    // Saat edit, kita hitung ulang jam/menit/detik dari sisa estimasi saat ini
+    setFormData({ 
+      ...item, 
+      jam: Math.floor(item.estimasi / 3600), 
+      menit: Math.floor((item.estimasi % 3600) / 60), 
+      detik: item.estimasi % 60 
+    });
     setIsEditing(true);
   };
 
