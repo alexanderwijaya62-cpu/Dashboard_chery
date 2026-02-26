@@ -18,7 +18,7 @@ const formatTime = (totalSeconds) => {
 };
 
 const App = () => {
-  const [currentPage, setCurrentPage] = useState('display'); 
+  const [currentPage, setCurrentPage] = useState('display');
   const [isNavbarVisible, setIsNavbarVisible] = useState(true);
   const [user, setUser] = useState(() => {
     const savedUser = localStorage.getItem('chery_auth_user');
@@ -59,7 +59,7 @@ const App = () => {
     localStorage.setItem('chery_auth_user', JSON.stringify(user));
   }, [user]);
 
-  const processedQueue = useMemo(() => {
+  const fullProcessedQueue = useMemo(() => {
     return queue
       .map(item => {
         // Hitung sisa detik berdasarkan target waktu selesai
@@ -70,14 +70,15 @@ const App = () => {
         if (a.category === 'Booking' && b.category !== 'Booking') return -1;
         if (a.category !== 'Booking' && b.category === 'Booking') return 1;
         return 0;
-      })
-      .slice(0, 5); 
+      });
   }, [queue, now]);
+
+  const processedQueue = useMemo(() => fullProcessedQueue.slice(0, 5), [fullProcessedQueue]);
 
   const handleLogin = (e) => {
     e.preventDefault();
     const foundUser = USERS.find(u => u.username === loginForm.username && u.password === loginForm.password);
-    
+
     if (foundUser) {
       setUser({ name: foundUser.name });
       setCurrentPage('admin');
@@ -137,11 +138,11 @@ const App = () => {
 
   const editItem = (item) => {
     // Saat edit, kita hitung ulang jam/menit/detik dari sisa estimasi saat ini
-    setFormData({ 
-      ...item, 
-      jam: Math.floor(item.estimasi / 3600), 
-      menit: Math.floor((item.estimasi % 3600) / 60), 
-      detik: item.estimasi % 60 
+    setFormData({
+      ...item,
+      jam: Math.floor(item.estimasi / 3600),
+      menit: Math.floor((item.estimasi % 3600) / 60),
+      detik: item.estimasi % 60
     });
     setIsEditing(true);
   };
@@ -149,7 +150,7 @@ const App = () => {
   return (
     <div className="min-h-screen bg-[#F2F2F7] text-zinc-900 font-sans tracking-tight antialiased pb-12 pt-16">
       {/* Navbar Tetap di App.jsx */}
-      <div 
+      <div
         onMouseEnter={() => setIsNavbarVisible(true)}
         onMouseLeave={() => setIsNavbarVisible(false)}
         className="fixed top-0 left-0 w-full z-50 h-16 group"
@@ -171,7 +172,7 @@ const App = () => {
       {/* Render Pages */}
       {currentPage === 'display' && <DisplayBoard processedQueue={processedQueue} queueLength={queue.length} formatTime={formatTime} />}
       {currentPage === 'login' && <LoginPage loginForm={loginForm} setLoginForm={setLoginForm} handleLogin={handleLogin} errorMessage={errorMessage} setCurrentPage={setCurrentPage} />}
-      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={queue} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} formData={formData} setFormData={setFormData} isEditing={isEditing} errorMessage={errorMessage} formatTime={formatTime} />}
+      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} formData={formData} setFormData={setFormData} isEditing={isEditing} errorMessage={errorMessage} formatTime={formatTime} />}
 
       {/* Footer */}
       <footer className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-zinc-200 px-8 py-2 flex justify-between items-center text-[9px] text-zinc-400 font-black uppercase tracking-[0.2em] z-50">

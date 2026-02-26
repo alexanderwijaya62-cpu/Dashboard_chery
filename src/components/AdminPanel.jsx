@@ -14,7 +14,7 @@ const AdminPanel = ({ user, handleLogout, queue, deleteItem, clearQueue, editIte
           <h3 className="text-lg font-black tracking-tight text-zinc-900">{user?.name}</h3>
         </div>
       </div>
-      <button 
+      <button
         onClick={handleLogout}
         className="bg-red-50 text-red-600 px-5 py-2 rounded-xl font-bold text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-red-600 hover:text-white transition-all shadow-sm"
       >
@@ -32,19 +32,19 @@ const AdminPanel = ({ user, handleLogout, queue, deleteItem, clearQueue, editIte
             </div>
             {isEditing ? 'Update Antrian' : 'Input Kendaraan'}
           </h2>
-          
+
           <form onSubmit={handleSave} className="space-y-6">
             <div className="grid grid-cols-2 gap-3">
-              <button 
+              <button
                 type="button"
-                onClick={() => setFormData({...formData, category: 'Booking'})}
+                onClick={() => setFormData({ ...formData, category: 'Booking' })}
                 className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-2 ${formData.category === 'Booking' ? 'bg-red-600 text-white border-red-600 shadow-lg shadow-red-100' : 'bg-zinc-50 text-zinc-400 border-zinc-200'}`}
               >
                 <Bookmark size={14} fill={formData.category === 'Booking' ? 'white' : 'transparent'} /> Booking
               </button>
-              <button 
+              <button
                 type="button"
-                onClick={() => setFormData({...formData, category: 'Reguler'})}
+                onClick={() => setFormData({ ...formData, category: 'Reguler' })}
                 className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-2 ${formData.category === 'Reguler' ? 'bg-zinc-900 text-white border-zinc-900 shadow-lg shadow-zinc-200' : 'bg-zinc-50 text-zinc-400 border-zinc-200'}`}
               >
                 <Zap size={14} /> Reguler
@@ -56,27 +56,27 @@ const AdminPanel = ({ user, handleLogout, queue, deleteItem, clearQueue, editIte
               <input required type="text" placeholder="BK 1234 ABC"
                 className="w-full bg-zinc-50 border border-zinc-200 p-4 rounded-xl text-xl font-bold focus:bg-white focus:ring-4 focus:ring-red-50 focus:border-red-600 outline-none transition-all uppercase"
                 value={formData.bk}
-                onChange={(e) => setFormData({...formData, bk: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, bk: e.target.value })}
               />
             </div>
-            
+
             <div className="space-y-1.5">
               <label className="text-[10px] uppercase font-black text-zinc-400 tracking-widest ml-1">Tipe Mobil</label>
               <input required type="text" placeholder="Contoh: Omoda 5"
                 className="w-full bg-zinc-50 border border-zinc-200 p-4 rounded-xl text-xl font-bold focus:bg-white focus:ring-4 focus:ring-red-50 focus:border-red-600 outline-none transition-all"
                 value={formData.tipe}
-                onChange={(e) => setFormData({...formData, tipe: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, tipe: e.target.value })}
               />
             </div>
-            
+
             <div className="space-y-1.5">
               <label className="text-[10px] uppercase font-black text-zinc-400 tracking-widest ml-1 text-center block">
                 Estimasi {isEditing ? 'Waktu' : '(Min. 30 Menit)'}
               </label>
               <div className="grid grid-cols-3 gap-2">
-                <TimeInput label="Jam" value={formData.jam} onChange={(val) => setFormData({...formData, jam: val})} />
-                <TimeInput label="Mnt" value={formData.menit} max={59} onChange={(val) => setFormData({...formData, menit: val})} />
-                <TimeInput label="Det" value={formData.detik} max={59} onChange={(val) => setFormData({...formData, detik: val})} />
+                <TimeInput label="Jam" value={formData.jam} onChange={(val) => setFormData({ ...formData, jam: val })} />
+                <TimeInput label="Mnt" value={formData.menit} max={59} onChange={(val) => setFormData({ ...formData, menit: val })} />
+                <TimeInput label="Det" value={formData.detik} max={59} onChange={(val) => setFormData({ ...formData, detik: val })} />
               </div>
             </div>
 
@@ -137,8 +137,8 @@ const AdminPanel = ({ user, handleLogout, queue, deleteItem, clearQueue, editIte
                   </td>
                   <td className="px-8 py-5 text-right">
                     <div className="flex justify-end gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-all">
-                      <button 
-                        onClick={() => deleteItem(item.id)} 
+                      <button
+                        onClick={() => deleteItem(item.firebaseId)}
                         className={`p-3 rounded-xl transition-all ${item.estimasi === 0 ? 'bg-green-500 text-white shadow-lg animate-pulse' : 'text-green-500 hover:bg-green-50'}`}
                         title="Konfirmasi Selesai"
                       >
@@ -147,7 +147,7 @@ const AdminPanel = ({ user, handleLogout, queue, deleteItem, clearQueue, editIte
                       <button onClick={() => editItem(item)} className="p-3 text-blue-500 hover:bg-blue-50 rounded-xl transition-all">
                         <Edit3 size={18} />
                       </button>
-                      <button onClick={() => deleteItem(item.id)} className="p-3 text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                      <button onClick={() => deleteItem(item.firebaseId)} className="p-3 text-red-500 hover:bg-red-50 rounded-xl transition-all">
                         <Trash2 size={18} />
                       </button>
                     </div>
