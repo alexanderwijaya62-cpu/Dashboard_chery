@@ -2,7 +2,7 @@ import React from 'react';
 import { User, LogOut, Plus, Edit3, Bookmark, Zap, AlertCircle, CheckCircle2, Trash2, Check } from 'lucide-react';
 import TimeInput from './TimeInput';
 
-const AdminPanel = ({ user, handleLogout, queue, deleteItem, editItem, handleSave, formData, setFormData, isEditing, errorMessage, formatTime }) => (
+const AdminPanel = ({ user, handleLogout, queue, deleteItem, clearQueue, editItem, handleSave, formData, setFormData, isEditing, errorMessage, formatTime }) => (
   <div className="p-6 max-w-[1200px] mx-auto animate-fade-in pb-20">
     <div className="flex justify-between items-center mb-8 bg-white p-5 rounded-2xl border border-zinc-200 shadow-sm">
       <div className="flex items-center gap-4">
@@ -98,7 +98,14 @@ const AdminPanel = ({ user, handleLogout, queue, deleteItem, editItem, handleSav
       <div className="lg:col-span-8">
         <div className="bg-white rounded-[1.5rem] border border-zinc-200 overflow-hidden shadow-lg shadow-zinc-200/30">
           <div className="px-8 py-6 border-b border-zinc-100 bg-zinc-50/30 flex justify-between items-center">
-            <h3 className="text-xl font-black italic tracking-tight uppercase">Monitoring List</h3>
+            <div className="flex items-center gap-4">
+              <h3 className="text-xl font-black italic tracking-tight uppercase">Monitoring List</h3>
+              {queue.length > 0 && (
+                <button onClick={clearQueue} className="text-[10px] font-black text-red-500 hover:text-red-700 uppercase tracking-widest border border-red-100 px-2 py-1 rounded-lg hover:bg-red-50 transition-all">
+                  Hapus Semua
+                </button>
+              )}
+            </div>
             <span className="bg-zinc-900 text-white text-[9px] font-black px-3 py-1 rounded-full">{queue.length} Antrian</span>
           </div>
           <table className="w-full text-left">

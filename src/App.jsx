@@ -102,6 +102,12 @@ const App = () => {
 
   const deleteItem = (id) => setQueue(prev => prev.filter(q => q.id !== id));
 
+  const clearQueue = () => {
+    if (window.confirm("Apakah Anda yakin ingin menghapus semua antrean?")) {
+      setQueue([]);
+    }
+  };
+
   const editItem = (item) => {
     setFormData({ ...item, jam: Math.floor(item.estimasi / 3600), menit: Math.floor((item.estimasi % 3600) / 60), detik: item.estimasi % 60 });
     setIsEditing(true);
@@ -128,7 +134,7 @@ const App = () => {
       {/* Render Pages */}
       {currentPage === 'display' && <DisplayBoard processedQueue={processedQueue} queueLength={queue.length} formatTime={formatTime} />}
       {currentPage === 'login' && <LoginPage loginForm={loginForm} setLoginForm={setLoginForm} handleLogin={handleLogin} errorMessage={errorMessage} setCurrentPage={setCurrentPage} />}
-      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={queue} deleteItem={deleteItem} editItem={editItem} handleSave={handleSave} formData={formData} setFormData={setFormData} isEditing={isEditing} errorMessage={errorMessage} formatTime={formatTime} />}
+      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={queue} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} formData={formData} setFormData={setFormData} isEditing={isEditing} errorMessage={errorMessage} formatTime={formatTime} />}
 
       {/* Footer */}
       <footer className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-zinc-200 px-8 py-2 flex justify-between items-center text-[9px] text-zinc-400 font-black uppercase tracking-[0.2em] z-50">
