@@ -63,7 +63,7 @@ const App = () => {
     return queue
       .map(item => {
         // Hitung sisa detik berdasarkan target waktu selesai
-        const diff = Math.max(0, Math.floor((item.targetTime - now) / 1000));
+        const diff = item.targetTime ? Math.max(0, Math.floor((item.targetTime - now) / 1000)) : 0;
         return { ...item, estimasi: diff };
       })
       .sort((a, b) => {
