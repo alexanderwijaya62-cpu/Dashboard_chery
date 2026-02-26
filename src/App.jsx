@@ -17,6 +17,7 @@ const formatTime = (totalSeconds) => {
 
 const App = () => {
   const [currentPage, setCurrentPage] = useState('display'); 
+  const [isNavbarVisible, setIsNavbarVisible] = useState(true);
   const [user, setUser] = useState(() => {
     const savedUser = localStorage.getItem('chery_auth_user');
     return savedUser ? JSON.parse(savedUser) : null;
@@ -114,22 +115,28 @@ const App = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#F2F2F7] text-zinc-900 font-sans tracking-tight antialiased pb-12">
+    <div className="min-h-screen bg-[#F2F2F7] text-zinc-900 font-sans tracking-tight antialiased pb-12 pt-16">
       {/* Navbar Tetap di App.jsx */}
-      <nav className="bg-white/80 backdrop-blur-md border-b border-zinc-200 px-8 py-3 flex justify-between items-center sticky top-0 z-50 shadow-sm">
-        <div className="flex items-center"></div>
-        
-        <div className="flex bg-zinc-100 p-1 rounded-2xl border border-zinc-200">
-          <button onClick={() => setCurrentPage('display')}
-            className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 ${currentPage === 'display' ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
-            <LayoutDashboard size={14} /> Board
-          </button>
-          <button onClick={() => user ? setCurrentPage('admin') : setCurrentPage('login')}
-            className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 ${currentPage === 'admin' || currentPage === 'login' ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
-            <Settings size={14} /> Admin
-          </button>
-        </div>
-      </nav>
+      <div 
+        onMouseEnter={() => setIsNavbarVisible(true)}
+        onMouseLeave={() => setIsNavbarVisible(false)}
+        className="fixed top-0 left-0 w-full z-50 h-16 group"
+      >
+        <nav className={`bg-white/80 backdrop-blur-md border-b border-zinc-200 px-8 py-3 flex justify-between items-center shadow-sm transition-transform duration-500 ease-in-out ${isNavbarVisible ? 'translate-y-0' : '-translate-y-full'}`}>
+          <div className="flex items-center"></div>
+          
+          <div className="flex bg-zinc-100 p-1 rounded-2xl border border-zinc-200">
+            <button onClick={() => setCurrentPage('display')}
+              className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 ${currentPage === 'display' ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
+              <LayoutDashboard size={14} /> Board
+            </button>
+            <button onClick={() => user ? setCurrentPage('admin') : setCurrentPage('login')}
+              className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 ${currentPage === 'admin' || currentPage === 'login' ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
+              <Settings size={14} /> Admin
+            </button>
+          </div>
+        </nav>
+      </div>
 
       {/* Render Pages */}
       {currentPage === 'display' && <DisplayBoard processedQueue={processedQueue} queueLength={queue.length} formatTime={formatTime} />}
