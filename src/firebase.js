@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getDatabase } from "firebase/database";
 import { getAnalytics } from "firebase/analytics";
+import { getAuth, signInAnonymously } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAuGLfMAvN_7XPsMRD3ZZFIlhXoFo5q_pc",
@@ -16,3 +17,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const analytics = getAnalytics(app);
 export const db = getDatabase(app);
+
+// Inisialisasi Auth agar bisa menembus Rules Database aman
+const auth = getAuth(app);
+signInAnonymously(auth).catch((error) => {
+  console.error("Gagal melakukan autentikasi ke database:", error);
+});
