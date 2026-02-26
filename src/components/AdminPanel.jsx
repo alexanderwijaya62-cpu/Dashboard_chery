@@ -30,7 +30,7 @@ const AdminPanel = ({ user, handleLogout, queue, deleteItem, editItem, handleSav
             <div className="bg-red-600 p-1.5 rounded-lg text-white">
               {isEditing ? <Edit3 size={18} /> : <Plus size={18} />}
             </div>
-            {isEditing ? 'Update Antrean' : 'Input Kendaraan'}
+            {isEditing ? 'Update Antrian' : 'Input Kendaraan'}
           </h2>
           
           <form onSubmit={handleSave} className="space-y-6">
@@ -88,7 +88,7 @@ const AdminPanel = ({ user, handleLogout, queue, deleteItem, editItem, handleSav
 
             <button type="submit" className="w-full bg-zinc-900 hover:bg-black text-white py-5 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all shadow-xl active:scale-95 flex justify-center items-center gap-2">
               {isEditing ? <CheckCircle2 size={18} /> : <Plus size={18} />}
-              {isEditing ? 'Simpan Perubahan' : 'Input ke Antrean'}
+              {isEditing ? 'Simpan Perubahan' : 'Input ke Antrian'}
             </button>
           </form>
         </div>
@@ -99,7 +99,7 @@ const AdminPanel = ({ user, handleLogout, queue, deleteItem, editItem, handleSav
         <div className="bg-white rounded-[1.5rem] border border-zinc-200 overflow-hidden shadow-lg shadow-zinc-200/30">
           <div className="px-8 py-6 border-b border-zinc-100 bg-zinc-50/30 flex justify-between items-center">
             <h3 className="text-xl font-black italic tracking-tight uppercase">Monitoring List</h3>
-            <span className="bg-zinc-900 text-white text-[9px] font-black px-3 py-1 rounded-full">{queue.length} Antrean</span>
+            <span className="bg-zinc-900 text-white text-[9px] font-black px-3 py-1 rounded-full">{queue.length} Antrian</span>
           </div>
           <table className="w-full text-left">
             <thead>

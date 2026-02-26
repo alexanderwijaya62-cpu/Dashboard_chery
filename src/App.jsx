@@ -23,11 +23,7 @@ const App = () => {
   });
   const [queue, setQueue] = useState(() => {
     const savedQueue = localStorage.getItem('chery_workshop_queue');
-    return savedQueue ? JSON.parse(savedQueue) : [
-      { id: 1, bk: 'BK 1234 ABC', tipe: 'Tiggo 8 Pro', estimasi: 3600, category: 'Booking' },
-      { id: 2, bk: 'BK 5678 XYZ', tipe: 'Omoda 5', estimasi: 7200, category: 'Reguler' },
-      { id: 3, bk: 'B 2024 JKT', tipe: 'Tiggo 7 Pro', estimasi: 1800, category: 'Booking' }
-    ];
+    return savedQueue ? JSON.parse(savedQueue) : [];
   });
   const [formData, setFormData] = useState({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler' });
   const [isEditing, setIsEditing] = useState(false);

@@ -12,7 +12,7 @@ const DisplayBoard = ({ processedQueue, formatTime }) => {
           <div className="h-14 w-[2px] bg-zinc-200"></div>
           <div className="space-y-0.5">
             <span className="text-[10px] font-black uppercase tracking-[0.3em] text-red-600">Workshop Live Status</span>
-            <h2 className="text-4xl font-extrabold tracking-tighter text-zinc-900 leading-none">Antrean Bengkel</h2>
+            <h2 className="text-4xl font-extrabold tracking-tighter text-zinc-900 leading-none">Antrian  Bengkel </h2>
           </div>
         </div>
         <div className="text-right">
@@ -67,7 +67,7 @@ const DisplayBoard = ({ processedQueue, formatTime }) => {
         {processedQueue.length === 0 && (
           <div className="bg-white border-2 border-dashed border-zinc-200 rounded-[1.2rem] p-24 text-center">
             <Car size={48} className="mx-auto mb-4 text-zinc-100" />
-            <h3 className="text-2xl font-bold text-zinc-200 uppercase tracking-widest">Tidak Ada Antrean</h3>
+            <h3 className="text-2xl font-bold text-zinc-200 uppercase tracking-widest">Tidak Ada Antrian</h3>
           </div>
         )}
       </div>
