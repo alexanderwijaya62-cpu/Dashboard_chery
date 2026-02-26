@@ -15,7 +15,7 @@ const DisplayBoard = ({ processedQueue, formatTime }) => {
             <h2 className="text-xl sm:text-4xl font-extrabold tracking-tighter text-zinc-900 leading-none">Antrian Bengkel</h2>
           </div>
         </div>
-        <div className="text-right">
+        <div className="text-center sm:text-right">
           <ClockDisplay />
         </div>
       </div>
