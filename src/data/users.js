@@ -55,6 +55,23 @@ export const USERS = [
     password: 'Solihin123!',
     name: 'Solihin',
     role: 'mekanik'
+  },
+  {
+    username: 'Sparepart',
+    password: 'Sparepart123!',
+    name: 'Admin Sparepart',
+    role: 'sparepart'
+  },
+  {
+    username: 'CRO',
+    password: 'CRO123!',
+    name: 'Customer Relation Officer',
+    role: 'cro'
+  },
+  {
+    username: 'Manager',
+    password: 'Manager123!',
+    name: 'Service Manager',
+    role: 'manager'
   }
-
 ];

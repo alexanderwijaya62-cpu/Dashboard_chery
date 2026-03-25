@@ -35,7 +35,6 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onLogoDou
             <div className="hidden sm:flex items-center gap-4 bg-white p-3 rounded-2xl border border-zinc-200 shadow-md">
               <div className="text-right">
                 <span className="text-xs font-black uppercase text-zinc-900 tracking-widest block">Scan Me</span>
-                <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-tight block">For Mobile App</span>
               </div>
               <div className="bg-zinc-100 p-2 rounded-xl">
                 <QRCodeSVG value="https://dashboard-chery-lexxs-projects-33307765.vercel.app/" size={96} level="Q" marginSize={0} />
@@ -72,6 +71,11 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onLogoDou
                           <Bookmark size={10} fill="white" />
                           {item.category}
                         </span>
+                        {item.keluhan && item.keluhan.split(',').map(k => k.trim()).filter(Boolean).map(k => (
+                          <span key={k} className={`px-2 py-1 rounded-full text-[8.5px] sm:text-[9.5px] font-black uppercase tracking-widest flex items-center border shadow-sm ${k.includes('FS') ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
+                            {k}
+                          </span>
+                        ))}
                         {item.estimasi === 0 && item.status !== 'waiting' && (
                           <span className="bg-green-500 text-white px-3 sm:px-3 py-1 sm:py-1 rounded-full text-xs sm:text-xs font-black uppercase tracking-widest animate-pulse shadow-md shadow-green-200">
                             Selesai
@@ -217,6 +221,11 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onLogoDou
                           <Zap size={10} />
                           {item.category}
                         </span>
+                        {item.keluhan && item.keluhan.split(',').map(k => k.trim()).filter(Boolean).map(k => (
+                          <span key={k} className={`px-2 py-1 rounded-full text-[8.5px] sm:text-[9.5px] font-black uppercase tracking-widest flex items-center border shadow-sm ${k.includes('FS') ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
+                            {k}
+                          </span>
+                        ))}
                         {item.estimasi === 0 && item.status !== 'waiting' && (
                           <span className="bg-green-500 text-white px-3 sm:px-3 py-1 sm:py-1 rounded-full text-xs sm:text-xs font-black uppercase tracking-widest animate-pulse shadow-md shadow-green-200">
                             Selesai
@@ -375,6 +384,11 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onLogoDou
                             {item.category === 'Booking' ? <Bookmark size={10} /> : <Zap size={10} />}
                             {item.category || 'REGULER'}
                           </span>
+                          {item.keluhan && item.keluhan.split(',').map(k => k.trim()).filter(Boolean).map(k => (
+                            <span key={k} className={`px-2 py-1 rounded-full text-[8.5px] sm:text-[9.5px] font-black uppercase tracking-widest flex items-center border shadow-sm ${k.includes('FS') ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
+                              {k}
+                            </span>
+                          ))}
                           <span className="px-2 py-1 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 bg-green-500 text-white shadow-md shadow-green-200">
                             <CheckCircle size={10} /> SELESAI
                           </span>

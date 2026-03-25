@@ -93,8 +93,8 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
     return (
         <div className="p-6 max-w-[1200px] mx-auto animate-fade-in pb-20">
             {/* Header Profile */}
-            <div className="flex justify-between items-center mb-8 bg-white p-5 rounded-2xl border border-zinc-200 shadow-sm">
-                <div className="flex items-center gap-4">
+            <div className="flex flex-col sm:flex-row justify-between items-center mb-8 bg-white p-5 rounded-2xl border border-zinc-200 shadow-sm gap-4">
+                <div className="flex items-center gap-4 w-full sm:w-auto">
                     <div className="p-2.5 bg-zinc-900 rounded-xl">
                         <User className="text-white" size={24} />
                     </div>
@@ -105,7 +105,7 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                 </div>
                 <button
                     onClick={handleLogout}
-                    className="bg-red-50 text-red-600 px-5 py-2 rounded-xl font-bold text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-red-600 hover:text-white transition-all shadow-sm"
+                    className="w-full sm:w-auto bg-red-50 text-red-600 px-5 py-2 rounded-xl font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-red-600 hover:text-white transition-all shadow-sm"
                 >
                     <LogOut size={16} /> Logout
                 </button>
@@ -158,8 +158,8 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                 {/* Form Ganti Password */}
-                <div className="lg:col-span-5">
-                    <div className="bg-white p-8 rounded-[1.5rem] border border-zinc-200 shadow-xl shadow-zinc-200/40 sticky top-24">
+                <div className="lg:col-span-5 lg:sticky lg:top-24 lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto lg:pr-2 custom-scrollbar">
+                    <div className="bg-white p-8 rounded-[1.5rem] border border-zinc-200 shadow-xl shadow-zinc-200/40">
                         <h2 className="text-xl font-black mb-6 flex items-center gap-3">
                             <div className="bg-zinc-900 p-1.5 rounded-lg text-white">
                                 <Key size={18} />
@@ -281,6 +281,12 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                     </div>
                 </div>
             </div>
+            <style>{`
+                .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+                .custom-scrollbar::-webkit-scrollbar-thumb { background: #E4E4E7; border-radius: 10px; }
+                .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #D4D4D8; }
+            `}</style>
         </div>
     );
 };

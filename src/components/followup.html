@@ -1,0 +1,1467 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Follow Up Customer</title>
+    <!-- Menggunakan Tailwind CSS untuk styling yang cepat dan responsif -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Menggunakan Font Inter agar terlihat modern dan bersih -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Menggunakan SheetJS untuk keperluan Baca dan Tulis Excel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            /* gray-100 */
+            color: #111;
+        }
+
+        /* Custom Scrollbar minimalis */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #9ca3af;
+        }
+
+        .modal {
+            display: none;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        /* Filter styling */
+        .filter-input {
+            width: 100%;
+            margin-top: 8px;
+            color: black;
+            font-size: 0.75rem;
+            padding: 6px;
+            border-radius: 4px;
+            outline: none;
+            border: 1px solid #e5e7eb;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+            font-weight: 400;
+        }
+
+        .filter-input:focus {
+            border-color: #9ca3af;
+            box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.5);
+        }
+
+        /* Loading Overlay Spinner */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid #ffffff;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body class="flex h-screen overflow-hidden relative">
+
+    <!-- Loading Overlay (Cloud Sync) -->
+    <div id="loadingOverlay"
+        class="fixed inset-0 bg-black bg-opacity-70 z-[100] hidden justify-center items-center flex-col">
+        <div class="spinner mb-4"></div>
+        <p class="text-white font-medium text-lg" id="loadingText">Menyinkronkan dengan Google Sheets...</p>
+    </div>
+
+    <!-- Lightbox Modal untuk Preview Gambar Besar -->
+    <div id="lightbox" class="fixed inset-0 bg-black bg-opacity-90 z-[200] hidden justify-center items-center"
+        onclick="closeLightbox()">
+        <span
+            class="absolute top-4 right-6 text-white text-5xl cursor-pointer hover:text-gray-300 font-bold">&times;</span>
+        <img id="lightboxImg" src=""
+            class="max-w-[90%] max-h-[90%] object-contain rounded shadow-2xl transition-transform transform scale-95">
+    </div>
+
+    <!-- ============================================== -->
+    <!-- SIDEBAR KIRI -->
+    <!-- ============================================== -->
+    <aside class="w-64 bg-black text-white flex flex-col shrink-0 z-20 shadow-xl">
+        <div class="p-6 border-b border-gray-800">
+            <h1 class="text-2xl font-bold tracking-tight text-white leading-tight">AFTER-SALES</h1>
+            <p class="text-xs text-gray-400 mt-1">Sistem Manajemen Bengkel</p>
+            <span id="cloudStatus"
+                class="inline-block mt-3 text-[10px] bg-green-900 text-green-300 px-2 py-1 rounded border border-green-700 hidden">☁️
+                Cloud Tersambung</span>
+        </div>
+        <nav class="flex-1 p-4 space-y-2 overflow-y-auto">
+            <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 mt-2 px-2">Menu Utama</p>
+            <button onclick="switchTab('belum')" id="nav-belum"
+                class="w-full text-left px-4 py-3 rounded-lg bg-white text-black font-semibold transition-colors shadow-sm">
+                ⏳ Belum Follow Up
+            </button>
+            <button onclick="switchTab('sudah')" id="nav-sudah"
+                class="w-full text-left px-4 py-3 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white font-semibold transition-colors">
+                ✅ Sudah Follow Up
+            </button>
+
+            <p
+                class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 mt-6 px-2 pt-4 border-t border-gray-800">
+                Pemasaran & Laporan</p>
+            <button onclick="switchTab('free_service')" id="nav-free_service"
+                class="w-full text-left px-4 py-3 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white font-semibold transition-colors flex justify-between items-center relative">
+                📅 Free Service
+                <span id="badge-fs"
+                    class="hidden bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">!</span>
+            </button>
+            <button onclick="switchTab('laporan')" id="nav-laporan"
+                class="w-full text-left px-4 py-3 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white font-semibold transition-colors">
+                📊 Laporan Bulanan
+            </button>
+        </nav>
+    </aside>
+
+    <!-- ============================================== -->
+    <!-- KONTEN UTAMA KANAN -->
+    <!-- ============================================== -->
+    <div class="flex-1 flex flex-col h-screen overflow-hidden bg-gray-50">
+
+        <!-- Header Atas (Top Bar) -->
+        <header
+            class="bg-white border-b border-gray-200 p-4 md:px-8 flex flex-col md:flex-row justify-between items-start md:items-center shrink-0 z-10 shadow-sm gap-4 md:gap-0">
+            <h2 id="pageTitle" class="text-2xl font-bold text-gray-800">⏳ Belum Follow Up</h2>
+
+            <div class="flex flex-wrap items-center gap-3">
+                <p class="text-sm font-medium text-gray-500 mr-2 hidden lg:block" id="currentDate"></p>
+
+                <input type="file" id="uploadExcel" accept=".xlsx, .xls, .csv" class="hidden"
+                    onchange="processExcelUpload(event)">
+
+                <button onclick="document.getElementById('uploadExcel').click()"
+                    class="bg-white border border-gray-300 text-black px-4 py-2 rounded-lg font-semibold text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 shadow-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                    </svg>
+                    Upload Excel
+                </button>
+
+                <button onclick="exportExcel()"
+                    class="bg-black text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-gray-800 transition-colors flex items-center gap-2 shadow-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                    </svg>
+                    Export (Sudah F-Up)
+                </button>
+            </div>
+        </header>
+
+        <main class="flex-1 p-4 md:p-8 overflow-hidden flex flex-col relative">
+
+            <!-- AREA 1: TABLE CONTAINER (Belum & Sudah Follow Up) -->
+            <div id="tableContainer"
+                class="bg-white border border-gray-200 shadow-sm rounded-xl flex flex-col overflow-hidden min-h-0 w-full h-full">
+                <!-- Pagination Controls (Top) -->
+                <div class="flex justify-between items-center p-4 border-b border-gray-200 bg-gray-50 shrink-0">
+                    <div class="flex items-center gap-2 text-sm font-medium text-gray-700">
+                        <label>Tampilkan:</label>
+                        <select id="rowsPerPage" onchange="changeRowsPerPage(this.value)"
+                            class="border border-gray-300 rounded p-1 focus:border-black focus:outline-none bg-white">
+                            <option value="20">20</option>
+                            <option value="40">40</option>
+                            <option value="60">60</option>
+                        </select>
+                        <span>baris</span>
+                    </div>
+                    <div class="text-sm font-medium text-gray-500" id="tableInfo">
+                        Menampilkan 0 dari 0 data
+                    </div>
+                </div>
+
+                <div class="overflow-auto flex-1 relative bg-white">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="sticky top-0 bg-gray-100 z-10 shadow-sm border-b border-gray-200">
+                            <tr class="text-gray-800 align-top text-sm">
+                                <th class="py-3 px-4 font-semibold min-w-[200px]">
+                                    Nama Customer
+                                    <input type="text" id="filterNama" onkeyup="updateFilter('nama', this.value)"
+                                        placeholder="Cari Nama..." class="filter-input">
+                                </th>
+                                <th class="py-3 px-4 font-semibold min-w-[150px]">
+                                    Tgl Masuk
+                                    <input type="text" id="filterTanggal" onkeyup="updateFilter('tanggal', this.value)"
+                                        placeholder="DD-MM-YYYY" class="filter-input">
+                                </th>
+                                <th class="py-3 px-4 font-semibold min-w-[150px]">
+                                    Plat Mobil
+                                    <input type="text" id="filterPlat" onkeyup="updateFilter('plat', this.value)"
+                                        placeholder="Cari Plat..." class="filter-input">
+                                </th>
+                                <th class="py-3 px-4 font-semibold min-w-[150px]">
+                                    Tipe Mobil
+                                    <input type="text" id="filterTipe" onkeyup="updateFilter('tipe', this.value)"
+                                        placeholder="Cari Tipe..." class="filter-input">
+                                </th>
+                                <th class="py-3 px-4 font-semibold min-w-[250px]">
+                                    Keluhan (Service)
+                                    <input type="text" id="filterKeluhan" onkeyup="updateFilter('keluhan', this.value)"
+                                        placeholder="Cari Keluhan..." class="filter-input">
+                                </th>
+                                <th class="py-3 px-4 font-semibold text-center w-[120px]">
+                                    Aksi
+                                    <div class="h-[34px]"></div>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody" class="divide-y divide-gray-100 bg-white text-sm">
+                            <!-- Data tabel -->
+                        </tbody>
+                    </table>
+
+                    <div id="emptyState"
+                        class="hidden p-10 text-center text-gray-500 absolute inset-0 bg-white flex flex-col justify-center items-center">
+                        <svg class="w-16 h-16 mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4">
+                            </path>
+                        </svg>
+                        <p class="text-lg font-medium text-gray-600">Tidak ada data ditemukan.</p>
+                    </div>
+                </div>
+
+                <div class="flex justify-between items-center p-4 border-t border-gray-200 bg-gray-50 shrink-0">
+                    <button onclick="prevPage()"
+                        class="px-4 py-2 border border-gray-300 bg-white rounded hover:bg-gray-100 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        id="btnPrev">Sebelumnya</button>
+                    <div class="text-sm font-medium text-gray-600" id="pageInfo">Halaman 1 dari 1</div>
+                    <button onclick="nextPage()"
+                        class="px-4 py-2 border border-black bg-black text-white rounded hover:bg-gray-800 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        id="btnNext">Selanjutnya</button>
+                </div>
+            </div>
+
+            <!-- AREA 2: FREE SERVICE CONTAINER -->
+            <div id="freeServiceContainer"
+                class="hidden bg-white border border-gray-200 shadow-sm rounded-xl flex-col overflow-hidden min-h-0 w-full h-full">
+                <!-- Baris Opsi Bulan -->
+                <div
+                    class="p-5 border-b border-gray-200 bg-gray-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-800">Daftar Pengingat Servis Berkala</h3>
+                        <p class="text-sm text-gray-500">Menampilkan pelanggan yang deskripsinya mengandung "SERVICE".
+                            Highlight menandakan jadwal yang perlu difollow-up saat ini.</p>
+                    </div>
+                    <div class="flex bg-gray-200 p-1 rounded-lg">
+                        <button onclick="setFSOption(3)" id="btn-fs-3"
+                            class="px-5 py-2 text-sm font-bold rounded-md bg-white text-black shadow transition-all">3
+                            Bulan</button>
+                        <button onclick="setFSOption(6)" id="btn-fs-6"
+                            class="px-5 py-2 text-sm font-bold rounded-md text-gray-500 hover:text-black transition-all">6
+                            Bulan</button>
+                        <button onclick="setFSOption(12)" id="btn-fs-12"
+                            class="px-5 py-2 text-sm font-bold rounded-md text-gray-500 hover:text-black transition-all">1
+                            Tahun</button>
+                    </div>
+                </div>
+
+                <div class="overflow-auto flex-1 relative bg-white">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="sticky top-0 bg-gray-100 z-10 shadow-sm border-b border-gray-200">
+                            <tr class="text-gray-800 align-top text-sm">
+                                <th class="py-3 px-4 font-semibold min-w-[200px]">
+                                    Nama Customer
+                                    <input type="text" id="filterFSNama" onkeyup="updateFSFilter('nama', this.value)"
+                                        placeholder="Cari Nama..." class="filter-input">
+                                </th>
+                                <th class="py-3 px-4 font-semibold min-w-[150px]">
+                                    Tgl Masuk (Ref)
+                                </th>
+                                <th class="py-3 px-4 font-semibold min-w-[150px] text-blue-700">
+                                    Jadwal Servis
+                                </th>
+                                <th class="py-3 px-4 font-semibold min-w-[150px]">
+                                    Plat Mobil
+                                    <input type="text" id="filterFSPlat" onkeyup="updateFSFilter('plat', this.value)"
+                                        placeholder="Cari Plat..." class="filter-input">
+                                </th>
+                                <th class="py-3 px-4 font-semibold min-w-[150px]">
+                                    Tipe Mobil
+                                    <input type="text" id="filterFSTipe" onkeyup="updateFSFilter('tipe', this.value)"
+                                        placeholder="Cari Tipe..." class="filter-input">
+                                </th>
+                                <th class="py-3 px-4 font-semibold text-center w-[150px]">
+                                    Pengingat WA
+                                    <div class="h-[34px]"></div>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="fsTableBody" class="divide-y divide-gray-100 bg-white text-sm">
+                            <!-- Data FS akan dirender di sini -->
+                        </tbody>
+                    </table>
+
+                    <div id="fsEmptyState"
+                        class="hidden p-10 text-center text-gray-500 absolute inset-0 bg-white flex flex-col justify-center items-center">
+                        <svg class="w-16 h-16 mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <p class="text-lg font-medium text-gray-600">Tidak ada data untuk periode ini.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AREA 3: REPORT CONTAINER (Laporan Bulanan) -->
+            <div id="reportContainer"
+                class="hidden bg-white border border-gray-200 shadow-sm rounded-xl flex-col overflow-hidden min-h-0 overflow-y-auto w-full h-full">
+                <div class="p-6 border-b border-gray-200 bg-gray-50 shrink-0">
+                    <h2 class="text-xl font-bold">Laporan Feedback Bulanan</h2>
+                    <p class="text-sm text-gray-500 mt-1">Memonitor jumlah customer yang telah berhasil diselesaikan
+                        proses follow-up-nya setiap bulan.</p>
+                </div>
+                <div class="p-6">
+                    <div id="reportCardsGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                        <!-- Cards will be generated here -->
+                    </div>
+
+                    <div id="emptyReportState" class="hidden py-24 text-center text-gray-500">
+                        <svg class="w-20 h-20 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z">
+                            </path>
+                        </svg>
+                        <p class="text-xl font-medium">Belum ada data follow up yang diselesaikan.</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- MODAL UTAMA: FOLLOW UP REGULER & DETAIL -->
+    <!-- ============================================== -->
+    <div id="followUpModal"
+        class="modal fixed inset-0 bg-black bg-opacity-60 z-[150] hidden justify-center items-center p-4">
+        <div class="bg-white w-full max-w-5xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden">
+            <div class="flex justify-between items-center p-5 border-b border-gray-200 bg-gray-50 shrink-0">
+                <h2 class="text-xl font-bold text-gray-800">Detail Kendaraan & Form Follow Up</h2>
+                <button onclick="closeModal()"
+                    class="text-gray-400 hover:text-red-500 font-bold text-2xl transition-colors">&times;</button>
+            </div>
+
+            <div class="p-6 overflow-y-auto flex flex-col lg:flex-row gap-8">
+                <!-- Kolom Kiri: Detail Lengkap -->
+                <div class="flex-1 space-y-4">
+                    <h3 class="font-bold text-gray-700 border-b border-gray-300 pb-2">Informasi Servis Terakhir</h3>
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div><span class="block text-gray-500 text-xs">Nama Customer</span><span
+                                class="font-semibold text-gray-900" id="det-nama"></span></div>
+                        <div><span class="block text-gray-500 text-xs">No Telepon</span><span
+                                class="font-semibold text-gray-900" id="det-telepon"></span></div>
+                        <div><span class="block text-gray-500 text-xs">Plat Mobil</span><span
+                                class="font-semibold text-gray-900" id="det-plat"></span></div>
+                        <div><span class="block text-gray-500 text-xs">Tipe Mobil</span><span
+                                class="font-semibold text-gray-900" id="det-tipe"></span></div>
+                        <div><span class="block text-gray-500 text-xs">VIN</span><span
+                                class="font-semibold text-gray-900" id="det-vin"></span></div>
+                        <div><span class="block text-gray-500 text-xs">Service Advisor</span><span
+                                class="font-semibold text-gray-900" id="det-sa"></span></div>
+                        <div><span class="block text-gray-500 text-xs">Kilometer</span><span
+                                class="font-semibold text-gray-900" id="det-km"></span></div>
+                        <div><span class="block text-gray-500 text-xs">Tahun Pembelian</span><span
+                                class="font-semibold text-gray-900" id="det-tahun"></span></div>
+                        <div class="col-span-2"><span class="block text-gray-500 text-xs">Tanggal Datang
+                                Service</span><span class="font-semibold text-gray-900" id="det-tanggal"></span></div>
+                        <div class="col-span-2"><span class="block text-gray-500 text-xs">Work Order No.
+                                (Ref)</span><span class="font-semibold text-gray-900" id="det-wono"></span></div>
+                        <div class="col-span-2"><span class="block text-gray-500 text-xs">Deskripsi Service /
+                                Keluhan</span><span class="font-semibold text-gray-900 whitespace-pre-line"
+                                id="det-keluhan"></span></div>
+
+                        <div class="col-span-2 mt-2 border-t pt-2">
+                            <span class="block text-gray-500 text-xs mb-1">Pergantian Sparepart</span>
+                            <div class="bg-gray-50 p-3 rounded-lg border border-gray-200 shadow-inner">
+                                <div class="mb-2"><strong>Part Lama:</strong>
+                                    <div id="det-partLama" class="whitespace-pre-line text-sm mt-1 text-gray-700"></div>
+                                </div>
+                                <div><strong>Part Baru:</strong>
+                                    <div id="det-partBaru" class="whitespace-pre-line text-sm mt-1 text-gray-700"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Kolom Kanan: Aksi Follow Up -->
+                <div class="flex-1 bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col h-full">
+                    <h3 class="font-bold text-gray-700 border-b border-gray-300 pb-2 mb-4" id="aksiTitle">Aksi Follow Up
+                    </h3>
+
+                    <div id="templateWrapper" class="flex flex-col">
+                        <label class="block text-sm font-semibold mb-1">Pilih Jenis Template</label>
+                        <select id="jenisTemplate" onchange="resetTemplateArea()"
+                            class="w-full p-2 border border-gray-300 rounded-lg text-sm mb-4 focus:outline-none focus:border-black bg-gray-50 cursor-pointer">
+                            <option value="reguler">Follow Up Service Reguler</option>
+                            <option value="csi">Permohonan Survei CSI (Chery)</option>
+                        </select>
+
+                        <label class="block text-sm font-semibold mb-2">Pilih Waktu Sapaan Template</label>
+                        <div class="flex gap-2 mb-4">
+                            <button onclick="generateTemplate('Pagi')"
+                                class="flex-1 py-2 border border-gray-300 hover:border-black hover:bg-black hover:text-white transition-colors rounded-lg text-sm font-medium">Pagi</button>
+                            <button onclick="generateTemplate('Siang')"
+                                class="flex-1 py-2 border border-gray-300 hover:border-black hover:bg-black hover:text-white transition-colors rounded-lg text-sm font-medium">Siang</button>
+                            <button onclick="generateTemplate('Sore/Malam')"
+                                class="flex-1 py-2 border border-gray-300 hover:border-black hover:bg-black hover:text-white transition-colors rounded-lg text-sm font-medium">Malam</button>
+                        </div>
+
+                        <label class="block text-sm font-semibold mb-1">Template Pesan WA</label>
+                        <textarea id="templateArea" rows="6"
+                            class="w-full p-3 border border-gray-300 rounded-lg text-sm mb-2 focus:outline-none focus:border-black bg-gray-50"
+                            placeholder="Pilih waktu sapaan di atas untuk memunculkan template..."></textarea>
+
+                        <div class="flex gap-2 mb-6">
+                            <button onclick="copyTemplate()"
+                                class="text-xs font-semibold border border-gray-400 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors">
+                                📄 Salin Teks
+                            </button>
+                            <button onclick="sendWhatsApp()"
+                                class="text-xs font-semibold bg-[#25D366] text-white px-3 py-2 rounded-lg hover:bg-[#128C7E] transition-colors flex items-center gap-1 shadow-sm">
+                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                    <path
+                                        d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
+                                </svg>
+                                Buka Chat WA
+                            </button>
+                        </div>
+                    </div>
+
+                    <label class="block text-sm font-semibold mb-1">Catatan Respon Customer</label>
+                    <textarea id="responCustomer" rows="4"
+                        class="w-full p-3 border border-gray-300 rounded-lg text-sm mb-4 focus:outline-none focus:border-black"
+                        placeholder="Ketik hasil jawaban customer..."></textarea>
+
+                    <!-- WADAH UPLOAD LAMPIRAN -->
+                    <div id="attachmentWrapper" class="mb-6">
+                        <label class="block text-sm font-semibold mb-1">Bukti Chat/Lampiran (Opsional)</label>
+                        <div id="dropzone"
+                            class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:bg-blue-50 transition-colors relative"
+                            onclick="document.getElementById('fileInput').click()" ondragover="handleDragOver(event)"
+                            ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+                            <input type="file" id="fileInput" class="hidden" accept="image/jpeg, image/png, image/jpg"
+                                onchange="handleFileInput(event)">
+                            <div id="dropzoneText"
+                                class="flex flex-col items-center justify-center pointer-events-none">
+                                <svg class="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                                </svg>
+                                <span class="text-sm text-gray-500 font-medium">Klik untuk tambah <span
+                                        class="text-blue-600">Gambar</span> atau Seret file</span>
+                            </div>
+                            <div id="imagePreviewContainer" class="hidden relative inline-block mt-2">
+                                <img id="imagePreview" src="" class="max-h-24 object-contain rounded shadow-sm mx-auto">
+                                <button type="button" onclick="removeImage(event)"
+                                    class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold hover:bg-red-600 shadow-md">&times;</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="readonlyImageContainer" class="hidden mb-6">
+                        <label class="block text-sm font-semibold mb-1">Lampiran Foto:</label>
+                        <div class="border border-gray-200 p-2 rounded-lg inline-block bg-white shadow-sm">
+                            <img id="readonlyImage" src=""
+                                class="h-24 w-auto object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
+                                title="Klik untuk memperbesar" onclick="openLightbox(this.src)">
+                        </div>
+                    </div>
+
+                    <div class="mt-auto" id="btnSubmitWrapper">
+                        <button onclick="submitFollowUp()"
+                            class="w-full bg-black text-white font-bold py-3 rounded-lg hover:bg-gray-800 transition-colors shadow-lg">
+                            Simpan & Pindahkan Data
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- MODAL PENGINGAT (FREE SERVICE) -->
+    <!-- ============================================== -->
+    <div id="fsModal" class="modal fixed inset-0 bg-black bg-opacity-60 z-[150] hidden justify-center items-center p-4">
+        <div class="bg-white w-full max-w-2xl rounded-xl shadow-2xl flex flex-col overflow-hidden">
+            <div class="flex justify-between items-center p-5 border-b border-gray-200 bg-gray-50">
+                <h2 class="text-xl font-bold text-gray-800">Kirim Pengingat Free Service</h2>
+                <button onclick="closeFSModal()"
+                    class="text-gray-400 hover:text-red-500 font-bold text-2xl transition-colors">&times;</button>
+            </div>
+            <div class="p-6 flex flex-col gap-4">
+                <div class="bg-blue-50 text-blue-800 p-4 rounded-lg border border-blue-200 text-sm">
+                    Kirim pengingat servis untuk <strong><span id="fs-det-nama"></span></strong> (Plat: <span
+                        id="fs-det-plat" class="font-bold"></span>). <br>
+                    Jadwal servis tercatat pada: <span id="fs-det-jadwal" class="font-bold"></span>.
+                </div>
+
+                <label class="block text-sm font-semibold">Pilih Waktu Sapaan Template</label>
+                <div class="flex gap-2">
+                    <button onclick="generateFSTemplate('Pagi')"
+                        class="flex-1 py-2 border border-gray-300 hover:border-black hover:bg-black hover:text-white transition-colors rounded-lg text-sm font-medium">Pagi</button>
+                    <button onclick="generateFSTemplate('Siang')"
+                        class="flex-1 py-2 border border-gray-300 hover:border-black hover:bg-black hover:text-white transition-colors rounded-lg text-sm font-medium">Siang</button>
+                    <button onclick="generateFSTemplate('Sore/Malam')"
+                        class="flex-1 py-2 border border-gray-300 hover:border-black hover:bg-black hover:text-white transition-colors rounded-lg text-sm font-medium">Malam</button>
+                </div>
+
+                <label class="block text-sm font-semibold mt-2">Pesan Pengingat WA (Bisa Diedit)</label>
+                <textarea id="fsTemplateArea" rows="7"
+                    class="w-full p-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-black bg-gray-50"></textarea>
+
+                <div class="flex justify-end gap-3 mt-4">
+                    <button onclick="closeFSModal()"
+                        class="px-5 py-2 rounded-lg font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">Batal</button>
+                    <button onclick="sendFSWhatsApp()"
+                        class="px-5 py-2 rounded-lg font-bold text-white bg-[#25D366] hover:bg-[#128C7E] shadow flex items-center gap-2 transition-colors">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                            <path
+                                d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
+                        </svg>
+                        Kirim Pengingat
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // ==========================================
+        // KONFIGURASI GOOGLE SHEETS API
+        // ==========================================
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwf0QGS_vN7QKVX8b5R-VIQuGRRhKRnLoMGDIu-h-TJJkXfQFdsfmYA9nyDYJRgdfMvBQ/exec";
+
+        // Tanggal Hari Ini
+        const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+        document.getElementById('currentDate').innerText = new Date().toLocaleDateString('id-ID', options);
+
+        // ==========================================
+        // DATABASE & STATE
+        // ==========================================
+        let databaseMock = [];
+        let currentTab = 'belum';
+        let currentSelectedId = null;
+        let currentAttachedImage = null;
+
+        let fsPeriodMonths = 3; // Default Free Service (3 bulan)
+        let fsSelectedId = null;
+
+        let currentPage = 1;
+        let rowsPerPage = 20;
+        let filters = { nama: '', tanggal: '', plat: '', tipe: '', keluhan: '' };
+        let fsFilters = { nama: '', plat: '', tipe: '' }; // Filter untuk tabel Free Service diperbarui
+
+        // ==========================================
+        // FUNGSI LOCAL STORAGE & CLOUD
+        // ==========================================
+        function saveToLocal() {
+            try { localStorage.setItem('bengkelData', JSON.stringify(databaseMock)); }
+            catch (e) { console.warn("Memori browser penuh", e); }
+            updateFSBadge(); // Update notif di sidebar
+        }
+
+        function loadFromLocal() {
+            try {
+                const data = localStorage.getItem('bengkelData');
+                if (data) {
+                    databaseMock = JSON.parse(data);
+                    renderActiveView();
+                    updateFSBadge();
+                }
+            } catch (e) { }
+        }
+
+        function showLoading(text) {
+            document.getElementById('loadingText').innerText = text;
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        async function fetchFromGoogleSheets() {
+            loadFromLocal();
+            if (!GOOGLE_SCRIPT_URL) return;
+
+            try {
+                showLoading("Mengambil data dari Google Sheets...");
+                const response = await fetch(GOOGLE_SCRIPT_URL);
+                const data = await response.json();
+
+                if (data && Array.isArray(data)) {
+                    databaseMock = data;
+                    saveToLocal();
+                    document.getElementById('cloudStatus').classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error("Gagal Google Sheets:", error);
+            } finally {
+                hideLoading();
+                renderActiveView();
+            }
+        }
+
+        async function syncToGoogleSheets() {
+            if (!GOOGLE_SCRIPT_URL) return;
+            try {
+                showLoading("Menyimpan ke Google Sheets...");
+                await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action: 'sync', data: databaseMock })
+                });
+            } catch (error) {
+                alert("Gagal menyimpan ke Google Sheets! Periksa internet Anda.");
+            } finally {
+                hideLoading();
+            }
+        }
+
+        window.onload = () => { fetchFromGoogleSheets(); };
+
+        // ==========================================
+        // FUNGSI TANGGAL & STATUS PENGINGAT
+        // ==========================================
+        function formatTanggal(value) {
+            if (!value || value === '-') return "-";
+            const strValue = String(value).trim().toLowerCase();
+            if (strValue.includes("drive in") || strValue === "null" || strValue === "undefined") return "-";
+
+            if (value instanceof Date) {
+                return `${String(value.getDate()).padStart(2, '0')}-${String(value.getMonth() + 1).padStart(2, '0')}-${value.getFullYear()}`;
+            }
+            if (typeof value === 'string') {
+                const parts = value.split(' ')[0].split('-');
+                if (parts.length === 3) {
+                    if (parts[0].length === 4) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+                    return value.split(' ')[0];
+                }
+                return value;
+            }
+            if (typeof value === 'number') {
+                const date = new Date(Math.round((value - 25569) * 86400 * 1000));
+                return `${String(date.getDate()).padStart(2, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${date.getFullYear()}`;
+            }
+            return value;
+        }
+
+        function calculateNextService(dateStr, addMonths) {
+            if (!dateStr || dateStr === "-") return "-";
+            let parts = dateStr.split('-');
+            if (parts.length !== 3) return "-";
+
+            // Format DD-MM-YYYY -> Date(YYYY, MM-1, DD)
+            let date = new Date(parts[2], parseInt(parts[1]) - 1, parts[0]);
+            date.setMonth(date.getMonth() + addMonths);
+
+            return `${String(date.getDate()).padStart(2, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${date.getFullYear()}`;
+        }
+
+        // Cek status "Perlu Difollow Up" berdasarkan real time sekarang
+        function getDueStatus(dateStr) {
+            if (!dateStr || dateStr === "-") return { isDue: false, text: "", color: "" };
+            let parts = dateStr.split('-');
+            if (parts.length !== 3) return { isDue: false, text: "", color: "" };
+
+            let jadwalDate = new Date(parts[2], parseInt(parts[1]) - 1, parts[0]);
+            let today = new Date();
+
+            // Reset jam agar perbandingan tepat pada level hari
+            today.setHours(0, 0, 0, 0);
+            jadwalDate.setHours(0, 0, 0, 0);
+
+            let diffTime = jadwalDate.getTime() - today.getTime();
+            let diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+            // Logika Peringatan
+            if (diffDays < 0) {
+                return { isDue: true, overdue: true, priority: 1, text: `Terlewat ${Math.abs(diffDays)} Hari`, color: "bg-red-100 text-red-800 border-red-300" };
+            } else if (diffDays === 0) {
+                return { isDue: true, overdue: false, priority: 2, text: "Jadwal Hari Ini", color: "bg-red-100 text-red-800 border-red-300" };
+            } else if (diffDays <= 14) {
+                // Warning jika H-14
+                return { isDue: true, overdue: false, priority: 3, text: `H-${diffDays}`, color: "bg-orange-100 text-orange-800 border-orange-300" };
+            }
+
+            return { isDue: false, overdue: false, priority: 99, text: "Aman", color: "text-blue-700" };
+        }
+
+        // ==========================================
+        // FUNGSI NAVIGASI SIDEBAR & RENDER
+        // ==========================================
+        function switchTab(tabName) {
+            currentTab = tabName;
+            currentPage = 1;
+
+            const titles = {
+                'belum': '⏳ Belum Follow Up',
+                'sudah': '✅ Sudah Follow Up',
+                'free_service': '📅 Pengingat Free Service',
+                'laporan': '📊 Laporan & Feedback'
+            };
+            document.getElementById('pageTitle').innerText = titles[tabName];
+
+            const tabs = ['belum', 'sudah', 'free_service', 'laporan'];
+            tabs.forEach(t => {
+                const el = document.getElementById(`nav-${t}`);
+                if (t === tabName) {
+                    el.className = "w-full text-left px-4 py-3 rounded-lg bg-white text-black font-semibold transition-colors shadow-sm flex justify-between items-center relative";
+                } else {
+                    el.className = "w-full text-left px-4 py-3 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white font-semibold transition-colors flex justify-between items-center relative";
+                }
+            });
+
+            document.getElementById('tableContainer').classList.add('hidden');
+            document.getElementById('tableContainer').classList.remove('flex');
+
+            document.getElementById('reportContainer').classList.add('hidden');
+            document.getElementById('reportContainer').classList.remove('flex');
+
+            document.getElementById('freeServiceContainer').classList.add('hidden');
+            document.getElementById('freeServiceContainer').classList.remove('flex');
+
+            renderActiveView();
+        }
+
+        function renderActiveView() {
+            if (currentTab === 'laporan') {
+                document.getElementById('reportContainer').classList.remove('hidden');
+                document.getElementById('reportContainer').classList.add('flex');
+                renderReport();
+            } else if (currentTab === 'free_service') {
+                document.getElementById('freeServiceContainer').classList.remove('hidden');
+                document.getElementById('freeServiceContainer').classList.add('flex');
+                renderFreeServiceTable();
+            } else {
+                document.getElementById('tableContainer').classList.remove('hidden');
+                document.getElementById('tableContainer').classList.add('flex');
+                renderTable();
+            }
+        }
+
+        // ==========================================
+        // FUNGSI TABEL UTAMA (BELUM/SUDAH)
+        // ==========================================
+        function updateFilter(key, value) { filters[key] = value.toLowerCase(); currentPage = 1; renderTable(); }
+        function changeRowsPerPage(val) { rowsPerPage = parseInt(val); currentPage = 1; renderTable(); }
+        function prevPage() { if (currentPage > 1) { currentPage--; renderActiveView(); } }
+        function nextPage() { currentPage++; renderActiveView(); }
+
+        function renderTable() {
+            const tbody = document.getElementById('tableBody');
+            const emptyState = document.getElementById('emptyState');
+            tbody.innerHTML = '';
+
+            let filteredData = databaseMock.filter(item => item.status === currentTab);
+
+            filteredData = filteredData.filter(item => {
+                const matchNama = (item.nama || '').toLowerCase().includes(filters.nama);
+                const matchTanggal = (item.tanggalDatang || '').toLowerCase().includes(filters.tanggal);
+                const matchPlat = (item.plat || '').toLowerCase().includes(filters.plat);
+                const matchTipe = (item.tipeMobil || '').toLowerCase().includes(filters.tipe);
+                const matchKeluhan = (item.deskripsi || '').toLowerCase().includes(filters.keluhan);
+                return matchNama && matchTanggal && matchPlat && matchTipe && matchKeluhan;
+            });
+
+            const totalData = filteredData.length;
+            const totalPages = Math.ceil(totalData / rowsPerPage) || 1;
+            if (currentPage > totalPages) currentPage = totalPages;
+
+            const startIndex = (currentPage - 1) * rowsPerPage;
+            const endIndex = startIndex + rowsPerPage;
+            const paginatedData = filteredData.slice(startIndex, endIndex);
+
+            document.getElementById('pageInfo').innerText = `Halaman ${currentPage} dari ${totalPages}`;
+            document.getElementById('tableInfo').innerText = `Menampilkan ${totalData === 0 ? 0 : startIndex + 1} - ${Math.min(endIndex, totalData)} dari ${totalData} data`;
+            document.getElementById('btnPrev').disabled = currentPage === 1;
+            document.getElementById('btnNext').disabled = currentPage === totalPages;
+
+            if (paginatedData.length === 0) {
+                emptyState.classList.remove('hidden');
+            } else {
+                emptyState.classList.add('hidden');
+
+                paginatedData.forEach(item => {
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-blue-50 transition-colors border-b border-gray-100";
+
+                    let actionButton = '';
+                    if (currentTab === 'belum') {
+                        actionButton = `<button onclick="openModal(${item.id})" class="bg-black text-white px-4 py-1.5 text-sm rounded hover:bg-gray-800 font-medium shadow-sm">Follow Up</button>`;
+                    } else {
+                        actionButton = `<button onclick="viewDetails(${item.id})" class="bg-gray-200 border border-gray-300 text-black px-4 py-1.5 text-sm rounded hover:bg-gray-300 font-medium">Lihat Respon</button>`;
+                    }
+
+                    let kmText = item.kilometer && item.kilometer !== '-' ? item.kilometer + ' KM' : '-';
+
+                    tr.innerHTML = `
+                        <td class="py-4 px-4 align-top">
+                            <div class="font-bold text-gray-900">${item.nama}</div>
+                            <div class="text-xs text-gray-500 mt-1 flex items-center gap-1" title="Kilometer">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                ${kmText}
+                            </div>
+                        </td>
+                        <td class="py-4 px-4 align-top font-medium text-gray-600">${item.tanggalDatang}</td>
+                        <td class="py-4 px-4 align-top font-bold text-gray-800">${item.plat}</td>
+                        <td class="py-4 px-4 text-gray-600 align-top">${item.tipeMobil}</td>
+                        <td class="py-4 px-4 text-gray-600 align-top max-w-xs break-words whitespace-pre-line" title="${item.deskripsi}">${item.deskripsi}</td>
+                        <td class="py-4 px-4 text-center align-top">${actionButton}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        }
+
+        // ==========================================
+        // FUNGSI FREE SERVICE
+        // ==========================================
+        function setFSOption(months) {
+            fsPeriodMonths = months;
+
+            const btns = [3, 6, 12];
+            btns.forEach(m => {
+                const btn = document.getElementById(`btn-fs-${m}`);
+                if (m === months) {
+                    btn.className = "px-5 py-2 text-sm font-bold rounded-md bg-white text-black shadow transition-all";
+                } else {
+                    btn.className = "px-5 py-2 text-sm font-bold rounded-md text-gray-500 hover:text-black transition-all";
+                }
+            });
+            renderFreeServiceTable();
+        }
+
+        function updateFSFilter(key, value) {
+            fsFilters[key] = value.toLowerCase();
+            renderFreeServiceTable();
+        }
+
+        function updateFSBadge() {
+            // Cek adakah notif peringatan di tab Free Service (yang isDue = true)
+            let countDue = 0;
+            let fsData = databaseMock.filter(item => {
+                if (item.status !== 'sudah' || item.tanggalDatang === '-') return false;
+                let desc = (item.deskripsi || "").toLowerCase();
+                return desc.includes('service');
+            });
+
+            fsData.forEach(item => {
+                // Cek jadwal default 3 bln
+                let jadwalServis = calculateNextService(item.tanggalDatang, 3);
+                let statusJadwal = getDueStatus(jadwalServis);
+                if (statusJadwal.isDue) countDue++;
+            });
+
+            const badge = document.getElementById('badge-fs');
+            if (countDue > 0) {
+                badge.classList.remove('hidden');
+                badge.innerText = countDue;
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        function renderFreeServiceTable() {
+            const tbody = document.getElementById('fsTableBody');
+            const emptyState = document.getElementById('fsEmptyState');
+            tbody.innerHTML = '';
+
+            // 1. Filter: Status Sudah Follow Up, Ada Tanggal, & Deskripsi mengandung kata "SERVICE"
+            let fsData = databaseMock.filter(item => {
+                if (item.status !== 'sudah' || item.tanggalDatang === '-') return false;
+
+                let desc = (item.deskripsi || "").toLowerCase();
+                // Ini akan mendeteksi "SERVICE 10.000", "free service", "service berkala", dsb.
+                return desc.includes('service');
+            });
+
+            // 2. Tambahkan kalkulasi jadwal dan status
+            fsData = fsData.map(item => {
+                let jadwalServis = calculateNextService(item.tanggalDatang, fsPeriodMonths);
+                let statusJadwal = getDueStatus(jadwalServis);
+                return { ...item, jadwalServis, statusJadwal };
+            });
+
+            // 3. Filter pencarian
+            fsData = fsData.filter(item => {
+                const matchNama = (item.nama || '').toLowerCase().includes(fsFilters.nama);
+                const matchPlat = (item.plat || '').toLowerCase().includes(fsFilters.plat);
+                const matchTipe = (item.tipeMobil || '').toLowerCase().includes(fsFilters.tipe);
+                return matchNama && matchPlat && matchTipe;
+            });
+
+            // 4. Urutkan: Prioritaskan yang Lewat Jadwal & H-14, lalu sisanya diurutkan berdasarkan tanggal
+            fsData.sort((a, b) => {
+                if (a.statusJadwal.priority !== b.statusJadwal.priority) {
+                    return a.statusJadwal.priority - b.statusJadwal.priority; // Prioritas angka kecil di atas
+                }
+
+                let getMs = (dateStr) => {
+                    if (!dateStr || dateStr === '-') return Infinity;
+                    let parts = dateStr.split('-');
+                    return new Date(parts[2], parseInt(parts[1]) - 1, parts[0]).getTime();
+                };
+                return getMs(a.jadwalServis) - getMs(b.jadwalServis); // Terdekat di atas
+            });
+
+            if (fsData.length === 0) {
+                emptyState.classList.remove('hidden');
+            } else {
+                emptyState.classList.add('hidden');
+
+                fsData.forEach(item => {
+                    const tr = document.createElement('tr');
+                    // Jika Due, highlight row sedikit merah/kuning
+                    tr.className = item.statusJadwal.isDue ? "bg-red-50/40 hover:bg-red-50 transition-colors border-b border-gray-200" : "hover:bg-blue-50 transition-colors border-b border-gray-100";
+
+                    let badgeHTML = item.statusJadwal.isDue
+                        ? `<span class="mt-1.5 inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-md border ${item.statusJadwal.color}">${item.statusJadwal.text}</span>`
+                        : '';
+
+                    let jadwalColor = item.statusJadwal.isDue ? (item.statusJadwal.overdue ? 'text-red-700' : 'text-orange-600') : 'text-blue-700';
+
+                    tr.innerHTML = `
+                        <td class="py-4 px-4 align-top">
+                            <div class="font-bold text-gray-900">${item.nama}</div>
+                            <div class="text-xs text-gray-500 mt-1" title="Deskripsi Service Sebelumnya">
+                                Ref: Service Sebelumnya
+                            </div>
+                        </td>
+                        <td class="py-4 px-4 align-top text-gray-500">${item.tanggalDatang}</td>
+                        <td class="py-4 px-4 align-top">
+                            <div class="font-bold ${jadwalColor}">${item.jadwalServis}</div>
+                            ${badgeHTML}
+                        </td>
+                        <td class="py-4 px-4 align-top font-bold text-gray-800">${item.plat}</td>
+                        <td class="py-4 px-4 align-top text-gray-600">${item.tipeMobil}</td>
+                        <td class="py-4 px-4 text-center align-top">
+                            <button onclick="openFSModal(${item.id}, '${item.jadwalServis}', ${fsPeriodMonths})" class="border border-[#25D366] text-[#25D366] bg-white px-3 py-1.5 text-xs font-bold rounded-lg hover:bg-[#25D366] hover:text-white transition-colors flex items-center justify-center gap-1 mx-auto shadow-sm">
+                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
+                                Reminder WA
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        }
+
+        function openFSModal(id, jadwal, bulan) {
+            fsSelectedId = id;
+            const data = databaseMock.find(x => x.id === id);
+            if (!data) return;
+
+            document.getElementById('fs-det-nama').innerText = data.nama;
+            document.getElementById('fs-det-plat').innerText = data.plat;
+            document.getElementById('fs-det-jadwal').innerText = jadwal;
+
+            document.getElementById('fsTemplateArea').value = "";
+            document.getElementById('fsModal').classList.remove('hidden');
+            document.getElementById('fsModal').classList.add('flex');
+
+            generateFSTemplate('Pagi');
+        }
+
+        function closeFSModal() {
+            document.getElementById('fsModal').classList.add('hidden');
+            document.getElementById('fsModal').classList.remove('flex');
+        }
+
+        function generateFSTemplate(waktu) {
+            const data = databaseMock.find(x => x.id === fsSelectedId);
+            if (!data) return;
+            const jadwal = document.getElementById('fs-det-jadwal').innerText;
+            const tipeBulan = fsPeriodMonths === 12 ? "1 Tahun" : fsPeriodMonths + " Bulan";
+
+            const template = `Selamat ${waktu} Bapak/Ibu ${data.nama},
+            
+Semoga kabarnya selalu baik. Kami dari bengkel ingin mengingatkan bahwa kendaraan Bapak/Ibu dengan Plat ${data.plat} telah memasuki jadwal Servis Berkala ${tipeBulan}.
+
+Berdasarkan data kami, kunjungan terakhir Bapak/Ibu pada ${data.tanggalDatang}, sehingga estimasi jadwal servis selanjutnya jatuh pada sekitar tanggal ${jadwal}.
+
+Untuk menghindari antrean dan memastikan kendaraan Bapak/Ibu tetap dalam kondisi prima, silakan balas pesan ini untuk melakukan penjadwalan servis (Booking). 
+
+Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
+
+            document.getElementById('fsTemplateArea').value = template;
+        }
+
+        function sendFSWhatsApp() {
+            const text = document.getElementById('fsTemplateArea').value;
+            const data = databaseMock.find(x => x.id === fsSelectedId);
+
+            if (!data || !text) return;
+
+            let phone = String(data.telepon || "").replace(/\D/g, '');
+            if (phone.startsWith('0')) phone = '62' + phone.substring(1);
+            else if (phone.startsWith('8')) phone = '62' + phone;
+
+            if (phone.length < 9) { alert("Nomor telepon tidak valid atau kosong!"); return; }
+
+            const waUrl = `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`;
+            window.open(waUrl, '_blank');
+        }
+
+        // ==========================================
+        // FUNGSI LAPORAN BULANAN
+        // ==========================================
+        function renderReport() {
+            const grid = document.getElementById('reportCardsGrid');
+            const emptyState = document.getElementById('emptyReportState');
+            grid.innerHTML = '';
+
+            const rekapBulanan = {};
+            let totalTerselesaikan = 0;
+
+            const bulanIndo = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+
+            databaseMock.forEach(item => {
+                if (item.status === 'sudah' && item.tanggalFollowUp) {
+                    const parts = item.tanggalFollowUp.split('-');
+                    if (parts.length === 3) {
+                        const bulanIndex = parseInt(parts[1]) - 1;
+                        const tahun = parts[2];
+                        const namaBulan = `${bulanIndo[bulanIndex]} ${tahun}`;
+
+                        const sortKey = `${tahun}-${parts[1]}`;
+
+                        if (!rekapBulanan[sortKey]) rekapBulanan[sortKey] = { label: namaBulan, count: 0 };
+                        rekapBulanan[sortKey].count += 1;
+                        totalTerselesaikan++;
+                    }
+                }
+            });
+
+            if (totalTerselesaikan === 0) {
+                emptyState.classList.remove('hidden');
+                return;
+            } else {
+                emptyState.classList.add('hidden');
+            }
+
+            const sortedKeys = Object.keys(rekapBulanan).sort().reverse();
+
+            sortedKeys.forEach(key => {
+                const data = rekapBulanan[key];
+                const card = document.createElement('div');
+                card.className = "bg-white border border-gray-200 rounded-xl p-6 flex flex-col items-center justify-center shadow-sm relative overflow-hidden group";
+                card.innerHTML = `
+                    <div class="absolute top-0 left-0 w-full h-1.5 bg-black transform origin-left transition-transform group-hover:scale-y-150"></div>
+                    <h3 class="text-gray-500 font-bold mb-2 text-sm uppercase tracking-widest">${data.label}</h3>
+                    <div class="flex items-baseline gap-2 mt-2">
+                        <span class="text-6xl font-black text-gray-900">${data.count}</span>
+                        <span class="text-sm text-gray-500 font-medium">Customer</span>
+                    </div>
+                    <div class="mt-5 px-4 py-1.5 bg-green-50 text-green-700 text-xs rounded-full font-bold border border-green-200 flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                        Telah difollow-up
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        // ==========================================
+        // FUNGSI LAMPIRAN GAMBAR & LIGHTBOX
+        // ==========================================
+        function handleDragOver(e) { e.preventDefault(); document.getElementById('dropzone').classList.add('bg-blue-50', 'border-blue-400'); }
+        function handleDragLeave(e) { e.preventDefault(); document.getElementById('dropzone').classList.remove('bg-blue-50', 'border-blue-400'); }
+        function handleDrop(e) {
+            e.preventDefault();
+            document.getElementById('dropzone').classList.remove('bg-blue-50', 'border-blue-400');
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) processFile(e.dataTransfer.files[0]);
+        }
+        function handleFileInput(e) { if (e.target.files && e.target.files.length > 0) processFile(e.target.files[0]); }
+
+        function processFile(file) {
+            if (!file) return;
+            if (!file.type.startsWith('image/')) { alert('Hanya file gambar (JPG/PNG) yang diperbolehkan.'); return; }
+            if (file.size > 10 * 1024 * 1024) { alert('Ukuran file terlalu besar! Maksimal 10MB.'); return; }
+
+            const reader = new FileReader();
+            reader.onload = function (event) {
+                const img = new Image();
+                img.onload = function () {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    let width = img.width;
+                    let height = img.height;
+
+                    const MAX_DIMENSION = 1920;
+                    if (width > height && width > MAX_DIMENSION) {
+                        height *= MAX_DIMENSION / width;
+                        width = MAX_DIMENSION;
+                    } else if (height > MAX_DIMENSION) {
+                        width *= MAX_DIMENSION / height;
+                        height = MAX_DIMENSION;
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    const base64Str = canvas.toDataURL('image/jpeg', 0.9);
+                    currentAttachedImage = base64Str;
+
+                    document.getElementById('dropzoneText').classList.add('hidden');
+                    document.getElementById('imagePreviewContainer').classList.remove('hidden');
+                    document.getElementById('imagePreview').src = base64Str;
+                }
+                img.src = event.target.result;
+            }
+            reader.readAsDataURL(file);
+        }
+
+        function removeImage(e) {
+            if (e) e.stopPropagation();
+            currentAttachedImage = null;
+            document.getElementById('fileInput').value = '';
+            document.getElementById('dropzoneText').classList.remove('hidden');
+            document.getElementById('imagePreviewContainer').classList.add('hidden');
+            document.getElementById('imagePreview').src = '';
+        }
+
+        function openLightbox(src) {
+            if (!src) return;
+            document.getElementById('lightboxImg').src = src;
+            const lightbox = document.getElementById('lightbox');
+            lightbox.classList.remove('hidden');
+            lightbox.classList.add('flex');
+            setTimeout(() => {
+                document.getElementById('lightboxImg').classList.remove('scale-95');
+                document.getElementById('lightboxImg').classList.add('scale-100');
+            }, 10);
+        }
+
+        function closeLightbox() {
+            document.getElementById('lightboxImg').classList.remove('scale-100');
+            document.getElementById('lightboxImg').classList.add('scale-95');
+            setTimeout(() => {
+                document.getElementById('lightbox').classList.add('hidden');
+                document.getElementById('lightbox').classList.remove('flex');
+            }, 150);
+        }
+
+        // ==========================================
+        // FUNGSI MODAL UTAMA & TEMPLATE
+        // ==========================================
+        function openModal(id) {
+            currentSelectedId = id;
+            const data = databaseMock.find(x => x.id === id);
+            if (!data) return;
+
+            document.getElementById('det-nama').innerText = data.nama || "-";
+            document.getElementById('det-telepon').innerText = data.telepon || "-";
+            document.getElementById('det-plat').innerText = data.plat || "-";
+            document.getElementById('det-tipe').innerText = data.tipeMobil || "-";
+            document.getElementById('det-vin').innerText = data.vin || "-";
+            document.getElementById('det-sa').innerText = data.serviceAdvisor || "-";
+            document.getElementById('det-km').innerText = data.kilometer ? data.kilometer + " KM" : "-";
+            document.getElementById('det-tahun').innerText = data.tahunBeli || "-";
+            document.getElementById('det-tanggal').innerText = data.tanggalDatang || "-";
+            document.getElementById('det-wono').innerText = data.workOrderNo || "-";
+            document.getElementById('det-keluhan').innerText = data.deskripsi || "-";
+            document.getElementById('det-partLama').innerText = data.partLama || "-";
+            document.getElementById('det-partBaru').innerText = data.partBaru || "-";
+
+            if (data.status === 'belum') {
+                document.getElementById('aksiTitle').innerText = "Aksi Follow Up";
+                document.getElementById('templateWrapper').style.display = 'flex';
+                document.getElementById('templateArea').value = "";
+                document.getElementById('jenisTemplate').value = "reguler";
+                document.getElementById('responCustomer').value = "";
+                document.getElementById('responCustomer').readOnly = false;
+
+                removeImage();
+                document.getElementById('attachmentWrapper').style.display = 'block';
+                document.getElementById('readonlyImageContainer').classList.add('hidden');
+                document.getElementById('btnSubmitWrapper').style.display = 'block';
+            } else {
+                document.getElementById('aksiTitle').innerText = "Hasil Respon Customer";
+                document.getElementById('templateWrapper').style.display = 'none';
+                document.getElementById('responCustomer').value = data.respon;
+                document.getElementById('responCustomer').readOnly = true;
+
+                document.getElementById('attachmentWrapper').style.display = 'none';
+                if (data.lampiran) {
+                    document.getElementById('readonlyImageContainer').classList.remove('hidden');
+                    document.getElementById('readonlyImage').src = data.lampiran;
+                } else {
+                    document.getElementById('readonlyImageContainer').classList.add('hidden');
+                }
+                document.getElementById('btnSubmitWrapper').style.display = 'none';
+            }
+
+            document.getElementById('followUpModal').classList.add('active');
+        }
+
+        function viewDetails(id) { openModal(id); }
+        function closeModal() { document.getElementById('followUpModal').classList.remove('active'); }
+        function resetTemplateArea() { document.getElementById('templateArea').value = ""; }
+
+        function generateTemplate(waktu) {
+            const data = databaseMock.find(x => x.id === currentSelectedId);
+            if (!data) return;
+
+            const jenisTemplate = document.getElementById('jenisTemplate').value;
+            let templateText = "";
+            const tglDatangText = (data.tanggalDatang && data.tanggalDatang !== "-") ? data.tanggalDatang : "(tanggal)";
+
+            if (jenisTemplate === "reguler") {
+                templateText = `Selamat ${waktu} Bapak/Ibu ${data.nama},
+            
+Semoga kabarnya selalu baik. Kami dari bengkel ingin melakukan follow up terkait kendaraan Bapak/Ibu dengan Plat ${data.plat}. 
+
+Berdasarkan catatan kami, kendaraan Bapak/Ibu sebelumnya datang pada tanggal ${tglDatangText} dengan keluhan/pekerjaan: 
+"${data.deskripsi.replace(/\n•/g, ',').replace(/• /g, '')}".
+
+Apakah saat ini keluhan tersebut sudah teratasi dengan baik, atau ada hal lain yang perlu kami bantu kembali? 
+
+Apabila Bapak/Ibu memiliki masukan atau saran terkait pelayanan kami, mohon berkenan untuk menyampaikannya agar kami dapat terus meningkatkan kualitas layanan bengkel kami ke depannya.
+
+Terima kasih atas kepercayaannya. Ditunggu konfirmasinya ya Bapak/Ibu.`;
+
+            } else if (jenisTemplate === "csi") {
+                templateText = `Selamat ${waktu} Bapak/Ibu ${data.nama},
+            
+Semoga kabarnya selalu baik. Kami dari bengkel Chery ingin mengucapkan terima kasih atas kunjungan servis Bapak/Ibu pada tanggal ${tglDatangText} untuk kendaraan dengan Plat ${data.plat}.
+
+Sebagai upaya peningkatan layanan, Bapak/Ibu mungkin akan menerima pesan berisi tautan/link survei kepuasan pelanggan (CSI) dari pihak Chery pusat. Kami sangat memohon kesediaan waktu Bapak/Ibu untuk berpartisipasi mengisi survei tersebut.
+
+Jika pelayanan kami telah memenuhi harapan, kami akan sangat berterima kasih apabila Bapak/Ibu berkenan memberikan penilaian maksimal. Namun, apabila masih ada hal yang kurang berkenan atau memiliki saran perbaikan, mohon agar dapat diinformasikan langsung kepada kami terlebih dahulu, agar dapat segera kami berikan solusi terbaik untuk kendaraan Anda.
+
+Terima kasih banyak atas dukungan dan kepercayaannya Bapak/Ibu. Sehat selalu!`;
+            }
+            document.getElementById('templateArea').value = templateText;
+        }
+
+        function copyTemplate() {
+            const text = document.getElementById('templateArea').value;
+            if (!text) { alert("Pilih template terlebih dahulu."); return; }
+            navigator.clipboard.writeText(text).then(() => { alert("Template berhasil disalin ke clipboard!"); });
+        }
+
+        function sendWhatsApp() {
+            const text = document.getElementById('templateArea').value;
+            const data = databaseMock.find(x => x.id === currentSelectedId);
+
+            if (!data) return;
+            if (!text) { alert("Pilih/buat template terlebih dahulu sebelum mengirim chat!"); return; }
+
+            let phone = String(data.telepon || "").replace(/\D/g, '');
+            if (phone.startsWith('0')) phone = '62' + phone.substring(1);
+            else if (phone.startsWith('8')) phone = '62' + phone;
+
+            if (phone.length < 9) { alert("Nomor telepon tidak valid/kosong!"); return; }
+
+            const waUrl = `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`;
+            window.open(waUrl, '_blank');
+        }
+
+        async function submitFollowUp() {
+            const respon = document.getElementById('responCustomer').value;
+            if (respon.trim() === '') {
+                alert('Silakan isi respon customer terlebih dahulu!');
+                return;
+            }
+
+            const dataIndex = databaseMock.findIndex(x => x.id === currentSelectedId);
+            if (dataIndex !== -1) {
+                databaseMock[dataIndex].status = 'sudah';
+                databaseMock[dataIndex].respon = respon;
+                databaseMock[dataIndex].tanggalFollowUp = formatTanggal(new Date());
+                databaseMock[dataIndex].lampiran = currentAttachedImage || "";
+            }
+
+            saveToLocal();
+            currentAttachedImage = null;
+
+            closeModal();
+            renderActiveView();
+            await syncToGoogleSheets();
+
+            setTimeout(() => { alert('Berhasil! Data telah dipindahkan ke daftar "Sudah Follow Up".'); }, 300);
+        }
+
+        // ==========================================
+        // FUNGSI UPLOAD & EXPORT EXCEL (SheetJS)
+        // ==========================================
+        function processExcelUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function (event) {
+                try {
+                    const data = new Uint8Array(event.target.result);
+                    const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+                    const sheetName = workbook.SheetNames[0];
+                    const sheet = workbook.Sheets[sheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(sheet);
+
+                    let addedCount = 0;
+                    let updatedCount = 0;
+
+                    jsonData.forEach(row => {
+                        let vinStr = String(row["VIN"] || "-").trim();
+                        let namaStr = String(row["customer's name"] || "-").trim();
+                        let woNo = row["Work Order No."] || row["work order no."] || row["Work Order No"];
+
+                        if (woNo || vinStr !== "-" || namaStr !== "-") {
+                            let deliveryTimeValue = row["Delivery time"] || row["delivery time"] || row["Delivery Time"] || row["Tanggal Masuk"] || "-";
+                            let formattedTanggal = formatTanggal(deliveryTimeValue);
+                            let saleDateValue = row["sale date"] || "-";
+
+                            let exists = databaseMock.find(x =>
+                                x.tanggalDatang === formattedTanggal &&
+                                ((vinStr !== "-" && x.vin === vinStr) || (namaStr !== "-" && x.nama === namaStr))
+                            );
+
+                            let currentPartLama = (row["old part number"] ? row["old part number"] + " - " : "") + (row["old part name"] || "");
+                            let currentPartBaru = (row["new part number"] ? row["new part number"] + " - " : "") + (row["new item name"] || "");
+                            let currentKeluhan = row["Client Description"] || "-";
+
+                            currentPartLama = currentPartLama.trim() === "-" || currentPartLama.trim() === "" ? "" : currentPartLama.trim();
+                            currentPartBaru = currentPartBaru.trim() === "-" || currentPartBaru.trim() === "" ? "" : currentPartBaru.trim();
+
+                            if (!exists) {
+                                const newId = databaseMock.length > 0 ? Math.max(...databaseMock.map(m => m.id)) + 1 : 1;
+                                databaseMock.push({
+                                    id: newId,
+                                    workOrderNo: woNo ? String(woNo).trim() : "-",
+                                    nama: namaStr,
+                                    telepon: row["mobile phone"] || "-",
+                                    vin: vinStr,
+                                    plat: row["number plate"] || "-",
+                                    serviceAdvisor: row["Service Advisor"] || "-",
+                                    kilometer: row["driven distance"] || "-",
+                                    tipeMobil: row["car series"] || "-",
+                                    deskripsi: currentKeluhan !== "-" ? `• ${currentKeluhan}` : "-",
+                                    tanggalDatang: formattedTanggal,
+                                    tahunBeli: formatTanggal(saleDateValue),
+                                    partLama: currentPartLama ? `• ${currentPartLama}` : "-",
+                                    partBaru: currentPartBaru ? `• ${currentPartBaru}` : "-",
+                                    status: "belum",
+                                    respon: "",
+                                    tanggalFollowUp: null,
+                                    lampiran: ""
+                                });
+                                addedCount++;
+                            } else {
+                                if (woNo && !exists.workOrderNo.includes(String(woNo).trim())) exists.workOrderNo += `, ${String(woNo).trim()}`;
+                                if (currentKeluhan !== "-" && !exists.deskripsi.includes(currentKeluhan)) {
+                                    if (exists.deskripsi === "-") exists.deskripsi = `• ${currentKeluhan}`;
+                                    else exists.deskripsi += `\n• ${currentKeluhan}`;
+                                }
+                                if (currentPartLama) {
+                                    if (exists.partLama === "-") exists.partLama = `• ${currentPartLama}`;
+                                    else if (!exists.partLama.includes(currentPartLama)) exists.partLama += `\n• ${currentPartLama}`;
+                                }
+                                if (currentPartBaru) {
+                                    if (exists.partBaru === "-") exists.partBaru = `• ${currentPartBaru}`;
+                                    else if (!exists.partBaru.includes(currentPartBaru)) exists.partBaru += `\n• ${currentPartBaru}`;
+                                }
+                                updatedCount++;
+                            }
+                        }
+                    });
+
+                    document.getElementById('uploadExcel').value = "";
+
+                    if (addedCount > 0 || updatedCount > 0) {
+                        saveToLocal();
+                        switchTab('belum');
+                        await syncToGoogleSheets();
+                    }
+
+                    setTimeout(() => { alert(`Upload Berhasil!\n- ${addedCount} Data customer unik ditambahkan.\n- ${updatedCount} Item / Keluhan digabungkan ke customer di tanggal yang sama.`); }, 300);
+
+                } catch (error) {
+                    console.error("Gagal memproses file Excel", error);
+                    alert("Terjadi kesalahan saat membaca file Excel. Pastikan format sudah benar.");
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function exportExcel() {
+            const exportData = databaseMock.filter(item => item.status === 'sudah').map(item => {
+                return {
+                    "Work Order No.": item.workOrderNo,
+                    "Nama Customer": item.nama,
+                    "No Telepon": item.telepon,
+                    "Plat Mobil": item.plat,
+                    "Tipe Mobil": item.tipeMobil,
+                    "VIN": item.vin,
+                    "Service Advisor": item.serviceAdvisor,
+                    "Kilometer": item.kilometer,
+                    "Tahun Pembelian": item.tahunBeli,
+                    "Deskripsi Service": item.deskripsi,
+                    "Part Lama": item.partLama,
+                    "Part Baru": item.partBaru,
+                    "Hasil Respon Customer": item.respon,
+                    "Tanggal Difollow-Up": item.tanggalFollowUp || "-",
+                    "Ada Lampiran Gambar": item.lampiran ? "Ya" : "Tidak"
+                };
+            });
+
+            if (exportData.length === 0) {
+                alert("Tidak ada data 'Sudah Follow Up' untuk di-export.");
+                return;
+            }
+
+            const ws = XLSX.utils.json_to_sheet(exportData);
+            const wscols = [
+                { wch: 25 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 },
+                { wch: 20 }, { wch: 10 }, { wch: 15 }, { wch: 40 }, { wch: 30 }, { wch: 30 }, { wch: 50 }, { wch: 20 }, { wch: 20 }
+            ];
+            ws['!cols'] = wscols;
+
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Hasil Follow Up");
+
+            const dateStr = new Date().toISOString().slice(0, 10);
+            const fileName = `Export_Sudah_Follow_Up_${dateStr}.xlsx`;
+
+            XLSX.writeFile(wb, fileName);
+        }
+    </script>
+</body>
+
+</html>

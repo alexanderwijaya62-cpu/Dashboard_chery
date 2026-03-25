@@ -10,4 +10,17 @@ export default defineConfig({
       targets: ['defaults', 'not IE 11', 'Chrome >= 49', 'Samsung >= 5'],
     })
   ],
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-utils': ['date-fns', 'xlsx', 'toastify-js'],
+          'vendor-icons': ['lucide-react'],
+          'vendor-others': ['qrcode.react', 'telegram']
+        }
+      }
+    }
+  }
 })

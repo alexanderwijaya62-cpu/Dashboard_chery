@@ -9,11 +9,26 @@ import LoginPage from './components/LoginPage';
 import AdminPanel from './components/AdminPanel';
 import PromosiSparepart from './components/PromosiSparepart';
 import MechanicPanel from './components/MechanicPanel';
+import SparepartPanel from './components/SparepartPanel';
+import FollowupPanel from './components/FollowupPanel';
+import ManagerPanel from './components/ManagerPanel';
 import { USERS } from './data/users';
 
 const GAS_URL = "/api/gas";
 // MASUKKAN LINK WEB APP UNTUK GOOGLE SHEET USERS DI BAWAH INI:
 const GAS_USERS_URL = "/api/gas_users";
+
+// Helper function untuk fetch dengan API Key Middleware
+const API_KEY = import.meta.env.VITE_API_KEY || "chery-secret-key-2024";
+const customFetch = (url, options = {}) => {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...options.headers,
+      "x-api-key": API_KEY
+    }
+  });
+};
 
 // Helper function dipindah ke luar agar tidak di-recreate setiap render
 const formatTime = (totalSeconds) => {
@@ -32,7 +47,7 @@ const App = () => {
   });
   const [queue, setQueue] = useState([]);
   const [now, setNow] = useState(Date.now());
-  const [formData, setFormData] = useState({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler' });
+  const [formData, setFormData] = useState({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '' });
   const [isEditing, setIsEditing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
@@ -40,12 +55,28 @@ const App = () => {
 
   const [rawHistory, setRawHistory] = useState([]);
   const [usersData, setUsersData] = useState(USERS);
+  const [breakSettings, setBreakSettings] = useState(() => {
+    const saved = localStorage.getItem('chery_break_settings');
+    return saved ? JSON.parse(saved) : {
+      startHour: 12,
+      startMinute: 0,
+      endHourNormal: 13,
+      endMinuteNormal: 0,
+      endHourFriday: 13,
+      endMinuteFriday: 15
+    };
+  });
+
+  // Save break settings to localStorage
+  useEffect(() => {
+    localStorage.setItem('chery_break_settings', JSON.stringify(breakSettings));
+  }, [breakSettings]);
 
   // Fetch Data dari Apps Script
   const fetchQueue = useCallback(async () => {
     try {
       // Fetch Antrean & History
-      const response = await fetch(GAS_URL);
+      const response = await customFetch(GAS_URL);
       const data = await response.json();
 
       if (data && !Array.isArray(data) && Array.isArray(data.queue)) {
@@ -63,7 +94,7 @@ const App = () => {
 
       // Fetch Data Users jika link GAS_USERS_URL sudah diisi
       if (GAS_USERS_URL && GAS_USERS_URL.trim() !== "") {
-        const usersResponse = await fetch(GAS_USERS_URL);
+        const usersResponse = await customFetch(GAS_USERS_URL);
         const usersData = await usersResponse.json();
 
         if (usersData && usersData.users && Array.isArray(usersData.users) && usersData.users.length > 0) {
@@ -179,91 +210,95 @@ const App = () => {
   useEffect(() => {
     const checkAutoStatus = async () => {
       if (isAutoUpdating.current) return;
-      
+
       const now = new Date();
       const currentHour = now.getHours();
       const currentMinute = now.getMinutes();
       const day = now.getDay();
-      
+
       let targetStatus = null;
-      
+
       // Checking Overnight (menginap)
       if (currentHour >= 19 || currentHour < 8) {
         targetStatus = 'menginap';
       }
       // Checking Break (istirahat) Senin-Sabtu (1-6)
-      else if (day >= 1 && day <= 6) { 
-         const isFriday = day === 5;
-         const startIstirahat = currentHour === 12;
-         const endIstirahatHourBreak = isFriday ? (currentHour === 13 && currentMinute < 15) : false;
-         
-         if (startIstirahat || endIstirahatHourBreak) {
-            targetStatus = 'istirahat';
-         }
+      else if (day >= 1 && day <= 6) {
+        const isFriday = day === 5;
+        const startTotalMinutes = (breakSettings.startHour * 60) + breakSettings.startMinute;
+        const currentTotalMinutes = (currentHour * 60) + currentMinute;
+
+        let endHour = isFriday ? breakSettings.endHourFriday : breakSettings.endHourNormal;
+        let endMin = isFriday ? breakSettings.endMinuteFriday : breakSettings.endMinuteNormal;
+        const endTotalMinutes = (endHour * 60) + endMin;
+
+        if (currentTotalMinutes >= startTotalMinutes && currentTotalMinutes < endTotalMinutes) {
+          targetStatus = 'istirahat';
+        }
       }
 
       if (targetStatus) {
-         const toUpdateFiltered = queue.filter(q => {
-             if (targetStatus === 'menginap') return q.status !== 'menginap';
-             if (targetStatus === 'istirahat') return q.status === 'working'; 
-             return false;
-         });
-         
-         if (toUpdateFiltered.length > 0) {
-            isAutoUpdating.current = true;
-            for (const item of toUpdateFiltered) {
-              let sisaDetik = parseInt(item.estimasiDefault) || 0;
-              if (item.status === 'working') {
-                 const targetTime = parseInt(item.targetTime) || Date.now();
-                 sisaDetik = Math.max(0, Math.floor((targetTime - Date.now()) / 1000));
-              }
-              try {
-                await fetch(`${GAS_URL}?action=update`, {
-                  method: "POST",
-                  body: JSON.stringify({
-                    id: item.id,
-                    status: targetStatus,
-                    estimasiDefault: sisaDetik,
-                    mechanicName: item.mechanicName || '',
-                    targetTime: 0
-                  }),
-                });
-              } catch (e) {
-                  console.error(e);
-              }
+        const toUpdateFiltered = queue.filter(q => {
+          if (targetStatus === 'menginap') return q.status !== 'menginap';
+          if (targetStatus === 'istirahat') return q.status === 'working';
+          return false;
+        });
+
+        if (toUpdateFiltered.length > 0) {
+          isAutoUpdating.current = true;
+          for (const item of toUpdateFiltered) {
+            let sisaDetik = parseInt(item.estimasiDefault) || 0;
+            if (item.status === 'working') {
+              const targetTime = parseInt(item.targetTime) || Date.now();
+              sisaDetik = Math.max(0, Math.floor((targetTime - Date.now()) / 1000));
             }
-            fetchQueue();
-            isAutoUpdating.current = false;
-         }
+            try {
+              await customFetch(`${GAS_URL}?action=update`, {
+                method: "POST",
+                body: JSON.stringify({
+                  id: item.id,
+                  status: targetStatus,
+                  estimasiDefault: sisaDetik,
+                  mechanicName: item.mechanicName || '',
+                  targetTime: 0
+                }),
+              });
+            } catch (e) {
+              console.error(e);
+            }
+          }
+          fetchQueue();
+          isAutoUpdating.current = false;
+        }
       } else {
-         // Wake up from Istirahat if break time is over
-         const toWakeUp = queue.filter(q => q.status === 'istirahat');
-         if (toWakeUp.length > 0) {
-            isAutoUpdating.current = true;
-            for (const item of toWakeUp) {
-               const sisaDetik = parseInt(item.estimasiDefault) || 0;
-               const targetTime = Date.now() + (sisaDetik * 1000);
-               try {
-                  await fetch(`${GAS_URL}?action=update`, {
-                    method: "POST",
-                    body: JSON.stringify({
-                      id: item.id,
-                      status: 'working',
-                      targetTime: targetTime,
-                      mechanicName: item.mechanicName || ''
-                    }),
-                  });
-               } catch (e) {}
-            }
-            fetchQueue();
-            isAutoUpdating.current = false;
-         }
+        // Wake up from Istirahat if break time is over
+        const toWakeUp = queue.filter(q => q.status === 'istirahat');
+        if (toWakeUp.length > 0) {
+          isAutoUpdating.current = true;
+          for (const item of toWakeUp) {
+            const sisaDetik = parseInt(item.estimasiDefault) || 0;
+            const targetTime = Date.now() + (sisaDetik * 1000);
+            try {
+              await customFetch(`${GAS_URL}?action=update`, {
+                method: "POST",
+                body: JSON.stringify({
+                  id: item.id,
+                  status: 'working',
+                  targetTime: targetTime,
+                  mechanicName: item.mechanicName || ''
+                }),
+              });
+            } catch (e) { }
+          }
+          fetchQueue();
+          isAutoUpdating.current = false;
+        }
       }
     };
     if (queue.length > 0) {
       checkAutoStatus();
     }
-  }, [queue, fetchQueue]);
+  }, [queue, fetchQueue, breakSettings]);
 
   const fullProcessedQueue = useMemo(() => {
     return queue
@@ -302,7 +337,11 @@ const App = () => {
       setUser({ name: foundUser.name, username: foundUser.username, role: foundUser.role });
       // Clear form
       setLoginForm({ username: '', password: '' });
-      setCurrentPage(foundUser.role === 'mekanik' ? 'mechanic' : 'admin');
+      const targetPage = foundUser.role === 'mekanik' ? 'mechanic' :
+        foundUser.role === 'sparepart' ? 'sparepart' :
+          foundUser.role === 'cro' ? 'cro' :
+            foundUser.role === 'manager' ? 'manager' : 'admin';
+      setCurrentPage(targetPage);
       setErrorMessage("");
     } else {
       setErrorMessage("Username atau Password salah!");
@@ -323,7 +362,7 @@ const App = () => {
         return { success: false, message: "URL GAS Users belum di-setting. Anda tidak bisa mengganti password via server." };
       }
 
-      const res = await fetch(`${GAS_USERS_URL}?action=changePassword`, {
+      const res = await customFetch(`${GAS_USERS_URL}?action=changePassword`, {
         method: "POST",
         body: JSON.stringify({
           username: user.username,
@@ -369,6 +408,7 @@ const App = () => {
       tipe: formData.tipe,
       category: formData.category,
       estimasiDefault: totalSeconds,
+      keluhan: formData.keluhan || '',
     };
 
     if (isEditing) {
@@ -385,14 +425,14 @@ const App = () => {
     }
 
     try {
-      await fetch(`${GAS_URL}?action=${action}`, {
+      await customFetch(`${GAS_URL}?action=${action}`, {
         method: "POST",
         body: JSON.stringify(updates),
       });
       // Ambil data terbaru langsung
       fetchQueue();
       // Reset form setelah save
-      setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler' });
+      setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '' });
       setIsEditing(false);
     } catch (error) {
       console.error("Gagal menyimpan data", error);
@@ -407,7 +447,7 @@ const App = () => {
     if (isLoadingProcess) return;
     setIsLoadingProcess(true);
     try {
-      await fetch(`${GAS_URL}?action=delete`, {
+      await customFetch(`${GAS_URL}?action=delete`, {
         method: "POST",
         body: JSON.stringify({ id: id }),
       });
@@ -424,7 +464,7 @@ const App = () => {
       if (isLoadingProcess) return;
       setIsLoadingProcess(true);
       try {
-        await fetch(`${GAS_URL}?action=clear`, {
+        await customFetch(`${GAS_URL}?action=clear`, {
           method: "POST",
         });
         fetchQueue();
@@ -440,8 +480,8 @@ const App = () => {
     if (!user || user.role !== 'mekanik' || isLoadingProcess) return;
 
     if (item.status === 'menginap' && item.mechanicName && item.mechanicName !== user.name) {
-       alert("Hanya mekanik yang mengerjakan sebelumnya yang bisa melanjutkan!");
-       return;
+      alert("Hanya mekanik yang mengerjakan sebelumnya yang bisa melanjutkan!");
+      return;
     }
 
     setIsLoadingProcess(true);
@@ -450,7 +490,7 @@ const App = () => {
     const targetTime = Date.now() + (estimasiDefaultInt * 1000);
 
     try {
-      await fetch(`${GAS_URL}?action=update`, {
+      await customFetch(`${GAS_URL}?action=update`, {
         method: "POST",
         body: JSON.stringify({
           id: item.id,
@@ -478,7 +518,7 @@ const App = () => {
     }
 
     try {
-      await fetch(`${GAS_URL}?action=update`, {
+      await customFetch(`${GAS_URL}?action=update`, {
         method: "POST",
         body: JSON.stringify({
           id: item.id,
@@ -501,7 +541,7 @@ const App = () => {
     setIsLoadingProcess(true);
 
     try {
-      await fetch(`${GAS_URL}?action=update`, {
+      await customFetch(`${GAS_URL}?action=update`, {
         method: "POST",
         body: JSON.stringify({
           id: item.id,
@@ -522,7 +562,7 @@ const App = () => {
     setIsLoadingProcess(true);
 
     try {
-      await fetch(`${GAS_URL}?action=complete`, {
+      await customFetch(`${GAS_URL}?action=complete`, {
         method: "POST",
         body: JSON.stringify({
           id: item.id
@@ -551,7 +591,7 @@ const App = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#F2F2F7] text-zinc-900 font-sans tracking-tight antialiased pb-12 pt-16">
+    <div className={`bg-[#F2F2F7] text-zinc-900 font-sans tracking-tight antialiased ${['sparepart', 'cro'].includes(currentPage) ? 'h-screen overflow-hidden' : 'min-h-screen pb-12 pt-16'}`}>
       {/* Navbar Tetap di App.jsx */}
       <div
         onMouseEnter={() => setIsNavbarVisible(true)}
@@ -570,18 +610,26 @@ const App = () => {
                 <Settings size={14} /> Profile
               </button>
             ) : (
-              <button onClick={() => user ? setCurrentPage('admin') : setCurrentPage('login')}
-                className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 ${currentPage === 'admin' || currentPage === 'login' ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
-                <Settings size={14} /> Admin
+              <button onClick={() => user ? (user.role === 'sparepart' ? setCurrentPage('sparepart') : user.role === 'cro' ? setCurrentPage('cro') : user.role === 'manager' ? setCurrentPage('manager') : setCurrentPage('admin')) : setCurrentPage('login')}
+                className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 ${['admin', 'login', 'sparepart', 'cro', 'manager'].includes(currentPage) ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
+                <Settings size={14} /> {user?.role === 'sparepart' ? 'Sparepart' : user?.role === 'cro' ? 'CRO Follow Up' : user?.role === 'manager' ? 'Manager Dashboard' : 'Admin'}
               </button>
             )}
-            {user?.role === 'admin' && (
+            {(user?.role === 'admin' || user?.role === 'manager') && (
               <>
                 <div className="w-[1px] h-6 bg-zinc-200 mx-1 self-center"></div>
-                <button onClick={() => setCurrentPage('promo')}
-                  className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 ${currentPage === 'promo' ? 'bg-zinc-900 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-900'}`}>
-                  Promo
-                </button>
+                {user?.role === 'admin' && (
+                  <button onClick={() => setCurrentPage('promo')}
+                    className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 ${currentPage === 'promo' ? 'bg-zinc-900 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-900'}`}>
+                    Promo
+                  </button>
+                )}
+                {user?.role === 'manager' && (
+                  <button onClick={() => setCurrentPage('manager')}
+                    className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 ${currentPage === 'manager' ? 'bg-zinc-900 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-900'}`}>
+                    Management
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -599,9 +647,12 @@ const App = () => {
       {/* Render Pages */}
       {currentPage === 'display' && <DisplayBoard processedQueue={processedQueue} queueLength={queue.length} formatTime={formatTime} user={user} onStartWork={handleStartWork} onLogoDoubleClick={() => setCurrentPage('login')} rawHistory={rawHistory} />}
       {currentPage === 'login' && <LoginPage loginForm={loginForm} setLoginForm={setLoginForm} handleLogin={handleLogin} errorMessage={errorMessage} setCurrentPage={setCurrentPage} />}
-      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} formData={formData} setFormData={setFormData} isEditing={isEditing} errorMessage={errorMessage} formatTime={formatTime} handleComplete={handleComplete} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} />}
+      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} formData={formData} setFormData={setFormData} isEditing={isEditing} errorMessage={errorMessage} formatTime={formatTime} handleComplete={handleComplete} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />}
       {currentPage === 'mechanic' && <MechanicPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} rawHistory={rawHistory} />}
+      {currentPage === 'sparepart' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={isNavbarVisible} />}
+      {currentPage === 'cro' && <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={isNavbarVisible} />}
       {currentPage === 'promo' && <PromosiSparepart />}
+      {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} />}
 
       {/* Footer */}
       <footer className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-zinc-200 px-8 py-2 flex justify-between items-center text-[9px] text-zinc-400 font-black uppercase tracking-[0.2em] z-50">

@@ -1,6 +1,14 @@
 export default async function handler(req, res) {
+  // Simple Middleware to secure API from direct browser access
+  const clientApiKey = req.headers['x-api-key'];
+  const expectedApiKey = process.env.VITE_API_KEY || "chery-secret-key-2024";
+
+  if (!clientApiKey || clientApiKey !== expectedApiKey) {
+    return res.status(401).json({ error: "Unauthorized access: API key is missing or invalid." });
+  }
+
   const targetUrl = process.env.VITE_GAS_USERS_URL;
-  
+
   if (!targetUrl) {
     return res.status(500).json({ error: "No GAS URL configured in Server. Make sure to set VITE_GAS_USERS_URL in Vercel Environment." });
   }
@@ -17,14 +25,14 @@ export default async function handler(req, res) {
     const options = {
       method: req.method,
     };
-    
+
     if (req.method === 'POST') {
       options.body = typeof req.body === 'object' ? JSON.stringify(req.body) : req.body;
     }
 
     const proxyResponse = await fetch(urlObj.toString(), options);
     const contentType = proxyResponse.headers.get('content-type') || '';
-    
+
     if (contentType.includes('application/json')) {
       const data = await proxyResponse.json();
       return res.status(proxyResponse.status).json(data);
