@@ -1,0 +1,7 @@
+VITE_GAS_URL=https://script.google.com/macros/s/AKfycbwKGqePzMk_GRuWXz3T4xH84bBDhGL-nB5npMW_CDMNjap1KdkrwzUProUlxJdKG1P5mQ/exec
+VITE_GAS_USERS_URL=https://script.google.com/macros/s/AKfycbwtwU8HEMX3mW5-XO3dSXTLs1Dne1HwTF6g4eHNriUm4930pIHiDWlO2Z457fgqsuApdw/exec
+VITE_GAS_SPAREPART_URL=https://script.google.com/macros/s/AKfycbxrunwkSJ_2W_6rUPllamZM0vffwojyFipmR8myzX7hsAAP6Vv5xlUlHjFakta3UKNB/exec
+VITE_GAS_REVENUE_URL=https://script.google.com/macros/s/AKfycbx-pb8EvtrgZH7Oiw5wWVQ4QWTN5eXSRZ5ihyHXntrMPpp0x2IAsRfRXC_YBA1psHZU/exec
+VITE_GAS_LAPORANWO_URL=https://script.google.com/macros/s/AKfycbz10C4HuhPtgWkZjKd062Tm2beEMusub8Dqk2VwwLsZci-ZKGTiexlIIft9NwOJCa3l/exec
+VITE_GAS_CRO_URL=https://script.google.com/macros/s/AKfycbwf0QGS_vN7QKVX8b5R-VIQuGRRhKRnLoMGDIu-h-TJJkXfQFdsfmYA9nyDYJRgdfMvBQ/exec
+VITE_API_KEY=chery-secret-key-2024

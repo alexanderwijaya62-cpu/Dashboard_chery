@@ -12,10 +12,13 @@ export default async function handler(req, res) {
         }
 
         const urlObj = new URL(targetUrl);
+        urlObj.searchParams.set('key', expectedApiKey);
         if (req.query) {
-            Object.keys(req.query).forEach(key => {
-                urlObj.searchParams.set(key, req.query[key]);
-            });
+            for (const key in req.query) {
+                if (key !== 'key') {
+                    urlObj.searchParams.set(key, req.query[key]);
+                }
+            }
         }
 
         const options = {

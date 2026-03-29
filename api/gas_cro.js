@@ -1,22 +1,25 @@
 export default async function handler(req, res) {
+    // Simple Middleware to secure API from direct browser access
     const clientApiKey = req.headers['x-api-key'];
     const expectedApiKey = process.env.VITE_API_KEY || "chery-secret-key-2024";
 
     if (!clientApiKey || clientApiKey !== expectedApiKey) {
-        return res.status(401).json({ error: "Unauthorized access" });
+        return res.status(401).json({ error: "Unauthorized access: API key is missing or invalid." });
     }
 
-    const targetUrl = process.env.VITE_GAS_REVENUE_URL;
+    const targetUrl = process.env.VITE_GAS_CRO_URL;
 
     if (!targetUrl) {
-        return res.status(500).json({ error: "No Revenue GAS URL configured in Server. Check VITE_GAS_REVENUE_URL." });
+        return res.status(500).json({ error: "No GAS CRO URL configured in Server. Make sure to set VITE_GAS_CRO_URL in Vercel Environment." });
     }
 
+    // Keamanan: Sertakan API Key dalam URL GAS agar sinkron dengan script.google.com
     const urlObj = new URL(targetUrl);
     urlObj.searchParams.set('key', expectedApiKey);
+
     if (req.query) {
         for (const key in req.query) {
-            if (key !== 'key') {
+            if (key !== 'key') { // Jangan timpa key keamanan
                 urlObj.searchParams.set(key, req.query[key]);
             }
         }
@@ -28,9 +31,12 @@ export default async function handler(req, res) {
         };
 
         if (req.method === 'POST') {
+            // Vercel serverless parses req.body automatically into an object if it's JSON.
+            // We must stringify it again because GAS expects raw JSON text sometimes based on your App.jsx implementation.
             options.body = typeof req.body === 'object' ? JSON.stringify(req.body) : req.body;
         }
 
+        // Call the original Google Apps Script
         const proxyResponse = await fetch(urlObj.toString(), options);
         const contentType = proxyResponse.headers.get('content-type') || '';
 
@@ -47,6 +53,6 @@ export default async function handler(req, res) {
             }
         }
     } catch (error) {
-        return res.status(500).json({ error: error.message || "Failed to fetch from Revenue Google Script" });
+        return res.status(500).json({ error: error.message || "Failed to fetch from Google Script" });
     }
 }

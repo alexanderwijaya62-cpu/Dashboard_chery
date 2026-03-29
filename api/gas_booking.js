@@ -1,19 +1,22 @@
 export default async function handler(req, res) {
+    // Simple Middleware to secure API from direct browser access
     const clientApiKey = req.headers['x-api-key'];
     const expectedApiKey = process.env.VITE_API_KEY || "chery-secret-key-2024";
 
     if (!clientApiKey || clientApiKey !== expectedApiKey) {
-        return res.status(401).json({ error: "Unauthorized access" });
+        return res.status(401).json({ error: "Unauthorized access: API key is missing or invalid." });
     }
 
-    const targetUrl = process.env.VITE_GAS_REVENUE_URL;
+    const targetUrl = process.env.VITE_GAS_BOOKING_URL;
 
-    if (!targetUrl) {
-        return res.status(500).json({ error: "No Revenue GAS URL configured in Server. Check VITE_GAS_REVENUE_URL." });
+    if (!targetUrl || targetUrl.includes("YOUR_ACTUAL_BOOKING_URL")) {
+        return res.status(500).json({ error: "No GAS BOOKING URL configured in Server. Make sure to set VITE_GAS_BOOKING_URL in Vercel Environment." });
     }
 
+    // Keamanan: Sertakan API Key dalam URL GAS agar sinkron dengan script.google.com
     const urlObj = new URL(targetUrl);
     urlObj.searchParams.set('key', expectedApiKey);
+
     if (req.query) {
         for (const key in req.query) {
             if (key !== 'key') {
@@ -47,6 +50,6 @@ export default async function handler(req, res) {
             }
         }
     } catch (error) {
-        return res.status(500).json({ error: error.message || "Failed to fetch from Revenue Google Script" });
+        return res.status(500).json({ error: error.message || "Failed to fetch from Google Script" });
     }
 }

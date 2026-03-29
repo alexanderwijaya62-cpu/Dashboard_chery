@@ -1,0 +1,194 @@
+/**
+ * GOOGLE APPS SCRIPT DASHBOARD CHERY - BOOKING & HOLIDAYS (FULL VERSION)
+ * Deskripsi: Menyimpan data reservasi booking service dan pengaturan hari libur.
+ * Gunakan kode ini sepenuhnya di Apps Script Editor Anda.
+ */
+
+var API_KEY = "chery-secret-key-2024";
+
+// Nama Sheet Default
+var SHEET_BOOKING_NAME = "Booking";
+var SHEET_HOLIDAYS_NAME = "Holidays";
+
+// Kolom default jika ingin membuat sheet baru via setupSheets()
+var HEADERS_BOOKING = ["id", "noUrut", "tanggal", "jam", "tipeMobil", "noPlat", "namaCustomer", "keperluanService", "vin", "bookingVia", "noTelp", "status"];
+var HEADERS_HOLIDAYS = ["date", "note"];
+
+/**
+ * Fungsi untuk mencari Sheet secara cerdas (tidak peduli besar kecil huruf / spasi)
+ */
+function getSmartSheet(ss, keyword) {
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var name = sheets[i].getName().toLowerCase().trim();
+    if (name.indexOf(keyword.toLowerCase()) > -1) {
+      return sheets[i];
+    }
+  }
+  return null;
+}
+
+function setupSheets() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!getSmartSheet(ss, "booking")) ss.insertSheet(SHEET_BOOKING_NAME).appendRow(HEADERS_BOOKING);
+  if (!getSmartSheet(ss, "holiday")) ss.insertSheet(SHEET_HOLIDAYS_NAME).appendRow(HEADERS_HOLIDAYS);
+}
+
+function doGet(e) {
+  if (e.parameter.key !== API_KEY) {
+    return ContentService.createTextOutput(JSON.stringify({status: 'error', message: 'Unauthorized'})).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var action = e.parameter.action;
+
+  // --- GET HOLIDAYS ---
+  if (action === 'get_holidays') {
+    var sheet = getSmartSheet(ss, "holiday") || ss.getSheets()[0];
+    var data = sheet.getDataRange().getValues();
+    if (data.length < 2) return ContentService.createTextOutput(JSON.stringify([])).setMimeType(ContentService.MimeType.JSON);
+    
+    var result = [];
+    for (var i = 1; i < data.length; i++) {
+      var d = data[i][0];
+      if (Object.prototype.toString.call(d) === '[object Date]') {
+        d = Utilities.formatDate(d, Session.getScriptTimeZone(), "yyyy-MM-dd");
+      }
+      result.push({ date: d, note: data[i][1] });
+    }
+    return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // --- DEFAULT: GET BOOKINGS ---
+  var sheet = getSmartSheet(ss, "booking") || ss.getSheets()[0];
+  var data = sheet.getDataRange().getValues();
+  
+  if (data.length < 2) {
+    var allSheets = [];
+    var sheets = ss.getSheets();
+    for (var s=0; s<sheets.length; s++) { allSheets.push(sheets[s].getName()); }
+    
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "debug",
+      message: "Data di Google Sheet terdeteksi KOSONG atau hanya ada header (kurang dari 2 baris).",
+      sheetYangDibaca: sheet.getName(),
+      jumlahBaris: data.length,
+      semuaSheet: allSheets
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+  
+  var headersInSheet = data[0];
+  var result = [];
+  
+  for (var i = 1; i < data.length; i++) {
+    var obj = {};
+    for (var j = 0; j < headersInSheet.length; j++) {
+      var val = data[i][j];
+      // Format Tanggal agar konsisten dd/MM/yyyy ke Frontend
+      if (Object.prototype.toString.call(val) === '[object Date]') {
+        val = Utilities.formatDate(val, Session.getScriptTimeZone(), "dd/MM/yyyy");
+      }
+      obj[headersInSheet[j]] = val;
+    }
+    result.push(obj);
+  }
+  
+  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var body = JSON.parse(e.postData.contents);
+  
+  // Auth Check
+  if (body.key !== API_KEY && e.parameter.key !== API_KEY) {
+    return ContentService.createTextOutput(JSON.stringify({status: 'error', message: 'Unauthorized'})).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // --- ACTION: ADD HOLIDAY ---
+  if (body.action === 'add_holiday') {
+    var sheet = getSmartSheet(ss, "holiday");
+    if (!sheet) { setupSheets(); sheet = getSmartSheet(ss, "holiday"); }
+    sheet.appendRow([body.date, body.note]);
+    return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // --- ACTION: DELETE HOLIDAY ---
+  if (body.action === 'delete_holiday') {
+    var sheet = getSmartSheet(ss, "holiday");
+    if (!sheet) return ContentService.createTextOutput(JSON.stringify({success: false})).setMimeType(ContentService.MimeType.JSON);
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var d = data[i][0];
+      if (Object.prototype.toString.call(d) === '[object Date]') d = Utilities.formatDate(d, Session.getScriptTimeZone(), "yyyy-MM-dd");
+      if (d === body.date) {
+        sheet.deleteRow(i + 1);
+        break;
+      }
+    }
+    return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // --- ACTION: ADD BOOKING ---
+  if (body.action === 'add') {
+    var sheet = getSmartSheet(ss, "booking") || ss.getSheets()[0];
+    var newRow = [];
+    var dataRows = sheet.getDataRange().getValues();
+    var lastUrut = 0;
+    for (var i = 1; i < dataRows.length; i++) {
+      var urut = parseInt(dataRows[i][1]); 
+      if (!isNaN(urut) && urut > lastUrut) lastUrut = urut;
+    }
+    body.data.noUrut = lastUrut + 1;
+    body.data.id = new Date().getTime().toString();
+    body.data.status = body.data.status || 'waiting confirm';
+    
+    // Gunakan header dari sheet untuk penyusunan kolom
+    var sheetHeaders = dataRows[0];
+    for (var h = 0; h < sheetHeaders.length; h++) {
+      var keyInBody = sheetHeaders[h];
+      // Fallback untuk mapping case insensitivity jika diperlukan
+      newRow.push(body.data[keyInBody] || "");
+    }
+    sheet.appendRow(newRow);
+    return ContentService.createTextOutput(JSON.stringify({success: true, record: body.data})).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // --- ACTION: UPDATE BOOKING ---
+  if (body.action === 'update') {
+    var sheet = getSmartSheet(ss, "booking") || ss.getSheets()[0];
+    var idToUpdate = body.id;
+    var dataRows = sheet.getDataRange().getValues();
+    var headersInSheet = dataRows[0];
+    for (var i = 1; i < dataRows.length; i++) {
+        // Cek kolom pertama (ID)
+      if (dataRows[i][0] == idToUpdate) {
+        for (var key in body.updates) {
+          var cIdx = -1;
+          for(var k=0; k<headersInSheet.length; k++){
+              if(headersInSheet[k].toLowerCase() === key.toLowerCase()){
+                  cIdx = k;
+                  break;
+              }
+          }
+          if (cIdx > -1) sheet.getRange(i + 1, cIdx + 1).setValue(body.updates[key]);
+        }
+        return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+  }
+
+  // --- ACTION: DELETE BOOKING ---
+  if (body.action === 'delete') {
+    var sheet = getSmartSheet(ss, "booking") || ss.getSheets()[0];
+    var dataRows = sheet.getDataRange().getValues();
+    for (var i = 1; i < dataRows.length; i++) {
+      if (dataRows[i][0] == body.id) {
+        sheet.deleteRow(i + 1);
+        return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({success: false, message: 'Invalid action'})).setMimeType(ContentService.MimeType.JSON);
+}

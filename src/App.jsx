@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { LayoutDashboard, Settings } from 'lucide-react';
+import { LayoutDashboard, Settings, Calendar, Plus } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
+
+import { API_KEY, GAS_URL, GAS_USERS_URL } from './utils/config';
 
 // Import Komponen Terpisah
 import DisplayBoard from './components/DisplayBoard';
@@ -12,21 +14,29 @@ import MechanicPanel from './components/MechanicPanel';
 import SparepartPanel from './components/SparepartPanel';
 import FollowupPanel from './components/FollowupPanel';
 import ManagerPanel from './components/ManagerPanel';
+import PublicBooking from './components/PublicBooking';
+import CroBookingPanel from './components/CroBookingPanel';
+import BookingManager from './components/BookingManager';
 import { USERS } from './data/users';
 
-const GAS_URL = "/api/gas";
-// MASUKKAN LINK WEB APP UNTUK GOOGLE SHEET USERS DI BAWAH INI:
-const GAS_USERS_URL = "/api/gas_users";
+// Helper sanitasi untuk mencegah "Injection" atau karakter berbahaya
+const sanitizeInput = (str) => {
+  if (typeof str !== 'string') return str;
+  // Menghapus karakter yang sering digunakan untuk memanipulasi Query/Formula (', ", =, <, >, { , })
+  return str.replace(/['"=<>{}[\]]/g, '').trim();
+};
 
-// Helper function untuk fetch dengan API Key Middleware
-const API_KEY = import.meta.env.VITE_API_KEY || "chery-secret-key-2024";
 const customFetch = (url, options = {}) => {
+  const isGAS = url.includes('script.google.com');
+  const headers = { ...options.headers };
+
+  if (!isGAS) {
+    headers["x-api-key"] = API_KEY;
+  }
+
   return fetch(url, {
     ...options,
-    headers: {
-      ...options.headers,
-      "x-api-key": API_KEY
-    }
+    headers
   });
 };
 
@@ -39,15 +49,24 @@ const formatTime = (totalSeconds) => {
 };
 
 const App = () => {
-  const [currentPage, setCurrentPage] = useState('display');
+  const [currentPage, setCurrentPage] = useState(() => {
+    return localStorage.getItem('chery_current_page') || 'display';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('chery_current_page', currentPage);
+  }, [currentPage]);
   const [isNavbarVisible, setIsNavbarVisible] = useState(true);
   const [user, setUser] = useState(() => {
     const savedUser = localStorage.getItem('chery_auth_user');
     return savedUser ? JSON.parse(savedUser) : null;
   });
+  const [sessionId, setSessionId] = useState(() => {
+    return localStorage.getItem('chery_session_id') || null;
+  });
   const [queue, setQueue] = useState([]);
   const [now, setNow] = useState(Date.now());
-  const [formData, setFormData] = useState({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '' });
+  const [formData, setFormData] = useState({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '', mechanicName: '' });
   const [isEditing, setIsEditing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
@@ -73,9 +92,9 @@ const App = () => {
   }, [breakSettings]);
 
   // Fetch Data dari Apps Script
-  const fetchQueue = useCallback(async () => {
+  const fetchQueue = React.useCallback(async () => {
     try {
-      // Fetch Antrean & History
+      // Fetch Antrean & History (Hanya data operasional, bukan data user)
       const response = await customFetch(GAS_URL);
       const data = await response.json();
 
@@ -91,33 +110,37 @@ const App = () => {
         setQueue([]);
         setRawHistory([]);
       }
-
-      // Fetch Data Users jika link GAS_USERS_URL sudah diisi
-      if (GAS_USERS_URL && GAS_USERS_URL.trim() !== "") {
-        const usersResponse = await customFetch(GAS_USERS_URL);
-        const usersData = await usersResponse.json();
-
-        if (usersData && usersData.users && Array.isArray(usersData.users) && usersData.users.length > 0) {
-          setUsersData(usersData.users);
-        }
-      }
-
+      // PENTING: Jangan lagi memanggil GAS_USERS_URL di sini untuk mengambil semua user!
     } catch (error) {
-      console.error("Gagal mengambil data dari Google Sheets", error);
+      console.error("Gagal mengambil data operasional", error);
     }
   }, []);
 
-  // Sinkronisasi dengan Google Sheets (Polling ringan untuk hemat kuota API)
+  // Sinkronisasi dengan Google Sheets - OPTIMIZED FOR VERCEL FREE LIMITS
   useEffect(() => {
     fetchQueue(); // Ambil data pertama kali
+
     const interval = setInterval(() => {
-      // Hanya lakukan polling ke server/Google Script jika tab browsernya sedang aktif (tidak di-minimize)
-      if (document.visibilityState === 'visible') {
+      // 1. CEK VISIBILITAS: Jika tab tidak dibuka (browser di-minimize), BERHENTI POLING TOTAL.
+      if (document.visibilityState !== 'visible') return;
+
+      // 2. ADAPTIVE SPEED:
+      // - Jika sedang di Board (TV): Cepat (15 detik)
+      // - Jika sedang di Laporan/Setting: Lambat (60 detik)
+      // - Default: 30 detik
+      const currentInterval = (currentPage === 'display') ? 15000 :
+        (['manager', 'cro', 'sparepart'].includes(currentPage)) ? 60000 : 30000;
+
+      // Logika agar tidak numpuk request jika interval belum tercapai (pake timestamp)
+      const lastFetch = parseInt(localStorage.getItem('last_fetch_raw') || '0');
+      if (Date.now() - lastFetch >= currentInterval) {
         fetchQueue();
+        localStorage.setItem('last_fetch_raw', Date.now().toString());
       }
-    }, 10000);
+    }, 5000); // Cek status tiap 5 detik tanpa narik data berat
+
     return () => clearInterval(interval);
-  }, [fetchQueue]);
+  }, [fetchQueue, currentPage]);
 
   // Update waktu lokal setiap detik untuk countdown
   useEffect(() => {
@@ -128,10 +151,83 @@ const App = () => {
   // Simpan status user ke LocalStorage
   useEffect(() => {
     localStorage.setItem('chery_auth_user', JSON.stringify(user));
+    if (!user) {
+      localStorage.removeItem('chery_session_id');
+      setSessionId(null);
+    }
   }, [user]);
 
+  useEffect(() => {
+    if (sessionId) {
+      localStorage.setItem('chery_session_id', sessionId);
+    }
+  }, [sessionId]);
+
+  // Session Check (Single Device Login - Adaptive Real-time)
+  useEffect(() => {
+    if (!user || !sessionId || currentPage === 'display') return;
+
+    let lastInteraction = Date.now();
+    const updateInteraction = () => { lastInteraction = Date.now(); };
+
+    // Listeners for user activity
+    window.addEventListener('mousemove', updateInteraction);
+    window.addEventListener('keydown', updateInteraction);
+    window.addEventListener('scroll', updateInteraction, true);
+
+    const checkSession = async () => {
+      try {
+        const res = await customFetch(`${GAS_USERS_URL}?action=checkSession`, {
+          method: 'POST',
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ username: user.username, sessionId: sessionId })
+        });
+        const data = await res.json();
+        
+        if (data.status === 'success' && data.valid === false) {
+          handleLogout();
+          Toastify({
+            text: "⚠️ Seseorang telah login ke akun Anda dari perangkat lain.",
+            duration: 0, close: true, gravity: "top", position: "center",
+            style: { background: "#ef4444", borderRadius: "12px", fontWeight: "900" }
+          }).showToast();
+          try { new Audio('/notification.mp3').play().catch(() => {}); } catch(e) {}
+        }
+      } catch (e) {
+        console.error("Session check failed", e);
+      }
+    };
+
+    const runPolling = async () => {
+      await checkSession();
+      
+      // Adaptive timing
+      const idleTime = Date.now() - lastInteraction;
+      const isTabHidden = document.visibilityState !== 'visible';
+      
+      let nextInterval = 5000; // Default REAL-TIME 5s
+      
+      if (isTabHidden) {
+        nextInterval = 300000; // 5 minutes if tab hidden
+      } else if (idleTime > 120000) {
+        nextInterval = 60000; // 1 minute if idle for 2 mins
+      }
+      
+      timeoutId = setTimeout(runPolling, nextInterval);
+    };
+
+    let timeoutId = setTimeout(runPolling, 5000);
+
+    return () => {
+      clearTimeout(timeoutId);
+      window.removeEventListener('mousemove', updateInteraction);
+      window.removeEventListener('keydown', updateInteraction);
+      window.removeEventListener('scroll', updateInteraction, true);
+    };
+  }, [user, sessionId, currentPage]);
+
   const [notifiedIds, setNotifiedIds] = useState(new Set());
-  const playNotificationSound = useCallback(() => {
+  const playNotificationSound = React.useCallback(() => {
     try {
       const audio = new Audio('/notification.mp3');
       audio.volume = 1.0;
@@ -203,7 +299,7 @@ const App = () => {
       // First load, don't notify but populate the set
       setNotifiedIds(new Set(rawHistory.map(item => item.id)));
     }
-  }, [rawHistory, notifiedIds]);
+  }, [rawHistory, notifiedIds, playNotificationSound]);
 
   const isAutoUpdating = useRef(false);
 
@@ -325,27 +421,55 @@ const App = () => {
 
   const processedQueue = useMemo(() => fullProcessedQueue, [fullProcessedQueue]);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
+    setIsLoadingProcess(true);
 
-    const foundUser = usersData.find(u => {
-      // Prioritaskan password dari usersData (yang diambil dari GAS), fallback ke data/users.js
-      return u.username === loginForm.username && u.password === loginForm.password;
-    });
+    try {
+      // Sanitasi input sebelum dikirim ke server
+      const cleanUsername = sanitizeInput(loginForm.username);
+      const cleanPassword = sanitizeInput(loginForm.password);
 
-    if (foundUser) {
-      setUser({ name: foundUser.name, username: foundUser.username, role: foundUser.role });
-      // Clear form
-      setLoginForm({ username: '', password: '' });
-      const targetPage = foundUser.role === 'mekanik' ? 'mechanic' :
-        foundUser.role === 'sparepart' ? 'sparepart' :
-          foundUser.role === 'cro' ? 'cro' :
-            foundUser.role === 'manager' ? 'manager' : 'admin';
-      setCurrentPage(targetPage);
-      setErrorMessage("");
-    } else {
-      setErrorMessage("Username atau Password salah!");
-      setTimeout(() => setErrorMessage(""), 3000);
+      // Generate New Session ID
+      const newSessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
+
+      // Verifikasi di Sisi Server (GAS)
+      const response = await customFetch(`${GAS_USERS_URL}?action=login`, {
+        method: 'POST',
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8"
+        },
+        body: JSON.stringify({
+          username: cleanUsername,
+          password: cleanPassword,
+          sessionId: newSessionId
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.status === 'success') {
+        // Data yang disimpan hanya info dasar, BUKAN PASSWORD
+        const userData = { name: data.user.name, username: data.user.username, role: data.user.role };
+        setUser(userData);
+        setSessionId(newSessionId);
+        setLoginForm({ username: '', password: '' });
+
+        const targetPage = data.user.role === 'mekanik' ? 'mechanic' :
+          data.user.role === 'sparepart' ? 'sparepart' :
+            data.user.role === 'cro' ? 'cro' :
+              data.user.role === 'manager' ? 'manager' : 'admin';
+        setCurrentPage(targetPage);
+        setErrorMessage("");
+      } else {
+        setErrorMessage("Username atau Password salah!");
+        setTimeout(() => setErrorMessage(""), 3000);
+      }
+    } catch (error) {
+      console.error("Login Error:", error);
+      setErrorMessage("Gagal terhubung ke server keamanan!");
+    } finally {
+      setIsLoadingProcess(false);
     }
   };
 
@@ -409,6 +533,7 @@ const App = () => {
       category: formData.category,
       estimasiDefault: totalSeconds,
       keluhan: formData.keluhan || '',
+      mechanicName: formData.mechanicName || '',
     };
 
     if (isEditing) {
@@ -432,7 +557,7 @@ const App = () => {
       // Ambil data terbaru langsung
       fetchQueue();
       // Reset form setelah save
-      setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '' });
+      setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '', mechanicName: '' });
       setIsEditing(false);
     } catch (error) {
       console.error("Gagal menyimpan data", error);
@@ -585,7 +710,8 @@ const App = () => {
       ...item,
       jam: Math.floor(item.estimasi / 3600),
       menit: Math.floor((item.estimasi % 3600) / 60),
-      detik: item.estimasi % 60
+      detik: item.estimasi % 60,
+      mechanicName: item.mechanicName || ''
     });
     setIsEditing(true);
   };
@@ -596,42 +722,49 @@ const App = () => {
       <div
         onMouseEnter={() => setIsNavbarVisible(true)}
         onMouseLeave={() => setIsNavbarVisible(false)}
-        className="fixed top-0 left-0 w-full z-50 h-16 group"
+        onClick={() => setIsNavbarVisible(prev => !prev)}
+        className="fixed top-0 left-0 w-full z-50 group"
       >
-        <nav className={`bg-white/80 backdrop-blur-md border-b border-zinc-200 px-4 py-3 flex justify-center items-center shadow-sm transition-transform duration-500 ease-in-out ${isNavbarVisible ? 'translate-y-0' : '-translate-y-full'}`}>
-          <div className="flex bg-zinc-100/80 p-1 rounded-2xl border border-zinc-200 shadow-inner">
+        <nav className={`bg-white/80 backdrop-blur-md border-b border-zinc-200 px-4 py-2.5 flex shadow-sm transition-transform duration-500 ease-in-out ${isNavbarVisible ? 'translate-y-0' : '-translate-y-full'}`}>
+          <div className="max-w-screen-xl mx-auto w-full flex items-center md:justify-center overflow-x-auto no-scrollbar">
+            <div className="flex bg-zinc-100/80 p-1 rounded-2xl border border-zinc-200 shadow-inner flex-nowrap shrink-0">
             <button onClick={() => setCurrentPage('display')}
-              className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 ${currentPage === 'display' ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
+              className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${currentPage === 'display' ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
               <LayoutDashboard size={14} /> Board
+            </button>
+            <button onClick={() => setCurrentPage('booking-public')}
+              className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${currentPage === 'booking-public' ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
+              <Calendar size={14} /> Booking
             </button>
             {user?.role === 'mekanik' ? (
               <button onClick={() => setCurrentPage('mechanic')}
-                className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 ${currentPage === 'mechanic' ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
+                className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${currentPage === 'mechanic' ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
                 <Settings size={14} /> Profile
               </button>
             ) : (
-              <button onClick={() => user ? (user.role === 'sparepart' ? setCurrentPage('sparepart') : user.role === 'cro' ? setCurrentPage('cro') : user.role === 'manager' ? setCurrentPage('manager') : setCurrentPage('admin')) : setCurrentPage('login')}
-                className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 ${['admin', 'login', 'sparepart', 'cro', 'manager'].includes(currentPage) ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
+              <button onClick={() => user ? (user.role === 'sparepart' ? setCurrentPage('sparepart') : (user.role === 'cro' && currentPage === 'cro-booking') ? setCurrentPage('cro') : user.role === 'cro' ? setCurrentPage('cro') : user.role === 'manager' ? setCurrentPage('manager') : setCurrentPage('admin')) : setCurrentPage('login')}
+                className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${['admin', 'login', 'sparepart', 'cro', 'manager'].includes(currentPage) ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
                 <Settings size={14} /> {user?.role === 'sparepart' ? 'Sparepart' : user?.role === 'cro' ? 'CRO Follow Up' : user?.role === 'manager' ? 'Manager Dashboard' : 'Admin'}
               </button>
             )}
-            {(user?.role === 'admin' || user?.role === 'manager') && (
+            {(user?.role === 'admin' || user?.role === 'manager' || user?.role === 'cro') && (
               <>
-                <div className="w-[1px] h-6 bg-zinc-200 mx-1 self-center"></div>
+                <div className="w-[1px] h-6 bg-zinc-200 mx-1 self-center shrink-0"></div>
                 {user?.role === 'admin' && (
                   <button onClick={() => setCurrentPage('promo')}
-                    className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 ${currentPage === 'promo' ? 'bg-zinc-900 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-900'}`}>
+                    className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${currentPage === 'promo' ? 'bg-zinc-900 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-900'}`}>
                     Promo
                   </button>
                 )}
                 {user?.role === 'manager' && (
                   <button onClick={() => setCurrentPage('manager')}
-                    className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 ${currentPage === 'manager' ? 'bg-zinc-900 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-900'}`}>
+                    className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${currentPage === 'manager' ? 'bg-zinc-900 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-900'}`}>
                     Management
                   </button>
                 )}
               </>
             )}
+            </div>
           </div>
         </nav>
       </div>
@@ -647,19 +780,28 @@ const App = () => {
       {/* Render Pages */}
       {currentPage === 'display' && <DisplayBoard processedQueue={processedQueue} queueLength={queue.length} formatTime={formatTime} user={user} onStartWork={handleStartWork} onLogoDoubleClick={() => setCurrentPage('login')} rawHistory={rawHistory} />}
       {currentPage === 'login' && <LoginPage loginForm={loginForm} setLoginForm={setLoginForm} handleLogin={handleLogin} errorMessage={errorMessage} setCurrentPage={setCurrentPage} />}
-      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} formData={formData} setFormData={setFormData} isEditing={isEditing} errorMessage={errorMessage} formatTime={formatTime} handleComplete={handleComplete} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />}
+      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} formData={formData} setFormData={setFormData} isEditing={isEditing} errorMessage={errorMessage} formatTime={formatTime} handleComplete={handleComplete} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />}
       {currentPage === 'mechanic' && <MechanicPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} rawHistory={rawHistory} />}
       {currentPage === 'sparepart' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={isNavbarVisible} />}
-      {currentPage === 'cro' && <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={isNavbarVisible} />}
+      {currentPage === 'cro' && (
+        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={isNavbarVisible} initialTab="belum" setCurrentPage={setCurrentPage} />
+      )}
+      {currentPage === 'cro-booking' && (
+        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={isNavbarVisible} initialTab="booking" setCurrentPage={setCurrentPage} />
+      )}
+      {currentPage === 'booking-public' && <PublicBooking user={user} />}
       {currentPage === 'promo' && <PromosiSparepart />}
-      {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} />}
+      {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={setIsNavbarVisible} />}
 
       {/* Footer */}
-      <footer className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-zinc-200 px-8 py-2 flex justify-between items-center text-[9px] text-zinc-400 font-black uppercase tracking-[0.2em] z-50">
-        <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span> Service Operational (G-Sheets)</span>
-          <span className="text-zinc-200">|</span>
-          <span>{queue.length} Active Cars</span>
+      <footer className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-zinc-200 px-4 md:px-8 py-2 md:py-2.5 flex flex-col md:flex-row justify-between items-center text-[7px] md:text-[9px] text-zinc-400 font-black uppercase tracking-[0.2em] z-50 gap-1 md:gap-0">
+        <div className="flex items-center gap-2 md:gap-4">
+          <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span> Service Operational</span>
+          <span className="text-zinc-200 hidden md:block">|</span>
+          <span className="hidden sm:inline">{queue.length} Active Cars</span>
+        </div>
+        <div className="flex items-center gap-2">
+            <span className="text-zinc-300">© 2026 Chery Oriental Medan</span>
         </div>
       </footer>
 
@@ -668,6 +810,8 @@ const App = () => {
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }
         }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
         .animate-shake { animation: shake 0.2s ease-in-out 0s 2; }
       `}</style>

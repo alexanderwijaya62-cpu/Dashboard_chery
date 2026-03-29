@@ -1,0 +1,136 @@
+/**
+ * GOOGLE APPS SCRIPT FOR USER MANAGEMENT (CHERY DASHBOARD)
+ * Features: Login validation, session tracking (single device), password management.
+ * 
+ * Optimized with CacheService for high-frequency polling (real-time logout).
+ */
+
+const USER_SHEET_NAME = "Users";
+const API_KEY = "chery-secret-key-2024";
+
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
+    const action = e.parameter.action || body.action;
+
+    // Security check
+    if (e.parameter.key !== API_KEY && body.key !== API_KEY) {
+      return response({ status: 'error', message: 'Unauthorized' });
+    }
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName(USER_SHEET_NAME);
+    if (!sheet) {
+      sheet = ss.insertSheet(USER_SHEET_NAME);
+      sheet.appendRow(["username", "password", "name", "role", "sessionId"]);
+    }
+
+    if (action === 'login') {
+      const { username, password, sessionId } = body;
+      const data = sheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][0] == username && data[i][1] == password) {
+          // Update sessionId for single device restriction
+          if (sessionId) {
+            sheet.getRange(i + 1, 5).setValue(sessionId);
+            // Save to Cache for fast lookup (TTL 1 day)
+            CacheService.getScriptCache().put("session_" + username, sessionId, 86400);
+          }
+          return response({
+            status: 'success',
+            user: { username: data[i][0], name: data[i][2], role: data[i][3] }
+          });
+        }
+      }
+      return response({ status: 'error', message: 'Invalid credentials' });
+    }
+
+    if (action === 'checkSession') {
+      const { username, sessionId } = body;
+      
+      // 1. Check Cache first (Extremely fast, no quota impact)
+      let currentSession = CacheService.getScriptCache().get("session_" + username);
+      
+      // 2. Fallback to Spreadsheet if cache is empty
+      if (currentSession === null) {
+        const data = sheet.getDataRange().getValues();
+        for (let i = 1; i < data.length; i++) {
+          if (data[i][0] == username) {
+            currentSession = data[i][4];
+            // Repopulate cache
+            CacheService.getScriptCache().put("session_" + username, String(currentSession), 86400);
+            break;
+          }
+        }
+      }
+      
+      if (currentSession == sessionId) {
+        return response({ status: 'success', valid: true });
+      } else {
+        return response({ status: 'success', valid: false });
+      }
+    }
+
+    if (action === 'upsertUser') {
+      const { username, password, name, role } = body;
+      const data = sheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][0] == username) {
+          if (password) sheet.getRange(i + 1, 2).setValue(password);
+          sheet.getRange(i + 1, 3).setValue(name);
+          sheet.getRange(i + 1, 4).setValue(role);
+          return response({ status: 'success', message: 'User updated' });
+        }
+      }
+      sheet.appendRow([username, password, name, role, ""]);
+      return response({ status: 'success', message: 'User created' });
+    }
+
+    if (action === 'deleteUser') {
+      const { username } = body;
+      const data = sheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][0] == username) {
+          sheet.deleteRow(i + 1);
+          CacheService.getScriptCache().remove("session_" + username);
+          return response({ status: 'success', message: 'User deleted' });
+        }
+      }
+      return response({ status: 'error', message: 'User not found' });
+    }
+
+    return response({ status: 'error', message: 'Invalid action' });
+  } catch (err) {
+    return response({ status: 'error', message: err.toString() });
+  }
+}
+
+function doGet(e) {
+  try {
+    const action = e.parameter.action;
+    if (e.parameter.key !== API_KEY) {
+      return response({ status: 'error', message: 'Unauthorized' });
+    }
+
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(USER_SHEET_NAME);
+    if (!sheet) return response({ users: [] });
+
+    const data = sheet.getDataRange().getValues();
+    const result = [];
+    for (let i = 1; i < data.length; i++) {
+      result.push({
+        username: data[i][0],
+        name: data[i][2],
+        role: data[i][3]
+      });
+    }
+
+    return response({ users: result });
+  } catch (err) {
+    return response({ status: 'error', message: err.toString() });
+  }
+}
+
+function response(data) {
+  return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
+}

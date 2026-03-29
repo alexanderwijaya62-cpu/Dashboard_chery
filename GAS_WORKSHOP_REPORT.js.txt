@@ -1,12 +1,8 @@
 /**
  * GOOGLE APPS SCRIPT FOR CHERY DASHBOARD WORKSHOP REPORT
  * Paste this into your Google Apps Script project (Extensions > Apps Script)
- * 
- * IMPORTANT: Create a sheet named "Worksheet" with the following headers in Row 1:
- * no_wo | tipe_kendaraan | sa | mekanik | leader | wkt_masuk | jasa | s_part | g_total
  */
 
-const SPREADSHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 const WORKSHOP_SHEET_NAME = "Worksheet";
 
 function doPost(e) {
@@ -16,29 +12,44 @@ function doPost(e) {
     const data = body.data;
 
     if (action === 'add_workshop') {
-      const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(WORKSHOP_SHEET_NAME);
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      let sheet = ss.getSheetByName(WORKSHOP_SHEET_NAME);
       if (!sheet) {
-        return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Sheet Worksheet not found' })).setMimeType(ContentService.MimeType.JSON);
+        sheet = ss.insertSheet(WORKSHOP_SHEET_NAME);
+        const headers = ["no_wo", "tipe_kendaraan", "sa", "mekanik", "leader", "wkt_masuk", "jasa", "s_part", "g_total", "nohp"];
+        sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold");
       }
 
-      // Prepare rows (bulk insert)
-      const rows = data.map(item => [
-        item.no_wo,
-        item.tipe_kendaraan,
-        item.sa,
-        item.mekanik,
-        item.leader,
-        item.wkt_masuk,
-        item.jasa,
-        item.s_part,
-        item.g_total
-      ]);
-
-      if (rows.length > 0) {
-        sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+      const existingData = sheet.getDataRange().getValues();
+      const headers = existingData[0];
+      const woMap = {};
+      for (let i = 1; i < existingData.length; i++) {
+        woMap[String(existingData[i][0])] = i + 1; // Row index
       }
 
-      return ContentService.createTextOutput(JSON.stringify({ status: 'success', count: rows.length })).setMimeType(ContentService.MimeType.JSON);
+      data.forEach(item => {
+        const row = [
+          item.no_wo,
+          item.tipe_kendaraan,
+          item.sa,
+          item.mekanik,
+          item.leader,
+          item.wkt_masuk,
+          item.jasa,
+          item.s_part,
+          item.g_total,
+          item.nohp || ''
+        ];
+        
+        const woKey = String(item.no_wo);
+        if (woMap[woKey]) {
+          sheet.getRange(woMap[woKey], 1, 1, row.length).setValues([row]);
+        } else {
+          sheet.appendRow(row);
+        }
+      });
+
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', count: data.length })).setMimeType(ContentService.MimeType.JSON);
     }
 
     return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Invalid Action' })).setMimeType(ContentService.MimeType.JSON);
@@ -49,10 +60,9 @@ function doPost(e) {
 
 function doGet(e) {
   const action = e.parameter.action;
-
   if (action === 'get_workshop') {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(WORKSHOP_SHEET_NAME);
-    if (!sheet) return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Sheet not found' })).setMimeType(ContentService.MimeType.JSON);
+    if (!sheet) return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: [] })).setMimeType(ContentService.MimeType.JSON);
     
     const data = sheet.getDataRange().getValues();
     const headers = data[0];
@@ -66,6 +76,5 @@ function doGet(e) {
 
     return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: result })).setMimeType(ContentService.MimeType.JSON);
   }
-
   return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Invalid Action' })).setMimeType(ContentService.MimeType.JSON);
 }

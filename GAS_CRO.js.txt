@@ -1,0 +1,132 @@
+/**
+ * GOOGLE APPS SCRIPT DASHBOARD CRO CHERY
+ * VERSI MULTI-KOLOM (HD TANPA DRIVE) 
+ * Menyimpan up-to 5 foto HD langsung di Sheets dengan memecahnya ke 5 kolom berbeda.
+ */
+
+var API_KEY = "chery-secret-key-2024";
+
+// Definisi Header: Kami pindahkan Lampiran menjadi 5 kolom terpisah di akhir
+var HEADERS = ["id", "workOrderNo", "nama", "telepon", "vin", "plat", "serviceAdvisor", "kilometer", "tipeMobil", "deskripsi", "tanggalDatang", "tahunBeli", "partLama", "partBaru", "status", "respon", "tanggalFollowUp", "lampiran1", "lampiran2", "lampiran3", "lampiran4", "lampiran5"];
+
+function doGet(e) {
+  if (e.parameter.key !== API_KEY) {
+    return ContentService.createTextOutput(JSON.stringify({status: 'error', message: 'Unauthorized'})).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var data = sheet.getDataRange().getValues();
+  
+  if(data.length < 2) return ContentService.createTextOutput(JSON.stringify([])).setMimeType(ContentService.MimeType.JSON);
+  
+  var headersInSheet = data[0];
+  var result = [];
+  
+  for (var i = 1; i < data.length; i++) {
+    var obj = {};
+    var attachments = [];
+    
+    for (var j = 0; j < headersInSheet.length; j++) {
+      var head = headersInSheet[j];
+      var val = data[i][j];
+      
+      // Jika kolom adalah salah satu dari lampiran 1-5, kumpulkan ke dalam array lampiran
+      if (head && head.toString().startsWith("lampiran") && val) {
+        attachments.push(val);
+      } else {
+        obj[head] = val;
+      }
+    }
+    // Frontend mengharapkan property "lampiran" sebagai array
+    obj["lampiran"] = attachments; 
+    result.push(obj);
+  }
+  
+  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var body = JSON.parse(e.postData.contents);
+  
+  if (body.key !== API_KEY && e.parameter.key !== API_KEY) {
+    return ContentService.createTextOutput(JSON.stringify({status: 'error', message: 'Unauthorized'})).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // --- AKSI 1: SYNC MASSAL ---
+  if (body.action === 'sync') {
+    sheet.clear();
+    var rows = [HEADERS];
+    var newData = body.data;
+    
+    for(var i = 0; i < newData.length; i++) {
+        var item = newData[i];
+        var row = [];
+        var imgs = Array.isArray(item.lampiran) ? item.lampiran : [];
+        if (typeof item.lampiran === 'string' && item.lampiran.startsWith('[')) {
+           try { imgs = JSON.parse(item.lampiran); } catch(e) {}
+        }
+
+        // Isi kolom id sampai tanggalFollowUp
+        for(var j = 0; j < 17; j++) {
+            row.push(item[HEADERS[j]] || "");
+        }
+        // Isi kolom lampiran1 sampai lampiran5
+        for(var k = 0; k < 5; k++) {
+            row.push(imgs[k] || "");
+        }
+        rows.push(row);
+    }
+    sheet.getRange(1, 1, rows.length, HEADERS.length).setValues(rows);
+    SpreadsheetApp.flush();
+    return ContentService.createTextOutput(JSON.stringify({success: true, action: 'sync'})).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // --- AKSI 2: UPDATE SATU BARIS ---
+  if (body.action === 'update') {
+    var idToUpdate = body.id;
+    var dataRows = sheet.getDataRange().getValues();
+    var headersInSheet = dataRows[0];
+    
+    for (var i = 1; i < dataRows.length; i++) {
+      if (dataRows[i][0] == idToUpdate) {
+        for (var key in body.updates) {
+          var val = body.updates[key];
+          
+          if (key === "lampiran") {
+             var imgs = Array.isArray(val) ? val : [];
+             if (typeof val === 'string' && val.startsWith('[')) {
+                try { imgs = JSON.parse(val); } catch(e) {}
+             }
+             // Update 5 kolom lampiran sekaligus
+             for (var k = 0; k < 5; k++) {
+                var colName = "lampiran" + (k + 1);
+                var cIdx = headersInSheet.indexOf(colName);
+                if (cIdx > -1) sheet.getRange(i + 1, cIdx + 1).setValue(imgs[k] || "");
+             }
+          } else {
+             var cIdx = headersInSheet.indexOf(key);
+             if (cIdx > -1) sheet.getRange(i + 1, cIdx + 1).setValue(val);
+          }
+        }
+        SpreadsheetApp.flush();
+        return ContentService.createTextOutput(JSON.stringify({success: true, action: 'update'})).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+  }
+
+  // --- AKSI 3: DELETE ---
+  if (body.action === 'delete') {
+    var idToDelete = body.id;
+    var dataRows = sheet.getDataRange().getValues();
+    for (var i = 1; i < dataRows.length; i++) {
+      if (dataRows[i][0] == idToDelete) {
+        sheet.deleteRow(i + 1);
+        SpreadsheetApp.flush();
+        return ContentService.createTextOutput(JSON.stringify({success: true, action: 'delete'})).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+  }
+  
+  return ContentService.createTextOutput(JSON.stringify({success: false, message: 'Invalid action'})).setMimeType(ContentService.MimeType.JSON);
+}

@@ -239,9 +239,10 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
 
                         {history.length > 0 ? (
                             <div className="max-h-[600px] overflow-y-auto custom-scrollbar">
-                                <table className="w-full text-left">
+                                {/* Desktop Table */}
+                                <table className="w-full text-left hidden sm:table">
                                     <thead>
-                                        <tr className="bg-zinc-50 border-b border-zinc-100 sticky top-0 backdrop-blur-md">
+                                        <tr className="bg-zinc-50 border-b border-zinc-100 sticky top-0 z-20 backdrop-blur-md">
                                             <th className="px-8 py-4 text-zinc-400 uppercase tracking-widest text-[9px] font-black">Detail Mobil</th>
                                             <th className="px-8 py-4 text-zinc-400 uppercase tracking-widest text-[9px] font-black text-center">Tipe Reg/Book</th>
                                             <th className="px-8 py-4 text-zinc-400 uppercase tracking-widest text-[9px] font-black text-right">Waktu Selesai</th>
@@ -268,6 +269,27 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                                         ))}
                                     </tbody>
                                 </table>
+
+                                {/* Mobile List */}
+                                <div className="sm:hidden divide-y divide-zinc-100">
+                                    {history.map((item, index) => (
+                                        <div key={index} className="p-4 bg-white flex justify-between items-center transition-all active:bg-zinc-50">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <p className="text-lg font-black tracking-tight text-zinc-900 leading-none">{item.bk}</p>
+                                                    <span className={`text-[7px] font-black px-1.5 py-0.5 rounded-md uppercase ${item.category === 'Booking' ? 'bg-red-600 text-white shadow-sm' : 'bg-zinc-100 text-zinc-500 border border-zinc-200'}`}>
+                                                        {item.category}
+                                                    </span>
+                                                </div>
+                                                <p className="text-zinc-400 text-[9px] uppercase font-black tracking-widest">{item.tipe}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-[10px] font-black text-zinc-600 leading-none mb-1">{new Date(item.completedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })}</p>
+                                                <p className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest">{new Date(item.completedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         ) : (
                             <div className="p-16 text-center text-zinc-400 flex flex-col items-center justify-center">

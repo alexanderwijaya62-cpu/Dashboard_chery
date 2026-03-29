@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { PackageSearch, Plus, Trash2, Check, ArrowLeft, Send, Upload, Search, Filter, X } from 'lucide-react';
+import { PackageSearch, Plus, Trash2, Check, ArrowLeft, Send, Upload, Search, Filter, X, Menu } from 'lucide-react';
 import Toastify from 'toastify-js';
 import * as XLSX from 'xlsx';
 
-const GAS_SPAREPART_URL = "/api/gas_sparepart";
-const API_KEY = import.meta.env.VITE_API_KEY || "chery-secret-key-2024";
+import { API_KEY, GAS_SPAREPART_URL } from '../utils/config';
 
 const normalize = (s) => String(s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 
@@ -249,7 +248,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
 
     useEffect(() => {
         fetchOrders();
-        const inv = setInterval(fetchOrders, 10000);
+        const inv = setInterval(fetchOrders, 60000); // Polling diperlambat agar hemat limit
         return () => clearInterval(inv);
     }, []);
 
@@ -586,41 +585,55 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
 
     return (
         <div className="flex h-screen bg-[#F2F2F7] relative">
+            {/* Mobile Backdrop */}
+            {isSidebarOpen && (
+                <div
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[55] lg:hidden transition-opacity duration-300"
+                    onClick={() => setIsSidebarOpen(false)}
+                />
+            )}
+
             {/* Sidebar - Hover to open or toggle on mobile */}
             <div
                 className={`fixed left-0 top-0 h-full bg-white border-r border-zinc-200 shadow-2xl transition-all duration-300 z-[60] flex flex-col ${isNavbarVisible ? 'pt-[4.5rem]' : 'pt-4'} 
-                ${isSidebarOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full lg:w-4 lg:translate-x-0 lg:hover:w-64'}`}
+                ${isSidebarOpen ? 'w-64 translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-4 lg:hover:w-64'}`}
                 onMouseEnter={() => window.innerWidth > 1024 && setIsSidebarOpen(true)}
                 onMouseLeave={() => window.innerWidth > 1024 && setIsSidebarOpen(false)}
             >
-                <div className={`flex flex-col h-full ${!isSidebarOpen && 'opacity-0 overflow-hidden'}`}>
-                    <div className="px-6 py-4 flex items-center justify-between border-b border-zinc-100">
-                        <h2 className="font-black text-zinc-900 uppercase tracking-widest text-sm flex items-center gap-2">
-                            <PackageSearch size={18} className="text-blue-500" /> Sparepart
-                        </h2>
-                    </div>
-                    <div className="flex-1 py-4 flex flex-col gap-2 px-4 overflow-y-auto custom-scrollbar">
-                        <button
-                            onClick={() => setActiveTab('input')}
-                            className={`text-left px-4 py-3 rounded-xl font-bold text-sm transition-all ${activeTab === 'input' ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'}`}
-                        >
-                            Input Pemesanan
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('view')}
-                            className={`text-left px-4 py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-between ${activeTab === 'view' ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'}`}
-                        >
-                            Daftar Pesanan
-                            {pendingOrders.length > 0 && (
-                                <span className={`text-[10px] px-2 py-0.5 rounded-full ${activeTab === 'view' ? 'bg-white text-zinc-900 bg-opacity-20' : 'bg-red-500 text-white'}`}>{pendingOrders.length}</span>
-                            )}
-                        </button>
-                    </div>
-                    <div className="p-4 mt-auto border-t border-zinc-100">
-                        <button onClick={handleLogout} className="w-full text-center px-4 py-3 rounded-xl font-bold text-sm text-red-500 bg-red-50 hover:bg-red-500 hover:text-white transition-all shadow-sm">
-                            Logout
-                        </button>
-                    </div>
+                <div className="px-6 py-4 flex items-center justify-between border-b border-zinc-100 relative">
+                    <h2 className="font-black text-zinc-900 uppercase tracking-widest text-sm flex items-center gap-2">
+                        <PackageSearch size={18} className="text-blue-500" /> Sparepart
+                    </h2>
+                    {/* Close Button Mobile */}
+                    <button
+                        onClick={() => setIsSidebarOpen(false)}
+                        className="lg:hidden p-2 text-zinc-400 hover:text-zinc-900"
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+                <div className="flex-1 py-4 flex flex-col gap-2 px-4 overflow-y-auto custom-scrollbar transition-opacity duration-300"
+                    style={{ opacity: !isSidebarOpen && window.innerWidth > 1024 ? 0 : 1 }}>
+                    <button
+                        onClick={() => setActiveTab('input')}
+                        className={`text-left px-4 py-3 rounded-xl font-bold text-sm transition-all ${activeTab === 'input' ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'}`}
+                    >
+                        Input Pemesanan
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('view')}
+                        className={`text-left px-4 py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-between ${activeTab === 'view' ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'}`}
+                    >
+                        Daftar Pesanan
+                        {pendingOrders.length > 0 && (
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${activeTab === 'view' ? 'bg-white text-zinc-900 bg-opacity-20' : 'bg-red-500 text-white'}`}>{pendingOrders.length}</span>
+                        )}
+                    </button>
+                </div>
+                <div className="p-4 mt-auto border-t border-zinc-100">
+                    <button onClick={handleLogout} className="w-full text-center px-4 py-3 rounded-xl font-bold text-sm text-red-500 bg-red-50 hover:bg-red-500 hover:text-white transition-all shadow-sm">
+                        Logout
+                    </button>
                 </div>
             </div>
 
@@ -639,9 +652,9 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
                     <div className="flex items-center gap-2 w-full sm:w-auto">
                         <button
                             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                            className="lg:hidden p-2 bg-zinc-900 text-white rounded-xl shadow-lg mr-auto"
+                            className="lg:hidden p-3 bg-white border border-zinc-200 text-zinc-900 rounded-2xl shadow-sm active:scale-95 transition-all mr-auto"
                         >
-                            <Search size={20} />
+                            {isSidebarOpen ? <X size={22} /> : <Menu size={22} />}
                         </button>
 
                         {activeTab === 'input' ? (
@@ -992,6 +1005,6 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
                 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #D4D4D8; }
             `}</style>
             </div>
-        </div>
+        </div >
     );
 }

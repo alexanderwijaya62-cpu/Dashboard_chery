@@ -1,0 +1,119 @@
+function doPost(e) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("WO_TRACKING") || ss.insertSheet("WO_TRACKING");
+  
+  // Set Headers if empty
+  if (sheet.getLastRow() === 0) {
+    var headers = [
+      "No. WO", "No. WO DMS", "Status", "No. Pol", "No. Rangka", 
+      "Kode Tipe", "Kendaraan", "Nama Invoice", "Pembawa", "KM Masuk", 
+      "Wkt.Masuk", "Wkt.Estimasi", "Wkt.Setuju Estimasi", "Wkt.Mulai", 
+      "Wkt.Selesai", "Wkt.Tutup", "SA", "Mekanik", "Leader", "LC", 
+      "Oli", "SM", "SO", "Penjualan", "S. Part", "TOTAL", "PPN", "G.TOTAL",
+      "Last Update"
+    ];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#f3f3f3");
+    sheet.setFrozenRows(1);
+  }
+
+  var action = e && e.parameter && e.parameter.action;
+  var body = null;
+  
+  if (e && e.postData && e.postData.contents) {
+    try {
+      body = JSON.parse(e.postData.contents);
+      if (body.action) action = body.action;
+    } catch (err) {}
+  }
+
+  if (action === "add_wo_tracking") {
+    var data = body && body.data; // Array of objects mapping to headers
+    if (!data || data.length === 0) return ContentService.createTextOutput(JSON.stringify({status: "error", message: "No data"})).setMimeType(ContentService.MimeType.JSON);
+
+    var rows = data.map(function(item) {
+      return [
+        item.no_wo || "",
+        item.no_wo_dms || "",
+        item.status || "",
+        item.no_pol || "",
+        item.no_rangka || "",
+        item.kode_tipe || "",
+        item.kendaraan || "",
+        item.nama_invoice || "",
+        item.pembawa || "",
+        item.km_masuk || "",
+        item.wkt_masuk || "",
+        item.wkt_estimasi || "",
+        item.wkt_setuju_estimasi || "",
+        item.wkt_mulai || "",
+        item.wkt_selesai || "",
+        item.wkt_tutup || "",
+        item.sa || "",
+        item.mekanik || "",
+        item.leader || "",
+        item.lc || 0,
+        item.oli || 0,
+        item.sm || 0,
+        item.so || 0,
+        item.penjualan || 0,
+        item.s_part || 0,
+        item.total || 0,
+        item.ppn || 0,
+        item.g_total || 0,
+        new Date().toISOString()
+      ];
+    });
+
+    // Strategy: Replace data with same No. WO or append new
+    var existingData = sheet.getDataRange().getValues();
+    var woMap = {};
+    for (var i = 1; i < existingData.length; i++) {
+        if (existingData[i][0]) woMap[String(existingData[i][0])] = i + 1; // row number
+    }
+
+    rows.forEach(function(row) {
+      var wo = String(row[0]);
+      if (woMap[wo]) {
+        sheet.getRange(woMap[wo], 1, 1, row.length).setValues([row]);
+      } else {
+        sheet.appendRow(row);
+      }
+    });
+
+    return ContentService.createTextOutput(JSON.stringify({status: "success", count: rows.length})).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === "get_wo_tracking") {
+    var rows = sheet.getDataRange().getValues();
+    if (rows.length <= 1) return ContentService.createTextOutput(JSON.stringify({status: "success", data: []})).setMimeType(ContentService.MimeType.JSON);
+    
+    var headers = rows[0];
+    var jsonData = rows.slice(1).map(function(row) {
+      var obj = {};
+      headers.forEach(function(h, idx) {
+        if (!h) return;
+        // IMPROVED Snake Case: replaces . and spaces with _ and trims double __
+        var key = String(h).toLowerCase().trim().replace(/\./g, '_').replace(/\s+/g, '_').replace(/_+/g, '_');
+        // also remove trailing _ (like if a header was "No. ")
+        key = key.replace(/_+$/, '');
+        
+        var val = row[idx];
+        // Convert Date to string
+        if (val instanceof Date) {
+          val = val.toISOString();
+        }
+        obj[key] = val;
+      });
+      return obj;
+    });
+    return ContentService.createTextOutput(JSON.stringify({status: "success", data: jsonData})).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({status: "error", message: "Unknown action: " + action})).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doGet(e) {
+  return doPost(e);
+}
+
+

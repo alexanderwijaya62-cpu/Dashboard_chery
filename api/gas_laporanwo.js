@@ -6,10 +6,10 @@ export default async function handler(req, res) {
         return res.status(401).json({ error: "Unauthorized access" });
     }
 
-    const targetUrl = process.env.VITE_GAS_REVENUE_URL;
+    const targetUrl = process.env.VITE_GAS_LAPORANWO_URL;
 
     if (!targetUrl) {
-        return res.status(500).json({ error: "No Revenue GAS URL configured in Server. Check VITE_GAS_REVENUE_URL." });
+        return res.status(500).json({ error: "No Laporan WO GAS URL configured in Server. Check VITE_GAS_LAPORANWO_URL." });
     }
 
     const urlObj = new URL(targetUrl);
@@ -47,6 +47,6 @@ export default async function handler(req, res) {
             }
         }
     } catch (error) {
-        return res.status(500).json({ error: error.message || "Failed to fetch from Revenue Google Script" });
+        return res.status(500).json({ error: error.message || "Failed to fetch from Laporan WO Google Script" });
     }
 }

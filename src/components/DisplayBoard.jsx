@@ -37,7 +37,7 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onLogoDou
                 <span className="text-xs font-black uppercase text-zinc-900 tracking-widest block">Scan Me</span>
               </div>
               <div className="bg-zinc-100 p-2 rounded-xl">
-                <QRCodeSVG value="https://dashboard-chery-lexxs-projects-33307765.vercel.app/" size={96} level="Q" marginSize={0} />
+                <QRCodeSVG value="https://www.cherymedan.web.id/" size={96} level="Q" marginSize={0} />
               </div>
             </div>
             <div className="text-center sm:text-right">

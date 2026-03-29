@@ -1,12 +1,14 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Clock, CheckCircle, Calendar, LineChart, Upload, Download, Search, X, ChevronRight, ChevronLeft, Image as ImageIcon, Send, Menu, Filter, MoreVertical } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { LayoutDashboard, LogOut, Clock, CheckCircle, Calendar, LineChart, Upload, Download, Search, X, ChevronRight, ChevronLeft, Image as ImageIcon, Send, Menu, Filter, MoreVertical } from 'lucide-react';
 import Toastify from 'toastify-js';
 import * as XLSX from 'xlsx';
 
-const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwf0QGS_vN7QKVX8b5R-VIQuGRRhKRnLoMGDIu-h-TJJkXfQFdsfmYA9nyDYJRgdfMvBQ/exec";
+import { API_KEY, GAS_CRO_URL } from '../utils/config';
+import CroBookingPanel from './CroBookingPanel';
+import HolidaySettings from './HolidaySettings';
 
-export default function FollowupPanel({ user, handleLogout, isNavbarVisible }) {
-    const [currentTab, setCurrentTab] = useState('belum');
+export default function FollowupPanel({ user, handleLogout, isNavbarVisible, initialTab = 'belum', setCurrentPage }) {
+    const [currentTab, setCurrentTab] = useState(initialTab);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [data, setData] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -17,7 +19,7 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible }) {
     const [filters, setFilters] = useState({ nama: '', tanggal: '', plat: '', tipe: '', keluhan: '', vin: '', respon: '' });
     const [fsFilters, setFsFilters] = useState({ nama: '', plat: '', tipe: '' });
     const [rowsPerPage, setRowsPerPage] = useState(20);
-    const [currentPage, setCurrentPage] = useState(1);
+    const [activeTablePage, setActiveTablePage] = useState(1);
 
     const [fsPeriodMonths, setFsPeriodMonths] = useState(3);
     const fileInputRef = useRef(null);
@@ -34,9 +36,9 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible }) {
     const [templateText, setTemplateText] = useState('');
     const [fsTemplateText, setFsTemplateText] = useState('');
     const [responCustomer, setResponCustomer] = useState('');
-    const [currentAttachedImage, setCurrentAttachedImage] = useState(null);
+    const [currentAttachedImages, setCurrentAttachedImages] = useState([]); // Array untuk menampung banyak gambar
     const [isDragging, setIsDragging] = useState(false);
-    const [isViewingResponse, setIsViewingResponse] = useState(false); // New state to track view mode
+    const [isViewingResponse, setIsViewingResponse] = useState(false);
     const [lightboxImage, setLightboxImage] = useState(null);
 
     const showLoading = (text) => {
@@ -69,11 +71,15 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible }) {
 
     const fetchFromGoogleSheets = React.useCallback(async (isBackground = false) => {
         if (!isBackground) loadFromLocal();
-        if (!GOOGLE_SCRIPT_URL) return;
+        if (!GAS_CRO_URL) return;
 
         try {
             if (!isBackground) showLoading("Mengambil data dari Google Sheets...");
-            const response = await fetch(GOOGLE_SCRIPT_URL);
+
+            // Menggunakan proxy lokal /api/gas_cro untuk menghindari CORS preflight langsung ke GAS
+            const response = await fetch(GAS_CRO_URL, {
+                headers: { "x-api-key": API_KEY }
+            });
             const responseData = await response.json();
 
             if (responseData && Array.isArray(responseData)) {
@@ -90,15 +96,18 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible }) {
         } finally {
             if (!isBackground) hideLoading();
         }
-    }, [GOOGLE_SCRIPT_URL]);
+    }, [GAS_CRO_URL]);
 
     const syncToGoogleSheets = async (latestData) => {
-        if (!GOOGLE_SCRIPT_URL) return;
+        if (!GAS_CRO_URL) return;
         try {
             showLoading("Menyimpan ke Google Sheets...");
-            await fetch(GOOGLE_SCRIPT_URL, {
+            await fetch(GAS_CRO_URL, {
                 method: 'POST',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                headers: {
+                    "Content-Type": "text/plain;charset=utf-8",
+                    "x-api-key": API_KEY
+                },
                 body: JSON.stringify({ action: 'sync', data: latestData })
             });
         } catch (error) {
@@ -114,16 +123,31 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible }) {
 
     useEffect(() => {
         const interval = setInterval(() => {
-            // Gunakan state terbaru via refs atau closure
-            // Dalam hal ini, isModalOpen dkk adalah dependencies, jadi interval akan di-reset saat mereka berubah
             if (document.visibilityState === 'visible' && !isModalOpen && !isFsModalOpen && !isLoading) {
                 fetchFromGoogleSheets(true);
             }
-        }, 15000); // Poll setiap 15 detik
+        }, 60000); // Polling diperlambat menjadi 60 detik agar hemat usage Vercel
 
         return () => clearInterval(interval);
         // eslint-disable-next-line
     }, [isModalOpen, isFsModalOpen, isLoading, fetchFromGoogleSheets]);
+
+    const parseLampiran = (val) => {
+        if (!val || val === '-') return [];
+        let arr = [];
+        if (Array.isArray(val)) {
+            arr = val;
+        } else {
+            try {
+                const parsed = JSON.parse(val);
+                arr = Array.isArray(parsed) ? parsed : [parsed];
+            } catch (e) {
+                arr = [val];
+            }
+        }
+        // Pastikan hanya return array yang memiliki value image base64, buang string kosong
+        return arr.filter(img => img && typeof img === 'string' && img.length > 5);
+    };
 
     const formatTanggal = (value) => {
         if (!value || value === '-') return "-";
@@ -261,11 +285,11 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible }) {
 
     const paginatedMainData = useMemo(() => {
         const totalPages = Math.ceil(groupedFilteredData.length / rowsPerPage) || 1;
-        let cPage = currentPage;
+        let cPage = activeTablePage;
         if (cPage > totalPages) cPage = totalPages;
         const start = (cPage - 1) * rowsPerPage;
         return groupedFilteredData.slice(start, start + rowsPerPage);
-    }, [groupedFilteredData, currentPage, rowsPerPage]);
+    }, [groupedFilteredData, activeTablePage, rowsPerPage]);
 
     const fsDataList = useMemo(() => {
         let fsData = data.filter(item => {
@@ -477,7 +501,8 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible }) {
                 let width = img.width;
                 let height = img.height;
 
-                const MAX_DIMENSION = 1000;
+                // Multi-Column HD: 1200px per foto. Sistem akan memecah 5 foto ke 5 kolom berbeda di Sheets.
+                const MAX_DIMENSION = 1200;
                 if (width > height && width > MAX_DIMENSION) {
                     height *= MAX_DIMENSION / width;
                     width = MAX_DIMENSION;
@@ -489,9 +514,28 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible }) {
                 canvas.width = width;
                 canvas.height = height;
                 ctx.drawImage(img, 0, 0, width, height);
-                const base64Str = canvas.toDataURL('image/jpeg', 0.8);
-                setCurrentAttachedImage(base64Str);
-                Toastify({ text: "Gambar berhasil dimuat!", background: "green" }).showToast();
+
+                const now = new Date();
+                const tsStr = `${now.getDate().toString().padStart(2, '0')}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+
+                ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+                const fontSize = Math.max(12, Math.floor(width / 30));
+                ctx.font = `bold ${fontSize}px Inter, sans-serif`;
+                const textWidth = ctx.measureText(tsStr).width;
+                ctx.fillRect(width - textWidth - 10, height - fontSize - 10, textWidth + 5, fontSize + 5);
+
+                ctx.fillStyle = "white";
+                ctx.fillText(tsStr, width - textWidth - 8, height - 8);
+
+                const base64Str = canvas.toDataURL('image/jpeg', 0.4);
+                setCurrentAttachedImages(prev => {
+                    if (prev.length >= 5) {
+                        Toastify({ text: "Maksimal 5 foto HD (Multi-Kolom)", background: "orange" }).showToast();
+                        return prev;
+                    }
+                    return [...prev, base64Str];
+                });
+                Toastify({ text: "Gambar HD berhasil dimuat!", background: "green" }).showToast();
             }
             img.src = event.target.result;
         }
@@ -532,11 +576,11 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible }) {
         if (status === 'belum') {
             setIsViewingResponse(false);
             setResponCustomer('');
-            setCurrentAttachedImage(null);
+            setCurrentAttachedImages([]);
         } else {
             setIsViewingResponse(true);
             setResponCustomer(item.respon || '');
-            setCurrentAttachedImage(item.lampiran || null);
+            setCurrentAttachedImages(parseLampiran(item.lampiran));
         }
         setIsModalOpen(true);
     };
@@ -600,32 +644,58 @@ Terima kasih banyak atas dukungan dan kepercayaannya Bapak/Ibu. Sehat selalu!`;
         }
 
         try {
-            showLoading("Menyimpan data...");
+            showLoading("Menyimpan data dan mengunggah gambar...");
             const newData = [...data];
             const idsToUpdate = selectedRecordIds.length > 0 ? selectedRecordIds : [selectedId];
             const now = new Date();
             const followupDate = formatTanggal(now);
 
+            // SINKRONISASI KE GOOGLE SHEETS DAHULU
+            if (GAS_CRO_URL) {
+                for (const id of idsToUpdate) {
+                    const itemData = data.find(x => x.id === id);
+                    const response = await fetch(GAS_CRO_URL, {
+                        method: 'POST',
+                        headers: { "Content-Type": "text/plain;charset=utf-8", "x-api-key": API_KEY },
+                        body: JSON.stringify({
+                            action: 'update',
+                            id: id,
+                            updates: {
+                                status: 'sudah',
+                                respon: responCustomer,
+                                tanggalFollowUp: followupDate,
+                                lampiran: JSON.stringify(currentAttachedImages) // Kirim array JSON
+                            }
+                        })
+                    });
+
+                    if (!response.ok) throw new Error("Gagal kirim ke server");
+                }
+            }
+
+            // Jika sukses di cloud, baru update local state
             idsToUpdate.forEach(id => {
                 const idx = newData.findIndex(x => x.id === id);
                 if (idx > -1) {
                     newData[idx].status = 'sudah';
                     newData[idx].respon = responCustomer;
                     newData[idx].tanggalFollowUp = followupDate;
-                    newData[idx].lampiran = currentAttachedImage || "";
+                    newData[idx].lampiran = JSON.stringify(currentAttachedImages);
                 }
             });
 
             setData(newData);
             saveToLocal(newData);
-            setCurrentAttachedImage(null);
+            setCurrentAttachedImages([]);
             closeModal();
 
-            await syncToGoogleSheets(newData);
-            Toastify({ text: "Data berhasil diperbarui", background: "green" }).showToast();
+            // Refresh data setelah beberapa saat untuk memastikan link Drive sinkron (ditambah jadi 10 detik agar Drive sempat memproses)
+            setTimeout(() => fetchFromGoogleSheets(true), 10000);
+
+            Toastify({ text: "Data berhasil diperbarui ke Cloud ✅", background: "green" }).showToast();
         } catch (error) {
             console.error("Error submit:", error);
-            Toastify({ text: "Gagal menyimpan data", background: "red" }).showToast();
+            Toastify({ text: "Gagal menyimpan data ke Cloud. Periksa koneksi.", background: "red" }).showToast();
         } finally {
             hideLoading();
         }
@@ -719,9 +789,9 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
             )}
 
             {/* Overlay for mobile sidebar */}
-            {isSidebarOpen && window.innerWidth <= 1024 && (
+            {isSidebarOpen && (
                 <div
-                    className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[55] transition-opacity"
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[55] lg:hidden transition-opacity duration-300"
                     onClick={() => setIsSidebarOpen(false)}
                 />
             )}
@@ -729,7 +799,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
             {/* Sidebar */}
             <div
                 className={`fixed left-0 top-0 h-full bg-white border-r border-zinc-200 shadow-2xl transition-all duration-300 z-[60] flex flex-col ${isNavbarVisible ? 'pt-[4.5rem]' : 'pt-4'} 
-                ${isSidebarOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full lg:w-4 lg:translate-x-0 lg:hover:w-64'}`}
+                ${isSidebarOpen ? 'w-64 translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-4 lg:hover:w-64'}`}
                 onMouseEnter={() => {
                     if (window.innerWidth > 1024) setIsSidebarOpen(true);
                 }}
@@ -737,8 +807,15 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                     if (window.innerWidth > 1024) setIsSidebarOpen(false);
                 }}
             >
-                <div className={`flex flex-col h-full ${!isSidebarOpen && 'opacity-0 overflow-hidden'}`}>
-                    <div className="px-6 py-4 flex flex-col border-b border-zinc-100">
+                <div className={`flex flex-col h-full transition-opacity duration-300 ${!isSidebarOpen ? 'opacity-0 lg:opacity-0 lg:group-hover:opacity-100 overflow-hidden' : 'opacity-100'}`}>
+                    <div className="px-6 py-4 flex flex-col border-b border-zinc-100 relative">
+                        {/* Close button for mobile */}
+                        <button
+                            onClick={() => setIsSidebarOpen(false)}
+                            className="lg:hidden absolute top-4 right-4 p-2 text-zinc-400 hover:text-zinc-900"
+                        >
+                            <X size={20} />
+                        </button>
                         <h2 className="font-black text-zinc-900 uppercase tracking-widest text-sm mb-1">CRO Follow Up</h2>
                         {cloudStatus && <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded w-max border border-green-200">☁️ Cloud Tersambung</span>}
                     </div>
@@ -780,10 +857,33 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                         >
                             📊 Laporan Bulanan
                         </button>
+
+                        {(user?.role === 'cro' || user?.role === 'admin') && (
+                            <>
+                                <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1 mt-4 border-t border-zinc-100 pt-4 px-2">Sistem Booking</p>
+                                <button
+                                    onClick={() => setCurrentTab('booking')}
+                                    className={`flex justify-between items-center px-4 py-3 rounded-xl font-bold text-sm transition-all ${currentTab === 'booking' ? 'bg-red-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100'}`}
+                                >
+                                    <span>📅 Booking Management</span>
+                                </button>
+                                <button
+                                    onClick={() => setCurrentTab('holidays')}
+                                    className={`flex justify-between items-center px-4 py-3 rounded-xl font-bold text-sm transition-all ${currentTab === 'holidays' ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100'}`}
+                                >
+                                    <span>🔧 Libur Dealer</span>
+                                </button>
+                            </>
+                        )}
                     </div>
-                    <div className="p-4 mt-auto border-t border-zinc-100">
-                        <button onClick={handleLogout} className="w-full text-center px-4 py-3 rounded-xl font-bold text-[13px] text-red-500 bg-red-50 hover:bg-red-500 hover:text-white transition-all">
-                            Logout
+                    <div className="p-4 mt-auto border-t border-zinc-100 flex flex-col gap-2">
+                        {user?.role === 'admin' && (
+                            <button onClick={() => setCurrentPage('display')} className="w-full text-center px-4 py-3 rounded-xl font-bold text-[13px] text-zinc-600 bg-zinc-50 hover:bg-zinc-200 transition-all mb-2 flex items-center justify-center gap-2">
+                                <LayoutDashboard size={16} /> Dashboard Utama
+                            </button>
+                        )}
+                        <button onClick={handleLogout} className="w-full text-center px-4 py-3 rounded-xl font-bold text-[13px] text-red-500 bg-red-50 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-2">
+                            <LogOut size={16} /> Logout
                         </button>
                     </div>
                 </div>
@@ -797,18 +897,30 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                         {currentTab === 'sudah' && "✅ Sudah Follow Up"}
                         {currentTab === 'free_service' && "📅 Pengingat Free Service"}
                         {currentTab === 'laporan' && "📊 Laporan Feedback Bulanan"}
+                        {currentTab === 'booking' && "📅 Booking Management"}
+                        {currentTab === 'holidays' && "🔧 Libur Dealer"}
                     </h1>
 
                     <button
                         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                        className="lg:hidden p-2.5 bg-zinc-900 text-white rounded-xl shadow-lg active:scale-95 transition-all"
+                        className="lg:hidden p-3 bg-white border border-zinc-200 text-zinc-900 rounded-2xl shadow-sm active:scale-95 transition-all"
                     >
-                        {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
+                        {isSidebarOpen ? <X size={22} /> : <Menu size={22} />}
                     </button>
                 </div>
 
                 <div className="flex-1 bg-white border border-zinc-200 shadow-sm rounded-3xl overflow-hidden flex flex-col min-h-0">
-                    {(currentTab === 'belum' || currentTab === 'sudah') && (
+                    {currentTab === 'booking' ? (
+                        <div className="flex-1 h-full overflow-hidden">
+                            <CroBookingPanel user={user} setCurrentPage={setCurrentPage} />
+                        </div>
+                    ) : currentTab === 'holidays' ? (
+                        <div className="flex-1 p-8 overflow-y-auto bg-zinc-50">
+                            <div className="max-w-4xl mx-auto">
+                                <HolidaySettings user={user} />
+                            </div>
+                        </div>
+                    ) : (currentTab === 'belum' || currentTab === 'sudah') ? (
                         <>
                             <div className="bg-zinc-50 p-4 border-b border-zinc-200 shrink-0 flex flex-col md:flex-row md:items-center gap-4">
                                 <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 flex-1">
@@ -876,12 +988,16 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
 
                                                     {currentTab === 'sudah' && (
                                                         <div className="space-y-2 pt-2 border-t border-zinc-50">
-                                                            {item.lampiran && (
-                                                                <div className="relative w-full h-32 rounded-xl overflow-hidden shadow-inner border border-zinc-100" onClick={() => setLightboxImage(item.lampiran)}>
-                                                                    <img src={item.lampiran} className="w-full h-full object-cover" alt="attachment" />
-                                                                    <div className="absolute top-2 right-2 bg-black/50 p-2 rounded-full text-white">
-                                                                        <Search size={14} />
-                                                                    </div>
+                                                            {parseLampiran(item.lampiran).length > 0 && (
+                                                                <div className="flex flex-wrap gap-2">
+                                                                    {parseLampiran(item.lampiran).map((img, idx) => (
+                                                                        <div key={idx} className="relative w-20 h-20 rounded-lg overflow-hidden border border-zinc-100 shadow-sm" onClick={() => setLightboxImage(img)}>
+                                                                            <img src={img} className="w-full h-full object-cover" alt="attachment" />
+                                                                            <div className="absolute inset-0 bg-black/10 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                                                                                <Search size={12} className="text-white" />
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
                                                                 </div>
                                                             )}
                                                             <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-100">
@@ -959,14 +1075,17 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                                                 </div>
                                                             </td>
                                                             <td className="py-3 px-4 align-top">
-                                                                {item.lampiran ? (
-                                                                    <div className="relative group w-16 h-16 cursor-pointer" onClick={() => setLightboxImage(item.lampiran)}>
-                                                                        <img src={item.lampiran} className="w-full h-full object-cover rounded-lg border shadow-sm transition-transform group-hover:scale-105" alt="thumb" />
-                                                                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
-                                                                            <Search size={14} className="text-white" />
+                                                                <div className="flex flex-wrap gap-1">
+                                                                    {parseLampiran(item.lampiran).map((img, idx) => (
+                                                                        <div key={idx} className="relative group w-10 h-10 cursor-pointer" onClick={() => setLightboxImage(img)}>
+                                                                            <img src={img} className="w-full h-full object-cover rounded-md border shadow-sm transition-transform group-hover:scale-105" alt="thumb" />
+                                                                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-md flex items-center justify-center">
+                                                                                <Search size={10} className="text-white" />
+                                                                            </div>
                                                                         </div>
-                                                                    </div>
-                                                                ) : "-"}
+                                                                    ))}
+                                                                    {parseLampiran(item.lampiran).length === 0 && "-"}
+                                                                </div>
                                                             </td>
                                                         </>
                                                     )}
@@ -992,22 +1111,20 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                             </div>
                             <div className="bg-zinc-50 p-3 border-t border-zinc-200 shrink-0 flex justify-between items-center text-xs font-medium text-zinc-600">
                                 <div>
-                                    <select value={rowsPerPage} onChange={e => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="p-1 border rounded mr-2 bg-white">
+                                    <select value={rowsPerPage} onChange={e => { setRowsPerPage(Number(e.target.value)); setActiveTablePage(1); }} className="p-1 border rounded mr-2 bg-white">
                                         <option value={20}>20 baris</option>
                                         <option value={40}>40 baris</option>
                                     </select>
-                                    Menampilkan {(currentPage - 1) * rowsPerPage + 1} - {Math.min(currentPage * rowsPerPage, groupedFilteredData.length)} dari {groupedFilteredData.length}
+                                    Menampilkan {(activeTablePage - 1) * rowsPerPage + 1} - {Math.min(activeTablePage * rowsPerPage, groupedFilteredData.length)} dari {groupedFilteredData.length}
                                 </div>
                                 <div className="flex gap-2">
-                                    <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 bg-white border border-zinc-300 rounded hover:bg-zinc-100 disabled:opacity-50">Prev</button>
-                                    <span className="py-1 px-2 border">{currentPage}</span>
-                                    <button onClick={() => setCurrentPage(p => p + 1)} disabled={currentPage >= Math.ceil(groupedFilteredData.length / rowsPerPage)} className="px-3 py-1 bg-white border border-zinc-300 rounded hover:bg-zinc-100 disabled:opacity-50">Next</button>
+                                    <button onClick={() => setActiveTablePage(p => Math.max(1, p - 1))} disabled={activeTablePage === 1} className="px-3 py-1 bg-white border border-zinc-300 rounded hover:bg-zinc-100 disabled:opacity-50">Prev</button>
+                                    <span className="py-1 px-2 border">{activeTablePage}</span>
+                                    <button onClick={() => setActiveTablePage(p => p + 1)} disabled={activeTablePage >= Math.ceil(groupedFilteredData.length / rowsPerPage)} className="px-3 py-1 bg-white border border-zinc-300 rounded hover:bg-zinc-100 disabled:opacity-50">Next</button>
                                 </div>
                             </div>
                         </>
-                    )}
-
-                    {currentTab === 'free_service' && (
+                    ) : currentTab === 'free_service' ? (
                         <div className="flex flex-col h-full overflow-hidden">
                             <div className="p-4 border-b border-zinc-200 bg-zinc-50 shrink-0 flex flex-col sm:flex-row justify-between items-center gap-4">
                                 <h3 className="font-bold text-zinc-900">Pengingat Berkala</h3>
@@ -1079,15 +1196,17 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                 </table>
                             </div>
                         </div>
-                    )}
-
-                    {currentTab === 'laporan' && (
-                        <div className="p-8 h-full overflow-y-auto">
+                    ) : (
+                        <div className="p-4 lg:p-8 animate-fade-in overflow-y-auto">
+                            <h2 className="text-3xl font-black text-zinc-900 tracking-tighter mb-8 flex items-center gap-4">
+                                <LineChart className="text-red-500" /> REKAP STATUS FOLLOW UP
+                            </h2>
                             {renderReport()}
                         </div>
                     )}
                 </div>
-            </div>
+                </div>
+
 
             {/* Modal Reguler */}
             {isModalOpen && (
@@ -1187,37 +1306,49 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                         />
 
                                         <div className="mb-6">
-                                            <input type="file" accept="image/*" className="hidden" ref={fileAttachmentRef} onChange={handleImageUpload} />
+                                            <input type="file" accept="image/*" multiple className="hidden" ref={fileAttachmentRef} onChange={(e) => {
+                                                const files = Array.from(e.target.files);
+                                                files.forEach(f => processImageFile(f));
+                                            }} />
                                             <div
                                                 onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                                                 onDragLeave={() => setIsDragging(false)}
-                                                onDrop={handleDrop}
-                                                className={`relative border-2 border-dashed rounded-xl p-6 transition-all flex flex-col items-center justify-center gap-2 cursor-pointer
+                                                onDrop={(e) => {
+                                                    e.preventDefault();
+                                                    setIsDragging(false);
+                                                    const files = Array.from(e.dataTransfer.files);
+                                                    files.forEach(f => processImageFile(f));
+                                                }}
+                                                className={`relative border-2 border-dashed rounded-xl p-4 transition-all flex flex-col items-center justify-center gap-2 cursor-pointer min-h-[100px]
                                                     ${isDragging ? 'border-zinc-900 bg-zinc-50 scale-[1.02]' : 'border-zinc-200 hover:border-zinc-400'}
-                                                    ${currentAttachedImage ? 'bg-zinc-50/50' : 'bg-white'}`}
+                                                    ${currentAttachedImages.length > 0 ? 'bg-zinc-50/50' : 'bg-white'}`}
                                                 onClick={() => fileAttachmentRef.current.click()}
                                             >
-                                                {currentAttachedImage ? (
-                                                    <div className="relative group">
-                                                        <img src={currentAttachedImage} className="h-32 rounded-lg shadow-md border border-white" alt="attachment" />
-                                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
-                                                            <p className="text-white text-[10px] font-bold">Ganti Gambar</p>
+                                                {currentAttachedImages.length > 0 ? (
+                                                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 w-full">
+                                                        {currentAttachedImages.map((img, idx) => (
+                                                            <div key={idx} className="relative group aspect-square">
+                                                                <img src={img} className="w-full h-full object-cover rounded-lg shadow-sm border border-white" alt={`attachment-${idx}`} />
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); setCurrentAttachedImages(prev => prev.filter((_, i) => i !== idx)); }}
+                                                                    className="absolute -top-2 -right-2 bg-red-500 text-white w-5 h-5 rounded-full shadow-lg flex items-center justify-center hover:bg-red-600 transition-colors z-10"
+                                                                >
+                                                                    <X size={12} />
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                        <div className="aspect-square rounded-lg border-2 border-dashed border-zinc-200 flex items-center justify-center text-zinc-400 hover:border-zinc-400 transition-all">
+                                                            <ImageIcon size={20} />
                                                         </div>
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); setCurrentAttachedImage(null); }}
-                                                            className="absolute -top-3 -right-3 bg-red-500 text-white w-6 h-6 rounded-full shadow-lg flex items-center justify-center hover:bg-red-600 transition-colors z-10"
-                                                        >
-                                                            <X size={14} />
-                                                        </button>
                                                     </div>
                                                 ) : (
                                                     <>
-                                                        <div className="w-12 h-12 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-400">
-                                                            <ImageIcon size={24} />
+                                                        <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-400">
+                                                            <ImageIcon size={20} />
                                                         </div>
                                                         <div className="text-center">
-                                                            <p className="text-sm font-bold text-zinc-700">Klik, Drag, atau Paste Gambar</p>
-                                                            <p className="text-[10px] text-zinc-400 mt-1">Maksimal 10MB (Format: JPG, PNG)</p>
+                                                            <p className="text-xs font-bold text-zinc-700">Klik, Drag, atau Paste Banyak Gambar</p>
+                                                            <p className="text-[9px] text-zinc-400 mt-0.5">Maks 10MB per file (Format: JPG, PNG)</p>
                                                         </div>
                                                     </>
                                                 )}
@@ -1228,27 +1359,39 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                     </>
                                 ) : (
                                     <>
-                                        <h3 className="font-bold text-zinc-700 border-b border-zinc-200 pb-2 mb-4">Hasil Respon</h3>
-                                        <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-200 mb-6">
+                                        <div className="flex justify-between items-center border-b border-zinc-200 pb-2 mb-4">
+                                            <h3 className="font-bold text-zinc-700">Hasil Respon</h3>
+                                            <button
+                                                onClick={() => setIsViewingResponse(false)}
+                                                className="px-3 py-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
+                                            >
+                                                <Upload size={14} /> Edit Respon / Re-upload Gambar
+                                            </button>
+                                        </div>
+                                        <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-200 mb-6 group relative">
                                             <p className="text-[10px] uppercase font-bold text-zinc-400 mb-1">Catatan Respon:</p>
                                             <p className="text-sm text-zinc-800 whitespace-pre-line italic">"{responCustomer || '-'}"</p>
                                         </div>
 
-                                        {currentAttachedImage && (
+                                        {currentAttachedImages.length > 0 && (
                                             <div>
-                                                <p className="text-sm font-bold text-zinc-700 mb-3 flex items-center gap-2">
-                                                    <ImageIcon size={16} /> Lampiran Gambar:
+                                                <p className="text-xs font-bold text-zinc-700 mb-3 flex items-center gap-2">
+                                                    <ImageIcon size={14} /> Lampiran Gambar ({currentAttachedImages.length}):
                                                 </p>
-                                                <div className="relative group w-max">
-                                                    <img
-                                                        src={currentAttachedImage}
-                                                        className="h-48 rounded-xl object-contain cursor-pointer shadow-lg border-2 border-white ring-1 ring-zinc-200 transition-transform hover:scale-[1.02]"
-                                                        onClick={() => setLightboxImage(currentAttachedImage)}
-                                                        alt="Lampiran"
-                                                    />
-                                                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center pointer-events-none">
-                                                        <Search className="text-white" size={24} />
-                                                    </div>
+                                                <div className="flex flex-wrap gap-3">
+                                                    {currentAttachedImages.map((img, idx) => (
+                                                        <div key={idx} className="relative group w-32 h-32">
+                                                            <img
+                                                                src={img}
+                                                                className="w-full h-full object-cover rounded-xl cursor-pointer shadow-md border-2 border-white ring-1 ring-zinc-200 transition-transform hover:scale-[1.05]"
+                                                                onClick={() => setLightboxImage(img)}
+                                                                alt={`Lampiran-${idx}`}
+                                                            />
+                                                            <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center pointer-events-none">
+                                                                <Search className="text-white" size={20} />
+                                                            </div>
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             </div>
                                         )}

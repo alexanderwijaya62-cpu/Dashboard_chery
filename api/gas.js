@@ -15,10 +15,13 @@ export default async function handler(req, res) {
 
   // Preserve query parameters, especially ?action=...
   const urlObj = new URL(targetUrl);
+  urlObj.searchParams.set('key', expectedApiKey);
   if (req.query) {
-    for (const key in req.query) {
-      urlObj.searchParams.set(key, req.query[key]);
-    }
+      for (const key in req.query) {
+          if (key !== 'key') {
+              urlObj.searchParams.set(key, req.query[key]);
+          }
+      }
   }
 
   try {
