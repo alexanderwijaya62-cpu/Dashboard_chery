@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Calendar as CalendarIcon, Clock, Send, User, ChevronLeft, ChevronRight, Phone, CheckCircle2, AlertCircle, MapPin, ShieldCheck, Bookmark, X } from 'lucide-react';
 import Toastify from 'toastify-js';
-import { API_KEY, GAS_BOOKING_URL } from '../utils/config';
+import { supabase } from '../utils/supabaseClient';
 import orientalLogo from '../assets/cherylogo.png';
 
 const TIPE_MOBIL = [
@@ -39,34 +39,26 @@ export default function PublicBooking({ user }) {
         jam: '', tipeMobil: '', noPlat: '', namaCustomer: '', keperluanService: '', vin: '', noTelp: ''
     });
 
-    const customFetch = (url, options = {}) => {
-        return fetch(url, {
-            ...options,
-            headers: { ...options.headers, "x-api-key": API_KEY }
-        });
-    };
-
     const fetchBookings = async () => {
         try {
-            if (!GAS_BOOKING_URL) return;
-            const resp = await customFetch(GAS_BOOKING_URL);
-            const data = await resp.json();
+            const { data, error } = await supabase.from('booking').select('*');
+            if (error) throw error;
             if (Array.isArray(data)) setBookings(data);
-        } catch (e) { console.error(e); }
+        } catch (e) { console.error('Gagal fetch booking:', e); }
     };
 
     const fetchHolidays = async () => {
         try {
-            const resp = await customFetch(`${GAS_BOOKING_URL}?action=get_holidays`);
-            const data = await resp.json();
+            const { data, error } = await supabase.from('libur').select('*');
+            if (error) throw error;
             if (Array.isArray(data)) setHolidays(data);
-        } catch (e) { console.error(e); }
+        } catch (e) { console.error('Gagal fetch libur:', e); }
     };
 
     useEffect(() => {
         fetchBookings();
         fetchHolidays();
-        const interval = setInterval(fetchBookings, 60000); 
+        const interval = setInterval(fetchBookings, 60000);
         return () => clearInterval(interval);
     }, []);
 
@@ -76,9 +68,10 @@ export default function PublicBooking({ user }) {
 
     const getDateAvailability = useCallback((dateStr) => {
         if (isClosed(dateStr)) return 'closed';
-        const dayBookings = bookings.filter(b => isSameDate(b.tanggal, dateStr) && (b.status === 'waiting confirm' || b.status === 'accepted'));
+        const dayBookings = bookings.filter(b => isSameDate(b.tanggal, dateStr) && (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed'));
         if (dayBookings.length >= JAM_PILIHAN.length) return 'full';
-        return 'available';
+        if (dayBookings.length > 0) return 'partial';
+        return 'empty';
     }, [bookings, holidays]);
 
     const bookingsForDate = useMemo(() => {
@@ -106,38 +99,55 @@ export default function PublicBooking({ user }) {
         }
 
         setIsLoading(true);
-        const requestData = {
-            tanggal: selectedDate,
-            jam: formData.jam,
-            tipeMobil: formData.tipeMobil,
-            noPlat: formData.noPlat,
-            namaCustomer: formData.namaCustomer,
-            keperluanService: formData.keperluanService,
-            vin: formData.vin || '-',
-            bookingvia: user ? user.name : 'Web-Public',
-            noTelp: formData.noTelp,
-            status: 'waiting confirm'
-        };
+        // Cek konflik slot waktu secara real-time
+        const { data: conflictCheck } = await supabase
+            .from('booking')
+            .select('id')
+            .eq('tanggal', selectedDate)
+            .eq('jam', parseFloat(formData.jam.replace('.', '.')))
+            .in('status', ['waiting confirm', 'accepted'])
+            .maybeSingle();
+
+        if (conflictCheck) {
+            Toastify({ text: `⚠️ Konflik: Slot jam ${formData.jam} baru saja terisi orang lain!`, style: { background: '#f97316' }, duration: 5000 }).showToast();
+            setIsBookingMode(false);
+            fetchBookings();
+            setIsLoading(false);
+            return;
+        }
 
         try {
-            const resp = await customFetch(GAS_BOOKING_URL, {
-                method: 'POST',
-                body: JSON.stringify({ action: 'add', data: requestData })
+            const newId = Date.now();
+            const { error } = await supabase.from('booking').insert({
+                id: newId,
+                noUrut: newId,
+                tanggal: selectedDate,
+                jam: parseFloat(formData.jam),
+                tipeMobil: formData.tipeMobil,
+                noPlat: formData.noPlat,
+                namaCustomer: formData.namaCustomer,
+                keperluanService: formData.keperluanService,
+                vin: formData.vin || '-',
+                bookingVia: user ? user.name : 'Web-Public',
+                noTelp: formData.noTelp,
+                status: 'waiting confirm'
             });
-            const data = await resp.json();
-            if (data.success) {
-                Toastify({ text: "Booking berhasil dikirim!", background: "green" }).showToast();
-                let phone = "628116017300";
-                const textWA = `Halo Chery, saya mau booking service:\n\nNama: ${formData.namaCustomer}\nTanggal: ${selectedDate}\nJam: ${formData.jam}\nTipe Mobil: ${formData.tipeMobil} (${formData.noPlat})\nKeperluan: ${formData.keperluanService}\nTelp: ${formData.noTelp}\n\nMohon konfirmasi booking saya. Terima kasih.`;
-                window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(textWA)}`, '_blank');
-                setIsBookingMode(false);
-                setFormData({ jam: '', tipeMobil: '', noPlat: '', namaCustomer: '', keperluanService: '', vin: '', noTelp: '' });
-                fetchBookings();
-            } else {
-                throw new Error("Gagal booking");
-            }
+
+            if (error) throw error;
+
+            Toastify({ text: '✅ Booking berhasil dikirim!', style: { background: 'green' } }).showToast();
+            let phone = '628116017300';
+            const textWA = `Halo Chery, saya mau booking service:\n\nNama: ${formData.namaCustomer}\nTanggal: ${selectedDate}\nJam: ${formData.jam}\nTipe Mobil: ${formData.tipeMobil} (${formData.noPlat})\nKeperluan: ${formData.keperluanService}\nTelp: ${formData.noTelp}\n\nMohon konfirmasi booking saya. Terima kasih.`;
+            window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(textWA)}`, '_blank');
+            setIsBookingMode(false);
+            setFormData({ jam: '', tipeMobil: '', noPlat: '', namaCustomer: '', keperluanService: '', vin: '', noTelp: '' });
+            fetchBookings();
         } catch (err) {
-            Toastify({ text: "Terjadi kesalahan sistem", background: "red" }).showToast();
+            console.error('Booking error:', err);
+            const msg = err.message?.includes('duplicate') 
+                ? '❌ Duplikat: Slot ini sudah dibooking!' 
+                : `❌ Gagal booking: ${err.message}`;
+            Toastify({ text: msg, style: { background: '#dc2626' }, duration: 5000 }).showToast();
         } finally {
             setIsLoading(false);
         }
@@ -178,7 +188,7 @@ export default function PublicBooking({ user }) {
     };
 
     return (
-        <div className="min-h-screen bg-[#F4F6F8] flex flex-col font-sans">
+        <div className="h-screen bg-[#F4F6F8] flex flex-col font-sans overflow-hidden">
             
             {/* COMPACT TOP HEADER */}
             <header className="bg-white border-b border-zinc-100 px-4 md:px-8 py-3 flex justify-between items-center shrink-0 z-50">
@@ -202,7 +212,7 @@ export default function PublicBooking({ user }) {
             </header>
 
             {/* RESPONSIVE LAYOUT */}
-            <div className="flex-1 w-full max-w-6xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col lg:flex-row gap-6">
+            <div className="flex-1 w-full max-w-6xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col lg:flex-row gap-6 overflow-y-auto custom-scrollbar">
                 
                 {/* KIRI/ATAS: CALENDAR SELECTOR */}
                 <div className="w-full lg:w-[420px] shrink-0 bg-white rounded-[2rem] border border-zinc-200 shadow-md flex flex-col overflow-hidden relative">
@@ -240,14 +250,17 @@ export default function PublicBooking({ user }) {
                                         isPast ? 'bg-zinc-50/50 opacity-40 cursor-not-allowed border-transparent text-zinc-300' :
                                         !isSelectable ? 'bg-white border-zinc-100 cursor-not-allowed opacity-50 grayscale text-zinc-400' :
                                         isActive ? 'bg-[#18181b] border-[#18181b] text-white shadow-xl scale-110 z-10 font-bold' :
-                                        availability === 'available' ? 'bg-white border border-zinc-100 hover:border-emerald-500 hover:shadow-md text-zinc-800' : 
+                                        availability === 'empty' ? 'bg-white border-emerald-100 hover:border-emerald-500 hover:shadow-md text-zinc-800' : 
+                                        availability === 'partial' ? 'bg-white border-amber-100 hover:border-amber-500 hover:shadow-md text-zinc-800' :
                                         'bg-white border-rose-100 cursor-not-allowed opacity-70 text-zinc-700'
                                     }`}
                                 >
                                     <span className={`text-[13px] md:text-sm tracking-tight ${isActive ? 'font-black' : 'font-bold'}`}>{item.day}</span>
                                     {isSelectable && !isPast && (
                                         <div className={`w-1.5 h-1.5 rounded-full mt-1.5 ${
-                                            availability === 'available' ? 'bg-emerald-500' : 'bg-rose-500'
+                                            availability === 'empty' ? 'bg-emerald-500' : 
+                                            availability === 'partial' ? 'bg-amber-400' : 
+                                            'bg-rose-500'
                                         }`} />
                                     )}
                                     {isActive && <div className="absolute top-1 right-1 opacity-80"><ShieldCheck size={8} className="text-emerald-400 font-bold" /></div>}
@@ -259,11 +272,15 @@ export default function PublicBooking({ user }) {
                     <div className="p-4 md:p-5 bg-zinc-50 border-t border-zinc-100 flex items-center justify-center gap-6 md:gap-8">
                          <div className="flex items-center gap-2 md:gap-3">
                             <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full"></div>
-                            <span className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em]">Available</span>
+                            <span className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em]">Empty</span>
+                         </div>
+                         <div className="flex items-center gap-2 md:gap-3">
+                            <div className="w-2.5 h-2.5 bg-amber-400 rounded-full"></div>
+                            <span className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em]">Partial</span>
                          </div>
                          <div className="flex items-center gap-2 md:gap-3">
                             <div className="w-2.5 h-2.5 bg-rose-500 rounded-full"></div>
-                            <span className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em]">Full / Closed</span>
+                            <span className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em]">Full</span>
                          </div>
                     </div>
                 </div>

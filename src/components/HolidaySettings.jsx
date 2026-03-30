@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, Trash2, Plus, Info, Settings, ShieldCheck, Clock } from 'lucide-react';
 import TimeInput from './TimeInput';
 import Toastify from 'toastify-js';
-import { API_KEY, GAS_BOOKING_URL } from '../utils/config';
+import { supabase } from '../utils/supabaseClient';
 
 export default function HolidaySettings({ user, breakSettings, setBreakSettings }) {
     const [holidays, setHolidays] = useState([]);
@@ -10,29 +10,18 @@ export default function HolidaySettings({ user, breakSettings, setBreakSettings 
     const [newDate, setNewDate] = useState('');
     const [note, setNote] = useState('');
 
-    const customFetch = (url, options = {}) => {
-        return fetch(url, {
-            ...options,
-            headers: {
-                ...options.headers,
-                "x-api-key": API_KEY,
-                "Content-Type": "text/plain;charset=utf-8"
-            }
-        });
-    };
-
     const fetchHolidays = async () => {
         setIsLoading(true);
         try {
-            const resp = await customFetch(`${GAS_BOOKING_URL}?action=get_holidays&_=${Date.now()}`);
-            const data = await resp.json();
-            if (Array.isArray(data)) {
-                setHolidays(data);
-            } else if (data.status === 'success' && Array.isArray(data.holidays)) {
-                setHolidays(data.holidays);
-            }
+            const { data, error } = await supabase
+                .from('libur')
+                .select('*')
+                .order('date', { ascending: true });
+            if (error) throw error;
+            setHolidays(data || []);
         } catch (e) {
-            console.error("Gagal ambil data libur:", e);
+            console.error('Gagal ambil data libur:', e);
+            Toastify({ text: `❌ Gagal memuat data libur: ${e.message}`, style: { background: 'red' } }).showToast();
         } finally {
             setIsLoading(false);
         }
@@ -45,52 +34,52 @@ export default function HolidaySettings({ user, breakSettings, setBreakSettings 
     const handleAddHoliday = async (e) => {
         e.preventDefault();
         if (!newDate) return;
-
         setIsLoading(true);
         try {
-            const resp = await customFetch(GAS_BOOKING_URL, {
-                method: 'POST',
-                body: JSON.stringify({
-                    action: 'add_holiday',
-                    date: newDate,
-                    note: note || 'Libur Dealer'
-                })
-            });
-            const data = await resp.json();
-            if (data.success) {
-                Toastify({ text: "Berhasil menambahkan tanggal libur!", background: "green" }).showToast();
-                setNewDate('');
-                setNote('');
-                fetchHolidays();
-            } else {
-                throw new Error("Gagal menyimpan");
+            // Cek duplikat terlebih dahulu
+            const { data: existing } = await supabase
+                .from('libur')
+                .select('id')
+                .eq('date', newDate)
+                .maybeSingle();
+
+            if (existing) {
+                Toastify({
+                    text: `⚠️ Duplikat: Tanggal ${newDate} sudah terdaftar sebagai hari libur!`,
+                    style: { background: '#f97316' }, duration: 4000
+                }).showToast();
+                setIsLoading(false);
+                return;
             }
+
+            const { error } = await supabase
+                .from('libur')
+                .insert({ date: newDate, note: note || 'Libur Dealer' });
+
+            if (error) throw error;
+
+            Toastify({ text: '✅ Berhasil menambahkan tanggal libur!', style: { background: 'green' } }).showToast();
+            setNewDate('');
+            setNote('');
+            fetchHolidays();
         } catch (e) {
-            Toastify({ text: "Gagal menyimpan. Pastikan GAS Code sudah diupdate!", background: "red" }).showToast();
+            console.error(e);
+            Toastify({ text: `❌ Gagal menyimpan: ${e.message}`, style: { background: 'red' } }).showToast();
         } finally {
             setIsLoading(false);
         }
     };
 
-    const handleDeleteHoliday = async (date) => {
-        if (!window.confirm(`Hapus libur pada tanggal ${date}?`)) return;
-
+    const handleDeleteHoliday = async (id) => {
+        if (!window.confirm('Hapus hari libur ini?')) return;
         setIsLoading(true);
         try {
-            const resp = await customFetch(GAS_BOOKING_URL, {
-                method: 'POST',
-                body: JSON.stringify({
-                    action: 'delete_holiday',
-                    date: date
-                })
-            });
-            const data = await resp.json();
-            if (data.success) {
-                Toastify({ text: "Tanggal libur dihapus!", background: "blue" }).showToast();
-                fetchHolidays();
-            }
+            const { error } = await supabase.from('libur').delete().eq('id', id);
+            if (error) throw error;
+            Toastify({ text: '🗑️ Tanggal libur dihapus!', style: { background: '#3b82f6' } }).showToast();
+            fetchHolidays();
         } catch (e) {
-            Toastify({ text: "Gagal menghapus", background: "red" }).showToast();
+            Toastify({ text: `❌ Gagal menghapus: ${e.message}`, style: { background: 'red' } }).showToast();
         } finally {
             setIsLoading(false);
         }
@@ -183,7 +172,7 @@ export default function HolidaySettings({ user, breakSettings, setBreakSettings 
                                         </div>
                                     </div>
                                     <button
-                                        onClick={() => handleDeleteHoliday(item.date)}
+                                        onClick={() => handleDeleteHoliday(item.id)}
                                         className="p-3 text-zinc-300 hover:text-red-500 hover:bg-white rounded-xl transition-all shadow-sm"
                                     >
                                         <Trash2 size={18} />

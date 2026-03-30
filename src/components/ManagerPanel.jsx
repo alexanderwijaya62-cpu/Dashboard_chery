@@ -12,29 +12,8 @@ import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import ReactApexChart from 'react-apexcharts';
 
-import { 
-  API_KEY, 
-  GAS_REVENUE_URL, 
-  GAS_WO_TRACKING_URL, 
-  GAS_CRO_URL, 
-  GAS_USERS_URL 
-} from '../utils/config';
+import { supabase } from '../utils/supabaseClient';
 
-// customFetch yang aman melalui proxy Vercel
-const customFetch = (url, options = {}) => {
-  const headers = { 
-    ...options.headers,
-    "x-api-key": API_KEY 
-  };
-
-  return fetch(url, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...headers
-    }
-  });
-};
 
 const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSettings, setBreakSettings, setIsNavbarVisible }) => {
   const [usersData, setUsersData] = useState([]);
@@ -70,17 +49,28 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   const fetchFinancialData = React.useCallback(async () => {
-    if (!GAS_REVENUE_URL) return;
     setIsLoading(true);
     try {
-      const res = await customFetch(`${GAS_REVENUE_URL}?action=get_workshop`);
-      const result = await res.json();
-      if (result.status === 'success') {
-        setFinancialData(result.data || []);
-        if (!result.data || result.data.length === 0) Toastify({ text: "⚠️ Revenue: Data Kosong", style: { background: "orange" } }).showToast();
-      } else {
-        Toastify({ text: "❌ Revenue: Server Error", style: { background: "red" } }).showToast();
-      }
+      const { data, error } = await supabase.from('revenue').select('*');
+      if (error) throw error;
+      
+      // Map columns from snake_case with dots/spaces if any (based on your schema)
+      const mapped = (data || []).map(r => ({
+        no_wo: r.no_wo,
+        wkt_masuk: r.wkt_masuk,
+        bk: r.bk, // Catatan: Anda tidak mencantumkan 'bk' di schema revenue Anda tadi, saya asumsikan ada atau gunakan nohp
+        tipe_kendaraan: r.tipe_kendaraan,
+        jasa: Number(r.jasa || 0),
+        s_part: Number(r.s_part || 0),
+        g_total: Number(r.g_total || 0),
+        sa: r.sa,
+        leader: r.leader,
+        mekanik: r.mekanik,
+        nohp: r.nohp
+      }));
+      
+      setFinancialData(mapped);
+      if (mapped.length === 0) Toastify({ text: "⚠️ Revenue: Data Kosong", style: { background: "orange" } }).showToast();
     } catch (e) {
       console.error("Gagal fetch financial:", e);
       Toastify({ text: `❌ Revenue: ${e.message}`, style: { background: "red" } }).showToast();
@@ -89,22 +79,23 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
   }, []);
 
   const fetchWoHistory = React.useCallback(async () => {
-    if (!GAS_WO_TRACKING_URL) return;
     setIsLoading(true);
     try {
-      // Mencoba action 'get_wo_tracking' terlebih dahulu
-      const res = await customFetch(`${GAS_WO_TRACKING_URL}?action=get_wo_tracking`);
-      const result = await res.json();
-      if (result && result.status === 'success') {
-        setWoTrackingData(result.data || []);
-      } else {
-        // Fallback jika action di GAS belum update
-        const res2 = await customFetch(`${GAS_WO_TRACKING_URL}?action=get`);
-        const result2 = await res2.json();
-        if (result2 && result2.status === 'success') {
-          setWoTrackingData(result2.data || []);
-        }
-      }
+      const { data, error } = await supabase.from('laporanwo').select('*');
+      if (error) throw error;
+      
+      // Map dari nama kolom ber-titik dan spasi (No. WO, Wkt.Masuk, dll)
+      const mapped = (data || []).map(r => ({
+        no_wo: r['No. WO'],
+        bk: r['No. Pol'],
+        tipe_kendaraan: r['Kendaraan'],
+        sa: r['SA'],
+        mekanik: r['Mekanik'],
+        leader: r['Leader'],
+        wkt_masuk: r['Wkt.Masuk']
+      }));
+      
+      setWoTrackingData(mapped);
     } catch (e) {
       console.error("Gagal fetch tracking:", e);
     }
@@ -112,14 +103,11 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
   }, []);
 
   const fetchCroHistory = React.useCallback(async () => {
-    if (!GAS_CRO_URL) return;
     setIsLoading(true);
     try {
-      const res = await customFetch(GAS_CRO_URL);
-      const result = await res.json();
-      if (Array.isArray(result)) {
-        setCroHistory(result.filter(x => (x.status || x.Status || '').toLowerCase() === 'sudah'));
-      }
+      const { data, error } = await supabase.from('cro').select('*').eq('status', 'Sudah');
+      if (error) throw error;
+      setCroHistory(data || []);
     } catch (e) {
       console.error("Gagal fetch CRO:", e);
     }
@@ -127,11 +115,10 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
   }, []);
 
   const fetchUsers = React.useCallback(async () => {
-    if (!GAS_USERS_URL) return;
     try {
-      const res = await customFetch(GAS_USERS_URL);
-      const data = await res.json();
-      if (data.users) setUsersData(data.users);
+      const { data, error } = await supabase.from('users').select('username, name, role');
+      if (error) throw error;
+      if (data) setUsersData(data);
     } catch (e) {
       console.error("Gagal fetch users:", e);
     }
@@ -160,32 +147,36 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
     e.preventDefault();
     setIsLoading(true);
     try {
-      const res = await customFetch(`${GAS_USERS_URL}?action=upsertUser`, {
-        method: 'POST',
-        body: JSON.stringify(userFormData)
-      });
-      const data = await res.json();
-      if (data.status === 'success') {
-        Toastify({ text: "✓ " + data.message, duration: 3000, gravity: "top", position: "right", style: { background: "#10b981", borderRadius: "10px" } }).showToast();
+      const { data:existing } = await supabase.from('users').select('id').eq('username', userFormData.username).single();
+      let error;
+      if (existing) {
+        const updates = { name: userFormData.name, role: userFormData.role };
+        if (userFormData.password) updates.password = userFormData.password;
+        ({ error } = await supabase.from('users').update(updates).eq('id', existing.id));
+      } else {
+        ({ error } = await supabase.from('users').insert(userFormData));
+      }
+      if (!error) {
+        Toastify({ text: `✓ User ${existing ? 'diperbarui' : 'ditambahkan'}`, duration: 3000, gravity: "top", position: "right", style: { background: "#10b981", borderRadius: "10px" } }).showToast();
         setIsUserModalOpen(false);
         setUserFormData({ username: '', password: '', name: '', role: 'mekanik' });
         fetchUsers();
+      } else {
+        throw error;
       }
-    } catch (e) { console.error(e); } finally { setIsLoading(false); }
+    } catch (e) { console.error(e); Toastify({ text: "❌ Gagal simpan user", style: { background: "red" } }).showToast(); } finally { setIsLoading(false); }
   };
 
   const handleDeleteUser = async (username) => {
     if (!window.confirm(`Hapus user ${username}?`)) return;
     setIsLoading(true);
     try {
-      const res = await customFetch(`${GAS_USERS_URL}?action=deleteUser`, {
-        method: 'POST',
-        body: JSON.stringify({ username })
-      });
-      const data = await res.json();
-      if (data.status === 'success') {
+      const { error } = await supabase.from('users').delete().eq('username', username);
+      if (!error) {
         Toastify({ text: "✓ User Terhapus", duration: 3000, gravity: "top", position: "right", style: { background: "#ef4444", borderRadius: "10px" } }).showToast();
         fetchUsers();
+      } else {
+        throw error;
       }
     } catch (e) { console.error(e); } finally { setIsLoading(false); }
   };
@@ -465,43 +456,185 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
             mapped.mekanik = findVal(['Mkn', 'Mekanik']);
             mapped.nohp = findVal(['No. Telp/HP', 'No Telp', 'HP', 'Telepon']);
           } else {
-            // Default mapping untuk WO Tracking atau general
+            // Mapping untuk WO Tracking: Kita simpan original keys agar match dengan db schema nanti
+            // dan juga simpan versi normalized untuk kemudahan pencarian
             Object.keys(row).forEach(k => {
-              let key = k.toLowerCase().trim().replace(/\./g, '_').replace(/\s+/g, '_').replace(/_+/g, '_').replace(/_+$/, '');
               let val = row[k];
-              if (key.includes('wkt') || key.includes('date') || key.includes('tanggal')) {
-                val = normalizeDateStr(val);
+              mapped[k] = val; // Original key
+              
+              const lowKey = k.toLowerCase();
+              if (lowKey.includes('wkt') || lowKey.includes('date') || lowKey.includes('tanggal')) {
+                mapped[k] = normalizeDateStr(val);
               }
-              mapped[key] = val;
             });
+
+            // Agar r['No. WO'] atau r['No. WO DMS'] dsb tetap bisa diakses meskipun file excel
+            // memiliki variasi kecil seperti huruf besar/kecil atau spasi ekstra
+            const findCol = (keywords) => {
+               const key = Object.keys(row).find(k => keywords.some(kw => k.toLowerCase().trim().includes(kw.toLowerCase())));
+               return key ? row[key] : null;
+            };
+
+            // Tambahkan key standar ke mapped object agar logic di bawahnya lebih konsisten
+            mapped['No. WO'] = findCol(['No. WO', 'No WO', 'Nomor WO']);
           }
           return mapped;
         });
 
-        // Anti Duplikat (Hanya ambil record terakhir jika no_wo sama dalam satu file upload)
-        const uniqueData = isRevenue
-          ? Object.values(formattedData.reduce((acc, curr) => {
-            if (curr.no_wo) acc[curr.no_wo] = curr;
-            return acc;
-          }, {}))
-          : formattedData;
-
-        const targetUrl = isRevenue ? GAS_REVENUE_URL : GAS_WO_TRACKING_URL;
-        const action = isRevenue ? 'add_workshop' : 'add_wo_tracking';
-
-        // Untuk POST, kita tetap perlu menyertakan key jika script mengharuskannya
-        const urlWithKey = targetUrl;
-
-        const res = await customFetch(urlWithKey, {
-          method: 'POST',
-          body: JSON.stringify({ action: action, data: uniqueData })
+        // ── Deduplication ──────────────────────────────────────────────────
+        // Hapus baris yang no_wo-nya kosong/null
+        const filteredData = formattedData.filter(r => {
+          const key = isRevenue ? r.no_wo : r['No. WO'];
+          return key && String(key).trim() !== '';
         });
-        const result = await res.json();
-        if (result.status === 'success') {
-          Toastify({ text: "✅ Import Berhasil!", duration: 3000, style: { background: "#10b981" } }).showToast();
-          isRevenue ? fetchFinancialData() : fetchWoHistory();
+
+        // Hapus duplikat dalam file yang diupload (ambil baris terakhir per key)
+        const dedupeMap = new Map();
+        filteredData.forEach(r => {
+          const key = isRevenue ? r.no_wo : r['No. WO'];
+          dedupeMap.set(String(key).trim(), r);
+        });
+        const uniqueData = Array.from(dedupeMap.values());
+
+        if (uniqueData.length === 0) {
+          Toastify({ text: '⚠️ Tidak ada data valid untuk diimport. Pastikan kolom No. WO/Invoice tidak kosong.', style: { background: '#f97316' }, duration: 5000 }).showToast();
+          setIsLoading(false);
+          return;
         }
-      } catch (err) { console.error(err); }
+
+        // ── Simpan ke Supabase ──────────────────────────────────────────────
+        const targetTable = isRevenue ? 'revenue' : 'laporanwo';
+        // Penting: Jika nama kolom mengandung titik (.), harus diapit tanda kutip ganda "" 
+        // agar PostgREST tidak salah mengira itu adalah pemanggilan fungsi (seperti sum, avg, dll)
+        const idField = isRevenue ? 'no_wo' : '"No. WO"';
+
+        // ── Check Existing Data for De-duplication ───────────────────────────
+        const { data: existingRecords, error: fetchError } = await supabase
+          .from(targetTable)
+          .select(idField);
+
+        if (fetchError) {
+          console.error('Fetch error:', fetchError);
+          Toastify({ text: '⚠️ Gagal memverifikasi data existing.', style: { background: '#ef4444' } }).showToast();
+          setIsLoading(false);
+          return;
+        }
+
+        const existingSet = new Set(existingRecords.map(r => {
+          // r[idField] tidak bekerja jika idField berisi kutipan, kita ambil key aslinya
+          const key = isRevenue ? r.no_wo : r['No. WO'];
+          return String(key || '').trim();
+        }));
+        const toInsert = [];
+        let duplicateCount = 0;
+        let errorCount = 0;
+
+        uniqueData.forEach(r => {
+          const key = isRevenue ? r.no_wo : r['No. WO'];
+          const keyStr = String(key).trim();
+
+          // 1. Skip Duplicates
+          if (existingSet.has(keyStr)) {
+            duplicateCount++;
+            return;
+          }
+
+          // 2. Data Validation & Sanitization (Skip Errors)
+          try {
+            if (isRevenue) {
+              toInsert.push({
+                no_wo:          keyStr,
+                tipe_kendaraan: r.tipe_kendaraan || null,
+                sa:             r.sa || null,
+                mekanik:        r.mekanik || null,
+                leader:         r.leader || null,
+                wkt_masuk:      r.wkt_masuk ? r.wkt_masuk.split('T')[0] : null,
+                jasa:           Number(r.jasa) || 0,
+                s_part:         Number(r.s_part) || 0,
+                g_total:        Number(r.g_total) || 0,
+                nohp:           r.nohp || null,
+              });
+            } else {
+              // Helper untuk mendapatkan nilai dari object r dengan toleransi variasi nama kolom
+              const gv = (keywords, defaultVal = null) => {
+                const ky = Object.keys(r).find(k => keywords.some(kw => String(k).toLowerCase().includes(kw.toLowerCase())));
+                return (ky !== undefined) ? r[ky] : defaultVal;
+              };
+
+              toInsert.push({
+                'No. WO':                keyStr,
+                'No. WO DMS':            gv(['No. WO DMS', 'No. WO (DMS)', 'No WO DMS']) || null,
+                'Status':                gv(['Status']) || null,
+                'No. Pol':               gv(['No. Pol', 'No Pol', 'Plat Nomor']) || null,
+                'No. Rangka':            gv(['No. Rangka', 'No Rangka', 'VIN']) || null,
+                'Kode Tipe':             gv(['Kode Tipe', 'Kode Type']) || null,
+                'Kendaraan':             gv(['Kendaraan', 'Tipe Kendaraan', 'Model']) || null,
+                'Nama Invoice':          gv(['Nama Invoice', 'Customer']) || null,
+                'Pembawa':               gv(['Pembawa', 'Front']) || null,
+                'KM Masuk':              gv(['KM Masuk', 'Kilometer']) ? Number(gv(['KM Masuk', 'Kilometer'])) : null,
+                'Wkt.Masuk':             gv(['Wkt.Masuk', 'Tanggal Masuk']) || null,
+                'Wkt.Estimasi':          gv(['Wkt.Estimasi']) || null,
+                'Wkt.Setuju Estimasi':   gv(['Wkt.Setuju Estimasi']) || null,
+                'Wkt.Mulai':             gv(['Wkt.Mulai']) || null,
+                'Wkt.Selesai':           gv(['Wkt.Selesai']) || null,
+                'Wkt.Tutup':             gv(['Wkt.Tutup']) || null,
+                'SA':                    gv(['SA', 'Advisor']) || null,
+                'Mekanik':               gv(['Mekanik', 'Mkn']) || null,
+                'Leader':                gv(['Leader', 'Ldr']) || null,
+                'LC':                    gv(['LC', 'Jasa']) || null,
+                'Oli':                   gv(['Oli']) || null,
+                'SM':                    gv(['SM']) || null,
+                'SO':                    gv(['SO']) || null,
+                'Penjualan':             gv(['Penjualan']) || null,
+                'S. Part':               gv(['S. Part', 'Sparepart']) || null,
+                'TOTAL':                 gv(['TOTAL']) || null,
+                'PPN':                   gv(['PPN']) || null,
+                'G.TOTAL':               gv(['G.TOTAL', 'Grand Total']) || null,
+              });
+            }
+          } catch (e) {
+            console.warn('Row error:', e, r);
+            errorCount++;
+          }
+        });
+
+        if (toInsert.length === 0) {
+          Toastify({ 
+            text: `ℹ️ Tidak ada data baru untuk diimport. (Skipped: ${duplicateCount} Duplikat, ${errorCount} Error)`, 
+            style: { background: '#3b82f6' }, 
+            duration: 5000 
+          }).showToast();
+          setIsLoading(false);
+          return;
+        }
+
+        // ── Simpan ke Supabase ──────────────────────────────────────────────
+        const { error: supaError } = await supabase
+          .from(targetTable)
+          .insert(toInsert);
+
+        if (!supaError) {
+          Toastify({
+            text: `✅ Import Selesai! Berhasil: ${toInsert.length}, Lewati: ${duplicateCount} Duplikat, ${errorCount} Error.`,
+            duration: 6000,
+            style: { background: '#10b981' }
+          }).showToast();
+          isRevenue ? fetchFinancialData() : fetchWoHistory();
+        } else {
+          console.error('Import error:', supaError);
+          let errMsg = supaError.message || 'Unknown error';
+          if (supaError.code === '23505') errMsg = '❌ Duplikat: Beberapa baris sudah ada di database.';
+          else if (supaError.code === '42703') errMsg = '❌ Kolom tidak ditemukan: Nama kolom Excel mismatch.';
+          else if (supaError.code === '23502') errMsg = '❌ Data wajib kosong: Kolom NOT NULL tidak terisi.';
+          else if (supaError.code === '22P02') errMsg = '❌ Format data salah: Cek tipe data angka/tanggal.';
+          else errMsg = `❌ Import Gagal [${supaError.code}]: ${supaError.message}`;
+          
+          Toastify({ text: errMsg, duration: 7000, style: { background: '#ef4444' } }).showToast();
+        }
+      } catch (err) {
+        console.error('Import exception:', err);
+        Toastify({ text: `❌ Error tidak terduga: ${err.message}`, duration: 5000, style: { background: '#ef4444' } }).showToast();
+      }
       setIsLoading(false);
     };
     reader.readAsBinaryString(file);
@@ -527,19 +660,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
     };
   }, [financialData]);
 
-  const handleScroll = useCallback(() => {
-    if (!mainRef.current || !setIsNavbarVisible) return;
-    const currentScrollY = mainRef.current.scrollTop;
-    
-    if (currentScrollY > lastScrollY.current && currentScrollY > 100) {
-      // Scrolling down
-      setIsNavbarVisible(false);
-    } else {
-      // Scrolling up
-      setIsNavbarVisible(true);
-    }
-    lastScrollY.current = currentScrollY;
-  }, [setIsNavbarVisible]);
+  // Navbar visibility logic simplified to hover only in App.jsx
 
   return (
     <div className="fixed inset-0 bg-[#F2F2F7] overflow-hidden flex flex-col font-sans antialiased text-zinc-900">
@@ -549,55 +670,60 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
       )}
 
       {/* Sidebar - Desktop always narrow-to-expand, Mobile toggleable drawer */}
-      <aside className={`fixed left-0 top-0 bottom-0 z-[60] bg-white border-r border-zinc-200 transition-all duration-500 ease-in-out flex flex-col shadow-2xl overflow-hidden
-        ${isMobileSidebarOpen ? 'w-[280px] translate-x-0 p-8' : '-translate-x-full md:translate-x-0 md:w-20 md:hover:w-80 p-2 md:p-4 md:hover:p-8 md:group'}`}>
+      <aside className={`fixed left-0 top-0 bottom-0 z-[60] bg-white border-r border-zinc-200 transition-all duration-500 ease-in-out flex flex-col shadow-2xl overflow-hidden group
+        ${isMobileSidebarOpen ? 'w-[280px] translate-x-0 p-8' : '-translate-x-full md:translate-x-0 md:w-20 md:hover:w-72 p-2 md:p-4 md:hover:p-8'}`}>
         
-        <div className={`flex items-center gap-4 mb-16 px-2 transition-opacity duration-300 whitespace-nowrap
+        <div className={`flex items-center gap-4 mb-12 px-2 transition-all duration-300 whitespace-nowrap
           ${isMobileSidebarOpen ? 'opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'}`}>
-          <div className="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center shadow-lg shadow-red-200 shrink-0"><TrendingUp className="text-white" size={24} /></div>
+          <div className="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center shadow-lg shadow-red-200 shrink-0">
+            <TrendingUp className="text-white" size={24} />
+          </div>
           <div className="overflow-hidden">
             <h1 className="text-xl font-black tracking-tighter uppercase leading-none">Workshop</h1>
             <p className="text-[10px] font-bold text-zinc-400 mt-1 uppercase tracking-widest">Manager Hub</p>
           </div>
         </div>
 
-        <nav className="flex-1 space-y-3">
+        <nav className="flex-1 space-y-2 overflow-y-auto overflow-x-hidden custom-scrollbar">
           {[
             { id: 'performance', label: 'Dashboard Utama', icon: LayoutDashboard },
             { id: 'financial', label: 'Laporan Revenue', icon: DollarSign },
             { id: 'wo_tracking', label: 'Tracking Pengerjaan', icon: Activity },
             { id: 'vehicles', label: 'Database Mobil', icon: Database },
             { id: 'cro_history', label: 'Riwayat CRO', icon: History },
-            { id: 'booking_mgmt', label: 'Booking Mngr', icon: Calendar },
+            { id: 'booking_mgmt', label: 'Booking Manager', icon: Calendar },
             { id: 'holidays', label: 'Libur Dealer', icon: Settings },
             { id: 'staff', label: 'Manajemen Staff', icon: Users }
           ].map(item => (
             <button key={item.id} 
               onClick={() => { setActiveTab(item.id); setIsMobileSidebarOpen(false); }} 
-              className={`w-full flex items-center gap-4 px-5 py-5 rounded-[1.5rem] transition-all duration-300 font-bold uppercase text-[11px] tracking-widest whitespace-nowrap overflow-hidden 
-                ${activeTab === item.id ? 'bg-zinc-900 text-white shadow-xl' : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50'}`}>
+              className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all duration-200 font-bold uppercase text-[10px] tracking-widest whitespace-nowrap
+                ${activeTab === item.id ? 'bg-zinc-900 text-white shadow-xl' : 'text-zinc-400 hover:text-zinc-900 hover:bg-zinc-50'}`}>
               <item.icon size={20} strokeWidth={2.5} className="shrink-0" />
-              <span className={`transition-opacity duration-300 ${isMobileSidebarOpen ? 'opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'}`}>{item.label}</span>
+              <span className={`transition-all duration-300 ${isMobileSidebarOpen ? 'opacity-100 translate-x-0' : 'md:opacity-0 md:-translate-x-4 md:group-hover:opacity-100 md:group-hover:translate-x-0'}`}>
+                {item.label}
+              </span>
             </button>
           ))}
         </nav>
 
-        <div className="mt-auto pt-8 border-t border-zinc-100 flex items-center justify-between px-2 overflow-hidden">
-          <div className={`flex items-center gap-4 transition-opacity duration-300 whitespace-nowrap ${isMobileSidebarOpen ? 'opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'}`}>
+        <div className="mt-auto pt-6 border-t border-zinc-100 flex items-center justify-between px-2 overflow-hidden">
+          <div className={`flex items-center gap-4 transition-all duration-300 whitespace-nowrap ${isMobileSidebarOpen ? 'opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'}`}>
             <div className="w-10 h-10 rounded-full bg-zinc-100 border-2 border-white shadow-sm flex items-center justify-center font-black text-zinc-400 shrink-0">M</div>
             <div className="overflow-hidden">
               <p className="text-[11px] font-black uppercase tracking-tight truncate">{user?.name || 'Manager'}</p>
             </div>
           </div>
-          <button onClick={handleLogout} className={`p-3 text-zinc-300 hover:text-red-500 transition-colors shrink-0 ${isMobileSidebarOpen ? 'opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'}`}><X size={20} /></button>
+          <button onClick={handleLogout} className={`p-3 text-zinc-300 hover:text-red-500 transition-colors shrink-0 ${isMobileSidebarOpen ? 'opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'}`}>
+            <X size={20} />
+          </button>
         </div>
       </aside>
 
       {/* Main Content dengan margin-left responsive */}
       <main 
         ref={mainRef}
-        onScroll={handleScroll}
-        className="flex-1 md:ml-20 overflow-y-auto p-4 md:p-12 custom-scrollbar space-y-10 lg:space-y-16 pt-20 md:pt-12"
+        className="flex-1 md:ml-20 overflow-y-auto p-4 md:p-12 custom-scrollbar space-y-10 lg:space-y-16 mt-0 pt-16 md:pt-16"
       >
         {/* Toggle Button Mobile */}
         <button 
@@ -1093,14 +1219,6 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
       </main>
 
       {/* Overlays */}
-      {isLoading && (
-        <div className="fixed inset-0 bg-white/20 backdrop-blur-[20px] z-[500] flex items-center justify-center">
-          <div className="bg-zinc-900 text-white px-16 py-10 rounded-[4rem] shadow-2xl flex flex-col items-center gap-8 border-2 border-zinc-800 animate-pulse">
-            <div className="w-12 h-12 rounded-full border-4 border-white/10 border-t-red-500 animate-spin"></div>
-            <span className="text-[11px] font-black uppercase tracking-[0.5em]  text-red-100">Sinkronisasi Matriks Data...</span>
-          </div>
-        </div>
-      )}
 
       {selectedVehicle && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-4">

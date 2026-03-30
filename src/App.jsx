@@ -4,6 +4,7 @@ import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 
 import { API_KEY, GAS_URL, GAS_USERS_URL } from './utils/config';
+import { supabase } from './utils/supabaseClient';
 
 // Import Komponen Terpisah
 import DisplayBoard from './components/DisplayBoard';
@@ -17,6 +18,7 @@ import ManagerPanel from './components/ManagerPanel';
 import PublicBooking from './components/PublicBooking';
 import CroBookingPanel from './components/CroBookingPanel';
 import BookingManager from './components/BookingManager';
+import OwnerPanel from './components/OwnerPanel';
 import { USERS } from './data/users';
 
 // Helper sanitasi untuk mencegah "Injection" atau karakter berbahaya
@@ -91,56 +93,65 @@ const App = () => {
     localStorage.setItem('chery_break_settings', JSON.stringify(breakSettings));
   }, [breakSettings]);
 
-  // Fetch Data dari Apps Script
+  // Fetch Data dari Supabase (Disesuaikan dengan Nama Kolom User)
   const fetchQueue = React.useCallback(async () => {
     try {
-      // Fetch Antrean & History (Hanya data operasional, bukan data user)
-      const response = await customFetch(GAS_URL);
-      const data = await response.json();
+      const { data: activeQueue, error: qError } = await supabase
+        .from('antrian')
+        .select('*');
+        
+      const { data: historyData, error: hError } = await supabase
+        .from('history')
+        .select('*')
+        .order('id', { ascending: false }) // Fallback urutan ID karena tidak ada completed_at
+        .limit(100);
 
-      if (data && !Array.isArray(data) && Array.isArray(data.queue)) {
-        setQueue(data.queue || []);
-        setRawHistory(data.history || []);
-      } else if (Array.isArray(data)) {
-        const activeQueue = data.filter(item => item.status !== 'completed');
-        const historyData = data.filter(item => item.status === 'completed');
-        setQueue(activeQueue);
-        setRawHistory(historyData);
-      } else {
-        setQueue([]);
-        setRawHistory([]);
-      }
-      // PENTING: Jangan lagi memanggil GAS_USERS_URL di sini untuk mengambil semua user!
+      if (qError) throw qError;
+      if (hError) throw hError;
+
+      const mapDbToApp = (item) => ({
+        id: item.id,
+        bk: item.bk,
+        tipe: item.tipe,
+        category: item.category,
+        keluhan: item.keluhan,
+        mechanicName: item.mechanicName, // Disesuaikan dari mechanic_name
+        status: item.status,
+        estimasiDefault: item.estimasiDefault, // Disesuaikan dari estimasi_default
+        targetTime: item.targetTime, // Disesuaikan dari target_time
+        addedBy: item.addedBy // Disesuaikan dari added_by
+      });
+
+      setQueue((activeQueue || []).map(mapDbToApp));
+      setRawHistory((historyData || []).map(mapDbToApp));
     } catch (error) {
-      console.error("Gagal mengambil data operasional", error);
+      console.error("Gagal mengambil data operasional Supabase", error);
     }
   }, []);
 
-  // Sinkronisasi dengan Google Sheets - OPTIMIZED FOR VERCEL FREE LIMITS
+  // Sinkronisasi dengan Supabase Realtime
   useEffect(() => {
     fetchQueue(); // Ambil data pertama kali
 
-    const interval = setInterval(() => {
-      // 1. CEK VISIBILITAS: Jika tab tidak dibuka (browser di-minimize), BERHENTI POLING TOTAL.
-      if (document.visibilityState !== 'visible') return;
+    const antrianSubscription = supabase
+      .channel('antrian-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'antrian' }, payload => {
+        fetchQueue(); 
+      })
+      .subscribe();
 
-      // 2. ADAPTIVE SPEED:
-      // - Jika sedang di Board (TV): Cepat (15 detik)
-      // - Jika sedang di Laporan/Setting: Lambat (60 detik)
-      // - Default: 30 detik
-      const currentInterval = (currentPage === 'display') ? 15000 :
-        (['manager', 'cro', 'sparepart'].includes(currentPage)) ? 60000 : 30000;
-
-      // Logika agar tidak numpuk request jika interval belum tercapai (pake timestamp)
-      const lastFetch = parseInt(localStorage.getItem('last_fetch_raw') || '0');
-      if (Date.now() - lastFetch >= currentInterval) {
+    const historySubscription = supabase
+      .channel('history-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'history' }, payload => {
         fetchQueue();
-        localStorage.setItem('last_fetch_raw', Date.now().toString());
-      }
-    }, 5000); // Cek status tiap 5 detik tanpa narik data berat
+      })
+      .subscribe();
 
-    return () => clearInterval(interval);
-  }, [fetchQueue, currentPage]);
+    return () => {
+      supabase.removeChannel(antrianSubscription);
+      supabase.removeChannel(historySubscription);
+    };
+  }, [fetchQueue]);
 
   // Update waktu lokal setiap detik untuk countdown
   useEffect(() => {
@@ -163,66 +174,63 @@ const App = () => {
     }
   }, [sessionId]);
 
-  // Session Check (Single Device Login - Adaptive Real-time)
+  // ============================================================
+  // SINGLE SESSION GUARD — Realtime (< 1 detik kick)
+  // Jika ada login baru dari perangkat lain, sesi lama LANGSUNG
+  // di-logout tanpa menunggu polling.
+  // ============================================================
   useEffect(() => {
     if (!user || !sessionId || currentPage === 'display') return;
 
-    let lastInteraction = Date.now();
-    const updateInteraction = () => { lastInteraction = Date.now(); };
+    // Subscribe ke perubahan baris user ini di Supabase
+    const channel = supabase
+      .channel(`session-guard-${user.username}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'users',
+          filter: `username=eq.${user.username}`,
+        },
+        (payload) => {
+          const updatedRow = payload.new;
 
-    // Listeners for user activity
-    window.addEventListener('mousemove', updateInteraction);
-    window.addEventListener('keydown', updateInteraction);
-    window.addEventListener('scroll', updateInteraction, true);
+          // Jika sessionId di DB sudah berubah → ada yang login dari perangkat lain
+          if (updatedRow.sessionId && updatedRow.sessionId !== sessionId) {
+            const where = updatedRow.lastLocation || updatedRow.lastIP || 'perangkat lain';
+            const device = updatedRow.lastDevice || 'perangkat tidak dikenal';
+            const browser = updatedRow.lastBrowser || '';
 
-    const checkSession = async () => {
-      try {
-        const res = await customFetch(`${GAS_USERS_URL}?action=checkSession`, {
-          method: 'POST',
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({ username: user.username, sessionId: sessionId })
-        });
-        const data = await res.json();
-        
-        if (data.status === 'success' && data.valid === false) {
-          handleLogout();
-          Toastify({
-            text: "⚠️ Seseorang telah login ke akun Anda dari perangkat lain.",
-            duration: 0, close: true, gravity: "top", position: "center",
-            style: { background: "#ef4444", borderRadius: "12px", fontWeight: "900" }
-          }).showToast();
-          try { new Audio('/notification.mp3').play().catch(() => {}); } catch(e) {}
+            handleLogout();
+
+            // Tampilkan notifikasi yang informatif
+            Toastify({
+              text: `🔐 Akun Anda dibuka di ${device}${browser ? ` (${browser})` : ''} dari ${where}. Sesi Anda telah berakhir.`,
+              duration: 0,
+              close: true,
+              gravity: 'top',
+              position: 'center',
+              style: {
+                background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+                borderRadius: '16px',
+                fontWeight: '800',
+                fontSize: '13px',
+                padding: '16px 24px',
+                maxWidth: '420px',
+                boxShadow: '0 20px 60px rgba(220,38,38,0.4)',
+              }
+            }).showToast();
+
+            // Suara notifikasi
+            try { new Audio('/notification.mp3').play().catch(() => {}); } catch (e) {}
+          }
         }
-      } catch (e) {
-        console.error("Session check failed", e);
-      }
-    };
-
-    const runPolling = async () => {
-      await checkSession();
-      
-      // Adaptive timing
-      const idleTime = Date.now() - lastInteraction;
-      const isTabHidden = document.visibilityState !== 'visible';
-      
-      let nextInterval = 5000; // Default REAL-TIME 5s
-      
-      if (isTabHidden) {
-        nextInterval = 300000; // 5 minutes if tab hidden
-      } else if (idleTime > 120000) {
-        nextInterval = 60000; // 1 minute if idle for 2 mins
-      }
-      
-      timeoutId = setTimeout(runPolling, nextInterval);
-    };
-
-    let timeoutId = setTimeout(runPolling, 5000);
+      )
+      .subscribe();
 
     return () => {
-      clearTimeout(timeoutId);
-      window.removeEventListener('mousemove', updateInteraction);
-      window.removeEventListener('keydown', updateInteraction);
-      window.removeEventListener('scroll', updateInteraction, true);
+      supabase.removeChannel(channel);
     };
   }, [user, sessionId, currentPage]);
 
@@ -349,16 +357,12 @@ const App = () => {
               sisaDetik = Math.max(0, Math.floor((targetTime - Date.now()) / 1000));
             }
             try {
-              await customFetch(`${GAS_URL}?action=update`, {
-                method: "POST",
-                body: JSON.stringify({
-                  id: item.id,
-                  status: targetStatus,
-                  estimasiDefault: sisaDetik,
-                  mechanicName: item.mechanicName || '',
-                  targetTime: 0
-                }),
-              });
+              await supabase.from('antrian').update({
+                status: targetStatus,
+                estimasiDefault: sisaDetik, // Disesuaikan
+                mechanicName: item.mechanicName || '', // Disesuaikan
+                targetTime: 0 // Disesuaikan
+              }).eq('id', item.id);
             } catch (e) {
               console.error(e);
             }
@@ -375,15 +379,11 @@ const App = () => {
             const sisaDetik = parseInt(item.estimasiDefault) || 0;
             const targetTime = Date.now() + (sisaDetik * 1000);
             try {
-              await customFetch(`${GAS_URL}?action=update`, {
-                method: "POST",
-                body: JSON.stringify({
-                  id: item.id,
-                  status: 'working',
-                  targetTime: targetTime,
-                  mechanicName: item.mechanicName || ''
-                }),
-              });
+              await supabase.from('antrian').update({
+                status: 'working',
+                targetTime: targetTime, // Disesuaikan
+                mechanicName: item.mechanicName || '' // Disesuaikan
+              }).eq('id', item.id);
             } catch (e) { }
           }
           fetchQueue();
@@ -421,53 +421,90 @@ const App = () => {
 
   const processedQueue = useMemo(() => fullProcessedQueue, [fullProcessedQueue]);
 
+  const getDeviceInfo = () => {
+    const ua = navigator.userAgent;
+    let device = 'Desktop';
+    let browser = 'Unknown';
+
+    // Device Detection
+    if (/Android/i.test(ua)) device = 'Android Phone';
+    else if (/iPhone/i.test(ua)) device = 'iPhone';
+    else if (/iPad/i.test(ua)) device = 'iPad';
+    else if (/Windows Phone/i.test(ua)) device = 'Windows Phone';
+    else if (/Macintosh/i.test(ua)) device = 'Mac';
+    else if (/Windows/i.test(ua)) device = 'Windows PC';
+    else if (/Linux/i.test(ua)) device = 'Linux PC';
+
+    // Browser Detection
+    if (/Edg\//i.test(ua)) browser = 'Edge';
+    else if (/OPR\//i.test(ua) || /Opera/i.test(ua)) browser = 'Opera';
+    else if (/Chrome/i.test(ua)) browser = 'Chrome';
+    else if (/Firefox/i.test(ua)) browser = 'Firefox';
+    else if (/Safari/i.test(ua)) browser = 'Safari';
+
+    return { device, browser };
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoadingProcess(true);
 
     try {
-      // Sanitasi input sebelum dikirim ke server
       const cleanUsername = sanitizeInput(loginForm.username);
       const cleanPassword = sanitizeInput(loginForm.password);
-
-      // Generate New Session ID
       const newSessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
 
-      // Verifikasi di Sisi Server (GAS)
-      const response = await customFetch(`${GAS_USERS_URL}?action=login`, {
-        method: 'POST',
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8"
-        },
-        body: JSON.stringify({
-          username: cleanUsername,
-          password: cleanPassword,
-          sessionId: newSessionId
-        })
-      });
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('username', cleanUsername)
+        .eq('password', cleanPassword)
+        .single();
 
-      const data = await response.json();
+      if (data) {
+        const { device, browser } = getDeviceInfo();
+        const loginTime = new Date().toLocaleString('id-ID');
 
-      if (data.status === 'success') {
-        // Data yang disimpan hanya info dasar, BUKAN PASSWORD
-        const userData = { name: data.user.name, username: data.user.username, role: data.user.role };
+        // Ambil IP & Lokasi dari API publik (tanpa auth)
+        let ipAddress = '-';
+        let location = '-';
+        try {
+          const geoRes = await fetch('https://ipapi.co/json/');
+          const geoData = await geoRes.json();
+          ipAddress = geoData.ip || '-';
+          location = `${geoData.city || ''}, ${geoData.region || ''}, ${geoData.country_name || ''}`.replace(/^, |, $/g, '');
+        } catch (_) { /* Gagal ambil IP, lanjutkan saja */ }
+
+        // Simpan semua info ke Supabase sekaligus
+        await supabase.from('users').update({
+          sessionId: newSessionId,
+          lastDevice: device,
+          lastBrowser: browser,
+          lastIP: ipAddress,
+          lastLocation: location,
+          lastLogin: loginTime,
+          isOnline: true
+        }).eq('username', data.username);
+
+        const userData = { name: data.name, username: data.username, role: data.role };
         setUser(userData);
         setSessionId(newSessionId);
         setLoginForm({ username: '', password: '' });
 
-        const targetPage = data.user.role === 'mekanik' ? 'mechanic' :
-          data.user.role === 'sparepart' ? 'sparepart' :
-            data.user.role === 'cro' ? 'cro' :
-              data.user.role === 'manager' ? 'manager' : 'admin';
+        const targetPage = data.role === 'mekanik' ? 'mechanic' :
+          data.role === 'sparepart' ? 'sparepart' :
+          data.role === 'cro' ? 'cro' :
+          data.role === 'manager' ? 'manager' :
+          data.role === 'owner' ? 'owner' : 'admin';
         setCurrentPage(targetPage);
-        setErrorMessage("");
+        setErrorMessage('');
       } else {
-        setErrorMessage("Username atau Password salah!");
-        setTimeout(() => setErrorMessage(""), 3000);
+        setErrorMessage('Username atau Password salah!');
+        setTimeout(() => setErrorMessage(''), 3000);
       }
     } catch (error) {
-      console.error("Login Error:", error);
-      setErrorMessage("Gagal terhubung ke server keamanan!");
+      console.error('Login Error:', error);
+      setErrorMessage('Gagal terhubung ke server keamanan!');
     } finally {
       setIsLoadingProcess(false);
     }
@@ -481,29 +518,34 @@ const App = () => {
     }
 
     try {
-      // Mengirim request penggantian password ke GAS Users Web App
-      if (!GAS_USERS_URL || GAS_USERS_URL.trim() === "") {
-        return { success: false, message: "URL GAS Users belum di-setting. Anda tidak bisa mengganti password via server." };
+      // Mengirim request penggantian password ke Supabase
+      const { data: userData, error: fetchError } = await supabase
+        .from('users')
+        .select('password') // Hapus ID karena mungkin tidak ada primary key bigint di schema user Anda
+        .eq('username', user.username)
+        .single();
+        
+      if (fetchError || !userData) {
+        return { success: false, message: "Gagal menemukan data user!" };
+      }
+      
+      if (userData.password !== oldPassword) {
+        return { success: false, message: "Password lama salah!" };
       }
 
-      const res = await customFetch(`${GAS_USERS_URL}?action=changePassword`, {
-        method: "POST",
-        body: JSON.stringify({
-          username: user.username,
-          newPassword: newPassword
-        })
-      });
-      const data = await res.json();
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ password: newPassword })
+        .eq('username', user.username);
 
-      if (data.status === 'success') {
-        fetchQueue(); // Ambil ulang data users dari sheet
-        return { success: true, message: "Password berhasil diubah!" };
-      } else {
-        return { success: false, message: data.message || "Gagal mengubah password" };
+      if (updateError) {
+        return { success: false, message: updateError.message || "Gagal mengubah password" };
       }
+      
+      return { success: true, message: "Password berhasil diubah!" };
     } catch (error) {
       console.error(error);
-      return { success: false, message: "Gagal terhubung ke server!" };
+      return { success: false, message: "Gagal terhubung ke server database!" };
     }
   };
 
@@ -524,44 +566,47 @@ const App = () => {
     }
 
     setIsLoadingProcess(true);
-    let action = isEditing ? 'update' : 'add';
 
     let updates = {
-      id: isEditing ? formData.id : Date.now(),
       bk: formData.bk.toUpperCase(),
       tipe: formData.tipe,
       category: formData.category,
-      estimasiDefault: totalSeconds,
       keluhan: formData.keluhan || '',
-      mechanicName: formData.mechanicName || '',
+      mechanicName: formData.mechanicName || '', // Disesuaikan
     };
 
     if (isEditing) {
-      // Jika status sedang dikerjakan, pastikan targetTime juga diperbarui agar mundurannya relevan
+      updates.id = formData.id;
       if (formData.status === 'working') {
-        updates.targetTime = Date.now() + (totalSeconds * 1000);
+        updates.targetTime = Date.now() + (totalSeconds * 1000); // Disesuaikan
+        updates.estimasiDefault = totalSeconds; // Disesuaikan
       } else if (!formData.status) {
-        // Fallback untuk file lama
-        updates.targetTime = Date.now() + (totalSeconds * 1000);
+        updates.targetTime = Date.now() + (totalSeconds * 1000); // Disesuaikan
+        updates.estimasiDefault = totalSeconds;
+      } else {
+        updates.estimasiDefault = totalSeconds;
       }
     } else {
+      updates.id = Date.now(); // Karena id di schema Anda NOT NULL tapi tidak ditulis IDENTITY, kita isi manual
       updates.status = 'waiting';
-      updates.addedBy = user.name;
+      updates.addedBy = user.name; // Disesuaikan
+      updates.estimasiDefault = totalSeconds;
     }
 
     try {
-      await customFetch(`${GAS_URL}?action=${action}`, {
-        method: "POST",
-        body: JSON.stringify(updates),
-      });
-      // Ambil data terbaru langsung
-      fetchQueue();
-      // Reset form setelah save
+      if (isEditing) {
+        const { error } = await supabase.from('antrian').update(updates).eq('id', formData.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('antrian').insert(updates);
+        if (error) throw error;
+      }
+      
       setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '', mechanicName: '' });
       setIsEditing(false);
     } catch (error) {
       console.error("Gagal menyimpan data", error);
-      setErrorMessage("Gagal menyimpan data ke Google Sheets");
+      setErrorMessage("Gagal menyimpan data ke Supabase");
       setTimeout(() => setErrorMessage(""), 3000);
     } finally {
       setIsLoadingProcess(false);
@@ -572,11 +617,8 @@ const App = () => {
     if (isLoadingProcess) return;
     setIsLoadingProcess(true);
     try {
-      await customFetch(`${GAS_URL}?action=delete`, {
-        method: "POST",
-        body: JSON.stringify({ id: id }),
-      });
-      fetchQueue();
+      await supabase.from('antrian').delete().eq('id', id);
+      await supabase.from('history').delete().eq('id', id);
     } catch (err) {
       console.error(err);
     } finally {
@@ -589,10 +631,7 @@ const App = () => {
       if (isLoadingProcess) return;
       setIsLoadingProcess(true);
       try {
-        await customFetch(`${GAS_URL}?action=clear`, {
-          method: "POST",
-        });
-        fetchQueue();
+        await supabase.from('antrian').delete().neq('id', 0);
       } catch (err) {
         console.error(err);
       } finally {
@@ -615,16 +654,11 @@ const App = () => {
     const targetTime = Date.now() + (estimasiDefaultInt * 1000);
 
     try {
-      await customFetch(`${GAS_URL}?action=update`, {
-        method: "POST",
-        body: JSON.stringify({
-          id: item.id,
-          status: 'working',
-          targetTime: targetTime,
-          mechanicName: user.name
-        }),
-      });
-      fetchQueue();
+      await supabase.from('antrian').update({
+        status: 'working',
+        targetTime: targetTime, // Disesuaikan
+        mechanicName: user.name // Disesuaikan
+      }).eq('id', item.id);
     } catch (err) {
       console.error(err);
     } finally {
@@ -643,17 +677,12 @@ const App = () => {
     }
 
     try {
-      await customFetch(`${GAS_URL}?action=update`, {
-        method: "POST",
-        body: JSON.stringify({
-          id: item.id,
-          status: 'menginap',
-          estimasiDefault: sisaDetik,
-          mechanicName: item.mechanicName || '',
-          targetTime: 0
-        }),
-      });
-      fetchQueue();
+      await supabase.from('antrian').update({
+        status: 'menginap',
+        estimasiDefault: sisaDetik, // Disesuaikan
+        targetTime: 0, // Disesuaikan
+        mechanicName: item.mechanicName || '' // Disesuaikan
+      }).eq('id', item.id);
     } catch (err) {
       console.error(err);
     } finally {
@@ -666,15 +695,10 @@ const App = () => {
     setIsLoadingProcess(true);
 
     try {
-      await customFetch(`${GAS_URL}?action=update`, {
-        method: "POST",
-        body: JSON.stringify({
-          id: item.id,
-          status: 'waiting',
-          targetTime: 0
-        }),
-      });
-      fetchQueue();
+      await supabase.from('antrian').update({
+        status: 'waiting',
+        target_time: 0
+      }).eq('id', item.id);
     } catch (err) {
       console.error(err);
     } finally {
@@ -687,14 +711,26 @@ const App = () => {
     setIsLoadingProcess(true);
 
     try {
-      await customFetch(`${GAS_URL}?action=complete`, {
-        method: "POST",
-        body: JSON.stringify({
-          id: item.id
-        }),
+      // 1. Insert into history (Sesuaikan Nama Kolom & Tambah WaktuSelesai)
+      const { error: insertError } = await supabase.from('history').insert({
+        id: item.id,
+        bk: item.bk,
+        tipe: item.tipe,
+        category: item.category,
+        keluhan: item.keluhan,
+        mechanicName: item.mechanicName || '',
+        status: 'completed',
+        estimasiDefault: item.estimasiDefault,
+        targetTime: Date.now(),
+        addedBy: item.addedBy || '',
+        waktuSelesai: new Date().toLocaleString() // Sesuaikan dengan format text/string Anda
       });
+      if (insertError) throw insertError;
 
-      fetchQueue();
+      // 2. Delete from antrian
+      const { error: deleteError } = await supabase.from('antrian').delete().eq('id', item.id);
+      if (deleteError) throw deleteError;
+
     } catch (err) {
       console.error(err);
       setErrorMessage("Gagal menyelesaikan antrean.");
@@ -717,13 +753,12 @@ const App = () => {
   };
 
   return (
-    <div className={`bg-[#F2F2F7] text-zinc-900 font-sans tracking-tight antialiased ${['sparepart', 'cro'].includes(currentPage) ? 'h-screen overflow-hidden' : 'min-h-screen pb-12 pt-16'}`}>
+    <div className="bg-[#F2F2F7] text-zinc-900 font-sans tracking-tight antialiased h-screen overflow-hidden flex flex-col">
       {/* Navbar Tetap di App.jsx */}
       <div
         onMouseEnter={() => setIsNavbarVisible(true)}
         onMouseLeave={() => setIsNavbarVisible(false)}
-        onClick={() => setIsNavbarVisible(prev => !prev)}
-        className="fixed top-0 left-0 w-full z-50 group"
+        className="fixed top-0 left-0 w-full z-[100] h-14 group"
       >
         <nav className={`bg-white/80 backdrop-blur-md border-b border-zinc-200 px-4 py-2.5 flex shadow-sm transition-transform duration-500 ease-in-out ${isNavbarVisible ? 'translate-y-0' : '-translate-y-full'}`}>
           <div className="max-w-screen-xl mx-auto w-full flex items-center md:justify-center overflow-x-auto no-scrollbar">
@@ -742,9 +777,9 @@ const App = () => {
                 <Settings size={14} /> Profile
               </button>
             ) : (
-              <button onClick={() => user ? (user.role === 'sparepart' ? setCurrentPage('sparepart') : (user.role === 'cro' && currentPage === 'cro-booking') ? setCurrentPage('cro') : user.role === 'cro' ? setCurrentPage('cro') : user.role === 'manager' ? setCurrentPage('manager') : setCurrentPage('admin')) : setCurrentPage('login')}
-                className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${['admin', 'login', 'sparepart', 'cro', 'manager'].includes(currentPage) ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
-                <Settings size={14} /> {user?.role === 'sparepart' ? 'Sparepart' : user?.role === 'cro' ? 'CRO Follow Up' : user?.role === 'manager' ? 'Manager Dashboard' : 'Admin'}
+              <button onClick={() => user ? (user.role === 'sparepart' ? setCurrentPage('sparepart') : (user.role === 'cro' && currentPage === 'cro-booking') ? setCurrentPage('cro') : user.role === 'cro' ? setCurrentPage('cro') : user.role === 'manager' ? setCurrentPage('manager') : user.role === 'owner' ? setCurrentPage('owner') : setCurrentPage('admin')) : setCurrentPage('login')}
+                className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${['admin', 'login', 'sparepart', 'cro', 'manager', 'owner'].includes(currentPage) ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-800'}`}>
+                <Settings size={14} /> {user?.role === 'sparepart' ? 'Sparepart' : user?.role === 'cro' ? 'CRO Follow Up' : user?.role === 'manager' ? 'Manager Dashboard' : user?.role === 'owner' ? 'Owner Dashboard' : 'Admin'}
               </button>
             )}
             {(user?.role === 'admin' || user?.role === 'manager' || user?.role === 'cro') && (
@@ -792,6 +827,7 @@ const App = () => {
       {currentPage === 'booking-public' && <PublicBooking user={user} />}
       {currentPage === 'promo' && <PromosiSparepart />}
       {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={setIsNavbarVisible} />}
+      {currentPage === 'owner' && user?.role === 'owner' && <OwnerPanel user={user} handleLogout={handleLogout} />}
 
       {/* Footer */}
       <footer className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-zinc-200 px-4 md:px-8 py-2 md:py-2.5 flex flex-col md:flex-row justify-between items-center text-[7px] md:text-[9px] text-zinc-400 font-black uppercase tracking-[0.2em] z-50 gap-1 md:gap-0">

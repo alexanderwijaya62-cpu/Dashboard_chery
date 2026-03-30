@@ -3,7 +3,7 @@ import { LayoutDashboard, LogOut, Clock, CheckCircle, Calendar, LineChart, Uploa
 import Toastify from 'toastify-js';
 import * as XLSX from 'xlsx';
 
-import { API_KEY, GAS_CRO_URL } from '../utils/config';
+import { supabase } from '../utils/supabaseClient';
 import CroBookingPanel from './CroBookingPanel';
 import HolidaySettings from './HolidaySettings';
 
@@ -71,66 +71,67 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
 
     const fetchFromGoogleSheets = React.useCallback(async (isBackground = false) => {
         if (!isBackground) loadFromLocal();
-        if (!GAS_CRO_URL) return;
 
         try {
-            if (!isBackground) showLoading("Mengambil data dari Google Sheets...");
+            if (!isBackground) showLoading("Mengambil data dari server...");
 
-            // Menggunakan proxy lokal /api/gas_cro untuk menghindari CORS preflight langsung ke GAS
-            const response = await fetch(GAS_CRO_URL, {
-                headers: { "x-api-key": API_KEY }
-            });
-            const responseData = await response.json();
+            const { data: supaData, error } = await supabase
+                .from('cro')
+                .select('*')
+                .order('created_at', { ascending: false });
 
-            if (responseData && Array.isArray(responseData)) {
-                setData(responseData);
-                saveToLocal(responseData);
-                setCloudStatus(true);
-            } else {
-                console.error("Data bukan array:", responseData);
-                if (!isBackground) Toastify({ text: "Gagal memproses data dari Server", background: "orange" }).showToast();
-            }
+            if (error) throw error;
+
+            const mapped = (supaData || []).map(r => ({
+                id: r.id,
+                workOrderNo: r.workOrderNo,
+                nama: r.nama,
+                telepon: String(r.telepon || ''),
+                vin: r.vin,
+                plat: r.plat,
+                serviceAdvisor: r.serviceAdvisor,
+                kilometer: String(r.kilometer || ''),
+                tipeMobil: r.tipeMobil,
+                deskripsi: r.deskripsi,
+                tanggalDatang: r.tanggalDatang,
+                tahunBeli: r.tahunBeli,
+                partLama: r.partLama,
+                partBaru: r.partBaru,
+                status: r.status,
+                respon: r.respon,
+                tanggalFollowUp: r.tanggalFollowUp,
+                lampiran: r.lampiran
+            }));
+            setData(mapped);
+            saveToLocal(mapped);
+            setCloudStatus(true);
         } catch (error) {
-            console.error("Gagal Google Sheets:", error);
+            console.error("Gagal Supabase:", error);
             if (!isBackground) Toastify({ text: "Koneksi ke Server Terputus", background: "red" }).showToast();
         } finally {
             if (!isBackground) hideLoading();
         }
-    }, [GAS_CRO_URL]);
+    }, []);
 
     const syncToGoogleSheets = async (latestData) => {
-        if (!GAS_CRO_URL) return;
-        try {
-            showLoading("Menyimpan ke Google Sheets...");
-            await fetch(GAS_CRO_URL, {
-                method: 'POST',
-                headers: {
-                    "Content-Type": "text/plain;charset=utf-8",
-                    "x-api-key": API_KEY
-                },
-                body: JSON.stringify({ action: 'sync', data: latestData })
-            });
-        } catch (error) {
-            alert("Gagal menyimpan ke Google Sheets! Periksa internet Anda.");
-        } finally {
-            hideLoading();
-        }
+        // Tidak diperlukan lagi, Supabase Realtime menangani sinkronisasi
+        console.log("sync legacy: skipped — using Supabase");
     };
 
     useEffect(() => {
         fetchFromGoogleSheets();
     }, [fetchFromGoogleSheets]);
 
+    // Realtime subscription for CRO data
     useEffect(() => {
-        const interval = setInterval(() => {
-            if (document.visibilityState === 'visible' && !isModalOpen && !isFsModalOpen && !isLoading) {
+        const channel = supabase
+            .channel('cro-changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'cro' }, () => {
                 fetchFromGoogleSheets(true);
-            }
-        }, 60000); // Polling diperlambat menjadi 60 detik agar hemat usage Vercel
-
-        return () => clearInterval(interval);
-        // eslint-disable-next-line
-    }, [isModalOpen, isFsModalOpen, isLoading, fetchFromGoogleSheets]);
+            })
+            .subscribe();
+        return () => supabase.removeChannel(channel);
+    }, [fetchFromGoogleSheets]);
 
     const parseLampiran = (val) => {
         if (!val || val === '-') return [];
@@ -344,96 +345,97 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
         const reader = new FileReader();
         reader.onload = async function (event) {
             try {
+                showLoading("Membaca dan mengimpor data Excel...");
                 const arr = new Uint8Array(event.target.result);
                 const workbook = XLSX.read(arr, { type: 'array', cellDates: true });
                 const sheetName = workbook.SheetNames[0];
                 const sheet = workbook.Sheets[sheetName];
                 const jsonData = XLSX.utils.sheet_to_json(sheet);
 
-                let addedCount = 0;
-                let updatedCount = 0;
-                let newData = [...data];
+                const { data: existingRecords } = await supabase.from('cro').select('workOrderNo');
+                const existingSet = new Set((existingRecords || []).map(r => String(r.workOrderNo || '').trim()));
+                
+                const toInsert = [];
+                let skipCount = 0;
+                let errorCount = 0;
 
                 jsonData.forEach(row => {
-                    let vinStr = String(row["VIN"] || "-").trim();
-                    let namaStr = String(row["customer's name"] || "-").trim();
-                    let woNo = row["Work Order No."] || row["work order no."] || row["Work Order No"];
+                    try {
+                        let vinStr = String(row["VIN"] || "-").trim();
+                        let namaStr = String(row["customer's name"] || "-").trim();
+                        let woNo = row["Work Order No."] || row["work order no."] || row["Work Order No"];
+                        let woStr = woNo ? String(woNo).trim() : "-";
 
-                    if (woNo || vinStr !== "-" || namaStr !== "-") {
-                        let deliveryTimeValue = row["Delivery time"] || row["delivery time"] || row["Delivery Time"] || row["Tanggal Masuk"] || "-";
-                        let formattedTanggal = formatTanggal(deliveryTimeValue);
-                        let saleDateValue = row["sale date"] || "-";
+                        // Skip if duplicate WO
+                        if (woStr !== "-" && existingSet.has(woStr)) {
+                            skipCount++;
+                            return;
+                        }
 
-                        let existsIndex = newData.findIndex(x =>
-                            x.tanggalDatang === formattedTanggal &&
-                            ((vinStr !== "-" && x.vin === vinStr) || (namaStr !== "-" && x.nama === namaStr))
-                        );
+                        if (woStr !== "-" || vinStr !== "-" || namaStr !== "-") {
+                            let deliveryTimeValue = row["Delivery time"] || row["delivery time"] || row["Delivery Time"] || row["Tanggal Masuk"] || "-";
+                            let formattedTanggal = formatTanggal(deliveryTimeValue);
+                            let saleDateValue = row["sale date"] || "-";
 
-                        let currentPartLama = (row["old part number"] ? row["old part number"] + " - " : "") + (row["old part name"] || "");
-                        let currentPartBaru = (row["new part number"] ? row["new part number"] + " - " : "") + (row["new item name"] || "");
-                        let currentKeluhan = row["Client Description"] || "-";
+                            let partLama = (row["old part number"] ? row["old part number"] + " - " : "") + (row["old part name"] || "");
+                            let partBaru = (row["new part number"] ? row["new part number"] + " - " : "") + (row["new item name"] || "");
+                            let keluhan = row["Client Description"] || "-";
 
-                        currentPartLama = currentPartLama.trim() === "-" || currentPartLama.trim() === "" ? "" : currentPartLama.trim();
-                        currentPartBaru = currentPartBaru.trim() === "-" || currentPartBaru.trim() === "" ? "" : currentPartBaru.trim();
+                            partLama = partLama.trim() === "-" || partLama.trim() === "" ? "" : partLama.trim();
+                            partBaru = partBaru.trim() === "-" || partBaru.trim() === "" ? "" : partBaru.trim();
 
-                        if (existsIndex === -1) {
-                            const newId = newData.length > 0 ? Math.max(...newData.map(m => m.id)) + 1 : 1;
-                            newData.push({
-                                id: newId,
-                                workOrderNo: woNo ? String(woNo).trim() : "-",
+                            toInsert.push({
+                                workOrderNo: woStr,
                                 nama: namaStr,
-                                telepon: row["mobile phone"] || "-",
+                                telepon: Number(String(row["mobile phone"] || 0).replace(/\D/g,'')), 
                                 vin: vinStr,
                                 plat: row["number plate"] || "-",
                                 serviceAdvisor: row["Service Advisor"] || "-",
-                                kilometer: row["driven distance"] || "-",
+                                kilometer: Number(String(row["driven distance"] || 0).replace(/\D/g,'')), 
                                 tipeMobil: row["car series"] || "-",
-                                deskripsi: currentKeluhan !== "-" ? `• ${currentKeluhan}` : "-",
+                                deskripsi: keluhan !== "-" ? `• ${keluhan}` : "-",
                                 tanggalDatang: formattedTanggal,
                                 tahunBeli: formatTanggal(saleDateValue),
-                                partLama: currentPartLama ? `• ${currentPartLama}` : "-",
-                                partBaru: currentPartBaru ? `• ${currentPartBaru}` : "-",
-                                status: "belum",
+                                partLama: partLama ? `• ${partLama}` : "-",
+                                partBaru: partBaru ? `• ${partBaru}` : "-",
+                                status: "Belum",
                                 respon: "",
-                                tanggalFollowUp: null,
                                 lampiran: ""
                             });
-                            addedCount++;
-                        } else {
-                            let exists = newData[existsIndex];
-                            if (woNo && !exists.workOrderNo.includes(String(woNo).trim())) exists.workOrderNo += `, ${String(woNo).trim()}`;
-                            if (currentKeluhan !== "-" && !exists.deskripsi.includes(currentKeluhan)) {
-                                if (exists.deskripsi === "-") exists.deskripsi = `• ${currentKeluhan}`;
-                                else exists.deskripsi += `\n• ${currentKeluhan}`;
-                            }
-                            if (currentPartLama) {
-                                if (exists.partLama === "-") exists.partLama = `• ${currentPartLama}`;
-                                else if (!exists.partLama.includes(currentPartLama)) exists.partLama += `\n• ${currentPartLama}`;
-                            }
-                            if (currentPartBaru) {
-                                if (exists.partBaru === "-") exists.partBaru = `• ${currentPartBaru}`;
-                                else if (!exists.partBaru.includes(currentPartBaru)) exists.partBaru += `\n• ${currentPartBaru}`;
-                            }
-                            newData[existsIndex] = exists;
-                            updatedCount++;
                         }
+                    } catch (e) {
+                        console.error("Row error:", e);
+                        errorCount++;
                     }
                 });
 
                 if (fileInputRef.current) fileInputRef.current.value = "";
 
-                if (addedCount > 0 || updatedCount > 0) {
-                    setData(newData);
-                    saveToLocal(newData);
-                    setCurrentTab('belum');
-                    await syncToGoogleSheets(newData);
-                }
+                if (toInsert.length > 0) {
+                    const { error } = await supabase
+                        .from('cro')
+                        .insert(toInsert);
 
-                Toastify({ text: `Upload Berhasil! ${addedCount} baru, ${updatedCount} diupdate`, background: 'green' }).showToast();
+                    if (error) throw error;
+                    setCurrentTab('belum');
+                    Toastify({ 
+                        text: `✅ Import Selesai! Berhasil: ${toInsert.length}, Lewati: ${skipCount} Duplikat, ${errorCount} Error.`, 
+                        background: 'green',
+                        duration: 6000
+                    }).showToast();
+                    fetchFromGoogleSheets(true);
+                } else {
+                    const msg = skipCount > 0 
+                        ? `ℹ️ Tidak ada data baru (Dilewati ${skipCount} Duplikat, ${errorCount} Error).`
+                        : "Tidak ditemukan data valid di file Excel.";
+                    Toastify({ text: msg, background: "#3b82f6", duration: 5000 }).showToast();
+                }
 
             } catch (error) {
                 console.error("Gagal memproses file Excel", error);
                 Toastify({ text: "Terjadi kesalahan saat membaca file Excel.", background: 'red' }).showToast();
+            } finally {
+                hideLoading();
             }
         };
         reader.readAsArrayBuffer(file);
@@ -644,58 +646,27 @@ Terima kasih banyak atas dukungan dan kepercayaannya Bapak/Ibu. Sehat selalu!`;
         }
 
         try {
-            showLoading("Menyimpan data dan mengunggah gambar...");
-            const newData = [...data];
+            showLoading("Menyimpan data...");
             const idsToUpdate = selectedRecordIds.length > 0 ? selectedRecordIds : [selectedId];
             const now = new Date();
             const followupDate = formatTanggal(now);
 
-            // SINKRONISASI KE GOOGLE SHEETS DAHULU
-            if (GAS_CRO_URL) {
-                for (const id of idsToUpdate) {
-                    const itemData = data.find(x => x.id === id);
-                    const response = await fetch(GAS_CRO_URL, {
-                        method: 'POST',
-                        headers: { "Content-Type": "text/plain;charset=utf-8", "x-api-key": API_KEY },
-                        body: JSON.stringify({
-                            action: 'update',
-                            id: id,
-                            updates: {
-                                status: 'sudah',
-                                respon: responCustomer,
-                                tanggalFollowUp: followupDate,
-                                lampiran: JSON.stringify(currentAttachedImages) // Kirim array JSON
-                            }
-                        })
-                    });
-
-                    if (!response.ok) throw new Error("Gagal kirim ke server");
-                }
+            for (const id of idsToUpdate) {
+                const { error } = await supabase.from('cro').update({
+                    status: 'Sudah',
+                    respon: responCustomer,
+                    tanggalFollowUp: followupDate, // Disesuaikan
+                    lampiran: JSON.stringify(currentAttachedImages) // Schema Anda adalah text, jadi harus stringify
+                }).eq('id', id);
+                if (error) throw error;
             }
 
-            // Jika sukses di cloud, baru update local state
-            idsToUpdate.forEach(id => {
-                const idx = newData.findIndex(x => x.id === id);
-                if (idx > -1) {
-                    newData[idx].status = 'sudah';
-                    newData[idx].respon = responCustomer;
-                    newData[idx].tanggalFollowUp = followupDate;
-                    newData[idx].lampiran = JSON.stringify(currentAttachedImages);
-                }
-            });
-
-            setData(newData);
-            saveToLocal(newData);
             setCurrentAttachedImages([]);
             closeModal();
-
-            // Refresh data setelah beberapa saat untuk memastikan link Drive sinkron (ditambah jadi 10 detik agar Drive sempat memproses)
-            setTimeout(() => fetchFromGoogleSheets(true), 10000);
-
-            Toastify({ text: "Data berhasil diperbarui ke Cloud ✅", background: "green" }).showToast();
+            Toastify({ text: "Data berhasil diperbarui ✅", background: "green" }).showToast();
         } catch (error) {
             console.error("Error submit:", error);
-            Toastify({ text: "Gagal menyimpan data ke Cloud. Periksa koneksi.", background: "red" }).showToast();
+            Toastify({ text: "Gagal menyimpan data. Periksa koneksi.", background: "red" }).showToast();
         } finally {
             hideLoading();
         }

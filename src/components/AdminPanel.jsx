@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, LogOut, Plus, Edit3, Bookmark, Zap, AlertCircle, CheckCircle2, Trash2, Check, Moon, X, Clock, Activity, UserCog } from 'lucide-react';
 import TimeInput from './TimeInput';
-import { API_KEY, GAS_BOOKING_URL } from '../utils/config';
+import { supabase } from '../utils/supabaseClient';
 
 const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, clearQueue, editItem, handleSave, formData, setFormData, isEditing, setIsEditing, errorMessage, formatTime, handleComplete, handleSetOvernight, handleCancelOvernight, breakSettings, setBreakSettings }) => {
   const totalDetik = (parseInt(formData.jam || 0) * 3600) + (parseInt(formData.menit || 0) * 60) + parseInt(formData.detik || 0);
@@ -34,12 +34,19 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
 
   const fetchBookings = async () => {
     try {
-      if (!GAS_BOOKING_URL) return;
-      const resp = await fetch(`${GAS_BOOKING_URL}`, { headers: { "x-api-key": API_KEY } });
-      const data = await resp.json();
+      const { data, error } = await supabase
+        .from('booking')
+        .select('*');
+      
+      if (error) throw error;
+      
       if (Array.isArray(data)) {
         const activePlates = new Set(queue.map(q => normalizeBK(q.bk)));
-        const historyPlatesToday = new Set(rawHistory.filter(h => isToday(h.id) || isToday(h.completedAt)).map(h => normalizeBK(h.bk)));
+        const historyPlatesToday = new Set(
+          rawHistory
+            .filter(h => isToday(h.id) || isToday(h.waktuSelesai))
+            .map(h => normalizeBK(h.bk))
+        );
 
         const processed = data.map(b => {
           const plat = normalizeBK(b.noPlat);
@@ -49,12 +56,14 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
 
         setTodayBookings(processed);
       }
-    } catch (e) { console.error("Gagal fetch booking:", e); }
+    } catch (e) {
+      console.error('Gagal fetch booking dari Supabase:', e);
+    }
   };
 
   useEffect(() => {
     fetchBookings();
-    const interval = setInterval(fetchBookings, 30000); 
+    const interval = setInterval(fetchBookings, 30000);
     return () => clearInterval(interval);
   }, [queue, rawHistory]);
 
@@ -75,7 +84,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
   };
 
   return (
-    <div className="lg:h-screen min-h-screen bg-[#F0F2F5] flex flex-col font-sans overflow-x-hidden overflow-y-auto lg:overflow-hidden">
+    <div className="h-screen bg-[#F0F2F5] flex flex-col font-sans overflow-hidden">
       
       {/* COMPACT TOP HEADER */}
       <header className="bg-white border-b border-zinc-200 px-6 py-2.5 flex justify-between items-center z-50 shrink-0 shadow-sm">

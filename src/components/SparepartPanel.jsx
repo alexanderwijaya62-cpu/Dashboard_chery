@@ -3,19 +3,9 @@ import { PackageSearch, Plus, Trash2, Check, ArrowLeft, Send, Upload, Search, Fi
 import Toastify from 'toastify-js';
 import * as XLSX from 'xlsx';
 
-import { API_KEY, GAS_SPAREPART_URL } from '../utils/config';
+import { supabase } from '../utils/supabaseClient';
 
 const normalize = (s) => String(s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
-
-const customFetch = (url, options = {}) => {
-    return fetch(url, {
-        ...options,
-        headers: {
-            ...options.headers,
-            "x-api-key": API_KEY,
-        },
-    });
-};
 
 const formatDateForInput = (dateStr) => {
     if (!dateStr) return '';
@@ -66,7 +56,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
         if (!file) return;
 
         const reader = new FileReader();
-        reader.onload = (evt) => {
+        reader.onload = async (evt) => {
             try {
                 const bstr = evt.target.result;
                 const wb = XLSX.read(bstr, { type: 'binary' });
@@ -168,20 +158,27 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
                     }
                 });
 
-                // Jika mapping huruf gagal (format berbeda), gunakan fallback normalize
-                const distinctOrders = Object.values(ordersMap);
+                // Filter out orders that already exist in the database (Skip Duplicates)
+                const { data: existingRecords } = await supabase.from('sparepart').select('Handling order number');
+                const existingSet = new Set((existingRecords || []).map(r => normalize(r['Handling order number'])));
+                
+                const finalOrders = Object.values(ordersMap).filter(o => !existingSet.has(normalize(o.orderNumber)));
+                const duplicateCount = Object.values(ordersMap).length - finalOrders.length;
 
-                if (distinctOrders.length > 0) {
-                    setPendingBatch(distinctOrders);
+                if (finalOrders.length > 0) {
+                    setPendingBatch(finalOrders);
                     setBatchIndex(0);
-                    loadOrderData(distinctOrders[0]);
+                    loadOrderData(finalOrders[0]);
                     Toastify({
-                        text: `Excel Berhasil Diimpor! Ditemukan ${distinctOrders.length} Pesanan.`,
+                        text: `✅ Excel Berhasil Diimpor! Ditemukan ${finalOrders.length} Pesanan Baru. (Lewati ${duplicateCount} Duplikat)`,
                         background: "green",
-                        duration: 3000
+                        duration: 5000
                     }).showToast();
                 } else {
-                    throw new Error("Tidak ditemukan data pesanan yang valid di Excel.");
+                    const msg = duplicateCount > 0 
+                        ? `ℹ️ Tidak ada data baru (Semua ${duplicateCount} data sudah terdaftar).`
+                        : "Tidak ditemukan data pesanan yang valid di Excel.";
+                    Toastify({ text: msg, background: "#3b82f6", duration: 5000 }).showToast();
                 }
             } catch (error) {
                 console.error("Import Error:", error);
@@ -219,37 +216,44 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
 
     const fetchOrders = async () => {
         try {
-            const resp = await customFetch(`${GAS_SPAREPART_URL}?action=get&_=${Date.now()}`);
-            const data = await resp.json();
-            if (data && Array.isArray(data.orders)) {
-                const parsedOrders = data.orders.map(o => {
-                    const norm = {};
-                    Object.keys(o).forEach(k => { norm[k.toLowerCase().replace(/\s/g, '')] = o[k]; });
+            const { data, error } = await supabase
+                .from('sparepart')
+                .select('*');
+            
+            if (error) throw error;
 
-                    // Find order number with priority
-                    const oNum = o['Handling order number'] || norm.handlingordernumber || o.orderNumber || norm.ordernumber || o.id || '';
+            if (data && Array.isArray(data)) {
+                const parsedOrders = data.map(o => {
+                    const rowId = o['Handling order number'] || '';
                     return {
                         ...o,
-                        id: oNum,
-                        orderNumber: oNum,
-                        namaPemesan: norm.namapemesan || norm.founder || o.namaPemesan || '-',
-                        items: norm.items || norm.listbarang || o.items || '[]',
-                        status: norm.status || o.status || 'pending',
-                        tanggalPembuatan: o['Tanggal Pembuatan'] || norm.tanggalpembuatan || o.tanggal || o['submission time'] || '-',
-                        tanggalCSI: formatDateForInput(o['Processing Time'] || norm.processingtime || o.tanggalCSI || '')
+                        id: rowId,
+                        orderNumber: rowId,
+                        namaPemesan: o.founder || '-',
+                        items: o.items || '[]',
+                        status: o.status || 'pending',
+                        tanggalPembuatan: o['submission time'] || '-',
+                        tanggalCSI: formatDateForInput(o['processing time'] || '')
                     };
                 });
                 setOrders(parsedOrders);
             }
         } catch (e) {
-            console.error(e);
+            console.error("Gagal fetch sparepart:", e);
         }
     };
 
     useEffect(() => {
         fetchOrders();
-        const inv = setInterval(fetchOrders, 60000); // Polling diperlambat agar hemat limit
-        return () => clearInterval(inv);
+        // Realtime subscription
+        const channel = supabase
+            .channel('sparepart-changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'sparepart' }, () => {
+                fetchOrders();
+            })
+            .subscribe();
+        
+        return () => supabase.removeChannel(channel);
     }, []);
 
     const handleAddItem = () => {
@@ -419,26 +423,22 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
                 return; // STOP TOTAL - Jangan kirim POST
             }
 
-            // PROSES SIMPAN (Hanya jika lolos verifikasi di atas)
+            // PROSES SIMPAN ke Supabase
             const payload = {
                 'Handling order number': orderNumber,
-                action: 'add',
-                orderNumber,
-                tanggal: formattedNow,
-                namaPemesan,
-                tanggalCSI,
-                orderNotes,
-                items: JSON.stringify(items.map(i => ({ ...i, isArrived: false }))),
-                status: 'pending',
+                'submission time': formattedNow,
+                'founder': namaPemesan,
+                'processing time': tanggalCSI,
+                'order notes': orderNotes,
+                'items': JSON.stringify(items.map(i => ({ ...i, isArrived: false }))),
+                'status': 'pending',
             };
 
-            const resp = await customFetch(`${GAS_SPAREPART_URL}?Handling%20order%20number=${encodeURIComponent(orderNumber)}`, {
-                method: "POST",
-                body: JSON.stringify(payload),
-            });
+            const { error } = await supabase
+                .from('sparepart')
+                .insert([payload]);
 
-            const result = await resp.json();
-            if (!resp.ok || result.status === 'error') throw new Error(result.message || "Gagal menyimpan ke server");
+            if (error) throw error;
 
             Toastify({ text: `SUKSES: Pesanan ${orderNumber} berhasil disimpan!`, background: "green" }).showToast();
 
@@ -479,25 +479,21 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
         setIsLoading(true);
 
         try {
-            const resp = await customFetch(`${GAS_SPAREPART_URL}?Handling%20order%20number=${encodeURIComponent(order.id)}`, {
-                method: "POST",
-                body: JSON.stringify({
-                    action: 'update_status',
-                    'Handling order number': order.id,
+            const { error } = await supabase
+                .from('sparepart')
+                .update({
                     status: newStatus,
                     arrivedTime: new Date().toISOString(),
                     items: newItemsJson
-                }),
-            });
-            const result = await resp.json();
+                })
+                .eq('Handling order number', order.id);
 
-            if (!resp.ok || result.status === 'error') {
-                throw new Error(result.message || "Gagal update ke Google Script");
-            }
+            if (error) throw error;
 
             Toastify({ text: `Status diperbarui menjadi ${isPartial ? 'Sebagian Sampai' : 'Sampai'}!`, background: "green", duration: 3000 }).showToast();
             fetchOrders();
         } catch (e) {
+            console.error(e);
             Toastify({ text: "Gagal update status", background: "red", duration: 3000 }).showToast();
         } finally {
             setIsLoading(false);
@@ -525,18 +521,16 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
     const handleSaveChanges = async (order) => {
         setIsLoading(true);
         try {
-            const resp = await customFetch(`${GAS_SPAREPART_URL}?Handling%20order%20number=${encodeURIComponent(order.id)}`, {
-                method: "POST",
-                body: JSON.stringify({
-                    action: 'update_status',
-                    'Handling order number': order.id,
+            const { error } = await supabase
+                .from('sparepart')
+                .update({
                     status: order.status,
                     arrivedTime: new Date().toISOString(),
                     items: order.items
-                }),
-            });
-            const result = await resp.json();
-            if (!resp.ok || result.status === 'error') throw new Error(result.message);
+                })
+                .eq('Handling order number', order.id);
+
+            if (error) throw error;
 
             Toastify({ text: "Perubahan disimpan!", background: "green", duration: 2000 }).showToast();
             setModifiedIds(prev => {
