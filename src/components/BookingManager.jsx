@@ -4,7 +4,7 @@ import CroBookingPanel from './CroBookingPanel';
 import FollowupPanel from './FollowupPanel';
 import HolidaySettings from './HolidaySettings';
 
-export default function BookingManager({ user, handleLogout, isNavbarVisible, initialTab = 'booking', setCurrentPage }) {
+export default function BookingManager({ user, handleLogout, isNavbarVisible, initialTab = 'booking', setCurrentPage, breakSettings, setBreakSettings }) {
     const [activeTab, setActiveTab] = useState(initialTab);
 
     // Sync tab with localStorage if needed
@@ -53,18 +53,18 @@ export default function BookingManager({ user, handleLogout, isNavbarVisible, in
             {/* Content Area */}
             <div className="flex-1 overflow-hidden relative">
                 {activeTab === 'booking' && (
-                    <div className="h-full pt-2">
+                    <div className="h-full">
                         <CroBookingPanel user={user} setCurrentPage={setCurrentPage} />
                     </div>
                 )}
                 {activeTab === 'followup' && (
                     <div className="h-full pt-16 -mt-16"> 
-                        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} />
+                        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
                     </div>
                 )}
                 {activeTab === 'holidays' && (
-                    <div className="h-full p-4 overflow-y-auto custom-scrollbar">
-                        <HolidaySettings user={user} />
+                    <div className="h-full overflow-hidden">
+                        <HolidaySettings user={user} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
                     </div>
                 )}
             </div>

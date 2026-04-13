@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { User, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import cheryLogo from '../assets/cherylogo.png';
+import orientalLogo from '../assets/oriental.jpeg';
 
 const LoginPage = ({ loginForm, setLoginForm, handleLogin, errorMessage, setCurrentPage }) => {
   const [showPassword, setShowPassword] = useState(false);
 
   return (
-    <div className="min-screen flex items-center justify-center bg-[#F2F2F7] p-6 py-20 animate-fade-in">
-      <div className="w-full max-w-md bg-white rounded-[2rem] p-10 shadow-2xl shadow-zinc-200 border border-zinc-100">
+    <div className="min-screen flex items-center justify-center bg-[#F2F2F7] p-6 py-20 animate-fade-in transition-colors duration-500">
+      <div className="w-full max-w-md bg-white rounded-[2rem] p-10 shadow-2xl shadow-zinc-200 border border-zinc-100 transition-colors duration-500">
         <div className="text-center mb-10">
-          <img src={cheryLogo} alt="Chery Logo" className="h-28 mx-auto mb-6 object-contain" />
+          <div className="flex items-center justify-center gap-6 mb-6">
+            <img src={cheryLogo} alt="Chery Logo" className="h-20 object-contain" />
+            <img src={orientalLogo} alt="Oriental Logo" className="h-20 object-contain rounded-lg" />
+          </div>
           <h2 className="text-2xl font-black tracking-tighter text-zinc-900">ADMIN LOGIN</h2>
           <p className="text-zinc-400 text-sm font-medium mt-1 uppercase tracking-widest">Akses Panel Kontrol</p>
         </div>
@@ -21,7 +25,7 @@ const LoginPage = ({ loginForm, setLoginForm, handleLogin, errorMessage, setCurr
               <User className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-300" size={18} />
               <input
                 type="text"
-                className="w-full bg-zinc-50 border border-zinc-200 p-4 pl-12 rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-50 focus:border-red-600 outline-none transition-all font-bold"
+                className="w-full bg-zinc-50 border border-zinc-200 p-4 pl-12 rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-50 focus:border-red-600 outline-none transition-all font-bold text-zinc-900"
                 placeholder="Username"
                 value={loginForm.username}
                 onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
@@ -34,7 +38,7 @@ const LoginPage = ({ loginForm, setLoginForm, handleLogin, errorMessage, setCurr
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-300" size={18} />
               <input
                 type={showPassword ? "text" : "password"}
-                className="w-full bg-zinc-50 border border-zinc-200 p-4 pl-12 pr-12 rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-50 focus:border-red-600 outline-none transition-all font-bold"
+                className="w-full bg-zinc-50 border border-zinc-200 p-4 pl-12 pr-12 rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-50 focus:border-red-600 outline-none transition-all font-bold text-zinc-900"
                 placeholder="••••••••"
                 value={loginForm.password}
                 onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
@@ -45,6 +49,14 @@ const LoginPage = ({ loginForm, setLoginForm, handleLogin, errorMessage, setCurr
             </div>
           </div>
 
+          <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl">
+            <p className="text-[10px] text-zinc-500 font-medium text-center leading-relaxed">
+              Dengan melakukan login, Anda menyatakan setuju dengan 
+              <span className="text-zinc-900 font-bold block mt-1">Kebijakan Pelacakan Lokasi & Perangkat</span> 
+              untuk keperluan monitoring operasional staf secara real-time.
+            </p>
+          </div>
+
           {errorMessage && (
             <div className="bg-red-50 text-red-600 text-xs p-3 rounded-xl border border-red-100 flex items-center gap-2 animate-shake">
               <AlertCircle size={16} /> {errorMessage}
@@ -52,7 +64,7 @@ const LoginPage = ({ loginForm, setLoginForm, handleLogin, errorMessage, setCurr
           )}
 
           <button type="submit" className="w-full bg-zinc-900 hover:bg-black text-white py-5 rounded-2xl font-bold text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95">
-            Login ke Sistem
+            Setuju & Login ke Sistem
           </button>
 
           <button

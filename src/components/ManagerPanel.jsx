@@ -3,7 +3,7 @@ import {
   TrendingUp, Users, Clock, AlertCircle, ChevronRight, ChevronLeft,
   Search, Calendar, Download, Filter, Car, DollarSign, Activity,
   ShieldCheck, Package, Award, Zap, Star, LayoutDashboard, Database,
-  History, Upload, X, BarChart4, CheckCircle, Wrench, Moon, Settings, MessageSquare, Menu
+  History, Upload, X, BarChart4, CheckCircle, Wrench, Shield, Settings, MessageSquare, Menu, FileSpreadsheet
 } from 'lucide-react';
 import CroBookingPanel from './CroBookingPanel';
 import HolidaySettings from './HolidaySettings';
@@ -17,6 +17,7 @@ import { supabase } from '../utils/supabaseClient';
 
 const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSettings, setBreakSettings, setIsNavbarVisible }) => {
   const [usersData, setUsersData] = useState([]);
+  const [isSyncing, setIsSyncing] = useState(false);
   const mainRef = useRef(null);
   const lastScrollY = useRef(0);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
@@ -53,7 +54,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
     try {
       const { data, error } = await supabase.from('revenue').select('*');
       if (error) throw error;
-      
+
       // Map columns from snake_case with dots/spaces if any (based on your schema)
       const mapped = (data || []).map(r => ({
         no_wo: r.no_wo,
@@ -68,7 +69,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
         mekanik: r.mekanik,
         nohp: r.nohp
       }));
-      
+
       setFinancialData(mapped);
       if (mapped.length === 0) Toastify({ text: "⚠️ Revenue: Data Kosong", style: { background: "orange" } }).showToast();
     } catch (e) {
@@ -83,7 +84,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
     try {
       const { data, error } = await supabase.from('laporanwo').select('*');
       if (error) throw error;
-      
+
       // Map dari nama kolom ber-titik dan spasi (No. WO, Wkt.Masuk, dll)
       const mapped = (data || []).map(r => ({
         no_wo: r['No. WO'],
@@ -92,9 +93,10 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
         sa: r['SA'],
         mekanik: r['Mekanik'],
         leader: r['Leader'],
-        wkt_masuk: r['Wkt.Masuk']
+        wkt_masuk: r['Wkt.Masuk'],
+        status: r['Status']
       }));
-      
+
       setWoTrackingData(mapped);
     } catch (e) {
       console.error("Gagal fetch tracking:", e);
@@ -125,11 +127,12 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'performance' || activeTab === 'financial') fetchFinancialData();
-    if (activeTab === 'wo_tracking') fetchWoHistory();
-    if (activeTab === 'cro_history') fetchCroHistory();
-    if (activeTab === 'staff') fetchUsers();
-  }, [activeTab, fetchFinancialData, fetchWoHistory, fetchCroHistory, fetchUsers]);
+    // Fetch all for export readiness
+    fetchFinancialData();
+    fetchWoHistory();
+    fetchCroHistory();
+    fetchUsers();
+  }, [fetchFinancialData, fetchWoHistory, fetchCroHistory, fetchUsers]);
 
   useEffect(() => {
     setFinancialPage(1);
@@ -147,7 +150,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
     e.preventDefault();
     setIsLoading(true);
     try {
-      const { data:existing } = await supabase.from('users').select('id').eq('username', userFormData.username).single();
+      const { data: existing } = await supabase.from('users').select('id').eq('username', userFormData.username).single();
       let error;
       if (existing) {
         const updates = { name: userFormData.name, role: userFormData.role };
@@ -199,7 +202,12 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
             else dObj = new Date(p[0], p[1] - 1, p[2]);
           }
         } else {
-          dObj = new Date(str);
+          // Cek apakah string ini sebenarnya adalah timestamp numerik (ms)
+          if (/^\d{10,13}$/.test(str)) {
+             dObj = new Date(parseInt(str));
+          } else {
+             dObj = new Date(str);
+          }
         }
       }
 
@@ -408,6 +416,164 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
     return Object.values(map).sort((a, b) => b.count - a.count);
   }, [rawHistory]);
 
+    const handleExportSummary = async () => {
+        setIsSyncing(true);
+        if (!XLSX) {
+            Toastify({ text: '⚠️ Excel library is loading...', style: { background: '#f59e0b' } }).showToast();
+            setIsSyncing(false);
+            return;
+        }
+
+        try {
+            const workbook = XLSX.utils.book_new();
+
+            // ── SHEET 1: REVENUE BY TYPE ──────────────────────────────────────────
+            const revenueByType = [];
+            const typeMap = {}; // { prefix: { month: { jasa, part } } }
+            
+            financialData.forEach(item => {
+                const date = new Date(item.wkt_masuk);
+                if (isNaN(date.getTime())) return;
+                const month = date.getMonth() + 1;
+                const prefix = (item.no_wo || 'UNT').substring(0, 3).toUpperCase();
+                
+                if (!typeMap[prefix]) typeMap[prefix] = {};
+                if (!typeMap[prefix][month]) typeMap[prefix][month] = { jasa: 0, part: 0 };
+                
+                typeMap[prefix][month].jasa += (item.jasa || 0);
+                typeMap[prefix][month].part += (item.s_part || 0);
+            });
+
+            Object.keys(typeMap).sort().forEach(prefix => {
+                for (let m = 1; m <= 12; m++) {
+                    const data = typeMap[prefix][m];
+                    if (data) {
+                        revenueByType.push({
+                            'TIPE WO': prefix,
+                            'BULAN': m,
+                            'TOTAL JASA': data.jasa,
+                            'TOTAL SPAREPART': data.part,
+                            'GRAND TOTAL': data.jasa + data.part
+                        });
+                    }
+                }
+            });
+            const ws1 = XLSX.utils.json_to_sheet(revenueByType);
+            XLSX.utils.book_append_sheet(workbook, ws1, "Revenue per Tipe");
+
+            // ── SHEET 2: STAFF PERFORMANCE (JASA ONLY) ─────────────────────────────
+            const staffPerf = [];
+            const staffMap = {}; // { name: { role, [month]: totalJasa } }
+
+            financialData.forEach(item => {
+                const date = new Date(item.wkt_masuk);
+                if (isNaN(date.getTime())) return;
+                const month = date.getMonth() + 1;
+                
+                const processStaff = (name, role) => {
+                    if (!name || name === '---') return;
+                    const key = `${name}_${role}`;
+                    if (!staffMap[key]) {
+                        staffMap[key] = { name, role };
+                        for (let i = 1; i <= 12; i++) staffMap[key][i] = 0;
+                    }
+                    staffMap[key][month] += (item.jasa || 0);
+                };
+
+                processStaff(item.sa, 'SERVICE ADVISOR');
+                processStaff(item.mekanik, 'MEKANIK');
+            });
+
+            Object.values(staffMap).forEach(s => {
+                let annualTotal = 0;
+                const row = { 'NAMA KARYAWAN': s.name, 'JABATAN': s.role };
+                for (let m = 1; m <= 12; m++) {
+                    row[`BLN ${m}`] = s[m];
+                    annualTotal += s[m];
+                }
+                row['TOTAL TAHUNAN'] = annualTotal;
+                staffPerf.push(row);
+            });
+            const ws2 = XLSX.utils.json_to_sheet(staffPerf);
+            XLSX.utils.book_append_sheet(workbook, ws2, "Performa Karyawan");
+
+            // ── SHEET 3: WO TRACKING STATUS ───────────────────────────────────────
+            const woTracking = [];
+            const trackMap = {}; // { prefix_status: { [month]: count } }
+
+            woTrackingData.forEach(item => {
+                const wkt = item.wkt_masuk;
+                const date = new Date(wkt);
+                if (isNaN(date.getTime())) return;
+                const month = date.getMonth() + 1;
+                const prefix = (item.no_wo || 'UNT').substring(0, 3).toUpperCase();
+                const status = (item.status || 'OPEN').toUpperCase();
+                
+                const key = `${prefix}|${status}`;
+                if (!trackMap[key]) {
+                    trackMap[key] = { prefix, status };
+                    for (let i = 1; i <= 12; i++) trackMap[key][i] = 0;
+                }
+                trackMap[key][month]++;
+            });
+
+            Object.values(trackMap).forEach(t => {
+                let annualTotal = 0;
+                const row = { 'TIPE WO': t.prefix, 'STATUS AKHIR': t.status };
+                for (let m = 1; m <= 12; m++) {
+                    row[`BLN ${m}`] = t[m];
+                    annualTotal += t[m];
+                }
+                row['TOTAL UNIT'] = annualTotal;
+                woTracking.push(row);
+            });
+            const ws3 = XLSX.utils.json_to_sheet(woTracking);
+            XLSX.utils.book_append_sheet(workbook, ws3, "Tracking Status WO");
+
+            // ── SHEET 4: VEHICLE DATABASE FREQUENCY ────────────────────────────────
+            const vehicleFreq = [];
+            const vehMap = {}; // { tipe: { [month]: count } }
+
+            // Gunakan rawHistory (Antrian) untuk Database Mobil (Group by Tipe)
+            rawHistory.forEach(item => {
+                const date = new Date(parseInt(item.id) || item.id);
+                if (isNaN(date.getTime())) return;
+                const month = date.getMonth() + 1;
+                const tipe = (item.tipe || 'UNKNOWN').toUpperCase();
+                
+                if (!vehMap[tipe]) {
+                    vehMap[tipe] = {};
+                    for (let i = 1; i <= 12; i++) vehMap[tipe][i] = 0;
+                }
+                vehMap[tipe][month]++;
+            });
+
+            Object.entries(vehMap).forEach(([tipe, d]) => {
+                let annualTotal = 0;
+                const row = { 'MODEL KENDARAAN': tipe };
+                for (let m = 1; m <= 12; m++) {
+                    row[`BLN ${m}`] = d[m];
+                    annualTotal += d[m];
+                }
+                row['TOTAL KUNJUNGAN'] = annualTotal;
+                vehicleFreq.push(row);
+            });
+            const ws4 = XLSX.utils.json_to_sheet(vehicleFreq);
+            XLSX.utils.book_append_sheet(workbook, ws4, "Popularitas Mobil");
+
+            // DOWNLOAD
+            const fileName = `Rangkuman_Audit_Workshop_${new Date().getFullYear()}.xlsx`;
+            XLSX.writeFile(workbook, fileName);
+            
+            Toastify({ text: '✅ Berhasil Mengekspor Audit Multipage!', style: { background: '#10b981' } }).showToast();
+        } catch (e) {
+            console.error(e);
+            Toastify({ text: `❌ Gagal Ekspor: ${e.message}`, style: { background: 'red' } }).showToast();
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
   const handleWorkshopUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -451,7 +617,9 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
             mapped.ppn = ppn;
             mapped.g_total = total || (mapped.jasa + mapped.s_part + mapped.ppn);
 
-            mapped.sa = findVal(['Front', 'Pembawa', 'SA', 'Advisor']);
+            // Gunakan exactly kolom 'Front' untuk nilai SA sesuai permintaan user
+            const frontVal = findVal(['Front']);
+            mapped.sa = frontVal || findVal(['SA', 'Advisor', 'Service Advisor']);
             mapped.leader = findVal(['Ldr', 'Leader', 'LNN']);
             mapped.mekanik = findVal(['Mkn', 'Mekanik']);
             mapped.nohp = findVal(['No. Telp/HP', 'No Telp', 'HP', 'Telepon']);
@@ -461,7 +629,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
             Object.keys(row).forEach(k => {
               let val = row[k];
               mapped[k] = val; // Original key
-              
+
               const lowKey = k.toLowerCase();
               if (lowKey.includes('wkt') || lowKey.includes('date') || lowKey.includes('tanggal')) {
                 mapped[k] = normalizeDateStr(val);
@@ -471,8 +639,8 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
             // Agar r['No. WO'] atau r['No. WO DMS'] dsb tetap bisa diakses meskipun file excel
             // memiliki variasi kecil seperti huruf besar/kecil atau spasi ekstra
             const findCol = (keywords) => {
-               const key = Object.keys(row).find(k => keywords.some(kw => k.toLowerCase().trim().includes(kw.toLowerCase())));
-               return key ? row[key] : null;
+              const key = Object.keys(row).find(k => keywords.some(kw => k.toLowerCase().trim().includes(kw.toLowerCase())));
+              return key ? row[key] : null;
             };
 
             // Tambahkan key standar ke mapped object agar logic di bawahnya lebih konsisten
@@ -543,16 +711,16 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
           try {
             if (isRevenue) {
               toInsert.push({
-                no_wo:          keyStr,
+                no_wo: keyStr,
                 tipe_kendaraan: r.tipe_kendaraan || null,
-                sa:             r.sa || null,
-                mekanik:        r.mekanik || null,
-                leader:         r.leader || null,
-                wkt_masuk:      r.wkt_masuk ? r.wkt_masuk.split('T')[0] : null,
-                jasa:           Number(r.jasa) || 0,
-                s_part:         Number(r.s_part) || 0,
-                g_total:        Number(r.g_total) || 0,
-                nohp:           r.nohp || null,
+                sa: r.sa || null,
+                mekanik: r.mekanik || null,
+                leader: r.leader || null,
+                wkt_masuk: r.wkt_masuk ? r.wkt_masuk.split('T')[0] : null,
+                jasa: Number(r.jasa) || 0,
+                s_part: Number(r.s_part) || 0,
+                g_total: Number(r.g_total) || 0,
+                nohp: r.nohp || null,
               });
             } else {
               // Helper untuk mendapatkan nilai dari object r dengan toleransi variasi nama kolom
@@ -562,34 +730,34 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
               };
 
               toInsert.push({
-                'No. WO':                keyStr,
-                'No. WO DMS':            gv(['No. WO DMS', 'No. WO (DMS)', 'No WO DMS']) || null,
-                'Status':                gv(['Status']) || null,
-                'No. Pol':               gv(['No. Pol', 'No Pol', 'Plat Nomor']) || null,
-                'No. Rangka':            gv(['No. Rangka', 'No Rangka', 'VIN']) || null,
-                'Kode Tipe':             gv(['Kode Tipe', 'Kode Type']) || null,
-                'Kendaraan':             gv(['Kendaraan', 'Tipe Kendaraan', 'Model']) || null,
-                'Nama Invoice':          gv(['Nama Invoice', 'Customer']) || null,
-                'Pembawa':               gv(['Pembawa', 'Front']) || null,
-                'KM Masuk':              gv(['KM Masuk', 'Kilometer']) ? Number(gv(['KM Masuk', 'Kilometer'])) : null,
-                'Wkt.Masuk':             gv(['Wkt.Masuk', 'Tanggal Masuk']) || null,
-                'Wkt.Estimasi':          gv(['Wkt.Estimasi']) || null,
-                'Wkt.Setuju Estimasi':   gv(['Wkt.Setuju Estimasi']) || null,
-                'Wkt.Mulai':             gv(['Wkt.Mulai']) || null,
-                'Wkt.Selesai':           gv(['Wkt.Selesai']) || null,
-                'Wkt.Tutup':             gv(['Wkt.Tutup']) || null,
-                'SA':                    gv(['SA', 'Advisor']) || null,
-                'Mekanik':               gv(['Mekanik', 'Mkn']) || null,
-                'Leader':                gv(['Leader', 'Ldr']) || null,
-                'LC':                    gv(['LC', 'Jasa']) || null,
-                'Oli':                   gv(['Oli']) || null,
-                'SM':                    gv(['SM']) || null,
-                'SO':                    gv(['SO']) || null,
-                'Penjualan':             gv(['Penjualan']) || null,
-                'S. Part':               gv(['S. Part', 'Sparepart']) || null,
-                'TOTAL':                 gv(['TOTAL']) || null,
-                'PPN':                   gv(['PPN']) || null,
-                'G.TOTAL':               gv(['G.TOTAL', 'Grand Total']) || null,
+                'No. WO': keyStr,
+                'No. WO DMS': gv(['No. WO DMS', 'No. WO (DMS)', 'No WO DMS']) || null,
+                'Status': gv(['Status']) || null,
+                'No. Pol': gv(['No. Pol', 'No Pol', 'Plat Nomor']) || null,
+                'No. Rangka': gv(['No. Rangka', 'No Rangka', 'VIN']) || null,
+                'Kode Tipe': gv(['Kode Tipe', 'Kode Type']) || null,
+                'Kendaraan': gv(['Kendaraan', 'Tipe Kendaraan', 'Model']) || null,
+                'Nama Invoice': gv(['Nama Invoice', 'Customer']) || null,
+                'Pembawa': gv(['Pembawa', 'Front']) || null,
+                'KM Masuk': gv(['KM Masuk', 'Kilometer']) ? Number(gv(['KM Masuk', 'Kilometer'])) : null,
+                'Wkt.Masuk': gv(['Wkt.Masuk', 'Tanggal Masuk']) || null,
+                'Wkt.Estimasi': gv(['Wkt.Estimasi']) || null,
+                'Wkt.Setuju Estimasi': gv(['Wkt.Setuju Estimasi']) || null,
+                'Wkt.Mulai': gv(['Wkt.Mulai']) || null,
+                'Wkt.Selesai': gv(['Wkt.Selesai']) || null,
+                'Wkt.Tutup': gv(['Wkt.Tutup']) || null,
+                'SA': gv(['Front']) || gv(['SA', 'Advisor']) || null,
+                'Mekanik': gv(['Mekanik', 'Mkn']) || null,
+                'Leader': gv(['Leader', 'Ldr']) || null,
+                'LC': gv(['LC', 'Jasa']) || null,
+                'Oli': gv(['Oli']) || null,
+                'SM': gv(['SM']) || null,
+                'SO': gv(['SO']) || null,
+                'Penjualan': gv(['Penjualan']) || null,
+                'S. Part': gv(['S. Part', 'Sparepart']) || null,
+                'TOTAL': gv(['TOTAL']) || null,
+                'PPN': gv(['PPN']) || null,
+                'G.TOTAL': gv(['G.TOTAL', 'Grand Total']) || null,
               });
             }
           } catch (e) {
@@ -599,10 +767,10 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
         });
 
         if (toInsert.length === 0) {
-          Toastify({ 
-            text: `ℹ️ Tidak ada data baru untuk diimport. (Skipped: ${duplicateCount} Duplikat, ${errorCount} Error)`, 
-            style: { background: '#3b82f6' }, 
-            duration: 5000 
+          Toastify({
+            text: `ℹ️ Tidak ada data baru untuk diimport. (Skipped: ${duplicateCount} Duplikat, ${errorCount} Error)`,
+            style: { background: '#3b82f6' },
+            duration: 5000
           }).showToast();
           setIsLoading(false);
           return;
@@ -628,7 +796,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
           else if (supaError.code === '23502') errMsg = '❌ Data wajib kosong: Kolom NOT NULL tidak terisi.';
           else if (supaError.code === '22P02') errMsg = '❌ Format data salah: Cek tipe data angka/tanggal.';
           else errMsg = `❌ Import Gagal [${supaError.code}]: ${supaError.message}`;
-          
+
           Toastify({ text: errMsg, duration: 7000, style: { background: '#ef4444' } }).showToast();
         }
       } catch (err) {
@@ -663,16 +831,16 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
   // Navbar visibility logic simplified to hover only in App.jsx
 
   return (
-    <div className="fixed inset-0 bg-[#F2F2F7] overflow-hidden flex flex-col font-sans antialiased text-zinc-900">
+    <div className="fixed inset-0 bg-[#F2F2F7] overflow-hidden flex flex-col font-sans antialiased text-zinc-900 transition-colors duration-500">
       {/* Mobile Drawer Overlay */}
       {isMobileSidebarOpen && (
         <div className="md:hidden fixed inset-0 bg-black/50 z-[55] backdrop-blur-sm" onClick={() => setIsMobileSidebarOpen(false)}></div>
       )}
 
       {/* Sidebar - Desktop always narrow-to-expand, Mobile toggleable drawer */}
-      <aside className={`fixed left-0 top-0 bottom-0 z-[60] bg-white border-r border-zinc-200 transition-all duration-500 ease-in-out flex flex-col shadow-2xl overflow-hidden group
+      <aside className={`fixed left-0 top-0 bottom-0 z-[60] bg-white border-r-2 border-zinc-200 transition-all duration-500 ease-in-out flex flex-col shadow-2xl overflow-hidden group
         ${isMobileSidebarOpen ? 'w-[280px] translate-x-0 p-8' : '-translate-x-full md:translate-x-0 md:w-20 md:hover:w-72 p-2 md:p-4 md:hover:p-8'}`}>
-        
+
         <div className={`flex items-center gap-4 mb-12 px-2 transition-all duration-300 whitespace-nowrap
           ${isMobileSidebarOpen ? 'opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'}`}>
           <div className="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center shadow-lg shadow-red-200 shrink-0">
@@ -691,12 +859,11 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
             { id: 'wo_tracking', label: 'Tracking Pengerjaan', icon: Activity },
             { id: 'vehicles', label: 'Database Mobil', icon: Database },
             { id: 'cro_history', label: 'Riwayat CRO', icon: History },
-            { id: 'booking_mgmt', label: 'Booking Manager', icon: Calendar },
             { id: 'holidays', label: 'Libur Dealer', icon: Settings },
             { id: 'staff', label: 'Manajemen Staff', icon: Users }
           ].map(item => (
-            <button key={item.id} 
-              onClick={() => { setActiveTab(item.id); setIsMobileSidebarOpen(false); }} 
+            <button key={item.id}
+              onClick={() => { setActiveTab(item.id); setIsMobileSidebarOpen(false); }}
               className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all duration-200 font-bold uppercase text-[10px] tracking-widest whitespace-nowrap
                 ${activeTab === item.id ? 'bg-zinc-900 text-white shadow-xl' : 'text-zinc-400 hover:text-zinc-900 hover:bg-zinc-50'}`}>
               <item.icon size={20} strokeWidth={2.5} className="shrink-0" />
@@ -721,22 +888,53 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
       </aside>
 
       {/* Main Content dengan margin-left responsive */}
-      <main 
+      <main
         ref={mainRef}
-        className="flex-1 md:ml-20 overflow-y-auto p-4 md:p-12 custom-scrollbar space-y-10 lg:space-y-16 mt-0 pt-16 md:pt-16"
+        className={`flex-1 md:ml-20 ${activeTab === 'holidays' ? 'overflow-hidden' : 'overflow-y-auto'} p-4 md:p-12 custom-scrollbar space-y-10 lg:space-y-16 mt-0 pt-16 md:pt-16`}
       >
         {/* Toggle Button Mobile */}
-        <button 
+        <button
           onClick={() => setIsMobileSidebarOpen(true)}
-          className="md:hidden fixed top-6 left-6 z-50 bg-white p-3 rounded-2xl shadow-xl border border-zinc-200 text-zinc-900"
+          className="md:hidden fixed top-6 left-6 z-50 bg-white p-3 rounded-2xl shadow-xl border-2 border-zinc-200 text-zinc-900"
         >
           <Menu size={24} />
         </button>
+
+        {/* ── EXPORT SUMMARY BUTTON ── */}
+        <div className="flex flex-col lg:flex-row justify-between items-center gap-6 mb-8 group/header">
+          <div className="flex items-center gap-6">
+             <div className="bg-emerald-600 p-4 rounded-3xl text-white shadow-xl shadow-emerald-100 group-hover/header:rotate-6 transition-transform">
+                <FileSpreadsheet size={32} />
+             </div>
+             <div>
+                <h2 className="text-3xl font-black text-zinc-900 uppercase tracking-tighter">Ekspor Rangkuman Audit</h2>
+                <p className="text-[10px] font-black text-zinc-400 tracking-[0.4em] uppercase mt-1">Satu File Excel &bull; 4 Laporan Spesifik</p>
+             </div>
+          </div>
+          <button 
+            onClick={handleExportSummary}
+            disabled={isSyncing}
+            className={`w-full lg:w-auto ${isSyncing ? 'bg-zinc-400' : 'bg-emerald-600 hover:bg-zinc-900'} text-white px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-2xl shadow-emerald-200 transition-all flex items-center justify-center gap-4 group/btn`}
+          >
+            {isSyncing ? (
+                <>
+                    <div className="w-5 h-5 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Memproses Audit...
+                </>
+            ) : (
+                <>
+                    <Download size={20} className="group-hover/btn:-translate-y-1 transition-transform" /> Ekspor Rangkuman (XLSX)
+                    <div className="w-px h-4 bg-white/20 mx-2"></div>
+                    <span className="opacity-60">{financialData.length} Data Audit Siap</span>
+                </>
+            )}
+          </button>
+        </div>
         {activeTab !== 'staff' && (
           <section className="flex flex-col lg:flex-row justify-between items-center gap-6 mb-12">
             <div className="text-center lg:text-left">
-              <h2 className="text-4xl md:text-5xl font-black  uppercase tracking-tighter text-zinc-900 leading-none">
-                {activeTab === 'performance' ? 'Kinerja Tim' : activeTab === 'financial' ? 'Invoice Pelanggan' : activeTab === 'wo_tracking' ? 'Tracking Pengerjaan' : activeTab === 'vehicles' ? 'Data Kendaraan' : activeTab === 'staff' ? 'Manajemen Staff' : activeTab === 'booking_mgmt' ? 'Booking Management' : activeTab === 'holidays' ? 'Libur Dealer' : 'Riwayat CRO'}
+              <h2 className="text-4xl md:text-5xl font-black uppercase tracking-tighter text-zinc-900 leading-none">
+                {activeTab === 'performance' ? 'Kinerja Tim' : activeTab === 'financial' ? 'Invoice Pelanggan' : activeTab === 'wo_tracking' ? 'Tracking Pengerjaan' : activeTab === 'vehicles' ? 'Data Kendaraan' : activeTab === 'staff' ? 'Manajemen Staff' : activeTab === 'holidays' ? 'Libur Dealer' : 'Riwayat CRO'}
               </h2>
             </div>
             <div className="flex flex-col gap-4 w-full lg:w-auto">
@@ -792,21 +990,21 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
                 { l: 'WO IFS', v: stats.ifsCount, i: Star, c: 'text-orange-600', b: 'bg-orange-50' },
                 { l: 'WO IKC', v: stats.ikcCount, i: Zap, c: 'text-emerald-600', b: 'bg-emerald-50' }
               ].map((s, idx) => (
-                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-zinc-200 shadow-sm hover:translate-y-[-4px] transition-all duration-300 flex flex-col gap-6 group">
+                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border-2 border-dashed border-zinc-200 shadow-sm hover:translate-y-[-4px] transition-all duration-300 flex flex-col gap-6 group">
                   <div className={`w-12 h-12 md:w-14 md:h-14 ${s.b} ${s.c} rounded-2xl flex items-center justify-center shadow-sm group-hover:rotate-6 transition-transform`}><s.i size={24} strokeWidth={2.5} /></div>
-                  <div><p className="text-[10px] font-black uppercase text-zinc-400 tracking-widest mb-1">{s.l}</p><p className="text-2xl md:text-3xl font-black text-zinc-900 tracking-tighter leading-none tabular-nums">{s.v}</p></div>
+                  <div><p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-1">{s.l}</p><p className="text-2xl md:text-3xl font-black text-black tracking-tighter leading-none tabular-nums italic">{s.v}</p></div>
                 </div>
               ))
             ) : activeTab === 'performance' ? (
               [
                 { l: 'Mobil Selesai', v: stats.selesaiCount, i: CheckCircle, c: 'text-emerald-600', b: 'bg-emerald-50' },
                 { l: 'Proses Pengerjaan', v: stats.workingCount, i: Wrench, c: 'text-blue-600', b: 'bg-blue-50' },
-                { l: 'Mobil Menginap', v: stats.overnightCount, i: Moon, c: 'text-zinc-600', b: 'bg-zinc-50' },
+                { l: 'Mobil Menginap', v: stats.overnightCount, i: Shield, c: 'text-zinc-600', b: 'bg-zinc-50' },
                 { l: 'Antrian Tunggu', v: stats.waitingCount, i: Clock, c: 'text-orange-600', b: 'bg-orange-50' }
               ].map((s, idx) => (
-                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-zinc-200 shadow-sm hover:translate-y-[-4px] transition-all duration-300 flex flex-col gap-6 group">
+                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border-2 border-dashed border-zinc-200 shadow-sm hover:translate-y-[-4px] transition-all duration-300 flex flex-col gap-6 group">
                   <div className={`w-12 h-12 md:w-14 md:h-14 ${s.b} ${s.c} rounded-2xl flex items-center justify-center shadow-sm group-hover:rotate-6 transition-transform`}><s.i size={24} strokeWidth={2.5} /></div>
-                  <div><p className="text-[10px] font-black uppercase text-zinc-400 tracking-widest mb-1">{s.l}</p><p className="text-2xl md:text-3xl font-black text-zinc-900 tracking-tighter leading-none tabular-nums">{s.v}</p></div>
+                  <div><p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-1">{s.l}</p><p className="text-2xl md:text-3xl font-black text-black tracking-tighter leading-none tabular-nums italic">{s.v}</p></div>
                 </div>
               ))
             ) : (
@@ -816,9 +1014,9 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
                 { l: 'Grand Total Revenue', v: formatCurrency(financialSummary.grandTotal), i: DollarSign, c: 'text-emerald-600', b: 'bg-emerald-50' },
                 { l: 'Total WO (Unit)', v: (sortedFinancialData?.length || 0), i: Activity, c: 'text-zinc-600', b: 'bg-zinc-50' }
               ].map((s, idx) => (
-                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-zinc-200 shadow-sm hover:translate-y-[-4px] transition-all duration-300 flex flex-col gap-6 group">
+                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border-2 border-dashed border-zinc-200 shadow-sm hover:translate-y-[-4px] transition-all duration-300 flex flex-col gap-6 group">
                   <div className={`w-12 h-12 md:w-14 md:h-14 ${s.b} ${s.c} rounded-2xl flex items-center justify-center shadow-sm group-hover:rotate-6 transition-transform`}><s.i size={24} strokeWidth={2.5} /></div>
-                  <div><p className="text-[10px] font-black uppercase text-zinc-400 tracking-widest mb-1">{s.l}</p><p className="text-2xl md:text-3xl font-black text-zinc-900 tracking-tighter leading-none tabular-nums">{s.v}</p></div>
+                  <div><p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-1">{s.l}</p><p className="text-2xl md:text-3xl font-black text-black tracking-tighter leading-none tabular-nums italic">{s.v}</p></div>
                 </div>
               ))
             )}
@@ -827,12 +1025,6 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
 
         {/* Dynamic Tab Content */}
         <section className="animate-in">
-          {activeTab === 'booking_mgmt' && (
-            <div className="h-[calc(100vh-250px)]">
-              <CroBookingPanel user={user} />
-            </div>
-          )}
-
           {activeTab === 'holidays' && (
             <div className="animate-in">
               <HolidaySettings user={user} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
@@ -841,10 +1033,10 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
 
           {activeTab === 'performance' && (
             <div className="space-y-12">
-              <div className="bg-zinc-900 p-6 md:p-12 rounded-[2.5rem] md:rounded-[4rem] shadow-3xl relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-bl-full -z-0"></div>
+              <div className="bg-white p-6 md:p-12 rounded-[2.5rem] md:rounded-[4rem] border-2 border-zinc-200 shadow-xl relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-96 h-96 bg-zinc-50 rounded-bl-full -z-0"></div>
                 <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-10 mb-12">
-                  <div><h3 className="text-2xl md:text-3xl font-black text-red-500 uppercase tracking-tighter mb-2">Tren Pendapatan Bulanan</h3><p className="text-zinc-500 text-[10px] font-black tracking-[0.5em] uppercase">Analisis Historis Kumulatif</p></div>
+                  <div><h3 className="text-2xl md:text-3xl font-black text-red-600 uppercase tracking-tighter mb-2 italic">Tren Pendapatan Bulanan</h3><p className="text-zinc-400 text-[10px] font-black tracking-[0.5em] uppercase">Analisis Historis Kumulatif</p></div>
                 </div>
                 <div className="relative w-full h-[300px] md:h-[450px]">
                   {financialData.length === 0 ? (
@@ -1223,8 +1415,8 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
       {selectedVehicle && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-zinc-900/80 backdrop-blur-3xl" onClick={() => setSelectedVehicle(null)}></div>
-          <div className="bg-white w-full max-w-5xl rounded-[5rem] shadow-3xl relative z-10 flex flex-col max-h-[90vh] overflow-hidden animate-in border-4 border-white">
-            <div className="p-16 border-b-2 border-zinc-100 bg-zinc-50 flex items-center justify-between">
+          <div className="bg-zinc-950 w-full max-w-5xl rounded-[5rem] shadow-3xl relative z-10 flex flex-col max-h-[90vh] overflow-hidden animate-in border-4 border-zinc-800">
+            <div className="p-16 border-b-2 border-zinc-800 bg-zinc-900 flex items-center justify-between">
               <div className="flex items-center gap-10">
                 <div className="w-24 h-24 bg-zinc-900 text-white rounded-[2.5rem] flex items-center justify-center shadow-2xl text-red-500 scale-110"><Car size={48} /></div>
                 <div>
@@ -1232,41 +1424,41 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
                   <p className="text-[12px] font-black uppercase text-zinc-400 tracking-[0.5em] mt-4">Audit Riwayat Servis Kendaraan</p>
                 </div>
               </div>
-              <button onClick={() => setSelectedVehicle(null)} className="w-20 h-20 border-2 border-zinc-200 rounded-[2rem] hover:bg-black hover:text-white transition-all flex items-center justify-center shadow-xl group">
+              <button onClick={() => setSelectedVehicle(null)} className="w-20 h-20 border-2 border-zinc-800 rounded-[2rem] hover:bg-white hover:text-black transition-all flex items-center justify-center shadow-xl group">
                 <X size={36} className="group-hover:rotate-90 transition-transform duration-500" />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-16 custom-scrollbar font-black uppercase ">
               <div className="space-y-10">
                 {rawHistory.filter(h => h.bk === selectedVehicle).sort((a, b) => parseDateToTimestamp(b.id) - parseDateToTimestamp(a.id)).map((v, i) => (
-                  <div key={i} className="bg-zinc-50 border-2 border-zinc-100 rounded-[3.5rem] p-12 flex flex-col md:flex-row items-center gap-16 group hover:bg-white transition-all hover:shadow-2xl hover:border-zinc-300">
+                  <div key={i} className="bg-zinc-900 border-2 border-zinc-800 rounded-[3.5rem] p-12 flex flex-col md:flex-row items-center gap-16 group hover:bg-zinc-800 transition-all hover:shadow-2xl hover:border-zinc-700">
                     <div className="flex-1">
-                      <p className="text-[12px] text-zinc-400 mb-3 tracking-[0.3em] font-black underline underline-offset-4 decoration-zinc-100 ">Waktu Kedatangan</p>
-                      <p className="text-3xl tracking-tighter text-zinc-900 font-black">{formatDisplayDate(v.id)}</p>
+                      <p className="text-[12px] text-zinc-500 mb-3 tracking-[0.3em] font-black underline underline-offset-4 decoration-zinc-800 ">Waktu Kedatangan</p>
+                      <p className="text-3xl tracking-tighter text-white font-black">{formatDisplayDate(v.id)}</p>
                     </div>
                     <div className="flex-1 space-y-3">
-                      <p className="text-[12px] text-zinc-400 mb-2 tracking-[0.3em] font-black ">Operasional Hub</p>
-                      <p className="text-sm font-black">Mekanik Lead: <span className="text-blue-600">{v.mechanicName || 'N/A'}</span></p>
+                      <p className="text-[12px] text-zinc-500 mb-2 tracking-[0.3em] font-black ">Operasional Hub</p>
+                      <p className="text-sm font-black text-white">Mekanik Lead: <span className="text-blue-500">{v.mechanicName || 'N/A'}</span></p>
                       <p className="text-sm font-black text-zinc-500">Admin Input: {v.addedBy || 'CORE_SYSTEM'}</p>
                     </div>
                     <div className="flex-1">
-                      <p className="text-[12px] text-zinc-400 mb-2 tracking-[0.3em] font-black uppercase">Status</p>
-                      <p className="text-lg font-black text-zinc-900 leading-tight">{v.keluhan || '---'}</p>
+                      <p className="text-[12px] text-zinc-500 mb-2 tracking-[0.3em] font-black uppercase">Status</p>
+                      <p className="text-lg font-black text-white leading-tight">{v.keluhan || '---'}</p>
                     </div>
                     <div className="shrink-0"><span className="bg-zinc-900 text-white px-10 py-5 rounded-[1.8rem] text-[11px] shadow-2xl tracking-[0.4em] border-2 border-zinc-700 ">RIWAYAT TERVALIDASI</span></div>
                   </div>
                 ))}
               </div>
             </div>
-            <div className="p-12 border-t-2 border-zinc-100 text-center uppercase tracking-[1em] text-[11px] font-black text-zinc-300 bg-zinc-50/50  animate-pulse">Integritas Data Terjamin</div>
+            <div className="p-12 border-t-2 border-zinc-800 text-center uppercase tracking-[1em] text-[11px] font-black text-zinc-600 bg-zinc-900 animate-pulse">Integritas Data Terjamin</div>
           </div>
         </div>
       )}
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #F8F9FC; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #18181b; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #09090b; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #27272a; border-radius: 10px; }
         @keyframes slideUp { from { transform: translateY(60px) scale(0.98); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
         .animate-in { animation: slideUp 1s cubic-bezier(0.19, 1, 0.22, 1) forwards; }
       `}</style>

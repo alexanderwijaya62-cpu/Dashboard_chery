@@ -7,7 +7,7 @@ import { supabase } from '../utils/supabaseClient';
 import CroBookingPanel from './CroBookingPanel';
 import HolidaySettings from './HolidaySettings';
 
-export default function FollowupPanel({ user, handleLogout, isNavbarVisible, initialTab = 'belum', setCurrentPage }) {
+export default function FollowupPanel({ user, handleLogout, isNavbarVisible, initialTab = 'belum', setCurrentPage, breakSettings, setBreakSettings }) {
     const [currentTab, setCurrentTab] = useState(initialTab);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [data, setData] = useState([]);
@@ -77,8 +77,7 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
 
             const { data: supaData, error } = await supabase
                 .from('cro')
-                .select('*')
-                .order('created_at', { ascending: false });
+                .select('*');
 
             if (error) throw error;
 
@@ -331,7 +330,7 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
 
     const updateFilter = (key, value) => {
         setFilters(prev => ({ ...prev, [key]: value.toLowerCase() }));
-        setCurrentPage(1);
+        setActiveTablePage(1);
     };
 
     const updateFsFilter = (key, value) => {
@@ -351,23 +350,42 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
                 const sheetName = workbook.SheetNames[0];
                 const sheet = workbook.Sheets[sheetName];
                 const jsonData = XLSX.utils.sheet_to_json(sheet);
+                // Helper untuk membersihkan angka besar/scientific agar masuk ke BigInt Supabase
+                const cleanBigInt = (val) => {
+                    if (!val || val === "-") return "0";
+                    let s = String(val).trim();
+                    if (s.toLowerCase().includes('e')) {
+                        try {
+                            // Paksa konversi dari scientific ke string angka utuh
+                            s = Number(val).toLocaleString('fullwide', { useGrouping: false }).split('.')[0];
+                        } catch (e) {
+                            s = s.replace(/\D/g, '');
+                        }
+                    } else {
+                        s = s.replace(/\D/g, '');
+                    }
+                    // Batasi ke 18 digit agar aman di range BigInt (max 19 digit)
+                    return s.substring(0, 18) || "0";
+                };
 
                 const { data: existingRecords } = await supabase.from('cro').select('workOrderNo');
                 const existingSet = new Set((existingRecords || []).map(r => String(r.workOrderNo || '').trim()));
-                
+
                 const toInsert = [];
                 let skipCount = 0;
                 let errorCount = 0;
 
-                jsonData.forEach(row => {
+                jsonData.forEach((row, i) => {
                     try {
                         let vinStr = String(row["VIN"] || "-").trim();
                         let namaStr = String(row["customer's name"] || "-").trim();
                         let woNo = row["Work Order No."] || row["work order no."] || row["Work Order No"];
-                        let woStr = woNo ? String(woNo).trim() : "-";
+                        
+                        // Bersihkan Work Order No jika berupa scientific notation
+                        let woStr = woNo ? cleanBigInt(woNo) : "-";
 
                         // Skip if duplicate WO
-                        if (woStr !== "-" && existingSet.has(woStr)) {
+                        if (woStr !== "-" && woStr !== "0" && existingSet.has(woStr)) {
                             skipCount++;
                             return;
                         }
@@ -384,14 +402,19 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
                             partLama = partLama.trim() === "-" || partLama.trim() === "" ? "" : partLama.trim();
                             partBaru = partBaru.trim() === "-" || partBaru.trim() === "" ? "" : partBaru.trim();
 
+                            let phoneStr = cleanBigInt(row["mobile phone"] || row["Mobile Phone"]);
+                            let kmStr = cleanBigInt(row["driven distance"] || row["Driven Distance"]);
+
                             toInsert.push({
+                                id: Date.now() + i, // Pastikan ID unik untuk setiap baris
                                 workOrderNo: woStr,
+
                                 nama: namaStr,
-                                telepon: Number(String(row["mobile phone"] || 0).replace(/\D/g,'')), 
+                                telepon: phoneStr,
                                 vin: vinStr,
                                 plat: row["number plate"] || "-",
                                 serviceAdvisor: row["Service Advisor"] || "-",
-                                kilometer: Number(String(row["driven distance"] || 0).replace(/\D/g,'')), 
+                                kilometer: kmStr,
                                 tipeMobil: row["car series"] || "-",
                                 deskripsi: keluhan !== "-" ? `• ${keluhan}` : "-",
                                 tanggalDatang: formattedTanggal,
@@ -418,14 +441,14 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
 
                     if (error) throw error;
                     setCurrentTab('belum');
-                    Toastify({ 
-                        text: `✅ Import Selesai! Berhasil: ${toInsert.length}, Lewati: ${skipCount} Duplikat, ${errorCount} Error.`, 
+                    Toastify({
+                        text: `✅ Import Selesai! Berhasil: ${toInsert.length}, Lewati: ${skipCount} Duplikat, ${errorCount} Error.`,
                         background: 'green',
                         duration: 6000
                     }).showToast();
                     fetchFromGoogleSheets(true);
                 } else {
-                    const msg = skipCount > 0 
+                    const msg = skipCount > 0
                         ? `ℹ️ Tidak ada data baru (Dilewati ${skipCount} Duplikat, ${errorCount} Error).`
                         : "Tidak ditemukan data valid di file Excel.";
                     Toastify({ text: msg, background: "#3b82f6", duration: 5000 }).showToast();
@@ -489,8 +512,8 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
             Toastify({ text: "Hanya file gambar yang diperbolehkan", background: 'red' }).showToast();
             return;
         }
-        if (file.size > 10 * 1024 * 1024) {
-            Toastify({ text: 'Ukuran file maks 10MB', background: 'red' }).showToast();
+        if (file.size > 20 * 1024 * 1024) { // Increase to 20MB for HD
+            Toastify({ text: 'Ukuran file maks 20MB', background: 'red' }).showToast();
             return;
         }
 
@@ -503,8 +526,8 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
                 let width = img.width;
                 let height = img.height;
 
-                // Multi-Column HD: 1200px per foto. Sistem akan memecah 5 foto ke 5 kolom berbeda di Sheets.
-                const MAX_DIMENSION = 1200;
+                // HD Quality: Increase to 2500px for better readability of screenshots
+                const MAX_DIMENSION = 2500; 
                 if (width > height && width > MAX_DIMENSION) {
                     height *= MAX_DIMENSION / width;
                     width = MAX_DIMENSION;
@@ -518,21 +541,26 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
                 ctx.drawImage(img, 0, 0, width, height);
 
                 const now = new Date();
-                const tsStr = `${now.getDate().toString().padStart(2, '0')}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+                const tsStr = `Bukti Follow Up: ${now.getDate().toString().padStart(2, '0')}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
-                ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-                const fontSize = Math.max(12, Math.floor(width / 30));
+                // Watermark yang lebih subtle dan profesional (tanpa box hitam pekat)
+                ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+                const fontSize = Math.max(14, Math.floor(width / 40));
                 ctx.font = `bold ${fontSize}px Inter, sans-serif`;
                 const textWidth = ctx.measureText(tsStr).width;
-                ctx.fillRect(width - textWidth - 10, height - fontSize - 10, textWidth + 5, fontSize + 5);
-
+                
+                // Shadow text for better readability on any background
+                ctx.fillStyle = "rgba(0,0,0,0.5)";
+                ctx.fillText(tsStr, width - textWidth - 19, height - 19);
                 ctx.fillStyle = "white";
-                ctx.fillText(tsStr, width - textWidth - 8, height - 8);
+                ctx.fillText(tsStr, width - textWidth - 20, height - 20);
 
-                const base64Str = canvas.toDataURL('image/jpeg', 0.4);
+                // High Quality encoding (0.85 - 0.9 is sweet spot for HD)
+                const base64Str = canvas.toDataURL('image/jpeg', 0.85); 
+                
                 setCurrentAttachedImages(prev => {
-                    if (prev.length >= 5) {
-                        Toastify({ text: "Maksimal 5 foto HD (Multi-Kolom)", background: "orange" }).showToast();
+                    if (prev.length >= 10) { // Increase max images if needed
+                        Toastify({ text: "Maksimal 10 foto HD", background: "orange" }).showToast();
                         return prev;
                     }
                     return [...prev, base64Str];
@@ -754,8 +782,33 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
             )}
 
             {lightboxImage && (
-                <div className="fixed inset-0 bg-black/90 z-[9999] flex justify-center items-center" onClick={() => setLightboxImage(null)}>
-                    <img src={lightboxImage} alt="Preview" className="max-w-[90%] max-h-[90%] object-contain" />
+                <div className="fixed inset-0 bg-black/95 z-[9999] flex flex-col justify-center items-center p-4" onClick={() => setLightboxImage(null)}>
+                    <div className="absolute top-6 right-8 flex gap-4">
+                        <a 
+                            href={lightboxImage} 
+                            download={`Bukti_FollowUp_${Date.now()}.jpg`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-xl"
+                        >
+                            <Download size={16} /> Download Original
+                        </a>
+                        <button onClick={() => setLightboxImage(null)} className="p-3 bg-white/10 hover:bg-red-600 text-white rounded-xl transition-all">
+                            <X size={24} />
+                        </button>
+                    </div>
+                    
+                    <div className="w-full h-full flex items-center justify-center overflow-auto custom-scrollbar" onClick={(e) => e.stopPropagation()}>
+                         <img 
+                            src={lightboxImage} 
+                            alt="Full Resolution Proof" 
+                            className="max-w-none md:max-w-full cursor-zoom-in rounded-lg shadow-2xl transition-transform hover:scale-105 active:scale-100" 
+                            style={{ maxHeight: 'none', display: 'block' }}
+                        />
+                    </div>
+                    
+                    <p className="fixed bottom-6 left-1/2 -translate-x-1/2 text-white/50 text-[10px] uppercase font-black tracking-widest bg-black/50 px-4 py-2 rounded-full backdrop-blur-md">
+                        Klik Diluar untuk Menutup • Gunakan scroll untuk melihat detail HD
+                    </p>
                 </div>
             )}
 
@@ -861,34 +914,33 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
             </div>
 
             {/* Main Content */}
-            <div className={`flex-1 h-screen flex flex-col transition-all duration-300 ${isNavbarVisible ? 'pt-20' : 'pt-8'} px-4 sm:px-8 pb-12 ${isSidebarOpen ? 'lg:ml-64' : 'ml-0 lg:ml-4'}`}>
-                <div className="flex flex-row justify-between items-center mb-6 shrink-0 gap-4 w-full">
-                    <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-zinc-900 leading-tight">
-                        {currentTab === 'belum' && "⏳ Belum Follow Up"}
-                        {currentTab === 'sudah' && "✅ Sudah Follow Up"}
-                        {currentTab === 'free_service' && "📅 Pengingat Free Service"}
-                        {currentTab === 'laporan' && "📊 Laporan Feedback Bulanan"}
-                        {currentTab === 'booking' && "📅 Booking Management"}
-                        {currentTab === 'holidays' && "🔧 Libur Dealer"}
-                    </h1>
+            <div className={`flex-1 h-screen flex flex-col transition-all duration-300 ${isNavbarVisible ? 'pt-20' : 'pt-8'} ${currentTab === 'booking' ? 'p-0' : 'px-4 sm:px-8 pb-12'} ${isSidebarOpen ? 'lg:ml-64' : 'ml-0 lg:ml-4'}`}>
+                {currentTab !== 'booking' && (
+                    <div className="flex flex-row justify-between items-center mb-6 shrink-0 gap-4 w-full">
+                        <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-zinc-900 leading-tight">
+                            {currentTab === 'belum' && "⏳ Belum Follow Up"}
+                            {currentTab === 'sudah' && "✅ Sudah Follow Up"}
+                            {currentTab === 'free_service' && "📅 Pengingat Free Service"}
+                            {currentTab === 'laporan' && "📊 Laporan Feedback Bulanan"}
+                            {currentTab === 'holidays' && "🔧 Libur Dealer"}
+                        </h1>
 
-                    <button
-                        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                        className="lg:hidden p-3 bg-white border border-zinc-200 text-zinc-900 rounded-2xl shadow-sm active:scale-95 transition-all"
-                    >
-                        {isSidebarOpen ? <X size={22} /> : <Menu size={22} />}
-                    </button>
-                </div>
+                        <button
+                            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                            className="lg:hidden p-3 bg-white border border-zinc-200 text-zinc-900 rounded-2xl shadow-sm active:scale-95 transition-all"
+                        >
+                            {isSidebarOpen ? <X size={22} /> : <Menu size={22} />}
+                        </button>
+                    </div>
+                )}
 
-                <div className="flex-1 bg-white border border-zinc-200 shadow-sm rounded-3xl overflow-hidden flex flex-col min-h-0">
+                <div className={`flex-1 bg-white overflow-hidden flex flex-col min-h-0 ${currentTab !== 'booking' ? 'border border-zinc-200 shadow-sm rounded-3xl' : ''}`}>
                     {currentTab === 'booking' ? (
-                        <div className="flex-1 h-full overflow-hidden">
-                            <CroBookingPanel user={user} setCurrentPage={setCurrentPage} />
-                        </div>
+                        <CroBookingPanel user={user} setCurrentPage={setCurrentPage} />
                     ) : currentTab === 'holidays' ? (
-                        <div className="flex-1 p-8 overflow-y-auto bg-zinc-50">
-                            <div className="max-w-4xl mx-auto">
-                                <HolidaySettings user={user} />
+                        <div className="h-full overflow-hidden">
+                            <div className="h-full">
+                                <HolidaySettings user={user} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
                             </div>
                         </div>
                     ) : (currentTab === 'belum' || currentTab === 'sudah') ? (
@@ -996,10 +1048,10 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                     <thead className="sticky top-0 bg-zinc-100 shadow-sm z-10 border-b border-zinc-200 text-zinc-600">
                                         <tr>
                                             <th className="py-3 px-4 font-bold">Nama Customer</th>
-                                            <th className="py-3 px-4 font-bold">Tgl Masuk</th>
+                                            <th className="py-3 px-4 font-bold">WO No. & SA</th>
+                                            <th className="py-3 px-4 font-bold text-blue-700">Tgl Masuk</th>
                                             <th className="py-3 px-4 font-bold">Plat & Tipe</th>
-                                            <th className="py-3 px-4 font-bold">No. Rangka / VIN</th>
-                                            <th className="py-3 px-4 font-bold">Keluhan</th>
+                                            <th className="py-3 px-4 font-bold">Keluhan / Deskripsi</th>
                                             {currentTab === 'sudah' && (
                                                 <>
                                                     <th className="py-3 px-4 font-bold">Hasil Respon</th>
@@ -1015,21 +1067,24 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                                 <tr key={item.id} className="hover:bg-blue-50">
                                                     <td className="py-3 px-4 align-top">
                                                         <div className="font-bold text-zinc-900">{item.nama}</div>
-                                                        <div className="text-xs text-zinc-500">{item.kilometer === '-' ? '-' : item.kilometer + ' KM'}</div>
+                                                        <div className="text-[10px] text-zinc-500 font-mono">{item.vin}</div>
+                                                    </td>
+                                                    <td className="py-3 px-4 align-top">
+                                                        <div className="text-xs font-black text-zinc-800">{item.workOrderNo || "-"}</div>
+                                                        <div className="text-[10px] font-bold text-blue-600 uppercase mt-0.5">{item.serviceAdvisor || "No SA"}</div>
                                                     </td>
                                                     <td className="py-3 px-4 align-top font-medium text-zinc-600">
                                                         <div className="flex flex-col gap-1">
                                                             {item.dates.map((d, i) => (
-                                                                <span key={i} className="whitespace-nowrap">{d}</span>
+                                                                <span key={i} className="whitespace-nowrap px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[11px] font-bold border border-blue-100">{d}</span>
                                                             ))}
                                                         </div>
                                                     </td>
                                                     <td className="py-3 px-4 align-top">
-                                                        <div className="font-bold text-zinc-900">{item.plat}</div>
-                                                        <div className="text-[10px] text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded w-max mt-1">{item.tipeMobil}</div>
+                                                        <div className="font-bold text-zinc-900 tracking-tight">{item.plat}</div>
+                                                        <div className="text-[10px] text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded w-max mt-1 font-bold">{item.tipeMobil}</div>
                                                     </td>
-                                                    <td className="py-3 px-4 align-top text-zinc-500 font-mono text-xs">{item.vin}</td>
-                                                    <td className="py-3 px-4 align-top text-zinc-600 max-w-xs">
+                                                    <td className="py-3 px-4 align-top text-zinc-600 max-w-sm">
                                                         <div className="flex flex-col gap-2">
                                                             {item.descriptions.map((desc, i) => (
                                                                 <div key={i} className="bg-zinc-50 p-2 rounded border border-zinc-100 whitespace-pre-line text-xs italic">
@@ -1046,16 +1101,16 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                                                 </div>
                                                             </td>
                                                             <td className="py-3 px-4 align-top">
-                                                                <div className="flex flex-wrap gap-1">
+                                                                <div className="flex flex-wrap gap-1.5 mt-1">
                                                                     {parseLampiran(item.lampiran).map((img, idx) => (
-                                                                        <div key={idx} className="relative group w-10 h-10 cursor-pointer" onClick={() => setLightboxImage(img)}>
-                                                                            <img src={img} className="w-full h-full object-cover rounded-md border shadow-sm transition-transform group-hover:scale-105" alt="thumb" />
-                                                                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-md flex items-center justify-center">
-                                                                                <Search size={10} className="text-white" />
+                                                                        <div key={idx} className="relative group w-12 h-12 cursor-pointer transition-all hover:ring-2 hover:ring-blue-400 rounded-lg overflow-hidden" onClick={() => setLightboxImage(img)}>
+                                                                            <img src={img} className="w-full h-full object-cover" alt="thumb" />
+                                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                                                <Search size={14} className="text-white" />
                                                                             </div>
                                                                         </div>
                                                                     ))}
-                                                                    {parseLampiran(item.lampiran).length === 0 && "-"}
+                                                                    {parseLampiran(item.lampiran).length === 0 && <span className="text-zinc-300 text-[10px] italic">Tanpa Bukti</span>}
                                                                 </div>
                                                             </td>
                                                         </>
@@ -1176,7 +1231,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                         </div>
                     )}
                 </div>
-                </div>
+            </div>
 
 
             {/* Modal Reguler */}

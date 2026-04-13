@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { PackageSearch, Plus, Trash2, Check, ArrowLeft, Send, Upload, Search, Filter, X, Menu } from 'lucide-react';
+import { PackageSearch, Plus, Trash2, Check, ArrowLeft, Send, Upload, Search, Filter, X, Menu, FileText, TrendingUp } from 'lucide-react';
+import QuotationSPA from '../quotation/QuotationSPA';
+import ProfitDashboard from './ProfitDashboard';
 import Toastify from 'toastify-js';
 import * as XLSX from 'xlsx';
 
@@ -32,12 +34,15 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
     const [activeTab, setActiveTab] = useState('input');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [orders, setOrders] = useState([]);
+    const [masterParts, setMasterParts] = useState([]); 
     const [isLoading, setIsLoading] = useState(false);
-
-    // Filtering & Search states
+    
+    // Filtering & Search states (Restored)
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState('all');
     const [filterDate, setFilterDate] = useState('');
+    
+    const [searchMaster, setSearchMaster] = useState(''); // Search for Master Data
 
     // Form State
     const [orderNumber, setOrderNumber] = useState('');
@@ -161,7 +166,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
                 // Filter out orders that already exist in the database (Skip Duplicates)
                 const { data: existingRecords } = await supabase.from('sparepart').select('Handling order number');
                 const existingSet = new Set((existingRecords || []).map(r => normalize(r['Handling order number'])));
-                
+
                 const finalOrders = Object.values(ordersMap).filter(o => !existingSet.has(normalize(o.orderNumber)));
                 const duplicateCount = Object.values(ordersMap).length - finalOrders.length;
 
@@ -175,7 +180,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
                         duration: 5000
                     }).showToast();
                 } else {
-                    const msg = duplicateCount > 0 
+                    const msg = duplicateCount > 0
                         ? `ℹ️ Tidak ada data baru (Semua ${duplicateCount} data sudah terdaftar).`
                         : "Tidak ditemukan data pesanan yang valid di Excel.";
                     Toastify({ text: msg, background: "#3b82f6", duration: 5000 }).showToast();
@@ -219,7 +224,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
             const { data, error } = await supabase
                 .from('sparepart')
                 .select('*');
-            
+
             if (error) throw error;
 
             if (data && Array.isArray(data)) {
@@ -243,17 +248,56 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
         }
     };
 
+    const fetchMasterParts = async () => {
+        try {
+            // Load only top 20 as default view to avoid heavy load
+            const { data, error } = await supabase.from('sparepart_master').select('*').limit(20);
+            if (error) throw error;
+            setMasterParts(data || []);
+        } catch (e) {
+            console.error("Gagal fetch master sparepart:", e);
+        }
+    };
+
+    useEffect(() => {
+        const fetchSearchMaster = async () => {
+            if (searchMaster.length < 2) {
+                const { data } = await supabase.from('sparepart_master').select('*').limit(20);
+                if (data) setMasterParts(data);
+                return;
+            }
+            const { data } = await supabase
+                .from('sparepart_master')
+                .select('*')
+                .or(`part_name.ilike.%${searchMaster}%,part_number.ilike.%${searchMaster}%`)
+                .limit(100);
+            if (data) setMasterParts(data);
+        };
+        const tid = setTimeout(fetchSearchMaster, 400);
+        return () => clearTimeout(tid);
+    }, [searchMaster]);
+
     useEffect(() => {
         fetchOrders();
-        // Realtime subscription
-        const channel = supabase
-            .channel('sparepart-changes')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'sparepart' }, () => {
-                fetchOrders();
+        
+        const sparepartChannel = supabase.channel('sparepart-changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'sparepart' }, () => fetchOrders())
+            .subscribe();
+
+        const masterChannel = supabase.channel('master-changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'sparepart_master' }, () => {
+                // Refresh search if any change occurs in master data
+                if (searchMaster.length >= 2) {
+                    setSearchMaster(s => s + ' '); // Trigger tiny change to refetch
+                    setTimeout(() => setSearchMaster(s => s.trim()), 10);
+                }
             })
             .subscribe();
-        
-        return () => supabase.removeChannel(channel);
+
+        return () => {
+            supabase.removeChannel(sparepartChannel);
+            supabase.removeChannel(masterChannel);
+        };
     }, []);
 
     const handleAddItem = () => {
@@ -578,94 +622,204 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
     const arrivedOrders = useMemo(() => orders.filter(o => o.status === 'arrived' || o.status === 'confirmed'), [orders]);
 
     return (
-        <div className="flex h-screen bg-[#F2F2F7] relative">
-            {/* Mobile Backdrop */}
-            {isSidebarOpen && (
-                <div
-                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[55] lg:hidden transition-opacity duration-300"
-                    onClick={() => setIsSidebarOpen(false)}
-                />
-            )}
-
-            {/* Sidebar - Hover to open or toggle on mobile */}
-            <div
-                className={`fixed left-0 top-0 h-full bg-white border-r border-zinc-200 shadow-2xl transition-all duration-300 z-[60] flex flex-col ${isNavbarVisible ? 'pt-[4.5rem]' : 'pt-4'} 
-                ${isSidebarOpen ? 'w-64 translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-4 lg:hover:w-64'}`}
-                onMouseEnter={() => window.innerWidth > 1024 && setIsSidebarOpen(true)}
-                onMouseLeave={() => window.innerWidth > 1024 && setIsSidebarOpen(false)}
+        <div className="flex h-screen bg-[#FDFDFD] text-zinc-900 font-sans tracking-tight overflow-hidden selection:bg-zinc-200">
+            {/* Sidebar - Fixed & Sleek */}
+            <div className={`fixed inset-y-0 left-0 bg-zinc-950 text-white z-[60] flex flex-col transition-all duration-500 ease-in-out shadow-[10px_0_40px_rgba(0,0,0,0.1)]
+                ${isSidebarOpen ? 'w-72' : 'w-20'}`}
+                onMouseEnter={() => setIsSidebarOpen(true)}
+                onMouseLeave={() => setIsSidebarOpen(false)}
             >
-                <div className="px-6 py-4 flex items-center justify-between border-b border-zinc-100 relative">
-                    <h2 className="font-black text-zinc-900 uppercase tracking-widest text-sm flex items-center gap-2">
-                        <PackageSearch size={18} className="text-blue-500" /> Sparepart
-                    </h2>
-                    {/* Close Button Mobile */}
-                    <button
-                        onClick={() => setIsSidebarOpen(false)}
-                        className="lg:hidden p-2 text-zinc-400 hover:text-zinc-900"
-                    >
-                        <X size={20} />
-                    </button>
+                <div className="h-20 flex items-center px-6 border-b border-white/5">
+                    <div className="bg-white/10 p-2 rounded-xl border border-white/10 shrink-0">
+                        <PackageSearch size={22} className="text-white" />
+                    </div>
+                    <div className={`ml-4 transition-all duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                        <h2 className="font-black text-sm uppercase tracking-widest leading-none">Sparepart</h2>
+                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1 block">Operational Hub</span>
+                    </div>
                 </div>
-                <div className="flex-1 py-4 flex flex-col gap-2 px-4 overflow-y-auto custom-scrollbar transition-opacity duration-300"
-                    style={{ opacity: !isSidebarOpen && window.innerWidth > 1024 ? 0 : 1 }}>
-                    <button
-                        onClick={() => setActiveTab('input')}
-                        className={`text-left px-4 py-3 rounded-xl font-bold text-sm transition-all ${activeTab === 'input' ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'}`}
-                    >
-                        Input Pemesanan
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('view')}
-                        className={`text-left px-4 py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-between ${activeTab === 'view' ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'}`}
-                    >
-                        Daftar Pesanan
-                        {pendingOrders.length > 0 && (
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${activeTab === 'view' ? 'bg-white text-zinc-900 bg-opacity-20' : 'bg-red-500 text-white'}`}>{pendingOrders.length}</span>
-                        )}
-                    </button>
+
+                <div className="flex-1 py-10 flex flex-col gap-1.5 px-3">
+                    {[
+                        { id: 'input', label: 'Input Order', icon: Plus },
+                        { id: 'view', label: 'Daftar Pesanan', icon: Search, badge: pendingOrders.length },
+                        { id: 'master', label: 'Master Database', icon: PackageSearch },
+                        { id: 'profit', label: 'Analisis Profit', icon: TrendingUp },
+                        { id: 'quotation', label: 'Quote Manager', icon: FileText }
+                    ].map((tab) => {
+                        const Icon = tab.icon;
+                        const isActive = activeTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`flex items-center gap-4 px-4 py-3 rounded-2xl transition-all duration-300 relative group ${
+                                    isActive ? 'bg-white text-zinc-950 shadow-lg' : 'text-zinc-500 hover:text-white hover:bg-white/5'
+                                }`}
+                            >
+                                <Icon size={20} className="shrink-0" />
+                                <span className={`font-black text-sm uppercase tracking-tight transition-all duration-300 ${isSidebarOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
+                                    {tab.label}
+                                </span>
+                                {tab.badge > 0 && !isActive && (
+                                    <span className="absolute right-4 top-1/2 -translate-y-1/2 bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-black min-w-[18px] text-center">
+                                        {tab.badge}
+                                    </span>
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
-                <div className="p-4 mt-auto border-t border-zinc-100">
-                    <button onClick={handleLogout} className="w-full text-center px-4 py-3 rounded-xl font-bold text-sm text-red-500 bg-red-50 hover:bg-red-500 hover:text-white transition-all shadow-sm">
-                        Logout
+
+                <div className="p-4 border-t border-white/5">
+                    <button onClick={handleLogout} className="w-full flex items-center gap-4 px-4 py-3 rounded-2xl font-black text-xs text-red-400 hover:bg-red-500/10 transition-all uppercase tracking-widest">
+                        <ArrowLeft size={18} />
+                        <span className={`transition-all duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0'}`}>Logout System</span>
                     </button>
                 </div>
             </div>
 
-            {/* Main Content */}
-            <div className={`flex-1 transition-all duration-300 ${isNavbarVisible ? 'pt-20' : 'pt-8'} px-4 sm:px-8 pb-12 h-screen flex flex-col overflow-hidden ${isSidebarOpen ? 'lg:ml-64' : 'ml-0 lg:ml-4'}`}>
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-8 shrink-0 gap-4">
+            {/* Main Content Area */}
+            <div className={`flex-1 flex flex-col h-screen transition-all duration-500 ml-20 ${isSidebarOpen ? 'lg:ml-72' : 'ml-20'}`}>
+                
+                {/* Header Bar */}
+                <header className="h-20 border-b border-zinc-100 flex items-center justify-between px-10 bg-white/50 backdrop-blur-xl sticky top-0 z-50 shrink-0">
                     <div>
-                        <h1 className="text-xl sm:text-3xl font-black text-zinc-900 mb-2">
-                            {activeTab === 'input' ? 'Input Pemesanan Sparepart' : 'Daftar Pemesanan Sparepart'}
+                        <h1 className="text-2xl font-black tracking-tighter uppercase italic flex items-center gap-3">
+                            {activeTab === 'input' ? 'Entry Data Pemesanan' : 
+                             activeTab === 'quotation' ? 'Sparepart Quotation' : 
+                             activeTab === 'master' ? 'Database Master Part' : 
+                             activeTab === 'profit' ? 'Analisis Profit' :
+                             'Monitoring Ketersediaan'}
+                            <div className="h-1.5 w-1.5 bg-blue-500 rounded-full"></div>
                         </h1>
-                        <p className="text-zinc-500 font-medium text-xs sm:text-base">
-                            {activeTab === 'input' ? 'Buat list order sparepart baru ke dalam sistem.' : 'Monitoring status ketersediaan barang pemesanan.'}
-                        </p>
                     </div>
 
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                        <button
-                            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                            className="lg:hidden p-3 bg-white border border-zinc-200 text-zinc-900 rounded-2xl shadow-sm active:scale-95 transition-all mr-auto"
-                        >
-                            {isSidebarOpen ? <X size={22} /> : <Menu size={22} />}
-                        </button>
-
-                        {activeTab === 'input' ? (
+                    <div className="flex items-center gap-4">
+                        {activeTab === 'input' && (
                             <>
                                 <input type="file" accept=".xlsx, .xls, .csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-                                <button type="button" onClick={() => fileInputRef.current.click()} className="bg-green-100 text-green-700 hover:bg-green-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all text-xs sm:text-sm">
-                                    <Upload size={16} /> Import Excel
+                                <button type="button" onClick={() => fileInputRef.current.click()} className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all border border-emerald-100">
+                                    <Upload size={14} /> Import Master Excel
                                 </button>
                             </>
-                        ) : (
+                        )}
+                        {activeTab === 'master' && (
+                            <button 
+                                onClick={async () => {
+                                    const file = await new Promise(resolve => {
+                                        const input = document.createElement('input');
+                                        input.type = 'file';
+                                        input.onchange = e => resolve(e.target.files[0]);
+                                        input.click();
+                                    });
+                                    if (!file) return;
+                                    
+                                    setIsLoading(true);
+                                    const reader = new FileReader();
+                                    reader.onload = async (evt) => {
+                                        try {
+                                            const wb = XLSX.read(evt.target.result, { type: 'binary' });
+                                            const rawData = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+                                            
+                                            const parsePrice = (val) => {
+                                                if (val === undefined || val === null || val === '') return 0;
+                                                if (typeof val === 'number') return val;
+                                                
+                                                let clean = String(val).replace(/Rp|\s/gi, '').trim();
+                                                
+                                                if ((clean.match(/\./g) || []).length > 1) {
+                                                    clean = clean.replace(/\./g, '');
+                                                }
+                                                
+                                                if (clean.includes(',') && clean.includes('.')) {
+                                                    clean = clean.replace(/\./g, '').replace(/,/g, '.');
+                                                } else if (clean.includes(',')) {
+                                                    const parts = clean.split(',');
+                                                    if (parts[parts.length - 1].length === 2) {
+                                                        clean = clean.replace(/\./g, '').replace(/,/g, '.');
+                                                    } else {
+                                                        clean = clean.replace(/,/g, '');
+                                                    }
+                                                } else if (clean.includes('.')) {
+                                                    if (clean.split('.').pop().length === 3) {
+                                                        clean = clean.replace(/\./g, '');
+                                                    }
+                                                }
+                                                
+                                                const res = parseFloat(clean);
+                                                return isNaN(res) ? 0 : res;
+                                            };
+
+                                            const formatted = rawData.map(row => {
+                                                const normalizedRow = {};
+                                                Object.keys(row).forEach(key => {
+                                                    normalizedRow[key.trim().toLowerCase()] = row[key];
+                                                });
+
+                                                const getVal = (exactName) => normalizedRow[exactName.toLowerCase().trim()];
+
+                                                return {
+                                                    part_number: String(getVal('Spare part number') || '').trim(),
+                                                    part_name: String(getVal('Spare part name') || '').trim(),
+                                                    wholesale_price_no_tax: parsePrice(getVal('Wholesale price without tax')),
+                                                    wholesale_price: parsePrice(getVal('Wholesale price')),
+                                                    sales_guide_price_no_tax: parsePrice(getVal('Sales guide price excluding tax')),
+                                                    sales_guide_price: parsePrice(getVal('sales guide price')),
+                                                };
+                                            }).filter(r => r.part_number && r.part_name);
+
+                                            if (formatted.length === 0) throw new Error("Format Kolom Tidak Pas. Pastikan nama kolom sama persis dengan yang Anda berikan.");
+
+                                            const { error } = await supabase.from('sparepart_master').upsert(formatted, { onConflict: 'part_number' });
+                                            if (error) throw error;
+                                            
+                                            Toastify({ text: `Impor ${formatted.length} data berhasil!`, background: "black", color: "white" }).showToast();
+                                            fetchMasterParts();
+                                        } catch (err) {
+                                            Toastify({ text: "Gagal impor: " + err.message, background: "red" }).showToast();
+                                        } finally {
+                                            setIsLoading(false);
+                                        }
+                                    };
+                                    reader.readAsBinaryString(file);
+                                }}
+                                className="bg-zinc-900 text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-black transition-all"
+                            >
+                                <Upload size={14} /> Import Master CSV/Excel
+                            </button>
+                        )}
+                        {activeTab === 'master' && (
+                            <button 
+                                onClick={async () => {
+                                    if(confirm("Hapus seluruh data Master Sparepart? Tindakan ini tidak bisa dibatalkan.")) {
+                                        setIsLoading(true);
+                                        const { error } = await supabase.from('sparepart_master').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+                                        setIsLoading(false);
+                                        if (error) Toastify({ text: "Gagal: " + error.message, background: "red" }).showToast();
+                                        else {
+                                            Toastify({ text: "Database master dikosongkan.", background: "black" }).showToast();
+                                            fetchMasterParts();
+                                        }
+                                    }
+                                }}
+                                className="bg-red-50 text-red-600 border border-red-100 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-red-600 hover:text-white transition-all"
+                            >
+                                <Trash2 size={14} /> Hapus Semua
+                            </button>
+                        )}
+                        {activeTab === 'view' && (
                             <div className="flex gap-2">
-                                <span className="bg-zinc-200 text-zinc-600 px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500"></span> Pending ({pendingOrders.length})</span>
-                                <span className="bg-zinc-200 text-zinc-600 px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Arrived ({arrivedOrders.length})</span>
+                                <div className="bg-zinc-100 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-amber-500"></span> Pending {pendingOrders.length}
+                                </div>
+                                <div className="bg-zinc-100 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Selesai {arrivedOrders.length}
+                                </div>
                             </div>
                         )}
                     </div>
-                </div>
+                </header>
 
                 {/* Loading Overlay */}
                 {isLoading && (
@@ -678,310 +832,219 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
                 )}
 
 
-                {/* Tab Contents */}
-                {activeTab === 'input' && (
-                    <div className="max-w-4xl w-full mx-auto animate-fade-in relative h-full flex flex-col overflow-hidden">
-                        <div className="flex-1 overflow-y-auto min-h-0 pr-2 pb-8 custom-scrollbar">
-                            <form onSubmit={handleSubmit} className="bg-white rounded-3xl p-4 sm:p-8 shadow-xl border border-zinc-100">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-8">
-                                    <div>
-                                        <label className="block text-xs font-black text-zinc-400 uppercase tracking-widest mb-2">Order Number</label>
-                                        <input type="text" value={orderNumber} onChange={e => setOrderNumber(e.target.value)} required className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Contoh: ORD-2026-001" />
+                {/* Main Content Area Wrapper */}
+                <main className="flex-1 overflow-y-auto no-scrollbar p-10 animate-fade-in relative">
+                    
+                    {/* Tab Contents */}
+                    {activeTab === 'input' && (
+                        <div className="max-w-6xl mx-auto space-y-10">
+                            <form onSubmit={handleSubmit} className="bg-white rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-zinc-100 p-10">
+                                <div className="flex items-center gap-4 mb-10 border-b border-zinc-50 pb-8">
+                                    <div className="p-4 bg-zinc-900 text-white rounded-2xl shadow-xl">
+                                        <Plus size={24} />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-black text-zinc-400 uppercase tracking-widest mb-2">Nama Pemesan</label>
-                                        <input type="text" value={namaPemesan} onChange={e => setNamaPemesan(e.target.value)} required className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Nama mekanik / admin / customer" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black text-zinc-400 uppercase tracking-widest mb-2">Tanggal di Process CSI</label>
-                                        <input type="date" value={tanggalCSI} onChange={e => setTanggalCSI(e.target.value)} className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black text-zinc-400 uppercase tracking-widest mb-2">Order Notes</label>
-                                        <input type="text" value={orderNotes} onChange={e => setOrderNotes(e.target.value)} className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Catatan opsional..." />
+                                        <h3 className="font-black text-xl tracking-tight uppercase tracking-widest">Informasi Utama</h3>
+                                        <p className="text-xs text-zinc-400 font-bold uppercase tracking-[0.2em] mt-1">Detail administratif pesanan</p>
                                     </div>
                                 </div>
 
-                                <div className="pt-6 border-t border-zinc-100">
-                                    <div className="flex justify-between items-end mb-4">
-                                        <label className="block text-sm font-black text-zinc-900 uppercase tracking-widest">List Items</label>
-                                        <button type="button" onClick={handleAddItem} className="bg-blue-100 text-blue-600 px-4 py-1.5 rounded-lg flex items-center gap-2 text-xs font-bold hover:bg-blue-200 transition-colors">
-                                            <Plus size={14} /> Tambah Item
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
+                                    {[
+                                        { label: 'Order Number', value: orderNumber, onChange: setOrderNumber, placeholder: 'QT-2026-X', type: 'text' },
+                                        { label: 'Founder / Pemesan', value: namaPemesan, onChange: setNamaPemesan, placeholder: 'Nama staff', type: 'text' },
+                                        { label: 'CSI Process Date', value: tanggalCSI, onChange: setTanggalCSI, type: 'date' },
+                                        { label: 'Catatan Order', value: orderNotes, onChange: setOrderNotes, placeholder: 'Opsional...', type: 'text' }
+                                    ].map((f, i) => (
+                                        <div key={i} className="space-y-2">
+                                            <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">{f.label}</label>
+                                            <input 
+                                                type={f.type} 
+                                                value={f.value} 
+                                                onChange={e => f.onChange(e.target.value)} 
+                                                required={i < 2}
+                                                className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl px-5 py-3.5 font-bold text-sm focus:outline-none focus:ring-4 focus:ring-zinc-100 transition-all placeholder:text-zinc-300" 
+                                                placeholder={f.placeholder}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="pt-10 border-t border-zinc-100">
+                                    <div className="flex justify-between items-center mb-8">
+                                        <div className="flex items-center gap-3">
+                                            <PackageSearch size={22} className="text-blue-500" />
+                                            <h3 className="font-black text-base uppercase tracking-widest">List Suku Cadang</h3>
+                                        </div>
+                                        <button type="button" onClick={handleAddItem} className="bg-zinc-900 text-white px-6 py-2.5 rounded-xl flex items-center gap-2 text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all shadow-xl active:scale-95">
+                                            <Plus size={14} /> Item Baru
                                         </button>
                                     </div>
 
-                                    <div className="flex flex-col gap-4">
+                                    <div className="space-y-4">
                                         {items.map((item, idx) => (
-                                            <div key={idx} className="bg-zinc-50 rounded-2xl p-4 border border-zinc-200 flex flex-wrap lg:flex-nowrap gap-4 items-start relative">
-                                                <button type="button" onClick={() => handleRemoveItem(idx)} className="absolute -top-2 -right-2 bg-red-100 text-red-600 p-1.5 rounded-full hover:bg-red-500 hover:text-white transition-colors" title="Hapus Item">
-                                                    <Trash2 size={12} />
+                                            <div key={idx} className="bg-zinc-50/50 rounded-3xl p-6 border border-zinc-100 flex flex-wrap lg:flex-nowrap gap-6 items-end relative group hover:bg-white hover:shadow-lg transition-all border-dashed hover:border-solid">
+                                                <button type="button" onClick={() => handleRemoveItem(idx)} className="absolute -top-3 -right-3 bg-red-100 text-red-600 p-2.5 rounded-full opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500 hover:text-white shadow-lg">
+                                                    <Trash2 size={14} />
                                                 </button>
-                                                <div className="min-w-[150px] flex-1">
-                                                    <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Part Number</label>
-                                                    <input type="text" value={item.sparePartNumber} onChange={e => handleItemChange(idx, 'sparePartNumber', e.target.value)} required className="w-full bg-white border border-zinc-200 rounded-lg px-3 py-2 text-sm font-bold text-zinc-900 focus:outline-none focus:border-blue-500" />
+                                                <div className="flex-[2] min-w-[200px]">
+                                                    <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">Nama Suku Cadang</label>
+                                                    <input type="text" value={item.sparePartName} onChange={e => handleItemChange(idx, 'sparePartName', e.target.value)} required className="w-full bg-white border border-zinc-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-zinc-100 transition-all" />
                                                 </div>
-                                                <div className="min-w-[200px] flex-[2]">
-                                                    <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Part Name</label>
-                                                    <input type="text" value={item.sparePartName} onChange={e => handleItemChange(idx, 'sparePartName', e.target.value)} required className="w-full bg-white border border-zinc-200 rounded-lg px-3 py-2 text-sm font-bold text-zinc-900 focus:outline-none focus:border-blue-500" />
+                                                <div className="flex-1 min-w-[150px]">
+                                                    <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">Part Number</label>
+                                                    <input type="text" value={item.sparePartNumber} onChange={e => handleItemChange(idx, 'sparePartNumber', e.target.value)} required className="w-full bg-white border border-zinc-200 rounded-2xl px-4 py-3 text-sm font-mono font-bold focus:ring-4 focus:ring-zinc-100 transition-all uppercase" />
                                                 </div>
-                                                <div className="w-full sm:w-20">
-                                                    <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Qty</label>
-                                                    <input type="number" min="1" value={item.orderAmount} onChange={e => handleItemChange(idx, 'orderAmount', parseInt(e.target.value) || 1)} required className="w-full bg-white border border-zinc-200 rounded-lg px-3 py-2 text-sm font-bold text-zinc-900 text-center focus:outline-none focus:border-blue-500" />
+                                                <div className="w-24">
+                                                    <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1 text-center">Qty</label>
+                                                    <input type="number" min="1" value={item.orderAmount} onChange={e => handleItemChange(idx, 'orderAmount', parseInt(e.target.value) || 1)} required className="w-full bg-white border border-zinc-200 rounded-2xl px-2 py-3 text-sm font-black text-center" />
                                                 </div>
-                                                <div className="min-w-[150px] flex-1">
-                                                    <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Notes</label>
-                                                    <input type="text" value={item.orderingInstructions} onChange={e => handleItemChange(idx, 'orderingInstructions', e.target.value)} className="w-full bg-white border border-zinc-200 rounded-lg px-3 py-2 text-sm font-bold text-zinc-900 focus:outline-none focus:border-blue-500" />
+                                                <div className="flex-[1.5] min-w-[180px]">
+                                                    <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">Instruksi / Catatan</label>
+                                                    <input type="text" value={item.orderingInstructions} onChange={e => handleItemChange(idx, 'orderingInstructions', e.target.value)} className="w-full bg-white border border-zinc-200 rounded-2xl px-4 py-3 text-sm font-bold" placeholder="Contoh: Urgent" />
                                                 </div>
                                             </div>
                                         ))}
                                     </div>
                                 </div>
 
-                                <div className="mt-8 pt-6 border-t border-zinc-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-                                    {batchIndex > -1 && pendingBatch.length > 0 && (
-                                        <div className="flex items-center gap-4">
-                                            <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border border-blue-100">
-                                                Order {batchIndex + 1} / {pendingBatch.length}
+                                <div className="mt-16 pt-10 border-t border-zinc-100 flex flex-col md:flex-row justify-between items-center gap-10">
+                                    {(batchIndex > -1 && pendingBatch.length > 0) ? (
+                                        <div className="flex items-center gap-6 bg-zinc-50 px-6 py-3 rounded-[2rem] border border-zinc-100">
+                                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center font-black text-sm shadow-sm">
+                                                {batchIndex + 1}
                                             </div>
-                                            {batchIndex < pendingBatch.length - 1 && (
-                                                <button type="button" onClick={handleNextBatch} className="text-zinc-500 hover:text-zinc-900 font-bold text-xs flex items-center gap-1 transition-colors">
-                                                    Skip <ArrowLeft size={14} className="rotate-180" />
-                                                </button>
-                                            )}
+                                            <div>
+                                                <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Progress Batch</p>
+                                                <p className="font-bold text-sm">Sedang Memproses {pendingBatch.length} Data</p>
+                                            </div>
+                                            <button type="button" onClick={handleNextBatch} className="ml-4 text-blue-600 font-black text-xs uppercase tracking-widest hover:underline">Skip Data</button>
                                         </div>
-                                    )}
-                                    <div className="w-full sm:w-auto ml-auto">
-                                        <button type="submit" className="w-full bg-zinc-900 text-white px-8 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-black transition-transform active:scale-95 shadow-lg text-sm">
-                                            {batchIndex > -1 && batchIndex < pendingBatch.length - 1 ? 'Simpan & Lanjut' : 'Simpan Pemesanan'} <Send size={16} />
-                                        </button>
-                                    </div>
+                                    ) : <div className="hidden md:block"></div>}
+                                    
+                                    <button type="submit" className="w-full md:w-auto bg-zinc-950 text-white px-12 py-5 rounded-[2rem] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-black transition-all shadow-[0_20px_40px_rgba(0,0,0,0.2)] active:scale-95 text-xs">
+                                        <Send size={18} /> {batchIndex > -1 ? 'Simpan & Lanjut' : 'Finalize & Simpan'}
+                                    </button>
                                 </div>
                             </form>
                         </div>
-                    </div>
-                )}
+                    )}
 
-                {/* VIEW PAGE */}
-                {activeTab === 'view' && (
-                    <div className="max-w-6xl w-full mx-auto animate-fade-in relative h-full flex flex-col">
-                        <div className="flex justify-between items-end mb-8 shrink-0">
-                            <div>
-                                <h1 className="text-3xl font-black text-zinc-900 mb-2">Daftar Pemesanan Sparepart</h1>
-                                <p className="text-zinc-500 font-medium">Monitoring status ketersediaan barang pemesanan.</p>
-                            </div>
-                            <div className="flex gap-2">
-                                <span className="bg-zinc-200 text-zinc-600 px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500"></span> Pending ({pendingOrders.length})</span>
-                                <span className="bg-zinc-200 text-zinc-600 px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Arrived/Confirmed ({arrivedOrders.length})</span>
-                            </div>
-                        </div>
+                    {/* VIEW PAGE */}
+                    {activeTab === 'view' && (
+                        <div className="max-w-7xl mx-auto space-y-10">
+                            {/* Search & Filter Bar - Premium Header */}
+                            <div className="bg-white p-10 rounded-[2.5rem] shadow-xl border border-zinc-100 flex flex-wrap gap-8 items-end animate-in fade-in slide-in-from-top-4 duration-500">
+                                <div className="flex-1 min-w-[300px] space-y-2">
+                                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Cari Database Pesanan</label>
+                                    <div className="relative group">
+                                        <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-300 group-focus-within:text-zinc-900 transition-colors" size={20} />
+                                        <input
+                                            type="text"
+                                            value={searchTerm}
+                                            onChange={e => setSearchTerm(e.target.value)}
+                                            placeholder="Masukkan nomor order, nama, atau part..."
+                                            className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl pl-14 pr-6 py-4 font-bold text-sm focus:outline-none focus:ring-4 focus:ring-zinc-100 transition-all"
+                                        />
+                                    </div>
+                                </div>
 
-                        {/* Search & Filter Bar */}
-                        <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-zinc-200 mb-8 flex flex-wrap gap-4 items-end shrink-0">
-                            <div className="flex-1 min-w-[200px]">
-                                <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">Cari Pesanan</label>
-                                <div className="relative">
-                                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
+                                <div className="w-full md:w-auto space-y-2">
+                                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Status Ketersediaan</label>
+                                    <div className="relative">
+                                        <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
+                                        <select
+                                            value={filterStatus}
+                                            onChange={e => setFilterStatus(e.target.value)}
+                                            className="appearance-none bg-zinc-50 border border-zinc-200 rounded-2xl pl-12 pr-10 py-4 font-black text-xs uppercase tracking-widest focus:outline-none focus:ring-4 focus:ring-zinc-100 transition-all cursor-pointer min-w-[200px]"
+                                        >
+                                            <option value="all">Semua Data</option>
+                                            <option value="pending">Belum Sampai</option>
+                                            <option value="partial">Parsial (Sebagian)</option>
+                                            <option value="arrived">Sudah Tiba</option>
+                                            <option value="confirmed">Konfirmasi Admin</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="w-full md:w-auto space-y-2">
+                                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Filter Tanggal</label>
                                     <input
-                                        type="text"
-                                        value={searchTerm}
-                                        onChange={e => setSearchTerm(e.target.value)}
-                                        placeholder="Cari..."
-                                        className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl pl-12 pr-4 py-3 font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm"
+                                        type="date"
+                                        value={filterDate}
+                                        onChange={e => setFilterDate(e.target.value)}
+                                        className="bg-zinc-50 border border-zinc-200 rounded-2xl px-6 py-4 font-bold text-sm focus:outline-none focus:ring-4 focus:ring-zinc-100 transition-all h-[54px]"
                                     />
-                                    {searchTerm && (
-                                        <button onClick={() => setSearchTerm('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600">
-                                            <X size={16} />
-                                        </button>
-                                    )}
                                 </div>
                             </div>
 
-                            <div className="w-full md:w-auto">
-                                <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">Status</label>
-                                <div className="relative">
-                                    <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
-                                    <select
-                                        value={filterStatus}
-                                        onChange={e => setFilterStatus(e.target.value)}
-                                        className="appearance-none bg-zinc-50 border border-zinc-200 rounded-2xl pl-10 pr-10 py-3 font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer shadow-inner min-w-[150px]"
-                                    >
-                                        <option value="all">Semua Status</option>
-                                        <option value="pending">Pending / Sebagian</option>
-                                        <option value="partial">Hanya Sebagian</option>
-                                        <option value="arrived">Tiba / Selesai</option>
-                                        <option value="confirmed">Confirmed Admin</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div className="w-full md:w-auto">
-                                <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">Tanggal</label>
-                                <input
-                                    type="date"
-                                    value={filterDate}
-                                    onChange={e => setFilterDate(e.target.value)}
-                                    className="bg-zinc-50 border border-zinc-200 rounded-2xl px-4 py-3 font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all shadow-inner"
-                                />
-                            </div>
-
-                            {(searchTerm || filterStatus !== 'all' || filterDate) && (
-                                <button
-                                    onClick={() => { setSearchTerm(''); setFilterStatus('all'); setFilterDate(''); }}
-                                    className="h-[50px] px-6 rounded-2xl font-bold text-sm text-red-500 hover:bg-red-50 transition-all flex items-center gap-2"
-                                >
-                                    <X size={16} /> Reset
-                                </button>
-                            )}
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto min-h-0 pr-2 pb-8 custom-scrollbar">
-                            <div className="grid grid-cols-1 gap-6 pb-20">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-32">
                                 {filteredOrders.length === 0 ? (
-                                    <div className="text-center py-20 bg-white rounded-3xl border border-zinc-200 border-dashed text-zinc-400 font-bold flex flex-col items-center gap-4">
-                                        <div className="bg-zinc-50 p-4 rounded-full">
-                                            <Search size={40} className="opacity-20" />
-                                        </div>
-                                        <p>Tidak ada pesanan yang sesuai dengan filter.</p>
+                                    <div className="lg:col-span-2 text-center py-40 bg-zinc-50 rounded-[3rem] border-2 border-dashed border-zinc-200">
+                                        <PackageSearch size={60} className="mx-auto text-zinc-200 mb-6" />
+                                        <p className="font-black text-zinc-300 uppercase tracking-widest">Database Kosong</p>
                                     </div>
                                 ) : (
                                     filteredOrders.map(order => {
                                         let itemsArray = [];
-                                        let isLegacyText = false;
-                                        try {
-                                            itemsArray = JSON.parse(order.items);
-                                            if (!Array.isArray(itemsArray)) throw new Error('Not an array');
-                                        } catch (e) {
-                                            isLegacyText = true;
-                                        }
-
+                                        try { itemsArray = JSON.parse(order.items); } catch (e) { itemsArray = []; }
                                         const isPending = order.status === 'pending' || order.status === 'partial';
 
                                         return (
-                                            <div key={order.id} className="bg-white rounded-[1.5rem] overflow-hidden shadow-sm border border-zinc-200 hover:shadow-lg transition-all duration-300">
-                                                <div className={`px-8 py-5 flex justify-between items-center border-b border-zinc-100 ${isPending ? (order.status === 'partial' ? 'bg-amber-50' : 'bg-zinc-50') : 'bg-green-50'}`}>
+                                            <div key={order.id} className="bg-white rounded-[2.5rem] overflow-hidden shadow-[0_15px_40px_rgba(0,0,0,0.03)] border border-zinc-100 hover:shadow-xl transition-all duration-500 group">
+                                                <div className={`px-10 py-8 flex justify-between items-center border-b border-zinc-50 ${isPending ? 'bg-zinc-50/50' : 'bg-emerald-50/20'}`}>
                                                     <div>
-                                                        <h3 className="font-black text-xl text-zinc-900 flex items-center gap-3">
-                                                            {order.orderNumber || '-'}
-                                                            {order.status === 'confirmed' && <span className="text-[10px] bg-green-600 text-white px-2 py-1 rounded uppercase tracking-widest shadow-sm">Confirmed by Admin</span>}
-                                                            {order.status === 'partial' && <span className="text-[10px] bg-amber-500 text-white px-2 py-1 rounded uppercase tracking-widest shadow-sm">Sebagian Sampai</span>}
-                                                        </h3>
-                                                        <div className="flex items-center gap-4 mt-1">
-                                                            <p className="text-xs text-zinc-500 font-medium">Pemesan: <span className="font-bold text-zinc-800">{order.namaPemesan || '-'}</span></p>
-                                                            <div className="flex items-center gap-2 border-l border-zinc-200 pl-4">
-                                                                <div className="flex flex-col leading-none">
-                                                                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-0.5">Dibuat</span>
-                                                                    <div className="text-[11px] font-bold text-zinc-700">
-                                                                        {(() => {
-                                                                            const t = order.tanggalPembuatan || '-';
-                                                                            let datePart = t;
-                                                                            let timePart = '';
-                                                                            if (t.includes(' ')) {
-                                                                                const parts = t.split(' ');
-                                                                                datePart = parts[0];
-                                                                                timePart = parts[1];
-                                                                            } else if (t.includes('T')) {
-                                                                                const parts = t.split('T');
-                                                                                datePart = parts[0];
-                                                                                timePart = parts[1].substring(0, 5);
-                                                                            }
-                                                                            return (
-                                                                                <div className="flex flex-col">
-                                                                                    <span>{datePart}</span>
-                                                                                    <span className="text-[10px] text-zinc-400 font-black">{timePart}</span>
-                                                                                </div>
-                                                                            );
-                                                                        })()}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
+                                                        <div className="flex items-center gap-3 mb-1">
+                                                            <h3 className="font-black text-2xl tracking-tighter uppercase">{order.orderNumber || 'NO-ID'}</h3>
+                                                            {order.status === 'partial' && <span className="text-[9px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-black uppercase">Partial</span>}
+                                                            {order.status === 'confirmed' && <span className="text-[9px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-black uppercase">Confirmed</span>}
                                                         </div>
+                                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">{order.namaPemesan || 'Tanpa Nama'} • {order.tanggalPembuatan || 'Setiap Saat'}</p>
                                                     </div>
-                                                    {modifiedIds.has(order.id) ? (
-                                                        <button onClick={() => handleSaveChanges(order)} className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-black text-sm shadow-xl shadow-blue-200 hover:bg-blue-700 hover:scale-105 active:scale-95 transition-all flex items-center gap-2">
-                                                            <Send size={16} /> Simpan Perubahan
-                                                        </button>
-                                                    ) : isPending ? (
-                                                        <button onClick={() => handleSetArrived(order)} className="bg-zinc-900 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-xl shadow-zinc-200 hover:scale-105 active:scale-95 transition-transform flex items-center gap-2">
-                                                            <Check size={16} /> Terima Semua
-                                                        </button>
-                                                    ) : (
-                                                        <div className="flex items-center gap-2 text-white font-black text-sm bg-green-500 px-5 py-2.5 rounded-xl shadow-lg shadow-green-100 border border-green-600">
-                                                            <Check size={18} strokeWidth={3} /> Sudah Sampai
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <div className="p-8">
-                                                    {order.orderNotes && (
-                                                        <div className="mb-6 text-sm text-zinc-600 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                                                            <span className="font-black text-blue-800 uppercase tracking-widest text-[10px] block mb-1">Catatan Order:</span> {order.orderNotes}
-                                                        </div>
-                                                    )}
-
-                                                    <div className="border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
-                                                        {isLegacyText ? (
-                                                            <div className="bg-zinc-50 p-6 text-sm font-medium whitespace-pre-line leading-relaxed text-zinc-800 font-mono">
-                                                                {order.items || '-'}
-                                                            </div>
+                                                    <div className="flex items-center gap-2">
+                                                        {modifiedIds.has(order.id) ? (
+                                                            <button onClick={() => handleSaveChanges(order)} className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2">
+                                                                Simpan Update
+                                                            </button>
+                                                        ) : isPending ? (
+                                                            <button onClick={() => handleSetArrived(order)} className="bg-zinc-950 text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:scale-105 transition-all flex items-center gap-2 shadow-xl">
+                                                                Terima Semua
+                                                            </button>
                                                         ) : (
-                                                            <div className="overflow-x-auto">
-                                                                <table className="w-full text-left text-sm bg-white">
-                                                                    <thead>
-                                                                        <tr className="bg-zinc-50 text-[10px] text-zinc-500 font-black uppercase tracking-widest">
-                                                                            <th className="px-6 py-4 border-b border-zinc-200">Part Info</th>
-                                                                            <th className="px-6 py-4 border-b border-zinc-200 text-center">Qty</th>
-                                                                            <th className="px-6 py-4 border-b border-zinc-200 w-1/3">Notes</th>
-                                                                            <th className="px-6 py-4 border-b border-zinc-200 text-center">Tiba</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody className="divide-y divide-zinc-100">
-                                                                        {itemsArray.map((item, idx) => (
-                                                                            <tr key={idx} className={`hover:bg-zinc-50/50 transition-colors ${item.isArrived ? 'bg-green-50/30' : ''}`}>
-                                                                                <td className="px-6 py-4">
-                                                                                    <div className="font-black text-zinc-900 text-base">{item.sparePartName}</div>
-                                                                                    <div className="font-mono text-xs font-bold text-zinc-500">{item.sparePartNumber}</div>
-                                                                                </td>
-                                                                                <td className="px-6 py-4 text-center">
-                                                                                    <span className="bg-zinc-100 px-3 py-1 rounded-lg font-black">{item.orderAmount}</span>
-                                                                                </td>
-                                                                                <td className="px-6 py-4 text-zinc-600 font-medium">
-                                                                                    {item.orderingInstructions || '-'}
-                                                                                </td>
-                                                                                <td className="px-6 py-4 text-center">
-                                                                                    {/* LOCK ITEM IF IT'S ARRIVED AND NOT MODIFIED (Meaning it's already in DB) */}
-                                                                                    {(item.isArrived && !modifiedIds.has(order.id) && !isPending) || (item.isArrived && !modifiedIds.has(order.id) && (order.status === 'arrived' || order.status === 'partial' || order.status === 'confirmed')) ? (
-                                                                                        <div className="flex flex-col items-center text-green-600 font-black animate-fade-in">
-                                                                                            <Check size={20} className="bg-green-100 rounded-full p-0.5" strokeWidth={4} />
-                                                                                            <span className="text-[10px] uppercase tracking-tighter mt-0.5">Sudah Sampai</span>
-                                                                                        </div>
-                                                                                    ) : (
-                                                                                        <button
-                                                                                            onClick={() => handleCheckItem(order, idx)}
-                                                                                            className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all mx-auto border-2 ${item.isArrived ? 'bg-green-500 border-green-600 text-white shadow-lg' : 'bg-zinc-50 border-zinc-200 text-zinc-300 hover:border-green-400 hover:text-green-400 cursor-pointer scale-100 active:scale-90'}`}
-                                                                                        >
-                                                                                            <Check size={20} className={item.isArrived ? 'opacity-100' : 'opacity-20'} strokeWidth={3} />
-                                                                                        </button>
-                                                                                    )}
-                                                                                </td>
-                                                                            </tr>
-                                                                        ))}
-                                                                    </tbody>
-                                                                </table>
+                                                            <div className="bg-emerald-50 text-emerald-600 p-2.5 rounded-full border border-emerald-100">
+                                                                <Check size={20} strokeWidth={4} />
                                                             </div>
                                                         )}
                                                     </div>
-
-                                                    {(order.status === 'confirmed' || order.status === 'arrived' || order.status === 'partial') && order.arrivedTime && (
-                                                        <div className="mt-6 text-[10px] font-black uppercase tracking-widest text-zinc-400">
-                                                            <span className="bg-zinc-100 px-3 py-1.5 rounded-lg inline-block">
-                                                                {order.status === 'partial' ? 'Update Terakhir' : 'Sampai'} Pukul: {new Date(order.arrivedTime).toLocaleString('id-ID')}
-                                                            </span>
-                                                            {order.status === 'confirmed' && order.confirmedBy && (
-                                                                <span className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg inline-block ml-2">
-                                                                    Diketahui: {order.confirmedBy} ({new Date(order.confirmedTime).toLocaleString('id-ID')})
-                                                                </span>
-                                                            )}
+                                                </div>
+                                                <div className="p-10 space-y-8">
+                                                    {order.orderNotes && (
+                                                        <div className="bg-blue-50/30 p-4 rounded-2xl border border-blue-50 text-xs font-bold text-blue-800 leading-relaxed italic">
+                                                            "{order.orderNotes}"
                                                         </div>
                                                     )}
+
+                                                    <div className="space-y-4">
+                                                        {itemsArray.map((item, idx) => (
+                                                            <div key={idx} className={`p-5 rounded-3xl border transition-all flex items-center justify-between ${item.isArrived ? 'bg-emerald-50/30 border-emerald-100' : 'bg-zinc-50 border-zinc-100'}`}>
+                                                                <div className="flex-1">
+                                                                    <div className="font-black text-sm tracking-tight mb-1">{item.sparePartName}</div>
+                                                                    <div className="font-mono text-[10px] text-zinc-400 flex items-center gap-2">
+                                                                        {item.sparePartNumber} 
+                                                                        <span className="w-1 h-1 bg-zinc-300 rounded-full"></span>
+                                                                        <span className="text-zinc-900 font-black">{item.orderAmount} UNIT</span>
+                                                                    </div>
+                                                                </div>
+                                                                <button 
+                                                                    onClick={() => handleCheckItem(order, idx)}
+                                                                    disabled={!isPending && !modifiedIds.has(order.id)}
+                                                                    className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-all ${item.isArrived ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white border-2 border-zinc-100 text-zinc-200 hover:border-emerald-500 hover:text-emerald-500'}`}
+                                                                >
+                                                                    <Check size={18} strokeWidth={4} />
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                             </div>
                                         );
@@ -989,16 +1052,126 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
                                 )}
                             </div>
                         </div>
-                    </div>
-                )}
+                    )}
 
-                <style>{`
-                .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-                .custom-scrollbar::-webkit-scrollbar-thumb { background: #E4E4E7; border-radius: 10px; }
-                .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #D4D4D8; }
-            `}</style>
+                    {activeTab === 'master' && (
+                        <div className="max-w-7xl mx-auto space-y-10 animate-fade-in">
+                            <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-zinc-100 flex items-center gap-6">
+                                <div className="flex-1 relative group">
+                                    <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} />
+                                    <input 
+                                        type="text" 
+                                        value={searchMaster} 
+                                        onChange={e => setSearchMaster(e.target.value)}
+                                        placeholder="Cari part number atau nama barang..."
+                                        className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl pl-14 pr-6 py-4 font-bold text-sm focus:outline-none focus:ring-4 focus:ring-zinc-100 transition-all"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="bg-white rounded-[2.5rem] shadow-2xl border border-zinc-100 overflow-hidden">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left">
+                                        <thead>
+                                            <tr className="bg-zinc-950 text-white text-[10px] font-black uppercase tracking-[0.2em]">
+                                                <th className="px-10 py-6">ID & Part Name</th>
+                                                <th className="px-10 py-6">Wholesale (No Tax)</th>
+                                                <th className="px-10 py-6">Wholesale (Tax)</th>
+                                                <th className="px-10 py-6">Sales Guide (No Tax)</th>
+                                                <th className="px-10 py-6">Sales Guide (Tax)</th>
+                                                <th className="px-10 py-6 text-center">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-zinc-50">
+                                            {masterParts.filter(p => 
+                                                p.part_name.toLowerCase().includes(searchMaster.toLowerCase()) || 
+                                                p.part_number.toLowerCase().includes(searchMaster.toLowerCase())
+                                            ).map((part) => (
+                                                <tr key={part.id} className="hover:bg-zinc-50/50 transition-colors group">
+                                                    <td className="px-10 py-6">
+                                                        <div className="font-black text-xs tracking-tighter uppercase">{part.part_name}</div>
+                                                        <div className="font-mono text-[9px] text-zinc-400 mt-1 uppercase tracking-widest">{part.part_number}</div>
+                                                    </td>
+                                                    <td className="px-10 py-6 font-bold text-xs text-zinc-600">
+                                                        Rp {part.wholesale_price_no_tax?.toLocaleString('id-ID')}
+                                                    </td>
+                                                    <td className="px-10 py-6">
+                                                        <div className="font-black text-sm text-zinc-900 border-l-4 border-emerald-500 pl-4 bg-emerald-50/30 py-2 rounded-r-xl">
+                                                            Rp {part.wholesale_price?.toLocaleString('id-ID')}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-10 py-6 font-bold text-xs text-zinc-600">
+                                                        Rp {part.sales_guide_price_no_tax?.toLocaleString('id-ID')}
+                                                    </td>
+                                                    <td className="px-10 py-6">
+                                                        <div className="font-black text-sm text-zinc-900 border-l-4 border-blue-500 pl-4 bg-blue-50/30 py-2 rounded-r-xl">
+                                                            Rp {part.sales_guide_price?.toLocaleString('id-ID')}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-10 py-6">
+                                                        <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button 
+                                                                onClick={async () => {
+                                                                    const newName = prompt("Edit Part Name", part.part_name);
+                                                                    const newPrice = prompt("Edit Wholesale Price", part.wholesale_price);
+                                                                    if (newName && newPrice) {
+                                                                        const { error } = await supabase.from('sparepart_master').update({ 
+                                                                            part_name: newName, 
+                                                                            wholesale_price: parseFloat(newPrice) 
+                                                                        }).eq('id', part.id);
+                                                                        if (!error) fetchMasterParts();
+                                                                    }
+                                                                }}
+                                                                className="p-3 bg-zinc-100 text-zinc-600 rounded-xl hover:bg-zinc-900 hover:text-white transition-all shadow-sm"
+                                                            >
+                                                                <FileText size={16} />
+                                                            </button>
+                                                            <button 
+                                                                onClick={async () => {
+                                                                    if (confirm(`Hapus ${part.part_name}?`)) {
+                                                                        const { error } = await supabase.from('sparepart_master').delete().eq('id', part.id);
+                                                                        if (!error) fetchMasterParts();
+                                                                    }
+                                                                }}
+                                                                className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-all shadow-sm"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'profit' && (
+                        <div className="flex-1 animate-fade-in pb-32">
+                           <ProfitDashboard />
+                        </div>
+                    )}
+
+                    {activeTab === 'quotation' && (
+                        <div className="flex-1 animate-fade-in pb-32">
+                            <QuotationSPA />
+                        </div>
+                    )}
+                </main>
             </div>
-        </div >
+
+            <style>{`
+                .no-scrollbar::-webkit-scrollbar { display: none; }
+                .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+                
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(10px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+                .animate-fade-in { animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+            `}</style>
+        </div>
     );
 }

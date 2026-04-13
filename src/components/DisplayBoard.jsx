@@ -1,488 +1,807 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ClockDisplay from './ClockDisplay';
-import { Bookmark, Zap, Car, Instagram, CheckCircle, Clock, Moon, Play, Coffee } from 'lucide-react';
+import { Bookmark, Zap, Car, Instagram, CheckCircle, Clock, Moon, FileText, X, Activity, CalendarDays, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import cheryLogo from '../assets/cherylogo.png';
 import orientalLogo from '../assets/oriental.jpeg';
 import { QRCodeSVG } from 'qrcode.react';
 
-const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onLogoDoubleClick, rawHistory = [] }) => {
-  const isToday = (timestampStr) => {
-    if (!timestampStr) return false;
-    const date = new Date(!isNaN(timestampStr) ? parseInt(timestampStr) : timestampStr);
-    if (isNaN(date.getTime())) return false;
-    const today = new Date();
-    return date.getDate() === today.getDate() && date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
-  };
+const DISPLAY_COUNT = 2; // Default for vertical columns
+const COMPLETED_DISPLAY_COUNT = 2; // Show only 2 completed units per slide
+const SLIDE_INTERVAL = 10000; // 10 seconds per slide
 
-  const todayCompletedQueue = rawHistory.filter(item => {
-    return isToday(item.timestamp) || isToday(item.updatedAt) || isToday(item.completedAt) || isToday(item.id);
-  });
+const generateSlots = (count) => {
+   const slots = [];
+   let currentHour = 8;
+   let currentMin = 30;
+   for (let i = 0; i < count; i++) {
+      const h = String(currentHour).padStart(2, '0');
+      const m = String(currentMin).padStart(2, '0');
+      slots.push(`${h}.${m}`);
+      currentMin += 30;
+      if (currentMin >= 60) {
+         currentHour += 1;
+         currentMin = 0;
+      }
+   }
+   return slots;
+};
 
-  return (
-    <>
-      <div className="p-4 sm:p-6 max-w-[1400px] mx-auto animate-fade-in">
-        <div className="flex flex-col sm:flex-row justify-between items-center mb-6 sm:mb-10 px-2 sm:px-4 gap-4 sm:gap-0">
-          <div className="flex items-center gap-4 sm:gap-8 transition-transform active:scale-95" onDoubleClick={onLogoDoubleClick}>
-            <img src={cheryLogo} alt="Chery Logo" className="h-12 sm:h-24 object-contain" title="Double click to login" />
-            <img src={orientalLogo} alt="Oriental Logo" className="h-12 sm:h-24 object-contain" />
-            <div className="h-8 sm:h-14 w-[2px] bg-zinc-200"></div>
-            <div className="space-y-0.5">
-              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-red-600">Workshop Live Status</span>
-              <h2 className="text-xl sm:text-4xl font-extrabold tracking-tighter text-zinc-900 leading-none">Antrian Bengkel</h2>
+const isSameDate = (d1, d2) => {
+   const normalize = (d) => {
+      if (!d) return "";
+      if (d instanceof Date) return d.toISOString().split('T')[0];
+      let str = String(d).split(/[T ]/)[0]; // Ambil bagian tanggal saja
+      if (str.includes("/")) {
+         const parts = str.split("/");
+         if (parts.length === 3) {
+            const [dd, mm, yyyy] = parts;
+            return `${yyyy.split(',')[0]}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+         }
+      }
+      return str;
+   };
+   return normalize(d1) === normalize(d2);
+};
+
+// ─────────────────────────────────────────────
+//  QUEUE CARD (unchanged data/layout)
+// ─────────────────────────────────────────────
+const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onComplete }) => {
+   const ms = parseInt(item.id);
+   // Detect if 10-digit (seconds) or 13-digit (milliseconds)
+   const arrivalDate = (!isNaN(ms))
+      ? (ms < 10000000000 ? new Date(ms * 1000) : new Date(ms))
+      : null;
+
+   const timeIn = arrivalDate
+      ? arrivalDate.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })
+      : '--:--';
+   const dateIn = arrivalDate
+      ? arrivalDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: '2-digit' })
+      : '--';
+
+   // LOGIKA TIME OUT: Jika working tampilkan targetTime, jika waiting tampilkan estimasi (arrival + duration)
+   let timeOut = '--:--';
+   const targetTime = parseInt(item.target_time || item.targetTime);
+
+   if (targetTime && targetTime > 0) {
+      timeOut = new Date(targetTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+   } else if (arrivalDate) {
+      // GUNAKAN estimasiDefault sesuai skema tabel SQL Anda
+      const durasiDetik = parseInt(item.estimasiDefault) || 0;
+      const predictedFinish = new Date(arrivalDate.getTime() + (durasiDetik * 1000));
+      timeOut = predictedFinish.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+   }
+
+   const isWorking = item.status === 'working';
+   const isMenginap = item.status === 'menginap';
+   const isWaiting = item.status === 'waiting';
+
+   const isScheduled = !item.status || item.status === 'accepted' || item.status === 'waiting confirm';
+
+   return (
+      <div className={`bg-white rounded-xl border-2 shadow-sm overflow-hidden flex flex-col group/card hover:border-zinc-300 transition-all ${isScheduled ? 'border-dashed border-zinc-200 opacity-80' : 'border-zinc-100'}`}>
+         {/* Color bar */}
+         <div className={`h-1 w-full ${isScheduled ? 'bg-zinc-300' : isWorking ? 'bg-blue-500' : isMenginap ? 'bg-purple-500' : 'bg-red-500'}`} />
+
+         <div className="px-4 py-3 flex flex-col gap-2.5">
+            {/* BADGES + DOC BUTTON */}
+            <div className="flex items-center justify-between">
+               <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1 ${item.category === 'Booking' ? 'bg-red-600 text-white' : 'bg-zinc-100 text-zinc-600'}`}>
+                     {item.category === 'Booking' ? <Bookmark size={9} fill="white" /> : <Zap size={9} fill="currentColor" />}
+                     {item.category}
+                  </span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${isScheduled ? 'bg-amber-100 text-amber-700 border border-amber-200' : isWorking ? 'bg-blue-100 text-blue-700' : isMenginap ? 'bg-purple-100 text-purple-700' : 'bg-red-100 text-red-700'}`}>
+                     {isScheduled ? `○ JADWAL ${item.jam} WIB` : isWorking ? '● PROSES' : isMenginap ? '● MENGINAP' : '● ANTRI'}
+                  </span>
+               </div>
+               {!isScheduled && (
+                  <button onClick={() => setSelectedUnit(item)} className="p-1.5 text-zinc-300 hover:text-zinc-900 transition-colors">
+                     <FileText size={16} />
+                  </button>
+               )}
             </div>
-          </div>
-          <div className="flex items-center gap-6">
-            <div className="hidden sm:flex items-center gap-4 bg-white p-3 rounded-2xl border border-zinc-200 shadow-md">
-              <div className="text-right">
-                <span className="text-xs font-black uppercase text-zinc-900 tracking-widest block">Scan Me</span>
-              </div>
-              <div className="bg-zinc-100 p-2 rounded-xl">
-                <QRCodeSVG value="https://www.cherymedan.web.id/" size={96} level="Q" marginSize={0} />
-              </div>
-            </div>
-            <div className="text-center sm:text-right">
-              <ClockDisplay />
-            </div>
-          </div>
-        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          {/* Kolom Booking */}
-          <div className="flex flex-col gap-4">
-            <div className="bg-red-100 border-2 border-red-300 rounded-xl py-3 px-6 shadow-md flex items-center gap-3">
-              <Bookmark size={24} className="text-red-600" fill="currentColor" />
-              <h3 className="text-xl sm:text-2xl font-black text-zinc-900 uppercase tracking-widest leading-none">Antrian Booking</h3>
+            <div className="py-1">
+               <h3 className="text-4xl font-black tracking-tighter text-black font-mono uppercase leading-none">{item.bk}</h3>
+               <p className="text-[10px] font-black text-black uppercase tracking-widest mt-0.5">{item.tipe || '—'}</p>
             </div>
 
-            <div className="flex flex-col gap-4 max-h-[60vh] 2xl:max-h-[700px] overflow-y-auto pr-2 pb-2" style={{ scrollbarWidth: 'thin' }}>
-              {processedQueue.filter(i => i.category === 'Booking').map((item, index) => (
-                <div
-                  key={item.id}
-                  className={`relative bg-white border border-red-200 ring-1 ring-red-50 rounded-[1.2rem] px-4 sm:px-8 py-4 sm:py-6 flex flex-col sm:flex-row justify-between items-start sm:items-center shadow-lg shadow-zinc-200/40 transition-all duration-300 gap-4 sm:gap-0`}
-                >
-                  <div className="flex items-start sm:items-center gap-4 sm:gap-10 w-full sm:w-auto">
-                    <div className="text-3xl sm:text-4xl font-black text-zinc-900 italic min-w-[40px] sm:min-w-[50px] select-none mt-1 sm:mt-0">
-                      #{index + 1}
-                    </div>
+            {/* TIME INFO — 3 columns */}
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-zinc-50 font-mono">
+               {/* DATANG / JADWAL */}
+               <div>
+                  <p className="text-[8px] font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1 mb-0.5">
+                     <Clock size={8} className={isScheduled ? 'text-zinc-400' : 'text-blue-500'} /> {isScheduled ? 'Jadwal' : 'Datang'}
+                  </p>
+                  <p className="text-sm font-black text-zinc-900 tabular-nums leading-none">{isScheduled ? item.jam : timeIn}</p>
+                  {!isScheduled && <p className="text-[9px] font-bold text-zinc-400 mt-0.5 leading-none">{dateIn}</p>}
+               </div>
 
-                    <div className="flex-1">
-                      <div className="flex flex-wrap items-center gap-2 mb-1 sm:mb-2">
-                        <span className="px-2 py-1 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 bg-red-600 text-white shadow-md shadow-red-100">
-                          <Bookmark size={10} fill="white" />
-                          {item.category}
-                        </span>
-                        {item.keluhan && item.keluhan.split(',').map(k => k.trim()).filter(Boolean).map(k => (
-                          <span key={k} className={`px-2 py-1 rounded-full text-[8.5px] sm:text-[9.5px] font-black uppercase tracking-widest flex items-center border shadow-sm ${k.includes('FS') ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
-                            {k}
-                          </span>
-                        ))}
-                        {item.estimasi === 0 && item.status !== 'waiting' && (
-                          <span className="bg-green-500 text-white px-3 sm:px-3 py-1 sm:py-1 rounded-full text-xs sm:text-xs font-black uppercase tracking-widest animate-pulse shadow-md shadow-green-200">
-                            Selesai
-                          </span>
-                        )}
-                      </div>
+               {/* ESTIMASI / KEPERLUAN */}
+               <div className="col-span-2">
+                  <p className="text-[8px] font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1 mb-0.5">
+                     <Activity size={8} className={isWorking ? 'text-orange-500' : 'text-zinc-300'} /> {isScheduled ? 'Keperluan' : 'Estimasi'}
+                  </p>
+                  <p className={`text-sm font-black tabular-nums leading-none truncate ${isWorking ? (item.estimasi < 300 ? 'text-red-600 animate-pulse' : 'text-orange-600') : 'text-zinc-500'}`}>
+                     {isScheduled ? (item.keluhan || '-') : isWorking ? formatTime(item.estimasi) : formatTime(parseInt(item.estimasiDefault) || 0)}
+                  </p>
+               </div>
+            </div>
 
-                      <h3 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tighter text-zinc-900 font-sans uppercase leading-none mb-1 whitespace-nowrap">
-                        {item.bk}
-                      </h3>
-                      <p className="text-xs sm:text-sm text-zinc-500 font-black italic uppercase tracking-tight">
-                        {item.tipe}
-                      </p>
+            {/* SA + MEKANIK */}
+            <div className="flex items-center gap-3 pt-2 border-t border-zinc-50">
+               <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  <div className="w-5 h-5 rounded bg-zinc-900 flex items-center justify-center text-white text-[7px] font-black shrink-0">{isScheduled ? 'CS' : 'SA'}</div>
+                  <span className="text-[10px] font-bold text-zinc-600 uppercase truncate">
+                     {isScheduled ? (item.addedBy || 'BOOKING WEB') : (item.addedBy || '—')}
+                  </span>
+               </div>
+               {!isScheduled && (
+                  <>
+                     <div className="w-px h-4 bg-zinc-100 shrink-0" />
+                     <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <div className="w-5 h-5 rounded bg-blue-600 flex items-center justify-center text-white text-[7px] font-black shrink-0">MK</div>
+                        <span className="text-[10px] font-bold text-blue-600 uppercase truncate">{item.mechanicName || '—'}</span>
+                     </div>
+                  </>
+               )}
+            </div>
 
-                      <div className="flex flex-col items-start gap-2 mt-3">
-                        <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest bg-zinc-100/80 px-2.5 py-1.5 rounded-md border border-zinc-200">
-                          SA: {item.addedBy || 'System'}
-                        </span>
-                        {item.mechanicName && (
-                          <span className="text-[10px] font-bold text-blue-700 uppercase tracking-widest bg-blue-50 border border-blue-200 px-2.5 py-1.5 rounded-md">
-                            Mekanik: {item.mechanicName}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+            {/* MENGINAP REASON */}
+            {isMenginap && item.menginap_reason && (
+               <div className="mt-1 px-3 py-2 bg-zinc-900 rounded-xl border-2 border-zinc-700 shadow-lg animate-pulse-subtle">
+                  <div className="flex items-center gap-1.5 mb-1 text-white">
+                     <Moon size={10} fill="currentColor" />
+                     <span className="text-[9px] font-medium text-zinc-400 uppercase tracking-widest">Alasan Menginap</span>
                   </div>
-
-                  <div className="w-full sm:w-auto border-t border-zinc-100 sm:border-none pt-4 sm:pt-0 mt-3 sm:mt-0 flex flex-col sm:items-end gap-3 sm:gap-0">
-                    {(user?.role === 'mekanik' && (!item.status || item.status === 'waiting' || (item.status === 'menginap' && (!item.mechanicName || item.mechanicName === user?.name)))) && (
-                      <div className="mb-0 sm:mb-4 w-full sm:w-auto">
-                        <button
-                          onClick={() => onStartWork(item)}
-                          className="w-full sm:w-auto bg-zinc-900 hover:bg-black text-white px-5 sm:px-6 py-4 sm:py-4 rounded-xl font-black text-xs sm:text-xs uppercase tracking-widest transition-all shadow-md shadow-zinc-200 active:scale-95 flex justify-center items-center gap-2"
-                        >
-                          {item.status === 'menginap' ? <><Play size={16} fill="currentColor" /> Mengerjakan Kembali</> : <><Zap size={16} fill="currentColor" /> Mulai Kerjakan</>}
-                        </button>
-                      </div>
-                    )}
-
-                    {item.status === 'working' && (
-                      <div className="mb-2 sm:mb-4 w-full sm:w-auto text-center sm:text-right">
-                        {item.estimasi === 0 ? (
-                          <span className="bg-orange-100 text-orange-700 px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl text-xs sm:text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 shadow-sm animate-pulse">
-                            Menunggu Konfirmasi
-                          </span>
-                        ) : (
-                          <span className="bg-blue-100 text-blue-700 px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl text-xs sm:text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 shadow-sm animate-pulse">
-                            Pengerjaan Sejak {(() => {
-                              const stMs = parseInt(item.targetTime) - (parseInt(item.estimasiDefault) * 1000);
-                              return !isNaN(stMs) ? new Date(stMs).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
-                            })()}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {item.status === 'menginap' && (
-                      <div className="mb-2 sm:mb-4 w-full sm:w-auto text-center sm:text-right">
-                        <span className="bg-purple-100 text-purple-700 px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl text-xs sm:text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 shadow-sm">
-                          <Moon size={14} fill="currentColor" /> Menginap
-                        </span>
-                      </div>
-                    )}
-                    {item.status === 'istirahat' && (
-                      <div className="mb-2 sm:mb-4 w-full sm:w-auto text-center sm:text-right">
-                        <span className="bg-amber-100 text-amber-700 px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl text-xs sm:text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 shadow-sm animate-pulse">
-                          <Coffee size={14} fill="currentColor" /> Waktu Istirahat
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between sm:justify-end gap-4 sm:gap-8 w-full sm:w-auto bg-zinc-50/50 sm:bg-transparent p-4 sm:p-0 rounded-xl sm:rounded-none border border-zinc-100 sm:border-none">
-                      <div className="text-left sm:text-right shrink-0">
-                        <span className="text-[9px] sm:text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-0.5 sm:mb-1 block">
-                          Masuk
-                        </span>
-                        <div className="text-[10px] sm:text-xs font-bold text-zinc-400 mb-0.5">
-                          {new Date(parseInt(item.id)).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </div>
-                        <div className="text-xl sm:text-2xl lg:text-3xl font-black tabular-nums tracking-tighter leading-none text-blue-600">
-                          {new Date(parseInt(item.id)).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                        </div>
-                      </div>
-
-                      <div className="w-[1px] h-10 bg-zinc-200 block sm:hidden"></div>
-
-                      <div className="text-right shrink-0">
-                        <span className="text-[9px] sm:text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-0.5 sm:mb-1 block">
-                          Sisa Estimasi
-                        </span>
-                        {(!item.status || item.status === 'waiting') ? (
-                          <div className="text-sm sm:text-xl font-black tracking-tighter leading-none text-orange-600 uppercase mt-1 sm:mt-1 border border-orange-200 bg-orange-50 px-2 sm:px-2 py-1 sm:py-1.5 rounded-lg border-dashed inline-block">
-                            Menunggu
-                          </div>
-                        ) : item.status === 'menginap' ? (
-                          <div className="text-3xl sm:text-4xl lg:text-5xl font-black tabular-nums tracking-tighter leading-none text-purple-600">
-                            {formatTime(item.estimasiDefault)}
-                          </div>
-                        ) : item.status === 'istirahat' ? (
-                          <div className="text-3xl sm:text-4xl lg:text-5xl font-black tabular-nums tracking-tighter leading-none text-amber-600">
-                            {formatTime(item.estimasiDefault)}
-                          </div>
-                        ) : (
-                          <div className={`text-3xl sm:text-4xl lg:text-5xl font-black tabular-nums tracking-tighter leading-none ${item.estimasi < 300 && item.estimasi > 0 ? 'text-red-600 animate-pulse' : item.estimasi === 0 ? 'text-green-500' : 'text-zinc-900'}`}>
-                            {formatTime(item.estimasi)}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {processedQueue.filter(i => i.category === 'Booking').length === 0 && (
-                <div className="bg-white border-2 border-dashed border-red-100 rounded-[1.2rem] p-16 text-center">
-                  <Bookmark size={40} className="mx-auto mb-3 text-red-100" />
-                  <h3 className="text-xl font-bold text-red-200 uppercase tracking-widest">Tidak Ada Booking</h3>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Kolom Reguler */}
-          <div className="flex flex-col gap-4">
-            <div className="bg-zinc-100 border-2 border-zinc-300 rounded-xl py-3 px-6 shadow-md flex items-center gap-3">
-              <Car size={24} className="text-zinc-600" />
-              <h3 className="text-xl sm:text-2xl font-black text-zinc-900 uppercase tracking-widest leading-none">Antrian Reguler</h3>
-            </div>
-
-            <div className="flex flex-col gap-4 max-h-[60vh] 2xl:max-h-[700px] overflow-y-auto pr-2 pb-2" style={{ scrollbarWidth: 'thin' }}>
-              {processedQueue.filter(i => i.category !== 'Booking').map((item, index) => (
-                <div
-                  key={item.id}
-                  className={`relative bg-white border border-zinc-100 rounded-[1.2rem] px-4 sm:px-8 py-4 sm:py-6 flex flex-col sm:flex-row justify-between items-start sm:items-center shadow-lg shadow-zinc-200/40 transition-all duration-300 gap-4 sm:gap-0`}
-                >
-                  <div className="flex items-start sm:items-center gap-4 sm:gap-10 w-full sm:w-auto">
-                    <div className="text-3xl sm:text-4xl font-black text-zinc-900 italic min-w-[40px] sm:min-w-[50px] select-none mt-1 sm:mt-0">
-                      #{index + 1}
-                    </div>
-
-                    <div className="flex-1">
-                      <div className="flex flex-wrap items-center gap-2 mb-1 sm:mb-2">
-                        <span className="px-2 py-1 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 bg-zinc-100 text-zinc-600 border border-zinc-200">
-                          <Zap size={10} />
-                          {item.category}
-                        </span>
-                        {item.keluhan && item.keluhan.split(',').map(k => k.trim()).filter(Boolean).map(k => (
-                          <span key={k} className={`px-2 py-1 rounded-full text-[8.5px] sm:text-[9.5px] font-black uppercase tracking-widest flex items-center border shadow-sm ${k.includes('FS') ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
-                            {k}
-                          </span>
-                        ))}
-                        {item.estimasi === 0 && item.status !== 'waiting' && (
-                          <span className="bg-green-500 text-white px-3 sm:px-3 py-1 sm:py-1 rounded-full text-xs sm:text-xs font-black uppercase tracking-widest animate-pulse shadow-md shadow-green-200">
-                            Selesai
-                          </span>
-                        )}
-                      </div>
-
-                      <h3 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tighter text-zinc-900 font-sans uppercase leading-none mb-1 whitespace-nowrap">
-                        {item.bk}
-                      </h3>
-                      <p className="text-xs sm:text-sm text-zinc-500 font-black italic uppercase tracking-tight">
-                        {item.tipe}
-                      </p>
-
-                      <div className="flex flex-col items-start gap-2 mt-3">
-                        <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest bg-zinc-100/80 px-2.5 py-1.5 rounded-md border border-zinc-200">
-                          SA: {item.addedBy || 'System'}
-                        </span>
-                        {item.mechanicName && (
-                          <span className="text-[10px] font-bold text-blue-700 uppercase tracking-widest bg-blue-50 border border-blue-200 px-2.5 py-1.5 rounded-md">
-                            Mekanik: {item.mechanicName}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="w-full sm:w-auto border-t border-zinc-100 sm:border-none pt-4 sm:pt-0 mt-3 sm:mt-0 flex flex-col sm:items-end gap-3 sm:gap-0">
-                    {(user?.role === 'mekanik' && (!item.status || item.status === 'waiting' || (item.status === 'menginap' && (!item.mechanicName || item.mechanicName === user?.name)))) && (
-                      <div className="mb-0 sm:mb-4 w-full sm:w-auto">
-                        <button
-                          onClick={() => onStartWork(item)}
-                          className="w-full sm:w-auto bg-zinc-900 hover:bg-black text-white px-5 sm:px-6 py-4 sm:py-4 rounded-xl font-black text-xs sm:text-xs uppercase tracking-widest transition-all shadow-md shadow-zinc-200 active:scale-95 flex justify-center items-center gap-2"
-                        >
-                          {item.status === 'menginap' ? <><Play size={16} fill="currentColor" /> Mengerjakan Kembali</> : <><Zap size={16} fill="currentColor" /> Mulai Kerjakan</>}
-                        </button>
-                      </div>
-                    )}
-
-                    {item.status === 'working' && (
-                      <div className="mb-2 sm:mb-4 w-full sm:w-auto text-center sm:text-right">
-                        {item.estimasi === 0 ? (
-                          <span className="bg-orange-100 text-orange-700 px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl text-xs sm:text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 shadow-sm animate-pulse">
-                            Menunggu Konfirmasi
-                          </span>
-                        ) : (
-                          <span className="bg-blue-100 text-blue-700 px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl text-xs sm:text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 shadow-sm animate-pulse">
-                            Pengerjaan Sejak {(() => {
-                              const stMs = parseInt(item.targetTime) - (parseInt(item.estimasiDefault) * 1000);
-                              return !isNaN(stMs) ? new Date(stMs).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
-                            })()}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {item.status === 'menginap' && (
-                      <div className="mb-2 sm:mb-4 w-full sm:w-auto text-center sm:text-right">
-                        <span className="bg-purple-100 text-purple-700 px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl text-xs sm:text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 shadow-sm">
-                          <Moon size={14} fill="currentColor" /> Menginap
-                        </span>
-                      </div>
-                    )}
-                    {item.status === 'istirahat' && (
-                      <div className="mb-2 sm:mb-4 w-full sm:w-auto text-center sm:text-right">
-                        <span className="bg-amber-100 text-amber-700 px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl text-xs sm:text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 shadow-sm animate-pulse">
-                          <Coffee size={14} fill="currentColor" /> Waktu Istirahat
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between sm:justify-end gap-4 sm:gap-8 w-full sm:w-auto bg-zinc-50/50 sm:bg-transparent p-4 sm:p-0 rounded-xl sm:rounded-none border border-zinc-100 sm:border-none">
-                      <div className="text-left sm:text-right shrink-0">
-                        <span className="text-[9px] sm:text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-0.5 sm:mb-1 block">
-                          Masuk
-                        </span>
-                        <div className="text-[10px] sm:text-xs font-bold text-zinc-400 mb-0.5">
-                          {new Date(parseInt(item.id)).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </div>
-                        <div className="text-xl sm:text-2xl lg:text-3xl font-black tabular-nums tracking-tighter leading-none text-blue-600">
-                          {new Date(parseInt(item.id)).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                        </div>
-                      </div>
-
-                      <div className="w-[1px] h-10 bg-zinc-200 block sm:hidden"></div>
-
-                      <div className="text-right shrink-0">
-                        <span className="text-[9px] sm:text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-0.5 sm:mb-1 block">
-                          Sisa Estimasi
-                        </span>
-                        {(!item.status || item.status === 'waiting') ? (
-                          <div className="text-sm sm:text-xl font-black tracking-tighter leading-none text-orange-600 uppercase mt-1 sm:mt-1 border border-orange-200 bg-orange-50 px-2 sm:px-2 py-1 sm:py-1.5 rounded-lg border-dashed inline-block">
-                            Menunggu
-                          </div>
-                        ) : item.status === 'menginap' ? (
-                          <div className="text-3xl sm:text-4xl lg:text-5xl font-black tabular-nums tracking-tighter leading-none text-purple-600">
-                            {formatTime(item.estimasiDefault)}
-                          </div>
-                        ) : item.status === 'istirahat' ? (
-                          <div className="text-3xl sm:text-4xl lg:text-5xl font-black tabular-nums tracking-tighter leading-none text-amber-600">
-                            {formatTime(item.estimasiDefault)}
-                          </div>
-                        ) : (
-                          <div className={`text-3xl sm:text-4xl lg:text-5xl font-black tabular-nums tracking-tighter leading-none ${item.estimasi < 300 && item.estimasi > 0 ? 'text-red-600 animate-pulse' : item.estimasi === 0 ? 'text-green-500' : 'text-zinc-900'}`}>
-                            {formatTime(item.estimasi)}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {processedQueue.filter(i => i.category !== 'Booking').length === 0 && (
-                <div className="bg-white border-2 border-dashed border-zinc-200 rounded-[1.2rem] p-16 text-center">
-                  <Car size={40} className="mx-auto mb-3 text-zinc-200" />
-                  <h3 className="text-xl font-bold text-zinc-300 uppercase tracking-widest">Tidak Ada Reguler</h3>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Antrian Selesai Hari Ini */}
-        <div className="mt-10 mb-4 animate-fade-in" style={{ animationDelay: '200ms', animationFillMode: 'both' }}>
-          <div className="bg-green-100 border-2 border-green-300 rounded-xl py-3 px-4 sm:px-6 shadow-md flex items-center gap-2 sm:gap-3 w-full lg:w-max mb-6">
-            <CheckCircle size={24} className="text-green-600 shrink-0" />
-            <h3 className="text-base sm:text-2xl font-black text-zinc-900 uppercase tracking-widest leading-none">Antrian Yang Sudah Selesai</h3>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-h-[60vh] 2xl:max-h-[700px] overflow-y-auto pr-2 pb-2" style={{ scrollbarWidth: 'thin' }}>
-            {todayCompletedQueue.length > 0 ? (
-              todayCompletedQueue.map((item, index) => {
-                const masukDate = new Date(parseInt(item.id));
-                const masukTime = !isNaN(masukDate.getTime()) ? masukDate.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
-                const masukDateFormatted = !isNaN(masukDate.getTime()) ? masukDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
-
-                // Waktu selesai
-                const selesaiDateRaw = item.completedAt || item.updatedAt || item.timestamp;
-                const selesaiDate = selesaiDateRaw ? new Date(!isNaN(selesaiDateRaw) ? parseInt(selesaiDateRaw) : selesaiDateRaw) : null;
-                const selesaiTime = selesaiDate && !isNaN(selesaiDate.getTime()) ? selesaiDate.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }) : 'Selesai';
-                const selesaiDateFormatted = selesaiDate && !isNaN(selesaiDate.getTime()) ? selesaiDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
-
-                return (
-                  <div
-                    key={item.id || index}
-                    className="relative bg-white border border-green-200 ring-1 ring-green-50 rounded-[1.2rem] px-4 sm:px-8 py-4 sm:py-6 flex flex-col sm:flex-row justify-between items-start sm:items-center shadow-lg shadow-green-200/40 transition-all duration-300 gap-4 sm:gap-0"
-                  >
-                    <div className="flex items-start sm:items-center gap-4 sm:gap-10 w-full sm:w-auto">
-                      <div className="text-3xl sm:text-4xl font-black text-green-700 italic min-w-[40px] sm:min-w-[50px] select-none mt-1 sm:mt-0">
-                        #{index + 1}
-                      </div>
-
-                      <div className="flex-1">
-                        <div className="flex flex-wrap items-center gap-2 mb-1 sm:mb-2">
-                          <span className="px-2 py-1 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 bg-zinc-100 text-zinc-600 border border-zinc-200">
-                            {item.category === 'Booking' ? <Bookmark size={10} /> : <Zap size={10} />}
-                            {item.category || 'REGULER'}
-                          </span>
-                          {item.keluhan && item.keluhan.split(',').map(k => k.trim()).filter(Boolean).map(k => (
-                            <span key={k} className={`px-2 py-1 rounded-full text-[8.5px] sm:text-[9.5px] font-black uppercase tracking-widest flex items-center border shadow-sm ${k.includes('FS') ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
-                              {k}
-                            </span>
-                          ))}
-                          <span className="px-2 py-1 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 bg-green-500 text-white shadow-md shadow-green-200">
-                            <CheckCircle size={10} /> SELESAI
-                          </span>
-                        </div>
-
-                        <h3 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tighter text-zinc-900 font-sans uppercase leading-none mb-1 whitespace-nowrap">
-                          {item.bk}
-                        </h3>
-                        <p className="text-xs sm:text-sm text-zinc-500 font-black italic uppercase tracking-tight">
-                          {item.tipe}
-                        </p>
-
-                        <div className="flex flex-col items-start gap-2 mt-3">
-                          <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest bg-zinc-100/80 px-2.5 py-1.5 rounded-md border border-zinc-200">
-                            SA: {item.addedBy || 'System'}
-                          </span>
-                          {item.mechanicName && (
-                            <span className="text-[10px] font-bold text-blue-700 uppercase tracking-widest bg-blue-50 border border-blue-200 px-2.5 py-1.5 rounded-md">
-                              Mekanik: {item.mechanicName}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="w-full sm:w-auto border-t border-zinc-100 sm:border-none pt-4 sm:pt-0 mt-3 sm:mt-0 flex flex-col sm:items-end gap-3 sm:gap-0">
-                      <div className="flex items-center justify-between sm:justify-end gap-4 sm:gap-8 w-full sm:w-auto bg-zinc-50/50 sm:bg-transparent p-4 sm:p-0 rounded-xl sm:rounded-none border border-zinc-100 sm:border-none">
-                        <div className="text-left sm:text-right shrink-0">
-                          <span className="text-[9px] sm:text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-0.5 sm:mb-1 block">
-                            Masuk
-                          </span>
-                          <div className="text-[10px] sm:text-xs font-bold text-zinc-400 mb-0.5">
-                            {masukDateFormatted}
-                          </div>
-                          <div className="text-xl sm:text-2xl lg:text-3xl font-black tabular-nums tracking-tighter leading-none text-zinc-500">
-                            {masukTime}
-                          </div>
-                        </div>
-
-                        <div className="w-[1px] h-10 bg-zinc-200 block sm:hidden"></div>
-
-                        <div className="text-right shrink-0">
-                          <span className="text-[9px] sm:text-[9px] font-black uppercase tracking-widest text-green-600 mb-0.5 sm:mb-1 block">
-                            Selesai
-                          </span>
-                          {selesaiDateFormatted !== '-' && (
-                            <div className="text-[10px] sm:text-xs font-bold text-green-500 mb-0.5">
-                              {selesaiDateFormatted}
-                            </div>
-                          )}
-                          <div className="text-xl sm:text-2xl lg:text-3xl font-black tabular-nums tracking-tighter leading-none text-green-600">
-                            {selesaiTime}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="col-span-full bg-white border-2 border-dashed border-green-100/50 rounded-[1.2rem] p-12 text-center">
-                <CheckCircle size={40} className="mx-auto mb-3 text-green-200" />
-                <h3 className="text-lg font-bold text-green-300 uppercase tracking-widest">Belum Ada Selesai Hari Ini</h3>
-              </div>
+                  <p className="text-[13px] font-medium text-white leading-tight uppercase">
+                     {item.menginap_reason}
+                  </p>
+               </div>
             )}
-          </div>
-        </div>
-      </div>
 
-      {/* Social Icons Fixed Bottom Right */}
-      <div className="fixed bottom-14 sm:bottom-12 right-6 flex flex-col gap-4 z-[100]">
-        <a
-          href="https://www.instagram.com/cherymedan.amplas?utm_source=ig_web_button_share_sheet&igsh=ZDNlZDc0MzIxNw=="
-          target="_blank"
-          rel="noopener noreferrer"
-          className="bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 p-3 sm:p-4 rounded-full text-white shadow-lg shadow-pink-500/30 hover:scale-110 transition-transform flex items-center justify-center group"
-          title="Instagram Chery Medan Amplas"
-        >
-          <Instagram size={28} className="sm:w-8 sm:h-8" />
-        </a>
-        <a
-          href="https://wa.me/628116017300"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="bg-green-500 p-3 sm:p-4 rounded-full text-white shadow-lg shadow-green-500/30 hover:scale-110 transition-transform flex items-center justify-center group"
-          title="WhatsApp Chery Medan Amplas"
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor" width="28" height="28" className="sm:w-8 sm:h-8">
-            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.808-.72-1.353-1.611-1.511-1.91-.158-.298-.017-.46.132-.609.135-.133.298-.344.446-.516.149-.172.198-.297.298-.496.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413" />
-          </svg>
-        </a>
+            {/* ACTION BUTTONS FOR MEKANIK ROLE */}
+            {user?.role?.toLowerCase() === 'mekanik' && (
+               <div className="pt-2 border-t border-zinc-50">
+                  {item.status === 'waiting' && (!item.mechanicName || item.mechanicName === user.name) && (
+                     <button
+                        onClick={(e) => { e.stopPropagation(); onStartWork(item); }}
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-500/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+                     >
+                        <Zap size={14} fill="white" /> Mulai Pekerjaan
+                     </button>
+                  )}
+                  {item.status === 'menginap' && (!item.mechanicName || item.mechanicName === user.name) && (
+                     <button
+                        onClick={(e) => { e.stopPropagation(); onStartWork(item); }}
+                        className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-orange-500/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+                     >
+                        <Zap size={14} fill="white" /> Lanjutkan Pekerjaan
+                     </button>
+                  )}
+                  {isWorking && item.mechanicName === user.name && (
+                     <button
+                        onClick={(e) => { e.stopPropagation(); onComplete(item); }}
+                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-emerald-500/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+                     >
+                        <CheckCircle size={14} /> Selesai Pekerjaan
+                     </button>
+                  )}
+               </div>
+            )}
+         </div>
       </div>
-    </>
-  );
+   );
+}; const CarouselCol = ({ title, data, colorClass, icon: Icon, formatTime, setSelectedUnit, user, onStartWork, onComplete, subtitle, displayCount = DISPLAY_COUNT }) => {
+   const [idx, setIdx] = useState(0);
+   const timerRef = useRef(null);
+
+   const totalStops = Math.ceil(data.length / displayCount) || 1;
+   const hasMultiple = data.length > displayCount;
+
+   useEffect(() => {
+      setIdx(i => Math.min(i, totalStops - 1));
+   }, [totalStops]);
+
+   const startTimer = () => {
+      clearInterval(timerRef.current);
+      if (!hasMultiple) return;
+      timerRef.current = setInterval(() => {
+         setIdx(i => (i + 1) % totalStops);
+      }, SLIDE_INTERVAL);
+   };
+
+   useEffect(() => {
+      startTimer();
+      return () => clearInterval(timerRef.current);
+   }, [totalStops]);
+
+   const goToIdx = (i) => {
+      setIdx(i);
+      startTimer();
+   };
+
+   const visibleItems = data.slice(idx * displayCount, (idx + 1) * displayCount);
+   while (visibleItems.length < displayCount) visibleItems.push(null);
+
+   const dotsCount = Math.min(totalStops, 10);
+   const todayStr = new Date().toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+
+   return (
+      <div className="flex flex-col bg-white rounded-2xl p-4 md:p-5 border-2 border-dashed border-zinc-200 shadow-sm transition-all hover:shadow-xl h-full">
+         <div className="flex items-center justify-between mb-6 shrink-0 gap-2 px-1">
+            <div className="flex items-center gap-2 min-w-0">
+               <div className={`w-9 h-9 md:w-12 md:h-12 rounded-xl flex items-center justify-center text-white shadow-lg ${colorClass} shrink-0`}>
+                  <Icon size={20} fill="currentColor" />
+               </div>
+               <div className="min-w-0">
+                  <h3 className="text-sm md:text-2xl font-black text-zinc-900 uppercase tracking-tighter leading-tight truncate">{title}</h3>
+                  {subtitle ? subtitle : (
+                     <p className="text-[9px] md:text-sm font-black text-zinc-400 uppercase tracking-widest mt-0.5 flex items-center gap-1 whitespace-nowrap overflow-hidden">
+                        <span className={`w-1.5 h-1.5 rounded-full inline-block shrink-0 ${data.length > 0 ? (colorClass === 'bg-red-600' ? 'bg-red-500 animate-pulse' : 'bg-emerald-500 animate-pulse') : 'bg-zinc-300'}`} />
+                        {data.length} unit
+                     </p>
+                  )}
+               </div>
+            </div>
+
+            {hasMultiple && (
+               <div className="flex items-center gap-1 bg-zinc-50 p-1 rounded-xl border border-zinc-200 shadow-sm shrink-0">
+                  <button
+                     onClick={() => {
+                        const newIdx = (idx - 1 + totalStops) % totalStops;
+                        goToIdx(newIdx);
+                     }}
+                     className="p-1 hover:bg-zinc-100 rounded-lg transition-all text-zinc-400 hover:text-zinc-900 active:scale-95"
+                  >
+                     <ChevronLeft size={14} strokeWidth={4} />
+                  </button>
+
+                  <div className="flex flex-col items-center px-1 md:px-2">
+                     <span className="text-[9px] font-black text-zinc-400/80 uppercase tracking-widest leading-none mb-0.5">{idx + 1} / {totalStops}</span>
+                     <div className="hidden sm:flex items-center gap-1 mt-0.5">
+                        {Array.from({ length: dotsCount }).map((_, i) => (
+                           <button
+                              key={i}
+                              onClick={() => goToIdx(i)}
+                              className={`rounded-full transition-all duration-500 ${i === idx ? 'w-5 h-1 bg-zinc-900' : 'w-1 h-1 bg-zinc-200'}`}
+                           />
+                        ))}
+                     </div>
+                  </div>
+
+                  <button
+                     onClick={() => {
+                        const newIdx = (idx + 1) % totalStops;
+                        goToIdx(newIdx);
+                     }}
+                     className="p-1 hover:bg-zinc-100 rounded-lg transition-all text-zinc-400 hover:text-zinc-900 active:scale-95"
+                  >
+                     <ChevronRight size={14} strokeWidth={4} />
+                  </button>
+               </div>
+            )}
+         </div>
+
+         <div className="flex flex-col gap-4" key={idx}>
+            {visibleItems.map((item, i) =>
+               item ? (
+                  <QueueCard key={item.id} item={item} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />
+               ) : (
+                  <div key={`empty-${i}`} className="h-[200px] rounded-2xl border-2 border-dashed border-zinc-50 opacity-20 hidden md:block" />
+               )
+            )}
+         </div>
+      </div>
+   );
+};
+
+const CompletedCarousel = ({ data, formatTime, setSelectedUnit }) => {
+   const [idx, setIdx] = useState(0);
+   const [displayCount, setDisplayCount] = useState(window.innerWidth < 768 ? 1 : 2);
+   const timerRef = useRef(null);
+
+   useEffect(() => {
+      const handleResize = () => {
+         setDisplayCount(window.innerWidth < 768 ? 1 : 2);
+      };
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+   }, []);
+
+   const totalStops = Math.ceil(data.length / displayCount) || 1;
+   const hasMultiple = data.length > displayCount;
+
+   useEffect(() => {
+      setIdx(i => Math.min(i, totalStops - 1));
+   }, [totalStops]);
+
+   const startTimer = () => {
+      clearInterval(timerRef.current);
+      if (!hasMultiple) return;
+      timerRef.current = setInterval(() => {
+         setIdx(i => (i + 1) % totalStops);
+      }, SLIDE_INTERVAL);
+   };
+
+   useEffect(() => {
+      startTimer();
+      return () => clearInterval(timerRef.current);
+   }, [totalStops]);
+
+   const visibleItems = data.slice(idx * displayCount, (idx + 1) * displayCount);
+   while (visibleItems.length < displayCount) visibleItems.push(null);
+
+   return (
+      <div className="w-full bg-emerald-600 rounded-3xl p-4 md:p-6 shadow-2xl relative overflow-hidden group border-4 border-emerald-500/50 min-h-[220px] md:min-h-[280px] flex flex-col justify-center">
+         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10" />
+
+         <div className="flex items-center justify-between mb-4 md:mb-6 relative z-10 gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+               <div className="w-8 h-8 md:w-10 md:h-10 bg-white rounded-lg flex items-center justify-center text-emerald-600 shadow-xl shrink-0">
+                  <CheckCircle size={18} />
+               </div>
+               <div className="bg-white/10 px-3 md:px-6 py-1.5 md:py-2 rounded-xl backdrop-blur-md border border-white/10 shrink-0">
+                  <span className="text-xs md:text-xl font-black text-white uppercase tracking-wider md:tracking-widest leading-none">
+                     {data.length} <span className="hidden xs:inline text-emerald-200">UNIT SELESAI</span>
+                     <span className="xs:hidden text-emerald-200 ml-1">SELESAI</span>
+                  </span>
+               </div>
+            </div>
+
+            {hasMultiple && (
+               <div className="flex items-center gap-1 bg-white/10 p-1 rounded-2xl backdrop-blur-md border border-white/10 shadow-xl shrink-0">
+                  <button
+                     onClick={(e) => { e.stopPropagation(); setIdx(i => (i - 1 + totalStops) % totalStops); startTimer(); }}
+                     className="p-1 hover:bg-white/20 rounded-lg transition-all text-white active:scale-95"
+                  >
+                     <ChevronLeft size={16} strokeWidth={4} />
+                  </button>
+
+                  <div className="flex flex-col items-center px-1 md:px-2">
+                     <span className="text-[9px] md:text-[10px] font-black text-white/80 uppercase tracking-widest leading-none mb-0.5">{idx + 1} / {totalStops}</span>
+                     <div className="hidden sm:flex gap-1 mt-0.5">
+                        {Array.from({ length: Math.min(totalStops, 6) }).map((_, i) => (
+                           <button key={i} onClick={(e) => { e.stopPropagation(); setIdx(i); startTimer(); }} className={`h-1 rounded-full transition-all duration-500 ${i === idx ? 'w-4 bg-white' : 'w-1 bg-white/30'}`} />
+                        ))}
+                     </div>
+                  </div>
+
+                  <button
+                     onClick={(e) => { e.stopPropagation(); setIdx(i => (i + 1) % totalStops); startTimer(); }}
+                     className="p-1 hover:bg-white/20 rounded-lg transition-all text-white active:scale-95"
+                  >
+                     <ChevronRight size={16} strokeWidth={4} />
+                  </button>
+               </div>
+            )}
+         </div>
+
+         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-8 relative z-10" key={idx}>
+            {visibleItems.map((item, i) =>
+               item ? (
+                  <div key={item.id} onClick={() => setSelectedUnit(item)} className="bg-white rounded-xl md:rounded-2xl p-3 md:p-6 shadow-xl border-4 border-white/50 group/card cursor-pointer hover:bg-white hover:scale-[1.02] transition-all flex flex-col items-center justify-center h-full min-h-[100px] md:min-h-[130px]">
+                     <h2 className="text-2xl md:text-5xl font-black text-black font-mono tracking-tighter mb-1 uppercase truncate w-full text-center leading-none">{item.bk}</h2>
+                     <p className="text-[10px] md:text-xs font-black text-black/40 uppercase tracking-[0.3em] truncate w-full text-center mt-1 md:mt-2 leading-none border-t border-zinc-100 pt-2 md:pt-3">{item.tipe}</p>
+                     <div className="flex items-center gap-2 md:gap-3 mt-2 md:mt-4 bg-emerald-500/10 px-3 md:px-4 py-1.5 md:py-2 rounded-full border border-emerald-500/20">
+                        <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-[8px] md:text-[10px] font-black text-emerald-600 uppercase tracking-widest whitespace-nowrap leading-none">
+                           Selesai Pukul {new Date(parseInt(item.targetTime || item.target_time || item.id)).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                        </span>
+                     </div>
+                  </div>
+               ) : (
+                  <div key={`empty-${i}`} className="bg-white/5 rounded-xl md:rounded-2xl border-2 border-dashed border-white/20 h-full min-h-[100px] md:min-h-[130px] flex items-center justify-center">
+                     <p className="text-[10px] md:text-xs font-bold text-white/10 uppercase tracking-[0.2em] whitespace-nowrap">Belum ada data</p>
+                  </div>
+               )
+            )}
+         </div>
+
+         {/* Manual Controls */}
+         {hasMultiple && (
+            <div className="hidden sm:flex absolute top-1/2 -translate-y-1/2 left-0 right-0 justify-between px-2 z-20 pointer-events-none">
+               <button
+                  onClick={(e) => { e.stopPropagation(); setIdx(i => (i - 1 + totalStops) % totalStops); startTimer(); }}
+                  className="w-12 h-12 bg-white/20 hover:bg-white/40 text-white rounded-full flex items-center justify-center backdrop-blur-md pointer-events-auto transition-all shadow-xl"
+               >
+                  <ChevronLeft size={24} strokeWidth={3} />
+               </button>
+               <button
+                  onClick={(e) => { e.stopPropagation(); setIdx(i => (i + 1) % totalStops); startTimer(); }}
+                  className="w-12 h-12 bg-white/20 hover:bg-white/40 text-white rounded-full flex items-center justify-center backdrop-blur-md pointer-events-auto transition-all shadow-xl"
+               >
+                  <ChevronRight size={24} strokeWidth={3} />
+               </button>
+            </div>
+         )}
+      </div>
+   );
+};
+
+// ─────────────────────────────────────────────
+//  MAIN COMPONENT
+// ─────────────────────────────────────────────
+const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplete, onToggleTask, onLogoDoubleClick, rawHistory = [], bookings = [] }) => {
+   const [selectedUnit, setSelectedUnit] = useState(null);
+
+   const configSlot = bookings.find(b => b.id === 999999);
+   const maxCount = configSlot ? parseInt(configSlot.namaCustomer) || 1 : 8;
+   const dynamicJamPilihan = generateSlots(maxCount);
+
+   const sortQueue = (arr) => [...arr].sort((a, b) => {
+      const aScore = a.status === 'working' ? 0 : a.status === 'istirahat' ? 1 : 2;
+      const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
+      if (aScore !== bScore) return aScore - bScore;
+      return (parseInt(a.id) || 0) - (parseInt(b.id) || 0);
+   });
+
+   const categories = useMemo(() => {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const todayBookings = bookings.filter(b => {
+         // Filter hanya hari ini (PAKAI IS SAME DATE UNTUK ROBUSTNESS)
+         if (!b.tanggal || !isSameDate(b.tanggal, todayStr)) return false;
+         if (b.id === 999999) return false;
+
+         // Hilangkan jika sudah check-in (sudah ada di processedQueue)
+         if (processedQueue.some(pq => pq.bk === b.bk)) return false;
+
+         // Hilangkan jika sudah lewat > 30 menit dari jam booking
+         try {
+            const timeStr = String(b.jam).includes('.') ? String(b.jam).replace('.', ':') : `${b.jam}:00`;
+            const [jamStr, menitStr] = timeStr.split(':');
+            const jam = parseInt(jamStr);
+            const menit = parseInt(menitStr);
+
+            const scheduledTime = new Date();
+            scheduledTime.setHours(jam, menit, 0, 0);
+
+            const now = new Date();
+            const diffInMinutes = (now - scheduledTime) / (1000 * 60);
+
+            // Aturan User: Jika terlambat > 30 menit, hapus dari list (dianggap reguler)
+            if (diffInMinutes > 30) return false;
+         } catch (e) { console.error("Filter late error:", e); }
+
+         return true;
+      }).map(b => ({ ...b, category: 'Booking' }));
+
+      // Sisa slot hari ini (Hanya hitung yang accepted atau waiting confirm)
+      const occupiedCount = bookings.filter(b =>
+         isSameDate(b.tanggal, todayStr) &&
+         b.id !== 999999 &&
+         (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed')
+      ).length;
+      const remainingSlots = Math.max(0, dynamicJamPilihan.length - occupiedCount);
+
+      const arrivedBooking = processedQueue.filter(i => i.category === 'Booking' && i.status !== 'menginap');
+      const mergedBooking = [...arrivedBooking, ...todayBookings].sort((a, b) => {
+         if (a.status === 'working' && b.status !== 'working') return -1;
+         if (a.status !== 'working' && b.status === 'working') return 1;
+         return String(a.jam).localeCompare(String(b.jam));
+      });
+
+      return {
+         booking: mergedBooking,
+         reguler: sortQueue(processedQueue.filter(i => (i.category === 'Reguler' || !i.category || i.category === '') && i.status !== 'menginap')),
+         menginap: sortQueue(processedQueue.filter(i => i.status === 'menginap')),
+         remainingSlots
+      };
+   }, [processedQueue, bookings, dynamicJamPilihan]);
+
+   const isCompletedToday = (item) => {
+      try {
+         const now = new Date();
+         const check = (val) => {
+            if (!val) return false;
+            let d;
+            if (!isNaN(val) && String(val).length >= 10) {
+               const n = parseInt(val);
+               d = (n < 2000000000) ? new Date(n * 1000) : new Date(n);
+            } else {
+               // Handle common string formats manually if new Date fails
+               if (typeof val === 'string' && val.includes('/')) {
+                  const parts = val.split(/[ ,]/)[0].split('/');
+                  if (parts.length === 3) {
+                     const [dd, mm, yyyy] = parts;
+                     d = new Date(yyyy, mm - 1, dd);
+                  }
+               }
+               if (!d || isNaN(d.getTime())) d = new Date(val);
+            }
+
+            if (!d || isNaN(d.getTime())) return false;
+            
+            // Bandingkan Tanggal, Bulan, Tahun secara Lokal
+            return d.getDate() === now.getDate() && 
+                   d.getMonth() === now.getMonth() && 
+                   d.getFullYear() === now.getFullYear();
+         };
+
+         return [
+            item.waktuSelesai,
+            item.waktu_selesai,
+            item.targetTime,
+            item.target_time,
+            item.completedAt,
+            item.updatedAt,
+            item.id
+         ].some(check);
+      } catch {
+         return false;
+      }
+   };
+
+
+
+
+   const todayCompleted = rawHistory.filter(isCompletedToday);
+
+   const getTimeIn = (id) => {
+      try {
+         const n = parseInt(id);
+         if (isNaN(n)) return '--:--';
+         const date = (n < 2000000000) ? new Date(n * 1000) : new Date(n);
+         return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+      } catch { return '--:--'; }
+   };
+
+   const getTimeOut = (item) => {
+      try {
+         const tVal = item.targetTime || item.target_time || item.waktuSelesai || item.completedAt || item.updatedAt || item.id;
+         const n = parseInt(tVal);
+         if (!isNaN(n)) {
+            const date = (n < 2000000000) ? new Date(n * 1000) : new Date(n);
+            return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+         }
+         return getTimeIn(item.id);
+      } catch {
+         return getTimeIn(item.id);
+      }
+   };
+
+
+   return (
+      <div className="fixed inset-0 bg-[#F8FAFF] flex flex-col overflow-hidden font-sans select-none transition-colors duration-500">
+         <header className="px-4 md:px-10 py-4 flex justify-between items-center bg-white border-b border-zinc-100 z-50 shrink-0">
+            <div className="flex items-center gap-6 md:gap-14" onDoubleClick={onLogoDoubleClick}>
+               <div className="flex items-center gap-5 md:gap-10 bg-white rounded-xl p-1">
+                  <img src={cheryLogo} alt="Chery" className="h-14 md:h-28 object-contain" />
+                  <img src={orientalLogo} alt="Oriental" className="h-14 md:h-28 object-contain" />
+               </div>
+               <div className="hidden lg:block">
+                  <h1 className="text-3xl font-black tracking-tighter text-zinc-900 leading-tight">Service <span className="text-red-600">Dashboard</span></h1>
+                  <p className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.3em]">Chery Oriental – Real-time Monitoring</p>
+               </div>
+            </div>
+
+            <div className="flex items-center gap-3 md:gap-8">
+               {/* QR Booking — hidden on mobile */}
+               <div className="hidden md:flex items-center gap-4 bg-blue-50 border border-blue-100 rounded-2xl px-5 py-3 shadow-sm">
+                  <div className="text-right">
+                     <p className="text-[11px] font-black text-blue-700 uppercase tracking-tight leading-none">Booking disini! 👇</p>
+                     <p className="text-[9px] text-blue-500 font-bold uppercase mt-0.5">Scan QR ini</p>
+                  </div>
+                  <div className="bg-white p-1.5 rounded-xl border border-blue-100 shadow-sm">
+                     <QRCodeSVG value="https://www.cherymedan.web.id" size={52} level="H" />
+                  </div>
+               </div>
+
+               <div className="hidden md:block h-12 w-px bg-zinc-100" />
+
+               <div className="flex flex-col items-end">
+                  <ClockDisplay className="text-3xl md:text-4xl font-black tracking-tighter text-zinc-900 tabular-nums leading-none" />
+                  <div className="hidden md:flex items-center gap-1.5 mt-1">
+                     <CalendarDays size={12} className="text-red-500" />
+                     <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                        {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })}
+                     </span>
+                  </div>
+               </div>
+            </div>
+         </header>
+
+         <main className="flex-1 overflow-y-auto px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3 custom-scrollbar">
+            {/* ── TOP SECTION: COMPLETED CAROUSEL (DENSE) ── */}
+            <CompletedCarousel data={todayCompleted} formatTime={formatTime} setSelectedUnit={setSelectedUnit} />
+
+            {/* ── BOTTOM SECTION: 3 COLUMNS ── */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-4 min-h-0">
+               <CarouselCol
+                  title="Booking"
+                  data={categories.booking}
+                  colorClass="bg-red-600"
+                  icon={Bookmark}
+                  formatTime={formatTime}
+                  setSelectedUnit={setSelectedUnit}
+                  user={user}
+                  onStartWork={onStartWork}
+                  onComplete={onComplete}
+                  subtitle={(
+                     <div className="flex flex-col mt-0.5">
+                        <div className="flex items-center gap-1.5 overflow-hidden">
+                           <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                           <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest truncate">{categories.booking.length} Unit Antrian</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 px-3 py-1 bg-red-50 border border-red-100/50 rounded-lg w-fit">
+                           <span className="text-[9px] font-black text-red-600 uppercase tracking-widest leading-none">Sisa Terbuka:</span>
+                           <span className="text-xs font-black text-red-700 leading-none tabular-nums">{categories.remainingSlots} Slot</span>
+                        </div>
+                     </div>
+                  )}
+               />
+               <CarouselCol title="Reguler" data={categories.reguler} colorClass="bg-zinc-800" icon={Zap} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />
+               <CarouselCol title="Menginap" data={categories.menginap} colorClass="bg-purple-600" icon={Moon} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />
+            </div>
+         </main>
+
+         {/* ── DETAIL MODAL ── */}
+         {selectedUnit && (() => {
+            // Read live data from processedQueue so countdown and tasks actually tick/update real-time
+            const liveUnit = processedQueue.find(i => i.id === selectedUnit.id) || selectedUnit;
+            return (
+               <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[999] flex items-center justify-center p-4 md:p-8" onClick={() => setSelectedUnit(null)}>
+                  <div className="bg-white rounded-[2.5rem] md:rounded-[3rem] w-full max-w-4xl max-h-[90vh] shadow-2xl flex flex-col overflow-hidden transition-colors border-4 border-zinc-200" onClick={e => e.stopPropagation()}>
+                     <div className="bg-zinc-900 p-6 md:p-10 flex justify-between items-center shrink-0 border-b-4 border-red-600">
+                        <div className="flex items-center gap-4 md:gap-8">
+                           <div className="w-12 h-12 md:w-16 md:h-16 bg-white/10 rounded-2xl flex items-center justify-center text-white shrink-0">
+                              <Car size={28} />
+                           </div>
+                           <div className="flex items-center gap-6 md:gap-12">
+                              <div>
+                                 <h2 className="text-3xl md:text-5xl font-black text-white tracking-widest uppercase leading-none mb-1.5">{selectedUnit.bk}</h2>
+                                 <div className="flex items-center gap-3">
+                                    <span className="text-red-400 font-black text-xs uppercase tracking-widest px-3 py-1 bg-red-500/10 rounded-full border border-red-500/20">{selectedUnit.category}</span>
+                                    <span className="text-zinc-400 text-xs uppercase tracking-widest hidden md:inline">{selectedUnit.tipe}</span>
+                                 </div>
+                              </div>
+
+                              {(liveUnit.status === 'menginap' || selectedUnit.status === 'menginap') && (liveUnit.menginap_reason || selectedUnit.menginap_reason) && (
+                                 <div className="hidden sm:flex flex-col border-l-2 border-white/20 pl-6 md:pl-10 animate-fade-in">
+                                    <div className="flex items-center gap-2 text-zinc-400 mb-1.5">
+                                       <Moon size={14} fill="currentColor" />
+                                       <span className="text-[10px] font-black uppercase tracking-[0.2em]">Alasan Menginap</span>
+                                    </div>
+                                    <h3 className="text-3xl md:text-7xl font-semibold text-white tracking-tight uppercase leading-none">
+                                       {liveUnit.menginap_reason || selectedUnit.menginap_reason}
+                                    </h3>
+                                 </div>
+                              )}
+                           </div>
+                        </div>
+                        <button onClick={() => setSelectedUnit(null)} className="p-3 md:p-4 bg-white/5 hover:bg-red-600 text-white rounded-2xl transition-all"><X size={24} /></button>
+                     </div>
+
+                     <div className="flex-1 overflow-y-auto p-6 md:p-12 grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 custom-scrollbar">
+                        <div className="space-y-8">
+                           {/* Info Cards */}
+                           <div className="grid grid-cols-2 gap-4">
+                              <div className="bg-blue-50 p-5 rounded-2xl border border-blue-100">
+                                 <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Clock size={12} /> Waktu Datang</p>
+                                 <p className="text-2xl font-black text-blue-900">{getTimeIn(selectedUnit.id)}</p>
+                              </div>
+                              <div className="bg-emerald-50 p-5 rounded-2xl border border-emerald-100">
+                                 <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-2 flex items-center gap-2"><CheckCircle size={12} /> Target Selesai</p>
+                                 <p className="text-2xl font-black text-emerald-900">{getTimeOut(liveUnit)}</p>
+                              </div>
+                           </div>
+
+                           {/* Unit Info & Reason */}
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="bg-zinc-50 p-5 rounded-2xl border border-zinc-100 flex-1">
+                                 <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Service Advisor</p>
+                                 <p className="text-lg font-black text-zinc-900 uppercase">{liveUnit.addedBy || '—'}</p>
+                              </div>
+                              <div className="bg-zinc-50 p-5 rounded-2xl border border-zinc-100 flex-1">
+                                 <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Mekanik</p>
+                                 <p className="text-lg font-black text-blue-600 uppercase">{liveUnit.mechanicName || 'Belum ditugaskan'}</p>
+                              </div>
+                           </div>
+
+
+                           {/* Keluhan Utama */}
+                           <div className="p-6 bg-zinc-50 rounded-2xl border border-zinc-100">
+                              <h4 className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Activity size={14} className="text-red-500" /> Keluhan Utama</h4>
+                              <p className="text-lg font-bold text-zinc-900 leading-tight">
+                                 "{liveUnit.keluhan || 'Tidak ada catatan keluhan'}"
+                              </p>
+                           </div>
+
+                           {/* Tasks / Checklist */}
+                           <div>
+                              <h4 className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-4 flex items-center gap-2"><CheckCircle size={14} className="text-emerald-500" /> Progress Pekerjaan</h4>
+                              <div className="space-y-3">
+                                 {(liveUnit.checklist || []).length === 0 ? (
+                                    <div className="border-2 border-dashed border-zinc-100 rounded-2xl py-8 flex flex-col items-center opacity-40">
+                                       <FileText size={36} className="text-zinc-200 mb-2" />
+                                       <p className="text-xs font-bold text-zinc-400 uppercase">Belum ada task spesifik</p>
+                                    </div>
+                                 ) : liveUnit.checklist.map(task => (
+                                    <div key={task.id} className="flex items-center gap-4 p-4 bg-white border border-zinc-100 rounded-xl shadow-sm">
+                                       <button
+                                          disabled={!user || user.role !== 'mekanik' || liveUnit.status !== 'working'}
+                                          onClick={() => onToggleTask(liveUnit, task.id)}
+                                          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${task.completed ? 'bg-emerald-500 text-white' : 'bg-zinc-100 text-zinc-300 hover:border-emerald-500'}`}
+                                       >
+                                          {task.completed ? <CheckCircle size={16} /> : <div className="w-4 h-4 border-2 border-current rounded-full" />}
+                                       </button>
+                                       <span className={`font-bold uppercase tracking-tight transition-all ${task.completed ? 'text-zinc-400 line-through' : 'text-zinc-900'}`}>{task.text}</span>
+                                    </div>
+                                 ))}
+                              </div>
+                           </div>
+                        </div>
+
+                        <div className="flex flex-col gap-5">
+                           <div className="bg-zinc-900 p-8 rounded-3xl text-center relative overflow-hidden">
+                              <div className="absolute inset-0 bg-gradient-to-br from-blue-600/10 to-transparent" />
+                              <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mb-4 relative z-10">Countdown</p>
+                              <p className="text-5xl font-black text-white tracking-widest tabular-nums relative z-10">
+                                 {liveUnit.status === 'working' ? formatTime(liveUnit.estimasi) : '--:--:--'}
+                              </p>
+                              <div className={`mt-4 px-6 py-2 rounded-full inline-block text-[10px] font-black uppercase tracking-widest relative z-10 ${liveUnit.status === 'working' ? 'bg-blue-600 text-white' : 'bg-white/5 text-white/30'}`}>
+                                 {liveUnit.status === 'working' ? 'Aktif Diproses' : liveUnit.status === 'menginap' ? 'Menginap' : 'Menunggu Antrian'}
+                              </div>
+                           </div>
+
+                           {/* ACTION BUTTONS FOR MEKANIK */}
+                           {user?.role?.toLowerCase() === 'mekanik' && (
+                              <div className="flex flex-col gap-3">
+                                 {liveUnit.status === 'waiting' && (!liveUnit.mechanicName || liveUnit.mechanicName === user.name) && (
+                                    <button
+                                       onClick={() => onStartWork(liveUnit)}
+                                       className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                                    >
+                                       <Zap size={18} fill="white" /> Mulai Pekerjaan
+                                    </button>
+                                 )}
+                                 {liveUnit.status === 'menginap' && (!liveUnit.mechanicName || liveUnit.mechanicName === user.name) && (
+                                    <button
+                                       onClick={() => onStartWork(liveUnit)}
+                                       className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                                    >
+                                       <Zap size={18} fill="white" /> Lanjutkan Pekerjaan
+                                    </button>
+                                 )}
+                                 {liveUnit.status === 'working' && liveUnit.mechanicName === user.name && (
+                                    <button
+                                       onClick={() => onComplete(liveUnit)}
+                                       className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                                    >
+                                       <CheckCircle size={18} /> Selesai Pekerjaan
+                                    </button>
+                                 )}
+                              </div>
+                           )}
+
+                           {liveUnit.menginap_reason && (
+                              <div className="bg-purple-50 p-6 rounded-2xl border border-purple-100">
+                                 <p className="text-[10px] font-black text-purple-500 uppercase tracking-widest mb-2 flex items-center gap-2"><Moon size={12} fill="currentColor" /> Menginap Karena</p>
+                                 <p className="text-lg font-black text-purple-900 italic">"{liveUnit.menginap_reason}"</p>
+                              </div>
+                           )}
+                        </div>
+                     </div>
+                  </div>
+               </div>
+            );
+         })()}
+
+         <style>{`
+        .footer-marquee {
+          animation: footerScroll 40s linear infinite;
+        }
+        @keyframes footerScroll {
+          from { transform: translateX(100%); }
+          to   { transform: translateX(-100%); }
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e4e4e7; border-radius: 10px; }
+      `}</style>
+      </div>
+   );
 };
 
 export default DisplayBoard;

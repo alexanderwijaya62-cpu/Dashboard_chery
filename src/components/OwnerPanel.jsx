@@ -1,20 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Shield, Users, Monitor, Smartphone, Wifi, WifiOff,
+  Moon, Users, Monitor, Smartphone, Wifi, WifiOff,
   LogOut, RefreshCw, Globe, MapPin, Clock, Lock,
   AlertTriangle, CheckCircle, Trash2, Key, Eye, EyeOff,
-  Activity, Crown, XCircle, Menu, X
+  Activity, Crown, XCircle, Menu, X, Car
 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import { supabase } from '../utils/supabaseClient';
 
 const ROLE_COLORS = {
-  owner:     { bg: 'bg-purple-100', text: 'text-purple-700', dot: 'bg-purple-500' },
-  manager:   { bg: 'bg-blue-100',   text: 'text-blue-700',   dot: 'bg-blue-500'   },
-  admin:     { bg: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-500' },
-  mekanik:   { bg: 'bg-green-100',  text: 'text-green-700',  dot: 'bg-green-500'  },
-  cro:       { bg: 'bg-pink-100',   text: 'text-pink-700',   dot: 'bg-pink-500'   },
-  sparepart: { bg: 'bg-cyan-100',   text: 'text-cyan-700',   dot: 'bg-cyan-500'   },
+  owner: { bg: 'bg-purple-100', text: 'text-purple-700', dot: 'bg-purple-500' },
+  manager: { bg: 'bg-blue-100', text: 'text-blue-700', dot: 'bg-blue-500' },
+  admin: { bg: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-500' },
+  mekanik: { bg: 'bg-green-100', text: 'text-green-700', dot: 'bg-green-500' },
+  cro: { bg: 'bg-pink-100', text: 'text-pink-700', dot: 'bg-pink-500' },
+  sparepart: { bg: 'bg-cyan-100', text: 'text-cyan-700', dot: 'bg-cyan-500' },
 };
 
 const DeviceIcon = ({ device }) => {
@@ -24,13 +24,27 @@ const DeviceIcon = ({ device }) => {
   return <Monitor size={16} />;
 };
 
-export default function OwnerPanel({ user, handleLogout }) {
+export default function OwnerPanel({ user, handleLogout, processedQueue = [], rawHistory = [], formatTime }) {
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('monitoring');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showPasswordFor, setShowPasswordFor] = useState(null);
+  const [deletedBookings, setDeletedBookings] = useState([]);
+
+  const fetchDeletedBookings = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.from('booking').select('*').eq('status', 'deleted').order('tanggal', { ascending: false });
+      if (error) throw error;
+      setDeletedBookings(data || []);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'deleted_bookings') fetchDeletedBookings();
+  }, [activeTab, fetchDeletedBookings]);
 
   // Modal State
   const [modal, setModal] = useState({ type: null, user: null });
@@ -39,7 +53,9 @@ export default function OwnerPanel({ user, handleLogout }) {
   const fetchUsers = useCallback(async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.from('users').select('*');
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, username, name, role, isOnline, sessionId, lastLogin, lastDevice, lastBrowser, lastIP, lastLocation');
       if (error) throw error;
       setUsers(data || []);
     } catch (e) {
@@ -61,11 +77,18 @@ export default function OwnerPanel({ user, handleLogout }) {
 
   const handleForceLogout = async (targetUser) => {
     try {
-      await supabase.from('users').update({ sessionId: null, isOnline: false }).eq('username', targetUser.username);
-      Toastify({ text: `✅ ${targetUser.name} telah dikeluarkan dari sesi aktif.`, style: { background: '#10b981' } }).showToast();
+      const { error } = await supabase
+        .from('users')
+        .update({ sessionId: null, isOnline: false, lastAction: 'FORCE_LOGOUT' })
+        .eq('username', targetUser.username);
+
+      if (error) throw error;
+
+      Toastify({ text: `✅ ${targetUser.name} telah dikeluarkan.`, style: { background: '#10b981' } }).showToast();
       fetchUsers();
     } catch (e) {
-      Toastify({ text: '❌ Gagal force logout', style: { background: '#ef4444' } }).showToast();
+      console.error("Force Logout Error:", e);
+      Toastify({ text: `❌ Gagal: ${e.message || 'Error tidak diketahui'}`, style: { background: '#ef4444' } }).showToast();
     }
     setModal({ type: null, user: null });
   };
@@ -76,12 +99,19 @@ export default function OwnerPanel({ user, handleLogout }) {
       return;
     }
     try {
-      await supabase.from('users').update({ password: newPassword, sessionId: null, isOnline: false }).eq('username', modal.user.username);
+      const { error } = await supabase
+        .from('users')
+        .update({ password: newPassword, sessionId: null, isOnline: false, lastAction: 'PASSWORD_RESET' })
+        .eq('username', modal.user.username);
+
+      if (error) throw error;
+
       Toastify({ text: `✅ Password ${modal.user.name} berhasil direset.`, style: { background: '#10b981' } }).showToast();
       setNewPassword('');
       fetchUsers();
     } catch (e) {
-      Toastify({ text: '❌ Gagal reset password', style: { background: '#ef4444' } }).showToast();
+      console.error("Reset Password Error:", e);
+      Toastify({ text: `❌ Gagal: ${e.message}`, style: { background: '#ef4444' } }).showToast();
     }
     setModal({ type: null, user: null });
   };
@@ -97,18 +127,60 @@ export default function OwnerPanel({ user, handleLogout }) {
     setModal({ type: null, user: null });
   };
 
+  const handleResetAllSessions = async () => {
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ sessionId: null, isOnline: false, lastAction: 'MASS_LOGOUT' })
+        .neq('username', user.username);
+
+      if (error) throw error;
+
+      Toastify({ text: '✅ Semua sesi berhasil direset (Kecuali Sesi Anda).', style: { background: '#10b981' } }).showToast();
+      fetchUsers();
+    } catch (e) {
+      console.error("Reset All Sessions Error:", e);
+      Toastify({ text: `❌ Gagal: ${e.message}`, style: { background: '#ef4444' } }).showToast();
+    }
+    setModal({ type: null, user: null });
+  };
+
+  const handleRemoteRefresh = async () => {
+    try {
+      const { error } = await supabase.channel('remote_control').send({
+        type: 'broadcast',
+        event: 'force-refresh',
+        payload: { message: 'Owner triggered refresh' }
+      });
+      if (error) throw error;
+      Toastify({ text: '🚀 Perintah Refresh Seluruh Layar Terkirim!', style: { background: '#8b5cf6' } }).showToast();
+    } catch (e) {
+      console.error(e);
+      Toastify({ text: '❌ Gagal mengirim perintah refresh', style: { background: '#ef4444' } }).showToast();
+    }
+  };
+
   const onlineUsers = users.filter(u => u.isOnline && u.sessionId);
   const filteredUsers = users.filter(u => {
     const q = searchTerm.toLowerCase();
     return !q || u.name?.toLowerCase().includes(q) || u.username?.toLowerCase().includes(q) || u.role?.toLowerCase().includes(q);
   });
 
-  const stats = [
+  const workshopStats = [
+    { label: 'Unit Working', value: processedQueue.filter(q => q.status === 'working').length, icon: Activity, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'Unit Waiting', value: processedQueue.filter(q => q.status === 'waiting').length, icon: Clock, color: 'text-orange-600', bg: 'bg-orange-50' },
+    { label: 'Unit Menginap', value: processedQueue.filter(q => q.status === 'menginap').length, icon: Moon, color: 'text-purple-600', bg: 'bg-purple-50' },
+    { label: 'Selesai Hari Ini', value: rawHistory.filter(h => new Date(parseInt(h.id)).toDateString() === new Date().toDateString()).length, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50' },
+  ];
+
+  const userStats = [
     { label: 'Total User', value: users.length, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
     { label: 'Sedang Online', value: onlineUsers.length, icon: Wifi, color: 'text-green-600', bg: 'bg-green-50' },
     { label: 'Offline', value: users.length - onlineUsers.length, icon: WifiOff, color: 'text-zinc-400', bg: 'bg-zinc-50' },
-    { label: 'Role Aktif', value: [...new Set(users.map(u => u.role).filter(Boolean))].length, icon: Shield, color: 'text-purple-600', bg: 'bg-purple-50' },
+    { label: 'Role Aktif', value: [...new Set(users.map(u => u.role).filter(Boolean))].length, icon: Moon, color: 'text-purple-600', bg: 'bg-purple-50' },
   ];
+
+  const stats = activeTab === 'workshop' ? workshopStats : userStats;
 
   return (
     <div className="fixed inset-0 bg-[#0F0F14] flex overflow-hidden font-sans antialiased">
@@ -120,7 +192,7 @@ export default function OwnerPanel({ user, handleLogout }) {
       {/* Sidebar */}
       <aside className={`fixed md:relative left-0 top-0 bottom-0 z-50 bg-[#18181F] border-r border-white/5 flex flex-col transition-all duration-300 shrink-0
         ${isSidebarOpen ? 'w-72 translate-x-0' : '-translate-x-full md:translate-x-0 md:w-72'}`}>
-        
+
         {/* Logo */}
         <div className="p-6 border-b border-white/5">
           <div className="flex items-center gap-3">
@@ -138,7 +210,9 @@ export default function OwnerPanel({ user, handleLogout }) {
         <nav className="flex-1 p-4 space-y-1">
           {[
             { id: 'monitoring', label: 'Live Monitoring', icon: Activity },
+            { id: 'workshop', label: 'Antrian Workshop', icon: Car },
             { id: 'users', label: 'Manajemen User', icon: Users },
+            { id: 'deleted_bookings', label: 'Riwayat Hapus Booking', icon: Trash2 },
           ].map(item => (
             <button key={item.id}
               onClick={() => { setActiveTab(item.id); setIsSidebarOpen(false); }}
@@ -180,18 +254,39 @@ export default function OwnerPanel({ user, handleLogout }) {
             </button>
             <div>
               <h2 className="text-white font-black text-base md:text-lg">
-                {activeTab === 'monitoring' ? '🔴 Live Session Monitoring' : '👥 Manajemen User'}
+                {activeTab === 'monitoring' ? '🔴 Live Session Monitoring' : activeTab === 'workshop' ? '🚗 Antrian Workshop Realtime' : activeTab === 'users' ? '👥 Manajemen User' : '🗑️ Riwayat Penghapusan Data'}
               </h2>
               <p className="text-white/30 text-xs font-medium">
-                {activeTab === 'monitoring' ? `${onlineUsers.length} pengguna aktif saat ini` : `${users.length} total user terdaftar`}
+                {activeTab === 'monitoring'
+                  ? `${onlineUsers.length} pengguna aktif saat ini`
+                  : activeTab === 'workshop'
+                    ? `${processedQueue.length} unit kendaraan dalam sistem`
+                    : activeTab === 'users'
+                      ? `${users.length} total user terdaftar`
+                      : `${deletedBookings.length} data yang terhapus`}
               </p>
             </div>
           </div>
-          <button onClick={fetchUsers}
-            className={`flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white rounded-xl text-xs font-bold transition-all ${isLoading ? 'animate-pulse' : ''}`}>
-            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-3">
+            {activeTab === 'monitoring' && (
+              <>
+                <button 
+                  onClick={handleRemoteRefresh}
+                  className="hidden md:flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-900/40 border border-indigo-500/50">
+                  <RefreshCw size={14} /> Refresh Semua Board
+                </button>
+                <button 
+                  onClick={() => setModal({ type: 'resetAll', user: null })}
+                  className="hidden md:flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl transition-all font-black text-[10px] uppercase tracking-widest shadow-lg shadow-red-900/40 border border-red-500/50">
+                  <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Reset Semua Login
+                </button>
+              </>
+            )}
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-green-500/10 border border-green-500/20 rounded-xl">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              <span className="text-[10px] font-black text-green-400 uppercase tracking-widest">Realtime Active</span>
+            </div>
+          </div>
         </header>
 
         {/* Content Area */}
@@ -214,7 +309,7 @@ export default function OwnerPanel({ user, handleLogout }) {
           {activeTab === 'monitoring' && (
             <div className="space-y-4">
               <h3 className="text-white/60 text-xs font-black uppercase tracking-widest">Pengguna Yang Saat Ini Online</h3>
-              
+
               {onlineUsers.length === 0 ? (
                 <div className="bg-[#18181F] border border-white/5 rounded-3xl p-12 text-center">
                   <WifiOff size={40} className="text-white/20 mx-auto mb-4" />
@@ -226,7 +321,7 @@ export default function OwnerPanel({ user, handleLogout }) {
                     const roleStyle = ROLE_COLORS[u.role] || ROLE_COLORS.admin;
                     return (
                       <div key={u.username} className="bg-[#18181F] border border-green-500/20 rounded-3xl p-5 md:p-6 flex flex-col md:flex-row gap-4 md:items-center group hover:border-green-500/40 transition-all">
-                        
+
                         {/* Avatar + Status */}
                         <div className="relative shrink-0">
                           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30 flex items-center justify-center font-black text-green-400 text-xl">
@@ -249,11 +344,35 @@ export default function OwnerPanel({ user, handleLogout }) {
                           </div>
 
                           {/* Device Info Grid */}
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                             <InfoPill icon={<DeviceIcon device={u.lastDevice} />} label="Perangkat" value={u.lastDevice || 'Tidak Diketahui'} />
                             <InfoPill icon={<Globe size={14} />} label="Browser" value={u.lastBrowser || 'Tidak Diketahui'} />
                             <InfoPill icon={<Wifi size={14} />} label="Alamat IP" value={u.lastIP || '-'} mono />
-                            <InfoPill icon={<MapPin size={14} />} label="Lokasi" value={u.lastLocation || 'Tidak Diketahui'} />
+                            <InfoPill icon={<MapPin size={14} />} label="Lokasi" value={u.lastLocation ? u.lastLocation.split('(')[0].trim() : 'Tidak Diketahui'} />
+                            <div className="bg-white/5 rounded-xl px-3 py-2 min-w-0 relative group/coords">
+                              <div className="flex items-center gap-1.5 text-white/30 mb-1">
+                                <MapPin size={14} className="text-blue-400" />
+                                <span className="text-[9px] font-black uppercase tracking-wider">Coordinate</span>
+                              </div>
+                              <div className="flex items-center justify-between gap-2 overflow-hidden">
+                                <p className="text-white/80 text-[10px] font-mono font-bold truncate">
+                                  {u.lastLocation && u.lastLocation.includes('(') ? u.lastLocation.split('(')[1].replace(')', '') : 'N/A'}
+                                </p>
+                                {u.lastLocation && u.lastLocation.includes('(') && (
+                                  <button 
+                                    onClick={() => {
+                                      const coords = u.lastLocation.split('(')[1].replace(')', '');
+                                      navigator.clipboard.writeText(coords);
+                                      Toastify({ text: "📍 Coordinate Copied!", style: { background: "#3b82f6" }, duration: 2000 }).showToast();
+                                    }}
+                                    className="p-1 hover:bg-white/10 rounded-md text-blue-400 opacity-0 group-hover/coords:opacity-100 transition-all shrink-0"
+                                    title="Copy Coordinates"
+                                  >
+                                    <Key size={10} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                           </div>
 
                           <div className="flex items-center gap-2 text-white/30 text-xs">
@@ -293,13 +412,59 @@ export default function OwnerPanel({ user, handleLogout }) {
                             </div>
                             <p className="text-white/30 text-xs mt-0.5">{u.lastDevice || 'Belum pernah login'} · {u.lastLocation || '-'}</p>
                           </div>
-                          <span className="text-white/20 text-[10px] font-bold">OFFLINE</span>
+                          <div className="flex flex-col items-end gap-1">
+                            <span className="text-white/20 text-[10px] font-bold uppercase">Offline</span>
+                            {u.lastLocation && u.lastLocation.includes('(') && (
+                              <button 
+                                onClick={() => {
+                                  const coords = u.lastLocation.split('(')[1].replace(')', '');
+                                  navigator.clipboard.writeText(coords);
+                                  Toastify({ text: "📍 Coordinate Copied!", style: { background: "#3b82f6" }, duration: 2000 }).showToast();
+                                }}
+                                className="text-[9px] font-black text-blue-400/50 hover:text-blue-400 uppercase tracking-widest transition-colors"
+                              >
+                                Copy Coords
+                              </button>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ====== TAB: WORKSHOP ====== */}
+          {activeTab === 'workshop' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {/* Working Column */}
+                <WorkshopColumn
+                  title="Sedang Dikerjakan"
+                  items={processedQueue.filter(i => i.status === 'working')}
+                  color="blue"
+                  icon={Clock}
+                  formatTime={formatTime}
+                />
+                {/* Waiting Column */}
+                <WorkshopColumn
+                  title="Menunggu"
+                  items={processedQueue.filter(i => i.status === 'waiting')}
+                  color="orange"
+                  icon={Activity}
+                  formatTime={formatTime}
+                />
+                {/* Overnight Column */}
+                <WorkshopColumn
+                  title="Menginap"
+                  items={processedQueue.filter(i => i.status === 'menginap')}
+                  color="purple"
+                  icon={Moon}
+                  formatTime={formatTime}
+                />
+              </div>
             </div>
           )}
 
@@ -329,7 +494,7 @@ export default function OwnerPanel({ user, handleLogout }) {
                     <div key={u.username}
                       className={`bg-[#18181F] border rounded-3xl p-5 flex flex-col md:flex-row gap-4 md:items-center transition-all
                         ${isActiveNow ? 'border-green-500/20' : 'border-white/5'}`}>
-                      
+
                       <div className="relative shrink-0">
                         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg
                           ${isCurrentUser ? 'bg-gradient-to-br from-purple-500 to-indigo-500 text-white' : 'bg-white/5 text-white/50'}`}>
@@ -352,17 +517,18 @@ export default function OwnerPanel({ user, handleLogout }) {
                           {u.lastIP && <span className="flex items-center gap-1 font-mono"><Wifi size={11} /> {u.lastIP}</span>}
                           {u.lastLocation && <span className="flex items-center gap-1"><MapPin size={11} /> {u.lastLocation}</span>}
                           {u.lastLogin && <span className="flex items-center gap-1"><Clock size={11} /> {u.lastLogin}</span>}
-                        </div>
-                        {/* Password Display (masked) */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-white/20 text-[10px] font-medium">Password:</span>
-                          <span className="font-mono text-[11px] text-white/50">
-                            {showPasswordFor === u.username ? u.password : '••••••••'}
-                          </span>
-                          <button onClick={() => setShowPasswordFor(showPasswordFor === u.username ? null : u.username)}
-                            className="text-white/20 hover:text-white/60 transition-colors">
-                            {showPasswordFor === u.username ? <EyeOff size={12} /> : <Eye size={12} />}
-                          </button>
+                          {u.lastLocation && u.lastLocation.includes('(') && (
+                            <button 
+                              onClick={() => {
+                                const coords = u.lastLocation.split('(')[1].replace(')', '');
+                                navigator.clipboard.writeText(coords);
+                                Toastify({ text: "📍 Coordinate Copied!", style: { background: "#3b82f6" }, duration: 2000 }).showToast();
+                              }}
+                              className="flex items-center gap-1 text-blue-400/60 hover:text-blue-400 transition-colors"
+                            >
+                              <MapPin size={11} /> {u.lastLocation.split('(')[1].replace(')', '')}
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -391,6 +557,53 @@ export default function OwnerPanel({ user, handleLogout }) {
               </div>
             </div>
           )}
+
+          {/* ====== TAB: RIWAYAT HAPUS ====== */}
+          {activeTab === 'deleted_bookings' && (
+            <div className="space-y-4">
+              {deletedBookings.length === 0 ? (
+                <div className="bg-[#18181F] border border-white/5 rounded-3xl p-12 text-center">
+                  <Trash2 size={40} className="text-white/20 mx-auto mb-4" />
+                  <p className="text-white/30 font-bold">Belum ada data booking yang dihapus.</p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {deletedBookings.map(b => (
+                    <div key={b.id} className="bg-[#18181F] border border-red-500/20 rounded-3xl p-5 flex flex-col md:flex-row gap-4 md:items-center transition-all hover:border-red-500/40">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-500/20 to-red-400/20 flex items-center justify-center font-black text-red-500 text-lg shrink-0">
+                        {b.namaCustomer?.[0] || '?'}
+                      </div>
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-white font-bold text-base">{b.namaCustomer}</span>
+                          <span className="text-white/30 text-xs font-mono">{b.noPlat}</span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-red-500/10 text-red-400 border border-red-500/20">
+                            DELETED
+                          </span>
+                        </div>
+                        <p className="text-red-400 text-xs font-bold leading-tight">{b.bookingVia}</p>
+                        <p className="text-white/30 text-[10px] mt-1 line-clamp-1">
+                          🚗 <span className="font-bold">{b.tipeMobil}</span> • ⏳ {b.tanggal} Jam {b.jam} • 🛠️ {b.keperluanService}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0">
+                        <button onClick={async () => {
+                          if(!window.confirm('Kembalikan data ini ke Antrian Booking CRO?')) return;
+                          await supabase.from('booking').update({ status: 'waiting confirm', bookingVia: b.bookingVia.replace(/Dihapus_Oleh: .*? - /, '') }).eq('id', b.id);
+                          fetchDeletedBookings();
+                          Toastify({ text: "✅ Data berhasil di-Restore!", style: { background: "#10b981" } }).showToast();
+                        }}
+                          className="px-4 py-2 bg-[#18181F] border border-green-500/30 text-green-400 hover:bg-green-500 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+                        >
+                           Restore Data
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </main>
       </div>
 
@@ -398,7 +611,30 @@ export default function OwnerPanel({ user, handleLogout }) {
       {modal.type && (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#1E1E28] border border-white/10 rounded-3xl p-8 w-full max-w-md shadow-2xl">
-            
+
+            {/* Reset All Sessions Modal */}
+            {modal.type === 'resetAll' && (
+              <>
+                <div className="w-16 h-16 bg-red-600/10 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                  <RefreshCw size={32} className="text-red-500" />
+                </div>
+                <h3 className="text-white font-black text-xl text-center mb-2">Reset Semua Sesi?</h3>
+                <p className="text-white/50 text-center text-sm mb-8">
+                  Fitur ini akan <span className="text-red-400 font-bold">memaksa logout</span> semua perangkat dan akun yang saat ini terhubung, <span className="text-white font-bold underline">kecuali akun Anda sendiri</span>.
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={() => setModal({ type: null, user: null })}
+                    className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 font-bold text-sm transition-all">
+                    Batal
+                  </button>
+                  <button onClick={handleResetAllSessions}
+                    className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-black text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-900/40">
+                    <CheckCircle size={16} /> Ya, Reset Semua
+                  </button>
+                </div>
+              </>
+            )}
+
             {/* Force Logout Modal */}
             {modal.type === 'forceLogout' && (
               <>
@@ -485,6 +721,59 @@ export default function OwnerPanel({ user, handleLogout }) {
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
       `}</style>
+    </div>
+  );
+}
+
+// Reusable Workshop Column Component
+function WorkshopColumn({ title, items, color, icon: Icon, formatTime }) {
+  const colors = {
+    blue: { border: 'border-blue-500/20', bg: 'bg-blue-500/20', text: 'text-blue-400', bar: 'bg-blue-500' },
+    orange: { border: 'border-orange-500/20', bg: 'bg-orange-500/20', text: 'text-orange-400', bar: 'bg-orange-500' },
+    purple: { border: 'border-purple-500/20', bg: 'bg-purple-500/20', text: 'text-purple-400', bar: 'bg-purple-500' },
+  };
+
+  const c = colors[color];
+
+  return (
+    <div className={`bg-[#18181F] border border-white/5 rounded-3xl p-5 flex flex-col h-full`}>
+      <div className="flex items-center gap-3 mb-6">
+        <div className={`w-10 h-10 ${c.bg} rounded-2xl flex items-center justify-center`}>
+          <Icon size={20} className={c.text} />
+        </div>
+        <div>
+          <h4 className="text-white font-black text-sm uppercase tracking-tight">{title}</h4>
+          <p className="text-white/30 text-[10px] font-bold uppercase">{items.length} Unit Terdeteksi</p>
+        </div>
+      </div>
+
+      <div className="space-y-3 flex-1">
+        {items.length === 0 ? (
+          <div className="h-20 flex items-center justify-center border-2 border-dashed border-white/5 rounded-2xl">
+            <p className="text-white/20 text-[10px] font-bold uppercase">Kosong</p>
+          </div>
+        ) : (
+          items.map(i => (
+            <div key={i.id} className={`bg-white/5 border-l-4 ${c.border} rounded-2xl p-4 space-y-2 group hover:bg-white/10 transition-all`}>
+              <div className="flex items-center justify-between">
+                <span className="text-white font-black font-mono text-lg">{i.bk}</span>
+                {color === 'blue' && (
+                  <span className={`text-[10px] font-black font-mono ${i.estimasi < 300 ? 'text-red-500 animate-pulse' : 'text-blue-400'}`}>
+                    {formatTime(i.estimasi)}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col gap-1">
+                <p className="text-white/40 text-[10px] font-bold uppercase truncate">{i.tipe} · {i.category}</p>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded-full bg-white/10 flex items-center justify-center text-[8px] text-white/50 font-black shrink-0">MK</div>
+                  <p className="text-white/60 text-[10px] font-medium truncate">{i.mechanicName || '—'}</p>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
