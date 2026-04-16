@@ -164,7 +164,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
                 });
 
                 // Filter out orders that already exist in the database (Skip Duplicates)
-                const { data: existingRecords } = await supabase.from('sparepart').select('Handling order number');
+                const { data: existingRecords } = await supabase.from('sparepart').select('"Handling order number"');
                 const existingSet = new Set((existingRecords || []).map(r => normalize(r['Handling order number'])));
 
                 const finalOrders = Object.values(ordersMap).filter(o => !existingSet.has(normalize(o.orderNumber)));
@@ -223,7 +223,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
         try {
             const { data, error } = await supabase
                 .from('sparepart')
-                .select('*');
+                .select('"Handling order number", founder, items, status, "submission time", "processing time", "order notes"');
 
             if (error) throw error;
 
@@ -671,11 +671,13 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
                     })}
                 </div>
 
-                <div className="p-4 border-t border-white/5">
-                    <button onClick={handleLogout} className="w-full flex items-center gap-4 px-4 py-3 rounded-2xl font-black text-xs text-red-400 hover:bg-red-500/10 transition-all uppercase tracking-widest">
-                        <ArrowLeft size={18} />
-                        <span className={`transition-all duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0'}`}>Logout System</span>
-                    </button>
+                <div className="p-6 border-t border-white/5 flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center font-black text-white/40 text-[10px] shrink-0 border border-white/5">
+                        SP
+                    </div>
+                    <div className={`transition-all duration-300 overflow-hidden ${isSidebarOpen ? 'opacity-100' : 'opacity-0 w-0'}`}>
+                        <p className="text-[10px] font-black uppercase text-white leading-none truncate">{user?.name || 'Staff'}</p>
+                    </div>
                 </div>
             </div>
 

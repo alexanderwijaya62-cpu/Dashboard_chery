@@ -150,7 +150,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
     e.preventDefault();
     setIsLoading(true);
     try {
-      const { data: existing } = await supabase.from('users').select('id').eq('username', userFormData.username).single();
+      const { data: existing } = await supabase.from('users').select('id').eq('username', userFormData.username).maybeSingle();
       let error;
       if (existing) {
         const updates = { name: userFormData.name, role: userFormData.role };
@@ -874,16 +874,13 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
           ))}
         </nav>
 
-        <div className="mt-auto pt-6 border-t border-zinc-100 flex items-center justify-between px-2 overflow-hidden">
+        <div className="mt-auto pt-6 border-t border-zinc-100 flex items-center gap-4 px-2 overflow-hidden transition-all duration-300">
           <div className={`flex items-center gap-4 transition-all duration-300 whitespace-nowrap ${isMobileSidebarOpen ? 'opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'}`}>
             <div className="w-10 h-10 rounded-full bg-zinc-100 border-2 border-white shadow-sm flex items-center justify-center font-black text-zinc-400 shrink-0">M</div>
             <div className="overflow-hidden">
               <p className="text-[11px] font-black uppercase tracking-tight truncate">{user?.name || 'Manager'}</p>
             </div>
           </div>
-          <button onClick={handleLogout} className={`p-3 text-zinc-300 hover:text-red-500 transition-colors shrink-0 ${isMobileSidebarOpen ? 'opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'}`}>
-            <X size={20} />
-          </button>
         </div>
       </aside>
 

@@ -30,7 +30,18 @@ const generateSlots = (count) => {
     return slots;
 };
 
-const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, clearQueue, editItem, handleSave, handleCancelEdit, formData, setFormData, isEditing, setIsEditing, errorMessage, formatTime, handleComplete, handleSetOvernight, handleCancelOvernight, breakSettings, setBreakSettings, handleAddTask, handleRemoveTask, handleToggleTask }) => {
+const normalizeJam = (j) => {
+    if (!j) return "";
+    const sj = String(j).replace(':', '.');
+    const parts = sj.split('.');
+    const h = String(parts[0]).padStart(2, '0');
+    const m = String(parts[1] || '00').padEnd(2, '0');
+    return `${h}.${m}`;
+};
+
+const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, clearQueue, editItem, handleSave, handleCancelEdit, formData, setFormData, isEditing, setIsEditing, errorMessage, isLoadingProcess, formatTime, handleComplete, handleSetOvernight, handleCancelOvernight, breakSettings, setBreakSettings, handleAddTask, handleRemoveTask, handleToggleTask, playNotificationSound }) => {
+    const [currentDay, setCurrentDay] = useState(new Date().toDateString());
+
     const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
     const [typeSearchTerm, setTypeSearchTerm] = useState('');
     const [mechanics, setMechanics] = useState([]);
@@ -80,8 +91,10 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
     const isToday = (time) => {
         if (!time) return false;
         try {
-            const todayStr = new Date().toISOString().split('T')[0];
-            const checkStr = new Date(time).toISOString().split('T')[0];
+            const todayStr = new Date().toLocaleDateString('en-CA');
+            const checkDate = new Date(time);
+            if (isNaN(checkDate.getTime())) return false;
+            const checkStr = checkDate.toLocaleDateString('en-CA');
             return todayStr === checkStr;
         } catch (e) { 
             // Fallback for dd/mm/yyyy
@@ -105,23 +118,20 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
     const normalizeBK = useCallback((bk) => (bk || '').replace(/\s+/g, '').toUpperCase(), []);
 
     const cleanupPastBookings = useCallback(async () => {
-        try {
-            const todayStr = new Date().toISOString().split('T')[0];
-            const { error } = await supabase
-                .from('booking')
-                .delete()
-                .lt('tanggal', todayStr)
-                .neq('id', 999999); // Don't delete config slot
-            if (error) throw error;
-        } catch (e) {
-            console.error('Cleanup failed:', e);
-        }
+        // No longer delete past bookings — they are kept for audit trail
     }, []);
 
     const fetchBookings = useCallback(async () => {
         try {
             await cleanupPastBookings();
-            const { data, error } = await supabase.from('booking').select('*');
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            const dateStr = thirtyDaysAgo.toISOString().split('T')[0];
+
+            const { data, error } = await supabase
+                .from('booking')
+                .select('id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, status, bookingVia, vin, noTelp, noUrut')
+                .or(`tanggal.gte.${dateStr},id.eq.999999`);
             if (error) throw error;
             if (Array.isArray(data)) setRawBookings(data);
         } catch (e) {
@@ -143,6 +153,23 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
     }, [fetchBookings]);
 
     // 2. Process data locally when rawBookings, queue, or rawHistory change
+    // Get config slot count for showing all slots
+    const configSlotAdmin = rawBookings.find(b => b.id === 999999);
+    const maxSlotsAdmin = configSlotAdmin ? parseInt(configSlotAdmin.namaCustomer) || 8 : 8;
+    const allSlots = useMemo(() => generateSlots(maxSlotsAdmin), [maxSlotsAdmin]);
+
+    // Refresh if day changes (midnight)
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const now = new Date().toDateString();
+            if (now !== currentDay) {
+                setCurrentDay(now);
+                fetchBookings();
+            }
+        }, 60000); // Check every minute
+        return () => clearInterval(interval);
+    }, [currentDay, fetchBookings]);
+
     const todayBookings = useMemo(() => {
         if (!Array.isArray(rawBookings)) return [];
         
@@ -153,7 +180,24 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                 .map(h => normalizeBK(h.bk))
         );
 
-        return rawBookings
+        const todayStr = new Date().toLocaleDateString('en-CA');
+
+        // Tracker hari ini untuk refresh
+        const isSameDay = (d1, d2) => {
+            const getStr = (d) => {
+                if (!d) return "";
+                if (d instanceof Date) return d.toLocaleDateString('en-CA');
+                const s = String(d).split(/[T ]/)[0];
+                if (s.includes('-') && s.length === 10) return s; 
+                const dt = new Date(d);
+                return isNaN(dt.getTime()) ? s : dt.toLocaleDateString('en-CA');
+            };
+            return getStr(d1) === getStr(d2);
+        };
+
+        // Get all booked entries for today
+        const bookedEntries = rawBookings
+            .filter(b => b.id !== 999999 && isSameDay(b.tanggal, todayStr) && b.status !== 'completed' && b.status !== 'declined' && b.status !== 'deleted')
             .map(b => {
                 const plat = normalizeBK(b.noPlat);
                 const isArrived = activePlates.has(plat) || historyPlatesToday.has(plat);
@@ -167,17 +211,65 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                     if (diff > 30) isLate = true;
                 } catch(e) {}
 
-                return { ...b, isArrived, isLate };
-            })
-            .filter(b => isToday(b.tanggal) && b.status !== 'completed' && b.status !== 'declined' && b.status !== 'inactive');
-    }, [rawBookings, queue, rawHistory, normalizeBK]);
+                return { ...b, isArrived, isLate, isEmpty: false };
+            });
 
-    // Auto-update late bookings to inactive
+        // Build a complete list showing ALL slots
+        const normalizeJam = (j) => {
+            if (!j) return '';
+            const s = String(j).replace(':', '.');
+            const [h, m] = s.split('.');
+            return `${String(h).padStart(2, '0')}.${String(m || '00').padEnd(2, '0')}`;
+        };
+        const slotList = [];
+        
+        const bookingsByJam = {};
+        bookedEntries.forEach(b => {
+             const j = normalizeJam(b.jam);
+             if(!bookingsByJam[j]) bookingsByJam[j] = [];
+             bookingsByJam[j].push(b);
+        });
+
+        const processedSlotTimes = new Set();
+
+        allSlots.forEach(slot => {
+            const normalizedSlot = normalizeJam(slot);
+            processedSlotTimes.add(normalizedSlot);
+            const bookingsAtSlot = bookingsByJam[normalizedSlot] || [];
+            
+            if (bookingsAtSlot.length > 0) {
+                bookingsAtSlot.forEach(b => slotList.push(b));
+            } else {
+                slotList.push({
+                    id: `empty-${slot}`,
+                    jam: slot,
+                    tanggal: todayStr,
+                    isEmpty: true,
+                    isArrived: false,
+                    isLate: false,
+                    noPlat: '',
+                    namaCustomer: '',
+                    tipeMobil: '',
+                    status: 'empty'
+                });
+            }
+        });
+
+        // MASUKKAN BOOKING YANG TIDAK ADA DI LIST SLOT (Overflow)
+        Object.keys(bookingsByJam).forEach(j => {
+            if (!processedSlotTimes.has(j)) {
+                bookingsByJam[j].forEach(b => slotList.push(b));
+            }
+        });
+
+        return slotList;
+    }, [rawBookings, queue, rawHistory, normalizeBK, allSlots, currentDay]);
+
     useEffect(() => {
         const checkLate = async () => {
-            const lates = todayBookings.filter(b => b.isLate && !b.isArrived && b.status !== 'inactive');
+            const lates = todayBookings.filter(b => !b.isEmpty && b.isLate && !b.isArrived && b.status !== 'dipindahkan_reguler');
             for (const b of lates) {
-                await supabase.from('booking').update({ status: 'inactive', keluhanDetail: `TERLAMBAT > 30 MENIT (${b.keluhanDetail || ''})` }).eq('id', b.id);
+                await supabase.from('booking').update({ status: 'dipindahkan_reguler' }).eq('id', b.id);
             }
             if (lates.length > 0) fetchBookings();
         };
@@ -259,9 +351,6 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                         <p className="text-[10px] font-black uppercase text-zinc-900 leading-none">{user?.name || 'Authorized Admin'}</p>
                         <p className="text-[7px] font-bold text-zinc-400 uppercase tracking-widest mt-1">Status: Online</p>
                     </div>
-                    <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-1.5 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded-lg transition-all font-black text-[9px] uppercase tracking-widest shadow-sm">
-                        <LogOut size={14} /> LOGOUT
-                    </button>
                 </div>
             </header>
 
@@ -276,7 +365,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                 <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-red-600 flex items-center gap-2">
                                     <div className="w-2 h-2 bg-red-600 rounded-full animate-pulse"></div> Kedatangan Booking
                                 </h3>
-                                <span className="bg-zinc-100 text-zinc-600 text-[9px] font-black px-3 py-1 rounded-full">{todayBookings.length} Units</span>
+                                <span className="bg-zinc-100 text-zinc-600 text-[9px] font-black px-3 py-1 rounded-full">{todayBookings.filter(b => !b.isEmpty).length} / {todayBookings.length} Slots</span>
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar z-10">
@@ -287,36 +376,57 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     </div>
                                 ) : (
                                     todayBookings.map((b, idx) => (
-                                        <div key={idx} className="flex items-center justify-between p-3 bg-zinc-50 rounded-xl border border-zinc-100 hover:bg-white hover:shadow-md transition-all group/item">
+                                        <div key={b.id || idx} className={`flex items-center justify-between p-3 rounded-xl border transition-all group/item ${
+                                            b.isEmpty ? 'bg-zinc-50/50 border-dashed border-zinc-200' :
+                                            b.isLate ? 'bg-rose-50 border-rose-200' :
+                                            b.isArrived ? 'bg-emerald-50 border-emerald-200' :
+                                            'bg-zinc-50 border-zinc-100 hover:bg-white hover:shadow-md'
+                                        }`}>
                                             <div className="flex flex-col gap-1 flex-1">
                                                 <div className="flex items-center gap-2">
-                                                    <div className="bg-red-600 text-white text-[9px] font-black px-2 py-0.5 rounded shadow-sm">
+                                                    <div className={`text-[9px] font-black px-2 py-0.5 rounded shadow-sm ${
+                                                        b.isEmpty ? 'bg-zinc-300 text-white' :
+                                                        b.isLate ? 'bg-rose-600 text-white' :
+                                                        'bg-red-600 text-white'
+                                                    }`}>
                                                        {b.jam} WIB
                                                     </div>
-                                                    <h4 className="font-black text-sm text-zinc-900 uppercase tracking-tight">{b.noPlat || 'REGISTER'}</h4>
+                                                    <h4 className={`font-black text-sm uppercase tracking-tight ${
+                                                        b.isEmpty ? 'text-zinc-300 italic' : 'text-zinc-900'
+                                                    }`}>{b.isEmpty ? 'SLOT KOSONG' : (b.noPlat || 'REGISTER')}</h4>
                                                 </div>
-                                                <div className="flex flex-col pl-1 ml-10">
-                                                    <p className="text-[10px] font-black text-zinc-900 uppercase leading-none">{b.namaCustomer}</p>
-                                                    <p className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest mt-1">Booked: {new Date(b.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })} • {b.tipeMobil}</p>
-                                                </div>
-                                                {b.isArrived ? (
+                                                {!b.isEmpty && (
+                                                    <div className="flex flex-col pl-1 ml-10">
+                                                        <p className="text-[10px] font-black text-zinc-900 uppercase leading-none">{b.namaCustomer}</p>
+                                                        <p className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest mt-1">
+                                                            {b.bookingVia ? `Via: ${b.bookingVia} • ` : ''}{b.tipeMobil}
+                                                        </p>
+                                                    </div>
+                                                )}
+                                                {!b.isEmpty && b.isArrived ? (
                                                     <div className="ml-10 mt-1">
                                                         <span className="bg-emerald-500 text-white text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest flex items-center gap-1 w-fit">
                                                             <CheckCircle2 size={8} /> Sudah Datang
                                                         </span>
                                                     </div>
-                                                ) : b.isLate ? (
+                                                ) : !b.isEmpty && (b.isLate || b.status === 'dipindahkan_reguler') ? (
                                                     <div className="ml-10 mt-1 flex flex-col gap-1">
-                                                        <span className="bg-rose-600 text-white text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest flex items-center gap-0.5 w-fit animate-pulse border border-rose-400/50">
+                                                        <span className="bg-amber-500 text-white text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest flex items-center gap-0.5 w-fit border border-amber-400/50">
                                                             <AlertCircle size={8} /> Terlambat 30m+
                                                         </span>
-                                                        <span className="text-[7px] font-bold text-rose-500 uppercase italic leading-none">Otomatis Inactive</span>
+                                                        <span className="text-[7px] font-bold text-amber-600 uppercase italic leading-none">Dipindahkan ke Reguler</span>
                                                     </div>
                                                 ) : null}
                                             </div>
-                                            <button onClick={() => !b.isArrived && handleConfirmBooking(b)} className={`w-9 h-9 rounded-lg transition-all flex items-center justify-center shadow-md active:scale-95 ${b.isArrived ? 'bg-zinc-200 text-zinc-400 cursor-not-allowed' : 'bg-zinc-900 hover:bg-red-600 text-white'}`}>
-                                                <Plus size={16} strokeWidth={4} />
-                                            </button>
+                                            {!b.isEmpty ? (
+                                                <button onClick={() => !b.isArrived && handleConfirmBooking(b)} className={`w-9 h-9 rounded-lg transition-all flex items-center justify-center shadow-md active:scale-95 ${b.isArrived ? 'bg-zinc-200 text-zinc-400 cursor-not-allowed' : 'bg-zinc-900 hover:bg-red-600 text-white'}`}>
+                                                    <Plus size={16} strokeWidth={4} />
+                                                </button>
+                                            ) : (
+                                                <div className="w-9 h-9 rounded-lg bg-zinc-100 border border-dashed border-zinc-200 flex items-center justify-center">
+                                                    <Clock size={14} className="text-zinc-300" />
+                                                </div>
+                                            )}
                                         </div>
                                     ))
                                 )}
@@ -357,8 +467,8 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     <label className="text-[9px] font-black uppercase tracking-widest ml-1 flex items-center gap-1.5 text-zinc-500">
                                         <Activity size={10} className="text-red-600" /> Nomor Polisi
                                     </label>
-                                    <input type="text" value={formData.bk} onChange={(e) => setFormData({ ...formData, bk: e.target.value.toUpperCase() })}
-                                        placeholder="BK 1XXX MA" className="w-full bg-zinc-50 border border-zinc-200 p-2 rounded-xl text-sm font-black outline-none transition-all uppercase focus:bg-white focus:border-red-600 text-zinc-900 shadow-inner" />
+                                    <input type="text" value={formData.bk} onChange={(e) => setFormData({ ...formData, bk: e.target.value.toUpperCase().replace(/\s+/g, '') })}
+                                        placeholder="BK1XXXMA" className="w-full bg-zinc-50 border border-zinc-200 p-2 rounded-xl text-sm font-black outline-none transition-all uppercase focus:bg-white focus:border-red-600 text-zinc-900 shadow-inner" />
                                 </div>
                                 <div className="space-y-1.5 relative" ref={dropdownRef}>
                                     <label className="text-[9px] font-black uppercase tracking-widest ml-1 flex items-center justify-between text-zinc-500">
@@ -545,13 +655,15 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                 </div>
                             </div>
 
+                            {/* CHECKLIST & REASON GRID */}
+                            <div className={`grid grid-cols-1 ${isEditing && formData.status === 'menginap' ? 'md:grid-cols-2' : ''} gap-2 mb-0.5`}>
                                 {/* JOB CHECKLIST BUILDER */}
-                            <div className="bg-zinc-50 p-2 rounded-xl border border-zinc-100 mb-0.5">
+                                <div className="bg-zinc-50 p-2 rounded-xl border border-zinc-100 flex flex-col">
                                     <label className="text-[9px] font-black uppercase text-zinc-400 tracking-widest ml-3 mb-2 block flex items-center gap-2">
-                                        <FileText size={12} className="text-blue-600" /> Job Checklist / Item Pekerjaan
+                                        <FileText size={12} className="text-black" /> Job Checklist
                                     </label>
                                     <div className="flex gap-2 px-3 mb-2">
-                                        <input type="text" placeholder="Tambah item pekerjaan..."
+                                        <input type="text" placeholder="Tambah item..."
                                             className="flex-1 bg-white border border-zinc-200 p-2 rounded-xl text-[10px] font-bold focus:border-blue-600 outline-none shadow-sm"
                                             id="initialTaskInput"
                                             onKeyPress={(e) => {
@@ -577,20 +689,34 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
 
                                     <div className="space-y-1 max-h-[60px] overflow-y-auto px-4 custom-scrollbar">
                                         {(formData.checklist || []).length === 0 ? (
-                                            <p className="text-center text-[10px] font-bold text-zinc-300 uppercase py-2 italic">Belum ada item ditambahkan</p>
+                                            <p className="text-center text-[10px] font-bold text-zinc-300 uppercase py-2 italic">No tasks</p>
                                         ) : (
                                             formData.checklist.map((t, idx) => (
-                                                <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-lg border border-zinc-100 shadow-sm animate-fade-in">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-5 h-5 rounded bg-zinc-50 border border-zinc-200 flex items-center justify-center text-[10px] font-black text-zinc-400">{idx + 1}</div>
-                                                        <span className="text-[10px] font-bold text-zinc-900 uppercase tracking-tight">{t.text}</span>
-                                                    </div>
-                                                    <button onClick={() => setFormData({ ...formData, checklist: formData.checklist.filter((_, i) => i !== idx) })} className="p-1.5 text-zinc-300 hover:text-red-500 transition-all"><Trash size={14} /></button>
+                                                <div key={idx} className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-zinc-100 shadow-sm">
+                                                    <span className="text-[9px] font-bold text-zinc-900 uppercase tracking-tight truncate max-w-[120px]">{t.text}</span>
+                                                    <button onClick={() => setFormData({ ...formData, checklist: formData.checklist.filter((_, i) => i !== idx) })} className="p-1 text-zinc-300 hover:text-red-500 transition-all"><Trash size={12} /></button>
                                                 </div>
                                             ))
                                         )}
                                     </div>
                                 </div>
+
+                                {/* REASON MENGINAP (Hanya tampil jika sedang EDIT unit MENGINAP) */}
+                                {isEditing && formData.status === 'menginap' && (
+                                    <div className="bg-zinc-50 p-2 rounded-xl border border-zinc-100 flex flex-col justify-center animate-fade-in">
+                                        <label className="text-[9px] font-black uppercase text-zinc-400 tracking-widest ml-3 mb-1.5 block flex items-center gap-2">
+                                            <Moon size={12} className="text-zinc-400" /> Reason Menginap
+                                        </label>
+                                        <textarea 
+                                            rows="3"
+                                            placeholder="Alasan menginap..."
+                                            className="w-full bg-white border border-zinc-200 p-2.5 rounded-xl text-[10px] font-black uppercase outline-none focus:border-red-600 text-zinc-900 transition-all shadow-inner resize-none"
+                                            value={formData.menginap_reason || ''}
+                                            onChange={(e) => setFormData({ ...formData, menginap_reason: e.target.value.toUpperCase() })}
+                                        />
+                                    </div>
+                                )}
+                            </div>
                             </div> {/* Penutup Kolom Kiri */}
 
                             {/* KOLOM KANAN: Sidebar (Durasi & Tombol Aktifkan) */}
@@ -724,8 +850,13 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                 <td className="px-6 py-5 text-right">
                                                     <div className="flex justify-end gap-2.5 opacity-100 lg:opacity-40 group-hover:opacity-100 transition-all duration-300">
                                                         {(item.status === 'working' || item.status === 'waiting' || item.status === 'menginap') && (
-                                                            <button onClick={() => handleComplete(item)} className="p-3 bg-emerald-500 hover:bg-zinc-900 text-white rounded-xl shadow-sm transition-all active:scale-95" title="Selesai pengerjaan">
-                                                                <Check size={18} strokeWidth={4} />
+                                                            <button 
+                                                                onClick={() => handleComplete(item)} 
+                                                                disabled={isLoadingProcess}
+                                                                className={`p-3 text-white rounded-xl shadow-sm transition-all active:scale-95 ${isLoadingProcess ? 'bg-zinc-400 cursor-not-allowed' : 'bg-emerald-500 hover:bg-zinc-900'}`} 
+                                                                title="Selesai pengerjaan"
+                                                            >
+                                                                {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <Check size={18} strokeWidth={4} />}
                                                             </button>
                                                         )}
                                                         {item.status !== 'completed' && (
@@ -739,10 +870,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                                 </button>
                                                             )
                                                         )}
-                                                        <button onClick={() => setShowChecklistModal(item)} className="p-3 bg-blue-50 text-blue-600 border border-blue-100 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm" title="Keluhan & Checklist Pekerjaan">
-                                                            <FileText size={16} />
-                                                        </button>
-                                                        <button onClick={() => editItem(item)} className="p-3 bg-white text-zinc-400 border border-zinc-200 rounded-xl hover:bg-zinc-900 hover:text-white transition-all shadow-sm" title="Edit Data Unit">
+                                                         <button onClick={() => editItem(item)} className="p-3 bg-white text-zinc-400 border border-zinc-200 rounded-xl hover:bg-zinc-900 hover:text-white transition-all shadow-sm" title="Edit Data Unit">
                                                             <Edit3 size={16} />
                                                         </button>
                                                         <button onClick={() => deleteItem(item.id)} className="p-3 bg-white text-rose-400 border border-rose-100 rounded-xl hover:bg-rose-600 hover:text-white transition-all shadow-sm" title="Remove Task">
@@ -797,6 +925,17 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                 className="bg-white border-2 border-zinc-100 px-6 py-3.5 rounded-2xl text-xs font-black text-zinc-950 uppercase outline-none focus:border-red-600 shadow-sm cursor-pointer"
                             />
                             <div className="h-8 w-px bg-zinc-200 mx-2"></div>
+                            <div className="flex items-center gap-4">
+                        <button 
+                            onClick={() => playNotificationSound("Mobil anda sudah siap Silahkan ke Ruangan  S A")}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-indigo-100"
+                        >
+                            <Zap size={16} fill="white" /> Test Notif Suara
+                        </button>
+                        <button onClick={clearQueue} className="bg-red-50 hover:bg-red-600 text-red-600 hover:text-white px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all active:scale-95 border-2 border-red-100 hover:border-red-600">
+                            <Trash2 size={16} /> Clear List
+                        </button>
+                    </div>
                             <button 
                                 onClick={() => {
                                     setCreateBookingForm({ tanggal: new Date().toISOString().split('T')[0], jam: '08.30', namaCustomer: '', noTelp: '', tipeMobil: '', noPlat: '', keperluanService: 'Service', vin: '' });
@@ -940,15 +1079,22 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                 const allSlots = generateSlots(slotCount);
                                                 
                                                 return allSlots.map(s => {
-                                                    const isFull = rawBookings.some(b => b.id !== 999999 && b.tanggal === createBookingForm.tanggal && b.jam === s && (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed'));
+                                                    const bookingsAtSlot = rawBookings.filter(b => {
+                                                        const isDateSame = b.tanggal === createBookingForm.tanggal;
+                                                        const isJamSame = normalizeJam(b.jam) === normalizeJam(s);
+                                                        const isActive = b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed';
+                                                        return b.id !== 999999 && isDateSame && isJamSame && isActive;
+                                                    });
+                                                    const isFull = bookingsAtSlot.length >= 1; 
                                                     const isSelected = createBookingForm.jam === s;
                                                     return (
                                                         <button key={s} type="button" disabled={isFull && !isSelected} onClick={() => setCreateBookingForm({...createBookingForm, jam: s})}
                                                             className={`py-3 px-1 rounded-xl border-2 font-black text-[9px] uppercase tracking-widest transition-all relative flex flex-col items-center justify-center gap-0.5
                                                                 ${isSelected ? 'bg-zinc-950 border-zinc-950 text-white shadow-lg scale-105 z-10' : 
-                                                                  isFull ? 'bg-red-50 border-red-100 text-red-200 cursor-not-allowed opacity-60' : 
+                                                                  isFull ? 'bg-red-600 border-red-900 text-white cursor-not-allowed opacity-100 shadow-inner' : 
                                                                   'bg-white border-zinc-100 text-zinc-950 hover:border-red-600'}`}>
                                                             <span>{s}</span>
+                                                            <span className="text-[6px] opacity-70">{bookingsAtSlot.length}/1</span>
                                                         </button>
                                                     );
                                                 });
@@ -957,28 +1103,53 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-8">
-                                        <div className="space-y-3"><label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 ml-1">Nama Customer</label><input type="text" className="w-full bg-zinc-50 border-2 border-zinc-100 p-4 rounded-2xl font-black text-sm text-zinc-950 uppercase" value={createBookingForm.namaCustomer} onChange={e => setCreateBookingForm({...createBookingForm, namaCustomer: e.target.value})} /></div>
-                                        <div className="space-y-3"><label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 ml-1">WhatsApp</label><input type="text" className="w-full bg-zinc-50 border-2 border-zinc-100 p-4 rounded-2xl font-black text-sm text-zinc-950" value={createBookingForm.noTelp} onChange={e => setCreateBookingForm({...createBookingForm, noTelp: e.target.value})} /></div>
+                                        <div className="space-y-4">
+                                            <label className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400 ml-1 flex items-center gap-2">
+                                                <User size={14} className="text-zinc-400" /> Nama Customer
+                                            </label>
+                                            <input type="text" className="w-full bg-zinc-50 border-2 border-zinc-100 p-6 rounded-2xl font-black text-xl text-zinc-950 uppercase focus:border-red-600 outline-none transition-all shadow-inner" value={createBookingForm.namaCustomer} onChange={e => setCreateBookingForm({...createBookingForm, namaCustomer: e.target.value})} />
+                                        </div>
+                                        <div className="space-y-4">
+                                            <label className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400 ml-1 flex items-center gap-2">
+                                                <Zap size={14} className="text-zinc-400" /> WhatsApp
+                                            </label>
+                                            <input type="text" className="w-full bg-zinc-50 border-2 border-zinc-100 p-6 rounded-2xl font-black text-xl text-zinc-950 focus:border-red-600 outline-none transition-all shadow-inner" value={createBookingForm.noTelp} onChange={e => setCreateBookingForm({...createBookingForm, noTelp: e.target.value})} />
+                                        </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-8">
-                                        <div className="space-y-3"><label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 ml-1">Model Kendaraan</label><input type="text" className="w-full bg-zinc-50 border-2 border-zinc-100 p-4 rounded-2xl font-black text-sm text-zinc-950 uppercase" value={createBookingForm.tipeMobil} onChange={e => setCreateBookingForm({...createBookingForm, tipeMobil: e.target.value})} /></div>
-                                        <div className="space-y-3"><label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 ml-1">Nomor Polisi</label><input type="text" className="w-full bg-zinc-50 border-2 border-zinc-100 p-4 rounded-2xl font-black text-sm text-zinc-950 uppercase" value={createBookingForm.noPlat} onChange={e => setCreateBookingForm({...createBookingForm, noPlat: e.target.value.toUpperCase()})} /></div>
+                                        <div className="space-y-4">
+                                            <label className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400 ml-1 flex items-center gap-2">
+                                                <Car size={14} className="text-zinc-400" /> Model Kendaraan
+                                            </label>
+                                            <input type="text" className="w-full bg-zinc-50 border-2 border-zinc-100 p-6 rounded-2xl font-black text-xl text-zinc-950 uppercase focus:border-red-600 outline-none transition-all shadow-inner" value={createBookingForm.tipeMobil} onChange={e => setCreateBookingForm({...createBookingForm, tipeMobil: e.target.value})} />
+                                        </div>
+                                        <div className="space-y-4">
+                                            <label className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400 ml-1 flex items-center gap-2">
+                                                <Activity size={14} className="text-zinc-400" /> Nomor Polisi
+                                            </label>
+                                            <input type="text" className="w-full bg-zinc-50 border-2 border-zinc-100 p-6 rounded-2xl font-black text-xl text-zinc-950 uppercase focus:border-red-600 outline-none transition-all shadow-inner" value={createBookingForm.noPlat} onChange={e => setCreateBookingForm({...createBookingForm, noPlat: e.target.value.toUpperCase().replace(/\s+/g, '')})} />
+                                        </div>
                                     </div>
-                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 ml-1">Keperluan Service</label><textarea className="w-full bg-zinc-50 border-2 border-zinc-100 p-6 rounded-[2rem] font-black text-sm text-zinc-950 min-h-[120px]" value={createBookingForm.keperluanService} onChange={e => setCreateBookingForm({...createBookingForm, keperluanService: e.target.value})} /></div>
+                                    <div className="space-y-4">
+                                        <label className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400 ml-1 flex items-center gap-2">
+                                            <FileText size={14} className="text-zinc-400" /> Keperluan Service
+                                        </label>
+                                        <textarea className="w-full bg-zinc-50 border-2 border-zinc-100 p-8 rounded-[2.5rem] font-black text-xl text-zinc-950 min-h-[150px] focus:border-red-600 outline-none transition-all shadow-inner" value={createBookingForm.keperluanService} onChange={e => setCreateBookingForm({...createBookingForm, keperluanService: e.target.value})} />
+                                    </div>
                                 </div>
                                 <div className="p-8 bg-zinc-50 border-t-2 border-zinc-100 flex gap-4 shrink-0">
                                     <button onClick={() => setIsCreateBookingModalOpen(false)} className="flex-1 py-5 bg-white border-2 border-zinc-100 text-zinc-400 rounded-[1.5rem] font-black text-xs uppercase hover:border-zinc-950 hover:text-zinc-950 transition-all">Cancel</button>
                                     <button 
                                         onClick={async () => {
                                             if(!createBookingForm.noPlat || !createBookingForm.tipeMobil) return Toastify({text: "Plat dan Tipe Wajib Diisi", background: "red"}).showToast();
-                                            const { error } = await supabase.from('booking').insert([{
+                                            const { error: insertError } = await supabase.from('booking').insert([{
                                                 id: Date.now(),
                                                 ...createBookingForm,
                                                 noPlat: createBookingForm.noPlat.toUpperCase().replace(/\s+/g, ''),
                                                 status: 'accepted',
                                                 bookingVia: `ADMIN / ${user?.name || 'Authorized'}`
                                             }]);
-                                            if (error) Toastify({ text: "Gagal membuat booking!", background: "red" }).showToast();
+                                            if (insertError) Toastify({ text: "Gagal membuat booking!", background: "red" }).showToast();
                                             else { Toastify({ text: "Booking berhasil dibuat!", background: "zinc-900" }).showToast(); setIsCreateBookingModalOpen(false); fetchBookings(); }
                                         }}
                                         className="flex-[2] py-5 bg-zinc-950 text-white rounded-[1.5rem] font-black text-xs uppercase shadow-2xl shadow-zinc-300 hover:bg-black transition-all flex items-center justify-center gap-3"
@@ -1006,11 +1177,13 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                 
                                 <div className="flex-1 overflow-y-auto p-10 space-y-8 custom-scrollbar">
                                     <div className="grid grid-cols-2 gap-8">
-                                        <div className="space-y-3">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 ml-1">Tanggal Kedatangan</label>
+                                        <div className="space-y-4">
+                                            <label className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400 ml-1 flex items-center gap-2">
+                                                <Bookmark size={14} className="text-zinc-400" /> Tanggal Kedatangan
+                                            </label>
                                             <input 
                                                 type="date" 
-                                                className="w-full bg-zinc-50 border-2 border-zinc-100 p-4 rounded-2xl font-black text-sm text-zinc-950 focus:border-red-600 outline-none transition-all"
+                                                className="w-full bg-zinc-50 border-2 border-zinc-100 p-6 rounded-2xl font-black text-xl text-zinc-950 focus:border-red-600 outline-none transition-all shadow-inner"
                                                 value={editingBooking.tanggal}
                                                 onChange={e => setEditingBooking({...editingBooking, tanggal: e.target.value})}
                                             />
@@ -1061,20 +1234,24 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-8">
-                                        <div className="space-y-3">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 ml-1">Nama Customer</label>
+                                        <div className="space-y-4">
+                                            <label className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400 ml-1 flex items-center gap-2">
+                                                <User size={14} className="text-zinc-400" /> Nama Customer
+                                            </label>
                                             <input 
                                                 type="text" 
-                                                className="w-full bg-zinc-50 border-2 border-zinc-100 p-4 rounded-2xl font-black text-sm text-zinc-950 focus:border-red-600 outline-none transition-all uppercase"
+                                                className="w-full bg-zinc-50 border-2 border-zinc-100 p-6 rounded-2xl font-black text-xl text-zinc-950 focus:border-red-600 outline-none transition-all uppercase shadow-inner"
                                                 value={editingBooking.namaCustomer}
                                                 onChange={e => setEditingBooking({...editingBooking, namaCustomer: e.target.value})}
                                             />
                                         </div>
-                                        <div className="space-y-3">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 ml-1">WhatsApp</label>
+                                        <div className="space-y-4">
+                                            <label className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400 ml-1 flex items-center gap-2">
+                                                <Zap size={14} className="text-zinc-400" /> WhatsApp
+                                            </label>
                                             <input 
                                                 type="text" 
-                                                className="w-full bg-zinc-50 border-2 border-zinc-100 p-4 rounded-2xl font-black text-sm text-zinc-950 focus:border-red-600 outline-none transition-all"
+                                                className="w-full bg-zinc-50 border-2 border-zinc-100 p-6 rounded-2xl font-black text-xl text-zinc-950 focus:border-red-600 outline-none transition-all shadow-inner"
                                                 value={editingBooking.noTelp}
                                                 onChange={e => setEditingBooking({...editingBooking, noTelp: e.target.value})}
                                             />
@@ -1082,30 +1259,36 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-8">
-                                        <div className="space-y-3">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 ml-1">Model Kendaraan</label>
+                                        <div className="space-y-4">
+                                            <label className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400 ml-1 flex items-center gap-2">
+                                                <Car size={14} className="text-zinc-400" /> Model Kendaraan
+                                            </label>
                                             <input 
                                                 type="text" 
-                                                className="w-full bg-zinc-50 border-2 border-zinc-100 p-4 rounded-2xl font-black text-sm text-zinc-950 focus:border-red-600 outline-none transition-all uppercase"
+                                                className="w-full bg-zinc-50 border-2 border-zinc-100 p-6 rounded-2xl font-black text-xl text-zinc-950 focus:border-red-600 outline-none transition-all uppercase shadow-inner"
                                                 value={editingBooking.tipeMobil}
                                                 onChange={e => setEditingBooking({...editingBooking, tipeMobil: e.target.value})}
                                             />
                                         </div>
-                                        <div className="space-y-3">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 ml-1">Nomor Polisi</label>
+                                        <div className="space-y-4">
+                                            <label className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400 ml-1 flex items-center gap-2">
+                                                <Activity size={14} className="text-zinc-400" /> Nomor Polisi
+                                            </label>
                                             <input 
                                                 type="text" 
-                                                className="w-full bg-zinc-50 border-2 border-zinc-100 p-4 rounded-2xl font-black text-sm text-zinc-950 focus:border-red-600 outline-none transition-all uppercase"
+                                                className="w-full bg-zinc-50 border-2 border-zinc-100 p-6 rounded-2xl font-black text-xl text-zinc-950 focus:border-red-600 outline-none transition-all uppercase shadow-inner"
                                                 value={editingBooking.noPlat}
-                                                onChange={e => setEditingBooking({...editingBooking, noPlat: e.target.value.toUpperCase()})}
+                                                onChange={e => setEditingBooking({...editingBooking, noPlat: e.target.value.toUpperCase().replace(/\s+/g, '')})}
                                             />
                                         </div>
                                     </div>
 
-                                    <div className="space-y-3">
-                                        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 ml-1">Keperluan Service</label>
+                                    <div className="space-y-4">
+                                        <label className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400 ml-1 flex items-center gap-2">
+                                            <FileText size={14} className="text-zinc-400" /> Keperluan Service
+                                        </label>
                                         <textarea 
-                                            className="w-full bg-zinc-50 border-2 border-zinc-100 p-6 rounded-[2rem] font-black text-sm text-zinc-950 focus:border-red-600 outline-none transition-all min-h-[120px]"
+                                            className="w-full bg-zinc-50 border-2 border-zinc-100 p-8 rounded-[2.5rem] font-black text-xl text-zinc-950 focus:border-red-600 outline-none transition-all min-h-[150px] shadow-inner"
                                             value={editingBooking.keperluanService}
                                             onChange={e => setEditingBooking({...editingBooking, keperluanService: e.target.value})}
                                         />

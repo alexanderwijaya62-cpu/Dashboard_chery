@@ -3,7 +3,7 @@ import {
   Moon, Users, Monitor, Smartphone, Wifi, WifiOff,
   LogOut, RefreshCw, Globe, MapPin, Clock, Lock,
   AlertTriangle, CheckCircle, Trash2, Key, Eye, EyeOff,
-  Activity, Crown, XCircle, Menu, X, Car
+  Activity, Crown, XCircle, Menu, X, Car, Upload, Volume2, Play, Square, Edit3
 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import { supabase } from '../utils/supabaseClient';
@@ -24,13 +24,25 @@ const DeviceIcon = ({ device }) => {
   return <Monitor size={16} />;
 };
 
-export default function OwnerPanel({ user, handleLogout, processedQueue = [], rawHistory = [], formatTime }) {
+export default function OwnerPanel({ 
+  user, handleLogout, processedQueue = [], rawHistory = [], formatTime,
+  handleSave, deleteItem, editItem, setFormData, formData, isEditing, setIsEditing,
+  handleCancelEdit, handleAddTask, handleRemoveTask, handleToggleTask, isLoadingProcess
+}) {
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('monitoring');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [deletedBookings, setDeletedBookings] = useState([]);
+  const [notifSoundUrl, setNotifSoundUrl] = useState('');
+  const [isUploadingSound, setIsUploadingSound] = useState(false);
+  const [previewAudio, setPreviewAudio] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isSoundEnabled, setIsSoundEnabled] = useState(true);
+  const [mechanics, setMechanics] = useState([]);
+  const soundFileRef = React.useRef(null);
+  const audioRef = React.useRef(null);
 
   const fetchDeletedBookings = useCallback(async () => {
     try {
@@ -46,6 +58,95 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
     if (activeTab === 'deleted_bookings') fetchDeletedBookings();
   }, [activeTab, fetchDeletedBookings]);
 
+  // Fetch notification sound URL and status from settings
+  const fetchNotifSettings = useCallback(async () => {
+    try {
+      const { data: urlData } = await supabase.from('settings').select('*').eq('key', 'notification_sound_url').maybeSingle();
+      if (urlData) setNotifSoundUrl(urlData.value);
+
+      const { data: statusData } = await supabase.from('settings').select('*').eq('key', 'notification_sound_enabled').maybeSingle();
+      if (statusData) setIsSoundEnabled(statusData.value === 'true');
+    } catch (e) { 
+      // Silently ignore table errors
+    }
+  }, [setNotifSoundUrl, setIsSoundEnabled]);
+
+  useEffect(() => {
+    fetchNotifSettings();
+  }, [fetchNotifSettings]);
+
+  const handleUploadSound = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('audio/')) {
+      Toastify({ text: '❌ Hanya file audio yang diizinkan!', style: { background: '#ef4444' } }).showToast();
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      Toastify({ text: '❌ Ukuran file maksimal 5MB!', style: { background: '#ef4444' } }).showToast();
+      return;
+    }
+
+    setIsUploadingSound(true);
+    try {
+      const fileName = `notification_${Date.now()}.${file.name.split('.').pop()}`;
+      
+      // Upload to Supabase Storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('audio')
+        .upload(fileName, file, { upsert: true, contentType: file.type });
+
+      if (uploadError) {
+        if (uploadError.message?.includes('not found') || uploadError.error === 'Bucket not found') {
+          throw new Error('Bucket "audio" belum dibuat di Supabase Storage. Silakan buat bucket bernama "audio" dengan akses Public di dashboard Supabase Anda.');
+        }
+        throw uploadError;
+      }
+
+      // Get public URL
+      const { data: urlData } = supabase.storage.from('audio').getPublicUrl(fileName);
+      const publicUrl = urlData.publicUrl;
+
+      // Save URL to settings table
+      await supabase.from('settings').upsert({ key: 'notification_sound_url', value: publicUrl }, { onConflict: 'key' });
+
+      setNotifSoundUrl(publicUrl);
+      Toastify({ text: '✅ Suara notifikasi berhasil diupload!', style: { background: '#10b981' } }).showToast();
+    } catch (err) {
+      console.error('Upload Error:', err);
+      Toastify({ text: `❌ Gagal upload: ${err.message}`, style: { background: '#ef4444' } }).showToast();
+    } finally {
+      setIsUploadingSound(false);
+      e.target.value = '';
+    }
+  };
+
+  const handlePlayPreview = () => {
+    if (!notifSoundUrl) return;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+      setIsPlaying(false);
+      return;
+    }
+    const audio = new Audio(notifSoundUrl);
+    audio.onended = () => { setIsPlaying(false); audioRef.current = null; };
+    audio.play().catch(() => {});
+    audioRef.current = audio;
+    setIsPlaying(true);
+  };
+
+  const handleToggleSound = async () => {
+    const newState = !isSoundEnabled;
+    setIsSoundEnabled(newState);
+    try {
+      await supabase.from('settings').upsert({ key: 'notification_sound_enabled', value: newState.toString() }, { onConflict: 'key' });
+      Toastify({ text: `🔊 Notifikasi Suara ${newState ? 'AKTIF' : 'NONAKTIF'}`, style: { background: newState ? '#10b981' : '#ef4444' } }).showToast();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   // Modal State
   const [modal, setModal] = useState({ type: null, user: null });
   const [newPassword, setNewPassword] = useState('');
@@ -55,7 +156,7 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('id, username, name, role, isOnline, sessionId, lastLogin, lastDevice, lastBrowser, lastIP, lastLocation');
+        .select('*');
       if (error) throw error;
       setUsers(data || []);
     } catch (e) {
@@ -74,6 +175,14 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
       .subscribe();
     return () => supabase.removeChannel(channel);
   }, [fetchUsers]);
+
+  useEffect(() => {
+    const fetchMechanics = async () => {
+        const { data } = await supabase.from('users').select('name').eq('role', 'mekanik');
+        if (data) setMechanics(data);
+    };
+    fetchMechanics();
+  }, []);
 
   const handleForceLogout = async (targetUser) => {
     try {
@@ -147,13 +256,26 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
 
   const handleRemoteRefresh = async () => {
     try {
-      const { error } = await supabase.channel('remote_control').send({
-        type: 'broadcast',
-        event: 'force-refresh',
-        payload: { message: 'Owner triggered refresh' }
+      // Create channel with a ref or ensure it's ready. 
+      // For broadcasting, we need to subscribe first or use the same channel instance
+      const channel = supabase.channel('remote_control');
+      
+      channel.subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          const { error } = await channel.send({
+            type: 'broadcast',
+            event: 'force-refresh',
+            payload: { message: 'Owner triggered refresh' }
+          });
+          if (error) throw error;
+          Toastify({ 
+            text: '🚀 RESTART GLOBAL: Seluruh layar sedang dimuat ulang...', 
+            style: { background: 'linear-gradient(135deg, #6366f1, #4f46e5)', borderRadius: '15px', fontWeight: 'bold' } 
+          }).showToast();
+          // Cleanup
+          setTimeout(() => supabase.removeChannel(channel), 2000);
+        }
       });
-      if (error) throw error;
-      Toastify({ text: '🚀 Perintah Refresh Seluruh Layar Terkirim!', style: { background: '#8b5cf6' } }).showToast();
     } catch (e) {
       console.error(e);
       Toastify({ text: '❌ Gagal mengirim perintah refresh', style: { background: '#ef4444' } }).showToast();
@@ -212,6 +334,7 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
             { id: 'monitoring', label: 'Live Monitoring', icon: Activity },
             { id: 'workshop', label: 'Antrian Workshop', icon: Car },
             { id: 'users', label: 'Manajemen User', icon: Users },
+            { id: 'notification_sound', label: 'Notifikasi Suara', icon: Volume2 },
             { id: 'deleted_bookings', label: 'Riwayat Hapus Booking', icon: Trash2 },
           ].map(item => (
             <button key={item.id}
@@ -226,21 +349,19 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
           ))}
         </nav>
 
-        {/* User Info */}
-        <div className="p-4 border-t border-white/5">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center font-black text-white text-sm">
+        <div className="p-6 border-t border-white/5 bg-black/10 transition-all duration-300">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center font-black text-white text-sm shadow-lg shadow-purple-900/20">
               {user?.name?.[0] || 'O'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-white truncate">{user?.name || 'Owner'}</p>
-              <p className="text-[10px] text-white/40 capitalize">{user?.role}</p>
+              <p className="text-sm font-black text-white truncate tracking-tight">{user?.name || 'Owner'}</p>
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse"></div>
+                <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest leading-none">{user?.role}</p>
+              </div>
             </div>
           </div>
-          <button onClick={handleLogout}
-            className="w-full py-2.5 rounded-xl bg-red-500/10 text-red-400 font-bold text-xs hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2">
-            <LogOut size={14} /> Logout
-          </button>
         </div>
       </aside>
 
@@ -254,7 +375,7 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
             </button>
             <div>
               <h2 className="text-white font-black text-base md:text-lg">
-                {activeTab === 'monitoring' ? '🔴 Live Session Monitoring' : activeTab === 'workshop' ? '🚗 Antrian Workshop Realtime' : activeTab === 'users' ? '👥 Manajemen User' : '🗑️ Riwayat Penghapusan Data'}
+                {activeTab === 'monitoring' ? '🔴 Live Session Monitoring' : activeTab === 'workshop' ? '🚗 Antrian Workshop Realtime' : activeTab === 'users' ? '👥 Manajemen User' : activeTab === 'notification_sound' ? '🔔 Notifikasi Suara' : '🗑️ Riwayat Penghapusan Data'}
               </h2>
               <p className="text-white/30 text-xs font-medium">
                 {activeTab === 'monitoring'
@@ -263,7 +384,9 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
                     ? `${processedQueue.length} unit kendaraan dalam sistem`
                     : activeTab === 'users'
                       ? `${users.length} total user terdaftar`
-                      : `${deletedBookings.length} data yang terhapus`}
+                      : activeTab === 'notification_sound'
+                        ? 'Upload dan kelola suara notifikasi kustom'
+                        : `${deletedBookings.length} data yang terhapus`}
               </p>
             </div>
           </div>
@@ -272,8 +395,8 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
               <>
                 <button 
                   onClick={handleRemoteRefresh}
-                  className="hidden md:flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-900/40 border border-indigo-500/50">
-                  <RefreshCw size={14} /> Refresh Semua Board
+                  className="flex items-center gap-2 px-3 md:px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all font-black text-[9px] md:text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-900/40 border border-indigo-500/50 scale-90 md:scale-100">
+                  <RefreshCw size={14} /> Global Restart
                 </button>
                 <button 
                   onClick={() => setModal({ type: 'resetAll', user: null })}
@@ -439,7 +562,7 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
           {/* ====== TAB: WORKSHOP ====== */}
           {activeTab === 'workshop' && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 {/* Working Column */}
                 <WorkshopColumn
                   title="Sedang Dikerjakan"
@@ -447,6 +570,8 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
                   color="blue"
                   icon={Clock}
                   formatTime={formatTime}
+                  onEdit={editItem}
+                  onDelete={(id) => { if(window.confirm('Hapus unit dari antrian?')) deleteItem(id); }}
                 />
                 {/* Waiting Column */}
                 <WorkshopColumn
@@ -455,6 +580,8 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
                   color="orange"
                   icon={Activity}
                   formatTime={formatTime}
+                  onEdit={editItem}
+                  onDelete={(id) => { if(window.confirm('Hapus unit dari antrian?')) deleteItem(id); }}
                 />
                 {/* Overnight Column */}
                 <WorkshopColumn
@@ -463,6 +590,22 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
                   color="purple"
                   icon={Moon}
                   formatTime={formatTime}
+                  onEdit={editItem}
+                  onDelete={(id) => { if(window.confirm('Hapus unit dari antrian?')) deleteItem(id); }}
+                />
+                {/* Completed Today Column */}
+                <WorkshopColumn
+                   title="Sudah Selesai"
+                   items={rawHistory.filter(h => {
+                      const id = parseInt(h.id);
+                      const d = id < 2000000000 ? new Date(id * 1000) : new Date(id);
+                      return d.toDateString() === new Date().toDateString();
+                   })}
+                   color="green"
+                   icon={CheckCircle}
+                   formatTime={formatTime}
+                   onEdit={editItem}
+                   onDelete={(id) => { if(window.confirm('Hapus unit dari riwayat?')) deleteItem(id); }}
                 />
               </div>
             </div>
@@ -554,6 +697,126 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* ====== TAB: NOTIFICATION SOUND ====== */}
+          {activeTab === 'notification_sound' && (
+            <div className="space-y-6">
+              {/* Current Sound */}
+              <div className="bg-[#18181F] border border-white/5 rounded-3xl p-8">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-14 h-14 bg-gradient-to-br from-purple-500/20 to-indigo-500/20 rounded-2xl flex items-center justify-center">
+                    <Volume2 size={28} className="text-purple-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-black text-lg">Konfigurasi Notifikasi Suara</h3>
+                    <p className="text-white/40 text-xs font-medium">Aktifkan atau matikan suara pengumuman "Mobil [BK] Selesai" secara global.</p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col md:flex-row gap-6">
+                  {/* ON/OFF Switch */}
+                  <div className="flex-1 bg-white/5 border border-white/10 rounded-2xl p-6 flex items-center justify-between">
+                    <div>
+                      <p className="text-white font-black text-sm mb-1 uppercase tracking-tight">Status Notifikasi</p>
+                      <p className="text-white/40 text-[10px] font-medium">Jika OFF, suara tidak akan berbunyi.</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${isSoundEnabled ? 'text-green-400' : 'text-zinc-500'}`}>
+                        {isSoundEnabled ? 'Active' : 'Disabled'}
+                      </span>
+                      <button 
+                        onClick={handleToggleSound}
+                        className={`relative w-14 h-8 rounded-full transition-all duration-300 border-2 ${isSoundEnabled ? 'bg-green-500 border-green-600 shadow-lg shadow-green-900/50' : 'bg-zinc-800 border-zinc-700'}`}
+                      >
+                        <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all duration-300 shadow-sm ${isSoundEnabled ? 'left-7' : 'left-1'}`}></div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Intro Tip */}
+                  <div className="flex-1 bg-gradient-to-br from-purple-600/10 to-indigo-600/10 border border-purple-500/20 rounded-2xl p-6 flex items-center gap-4">
+                    <div className="p-3 bg-purple-500/10 rounded-xl">
+                      <Volume2 size={24} className="text-purple-400" />
+                    </div>
+                    <div>
+                      <p className="text-white font-black text-sm mb-1">Intro Kustom</p>
+                      <p className="text-white/40 text-[10px] font-medium">Suara upload di bawah akan menjadi "Intro" Bell sebelum TTS.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-8 border-t border-white/5 pt-8">
+                  <h4 className="text-white/30 text-[10px] font-black uppercase tracking-[0.2em] mb-4">Preview & Kelola File</h4>
+                  {notifSoundUrl ? (
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-5 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <button onClick={handlePlayPreview}
+                            className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all shadow-lg ${isPlaying ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'} text-white`}>
+                            {isPlaying ? <Square size={18} /> : <Play size={18} />}
+                          </button>
+                          <div>
+                            <p className="text-white font-bold text-sm">Preview</p>
+                            <p className="text-white/30 text-[10px] font-mono truncate max-w-[200px]">{notifSoundUrl.split('/').pop()}</p>
+                          </div>
+                        </div>
+                        <button onClick={async () => {
+                           if(window.confirm('Hapus suara kustom?')) {
+                             await supabase.from('settings').delete().eq('key', 'notification_sound_url');
+                             setNotifSoundUrl('');
+                             Toastify({ text: 'Kembali ke default', style: { background: '#6b7280' } }).showToast();
+                           }
+                        }}
+                          className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl transition-all">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-white/5 border-2 border-dashed border-white/10 rounded-2xl p-8 text-center text-white/30 font-bold text-sm">
+                      Menggunakan Suara Bawaan Sistem
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Upload & URL Section */}
+              <div className="bg-[#18181F] border border-white/5 rounded-3xl p-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div 
+                    onClick={() => soundFileRef.current?.click()}
+                    className="relative bg-white/5 border-2 border-dashed border-purple-500/30 rounded-2xl p-10 text-center cursor-pointer hover:bg-white/10 transition-all group"
+                  >
+                    <input type="file" ref={soundFileRef} className="hidden" accept="audio/*" onChange={handleUploadSound} />
+                    <Upload size={28} className="text-purple-400 mx-auto mb-4" />
+                    <p className="text-white font-black text-sm mb-1 uppercase tracking-tight">Upload File Audio</p>
+                    {isUploadingSound && <p className="text-purple-400 text-[10px] animate-pulse">Uploading...</p>}
+                  </div>
+
+                  <div className="bg-white/5 border border-white/10 rounded-2xl p-8">
+                    <h4 className="text-white font-black text-xs mb-4 uppercase tracking-widest text-white/40 px-1">Atau Manual URL</h4>
+                    <input 
+                      type="text" 
+                      placeholder="https://example.com/sound.mp3"
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-purple-500 transition-all mb-4"
+                      onKeyDown={async (e) => {
+                         if (e.key === 'Enter' && e.target.value) {
+                            await supabase.from('settings').upsert({ key: 'notification_sound_url', value: e.target.value }, { onConflict: 'key' });
+                            setNotifSoundUrl(e.target.value);
+                            Toastify({ text: '✅ URL Saved!', style: { background: '#10b981' } }).showToast();
+                            e.target.value = '';
+                         }
+                      }}
+                    />
+                    <p className="text-[9px] text-[#9CA3AF] italic leading-relaxed">
+                      *Tekan <b>ENTER</b> untuk simpan. <br/>
+                      *Gunakan jika upload bermasalah (pastikan bucket "audio" di Supabase sudah Public).
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -716,6 +979,95 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
         </div>
       )}
 
+      {/* ====== OWNER EDIT UNIT MODAL ====== */}
+      {isEditing && (
+        <div className="fixed inset-0 z-[110] bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#1C1C24] border border-white/10 rounded-[2.5rem] p-8 w-full max-w-2xl shadow-2xl relative overflow-hidden animate-fade-in">
+             <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-bl-full -z-10"></div>
+             
+             <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-4">
+                   <div className="p-3 bg-purple-600 rounded-2xl text-white shadow-lg shadow-purple-900/40">
+                      <Car size={24} />
+                   </div>
+                   <div>
+                      <h3 className="text-white font-black text-xl tracking-tight uppercase">Edit Unit Data</h3>
+                      <p className="text-white/30 text-[10px] font-bold uppercase tracking-widest mt-1">Direct Owner Database Access</p>
+                   </div>
+                </div>
+                <button onClick={handleCancelEdit} className="p-2 bg-white/5 text-white/40 hover:text-white rounded-xl transition-all">
+                   <X size={20} />
+                </button>
+             </div>
+
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <div className="space-y-2">
+                   <label className="text-[10px] font-black uppercase text-white/30 tracking-widest block ml-2">Nomor Polisi</label>
+                   <input 
+                      type="text" 
+                      value={formData.bk} 
+                      onChange={(e) => setFormData({...formData, bk: e.target.value.toUpperCase()})}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-3.5 text-white font-bold outline-none focus:border-purple-500/50 transition-all uppercase"
+                   />
+                </div>
+                <div className="space-y-2">
+                   <label className="text-[10px] font-black uppercase text-white/30 tracking-widest block ml-2">Tipe Mobil</label>
+                   <input 
+                      type="text" 
+                      value={formData.tipe} 
+                      onChange={(e) => setFormData({...formData, tipe: e.target.value.toUpperCase()})}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-3.5 text-white font-bold outline-none focus:border-purple-500/50 transition-all uppercase"
+                   />
+                </div>
+                <div className="space-y-2">
+                   <label className="text-[10px] font-black uppercase text-white/30 tracking-widest block ml-2">Kategori</label>
+                   <select 
+                      value={formData.category} 
+                      onChange={(e) => setFormData({...formData, category: e.target.value})}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-3.5 text-white font-bold outline-none focus:border-purple-500/50 transition-all"
+                   >
+                      <option value="Reguler" className="bg-[#1C1C24]">Reguler</option>
+                      <option value="Booking" className="bg-[#1C1C24]">Booking</option>
+                   </select>
+                </div>
+                <div className="space-y-2">
+                   <label className="text-[10px] font-black uppercase text-white/30 tracking-widest block ml-2">Assign Mechanic</label>
+                   <select 
+                      value={formData.mechanicName || ''} 
+                      onChange={(e) => setFormData({...formData, mechanicName: e.target.value})}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-3.5 text-white font-bold outline-none focus:border-purple-500/50 transition-all"
+                   >
+                      <option value="" className="bg-[#1C1C24]">-- Belum Assigned --</option>
+                      {mechanics.map(m => (
+                         <option key={m.name} value={m.name} className="bg-[#1C1C24]">{m.name}</option>
+                      ))}
+                   </select>
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                   <label className="text-[10px] font-black uppercase text-white/30 tracking-widest block ml-2">Keluhan / Service Detail</label>
+                   <textarea 
+                      rows="3"
+                      value={formData.keluhan} 
+                      onChange={(e) => setFormData({...formData, keluhan: e.target.value})}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-3.5 text-white font-bold outline-none focus:border-purple-500/50 transition-all uppercase resize-none"
+                   />
+                </div>
+             </div>
+
+             <div className="flex gap-4">
+                <button onClick={handleCancelEdit} className="flex-1 py-4 rounded-2xl bg-white/5 hover:bg-white/10 text-white/60 font-bold transition-all">Batal</button>
+                <button 
+                   disabled={isLoadingProcess}
+                   onClick={handleSave} 
+                   className="flex-2 flex-[2] py-4 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-black uppercase tracking-widest transition-all shadow-xl shadow-purple-900/40 flex items-center justify-center gap-2"
+                >
+                   {isLoadingProcess ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><CheckCircle size={18} /> Simpan Perubahan</>}
+                </button>
+             </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -726,18 +1078,19 @@ export default function OwnerPanel({ user, handleLogout, processedQueue = [], ra
 }
 
 // Reusable Workshop Column Component
-function WorkshopColumn({ title, items, color, icon: Icon, formatTime }) {
+function WorkshopColumn({ title, items, color, icon: Icon, formatTime, onEdit, onDelete }) {
   const colors = {
     blue: { border: 'border-blue-500/20', bg: 'bg-blue-500/20', text: 'text-blue-400', bar: 'bg-blue-500' },
     orange: { border: 'border-orange-500/20', bg: 'bg-orange-500/20', text: 'text-orange-400', bar: 'bg-orange-500' },
     purple: { border: 'border-purple-500/20', bg: 'bg-purple-500/20', text: 'text-purple-400', bar: 'bg-purple-500' },
+    green: { border: 'border-emerald-500/20', bg: 'bg-emerald-500/20', text: 'text-emerald-400', bar: 'bg-emerald-500' },
   };
 
   const c = colors[color];
 
   return (
-    <div className={`bg-[#18181F] border border-white/5 rounded-3xl p-5 flex flex-col h-full`}>
-      <div className="flex items-center gap-3 mb-6">
+    <div className={`bg-[#18181F] border border-white/5 rounded-3xl p-5 flex flex-col h-[500px]`}>
+      <div className="flex items-center gap-3 mb-6 shrink-0">
         <div className={`w-10 h-10 ${c.bg} rounded-2xl flex items-center justify-center`}>
           <Icon size={20} className={c.text} />
         </div>
@@ -747,20 +1100,25 @@ function WorkshopColumn({ title, items, color, icon: Icon, formatTime }) {
         </div>
       </div>
 
-      <div className="space-y-3 flex-1">
+      <div className="space-y-3 flex-1 overflow-y-auto no-scrollbar custom-scrollbar">
         {items.length === 0 ? (
-          <div className="h-20 flex items-center justify-center border-2 border-dashed border-white/5 rounded-2xl">
+          <div className="h-20 flex items-center justify-center border-2 border-dashed border-white/5 rounded-2xl shrink-0">
             <p className="text-white/20 text-[10px] font-bold uppercase">Kosong</p>
           </div>
         ) : (
           items.map(i => (
-            <div key={i.id} className={`bg-white/5 border-l-4 ${c.border} rounded-2xl p-4 space-y-2 group hover:bg-white/10 transition-all`}>
+            <div key={i.id} className={`bg-white/5 border-l-4 ${c.border} rounded-2xl p-4 space-y-2 group hover:bg-white/10 transition-all shrink-0 relative overflow-hidden`}>
               <div className="flex items-center justify-between">
                 <span className="text-white font-black font-mono text-lg">{i.bk}</span>
                 {color === 'blue' && (
                   <span className={`text-[10px] font-black font-mono ${i.estimasi < 300 ? 'text-red-500 animate-pulse' : 'text-blue-400'}`}>
                     {formatTime(i.estimasi)}
                   </span>
+                )}
+                {color === 'green' && i.waktuSelesai && (
+                   <span className="text-[9px] font-black text-emerald-400 font-mono">
+                      {i.waktuSelesai.split(',').pop().trim()}
+                   </span>
                 )}
               </div>
               <div className="flex flex-col gap-1">
@@ -769,6 +1127,24 @@ function WorkshopColumn({ title, items, color, icon: Icon, formatTime }) {
                   <div className="w-4 h-4 rounded-full bg-white/10 flex items-center justify-center text-[8px] text-white/50 font-black shrink-0">MK</div>
                   <p className="text-white/60 text-[10px] font-medium truncate">{i.mechanicName || '—'}</p>
                 </div>
+              </div>
+
+              {/* ACTION BUTTONS (Visible on Hover in Desktop, or always if needed) */}
+              <div className="flex gap-2 pt-2 border-t border-white/5 items-center justify-end">
+                 <button 
+                  onClick={() => onEdit(i)}
+                  className="p-1.5 bg-white/5 hover:bg-purple-600 text-white/40 hover:text-white rounded-lg transition-all"
+                  title="Edit Data"
+                 >
+                    <Edit3 size={12} />
+                 </button>
+                 <button 
+                  onClick={() => onDelete(i.id)}
+                  className="p-1.5 bg-white/5 hover:bg-red-600 text-white/40 hover:text-white rounded-lg transition-all"
+                  title="Hapus Data"
+                 >
+                    <Trash2 size={12} />
+                 </button>
               </div>
             </div>
           ))

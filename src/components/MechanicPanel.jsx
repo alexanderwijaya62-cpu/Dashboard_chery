@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { User, LogOut, CheckCircle, Calendar, Key, AlertCircle, TrendingUp, CheckCircle2, Eye, EyeOff, Zap, Shield, Clock, Activity, FileText } from 'lucide-react';
+import { User, LogOut, CheckCircle, Calendar, Key, AlertCircle, TrendingUp, CheckCircle2, Eye, EyeOff, Zap, Shield, Clock, Activity, FileText, X } from 'lucide-react';
 
 const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = [], queue = [], onStartWork, onComplete, onToggleTask, formatTime }) => {
     const [history, setHistory] = useState([]);
@@ -8,6 +8,7 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
     const [showPasswords, setShowPasswords] = useState({ old: false, new: false, confirm: false });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [selectedUnit, setSelectedUnit] = useState(null);
+    const [isLoadingProcess, setIsLoadingProcess] = useState(false);
 
     const toggleShow = (field) => setShowPasswords(prev => ({ ...prev, [field]: !prev[field] }));
 
@@ -112,14 +113,8 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                 </div>
                 <div className="flex items-center gap-3 w-full sm:w-auto">
                     <button
-                        onClick={handleLogout}
-                        className="flex-1 sm:flex-none bg-red-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-zinc-100 hover:text-zinc-900 transition-all shadow-lg shadow-red-900/20"
-                    >
-                        <LogOut size={16} /> Logout
-                    </button>
-                    <button
                         onClick={() => setSelectedUnit('settings')}
-                        className="p-3 bg-white/5 text-white/50 rounded-2xl hover:text-white transition-all"
+                        className="p-3 bg-white/5 text-white/50 rounded-2xl hover:text-white transition-all ml-auto"
                     >
                         <Key size={20} />
                     </button>
@@ -169,13 +164,18 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                                                 onClick={() => setSelectedUnit(item)}
                                                 className="flex-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-900 py-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 border border-zinc-200 shadow-sm"
                                             >
-                                                <FileText size={16} /> Detail & Tasks
+                                                <FileText size={16} className="text-black" /> Detail & Tasks
                                             </button>
                                             <button
-                                                onClick={() => onComplete(item)}
-                                                className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-emerald-200 transition-all active:scale-95 flex items-center justify-center gap-2 border-2 border-emerald-400"
+                                                onClick={async () => {
+                                                    setIsLoadingProcess(true);
+                                                    try { await onComplete(item); } catch(e) {}
+                                                    setIsLoadingProcess(false);
+                                                }}
+                                                disabled={isLoadingProcess}
+                                                className={`flex-1 py-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 border-2 ${isLoadingProcess ? 'bg-zinc-400 border-zinc-300 text-white cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-200 border-emerald-400'}`}
                                             >
-                                                <CheckCircle2 size={16} /> Selesai
+                                                {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><CheckCircle2 size={16} /> Selesai</>}
                                             </button>
                                         </div>
                                     </div>
@@ -430,14 +430,9 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
                 .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
             `}</style>
+
         </div>
     );
 };
-
-const X = ({ size }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M18 6L6 18M6 6l12 12" />
-    </svg>
-);
 
 export default MechanicPanel;

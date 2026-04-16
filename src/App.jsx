@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { LayoutDashboard, Settings, Calendar, Plus, Zap, FileText } from 'lucide-react';
+import { LayoutDashboard, Settings, Calendar, Plus, Zap, FileText, LogOut } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 
@@ -51,6 +51,39 @@ const formatTime = (totalSeconds) => {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 };
 
+const isToday = (time) => {
+    if (!time) return false;
+    try {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        let d;
+        if (typeof time === 'number') {
+            d = (time < 2000000000) ? new Date(time * 1000) : new Date(time);
+        } else if (typeof time === 'string') {
+            if (time.includes('/')) {
+                const parts = time.split(/[ ,]/)[0].split('/');
+                if (parts.length === 3) d = new Date(parts[2], parts[1] - 1, parts[0]);
+            } else if (time.includes('-')) {
+                const parts = time.split(/[ T]/)[0].split('-');
+                if (parts.length === 3) {
+                    if (parts[0].length === 4) d = new Date(parts[0], parts[1] - 1, parts[2]); // ISO
+                    else d = new Date(parts[2], parts[1] - 1, parts[0]); // DD-MM-YYYY
+                }
+            } else {
+                d = new Date(time);
+            }
+        } else {
+            d = new Date(time);
+        }
+        
+        if (!d || isNaN(d.getTime())) return false;
+        d.setHours(0, 0, 0, 0);
+        return d.getTime() === now.getTime();
+    } catch (e) { 
+        return false; 
+    }
+};
+
 const App = () => {
   // --- 1. STATE DEFINITIONS ---
   const [currentPage, setCurrentPage] = useState(() => {
@@ -62,6 +95,9 @@ const App = () => {
   });
   const [sessionId, setSessionId] = useState(() => {
     return localStorage.getItem('chery_session_id') || null;
+  });
+  const [lastLoginDate, setLastLoginDate] = useState(() => {
+    return localStorage.getItem('chery_last_login_date') || null;
   });
   const [isNavbarVisible, setIsNavbarVisible] = useState(true);
   const [isAtTop, setIsAtTop] = useState(true);
@@ -86,6 +122,7 @@ const App = () => {
       endMinuteFriday: 15
     };
   });
+  const [isSoundEnabled, setIsSoundEnabled] = useState(true);
 
   // Refs
   const navbarTimerRef = useRef(null);
@@ -344,6 +381,35 @@ const App = () => {
     };
   }, []);
 
+  // Auto Logout setelah 1 hari (Reset setiap jam 24:00)
+  useEffect(() => {
+    const checkDailyLogout = () => {
+      const today = new Date().toDateString(); // e.g. "Wed Apr 15 2026"
+      const storedDate = localStorage.getItem('chery_last_login_date');
+
+      if (user && storedDate && storedDate !== today) {
+        handleLogout(true);
+        localStorage.removeItem('chery_last_login_date');
+        Toastify({
+          text: "⏰ Sesi Anda telah berakhir (Sesi Harian). Silakan login kembali.",
+          duration: 0,
+          close: true,
+          gravity: 'top',
+          position: 'center',
+          style: { background: 'linear-gradient(135deg, #ef4444, #dc2626)', borderRadius: '16px', fontWeight: '800' }
+        }).showToast();
+      } else if (user && !storedDate) {
+        localStorage.setItem('chery_last_login_date', today);
+        setLastLoginDate(today);
+      }
+    };
+
+    checkDailyLogout();
+    // Cek setiap jam untuk memastikan jika aplikasi dibiarkan terbuka melewati tengah malam
+    const interval = setInterval(checkDailyLogout, 3600000);
+    return () => clearInterval(interval);
+  }, [user]);
+
   // Persist User & Session
   useEffect(() => {
     if (user) localStorage.setItem('chery_auth_user', JSON.stringify(user));
@@ -357,6 +423,7 @@ const App = () => {
 
   const fetchQueue = React.useCallback(async () => {
     try {
+      // Optimasi: Pilih hanya kolom yang dibutuhkan untuk mengurangi data egress
       const { data: activeQueue, error: qError } = await supabase
         .from('antrian')
         .select('*');
@@ -365,11 +432,16 @@ const App = () => {
         .from('history')
         .select('*')
         .order('targetTime', { ascending: false })
-        .limit(200);
+        .limit(100); 
+
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const bookingDateLimit = thirtyDaysAgo.toISOString().split('T')[0];
 
       const { data: bookingData, error: bError } = await supabase
         .from('booking')
-        .select('*');
+        .select('*')
+        .or(`tanggal.gte.${bookingDateLimit},id.eq.999999`);
 
       if (qError) throw qError;
       if (hError) throw hError;
@@ -381,11 +453,11 @@ const App = () => {
           id: item.id,
           bk: item.noPlat || item.no_plat || item.bk,
           tipe: item.tipeMobil || item.tipe_mobil || item.tipe,
-          category: item.category || 'Reguler', // Default ke Reguler jika kolom category kosong atau null
+          category: item.category || 'Reguler',
           keluhan: item.keluhanDetail || item.keluhan_detail || item.keluhan,
           mechanicName: item.mechanicName || item.mechanic_name || '',
           status: item.status,
-          estimasiDefault: item.estimasi_default || item.estimasiDefault || 0,
+          estimasiDefault: item.estimasiDefault || item.estimasi_default || 0,
           addedBy: item.addedBy || item.added_by || item.namaCustomer || item.nama_customer || '',
           checklist: item.checklist || [],
           menginap_reason: item.menginap_reason || '',
@@ -399,7 +471,7 @@ const App = () => {
 
       setQueue((activeQueue || []).map(mapDbToApp));
       setRawHistory((historyData || []).map(mapDbToApp));
-      setBookings((bookingData || []).filter(b => b.id !== 999999).map(mapDbToApp));
+      setBookings((bookingData || []).map(mapDbToApp));
     } catch (error) {
       console.error("Gagal mengambil data operasional Supabase", error);
     }
@@ -435,6 +507,14 @@ const App = () => {
       supabase.removeChannel(historySubscription);
       supabase.removeChannel(bookingSubscription);
     };
+  }, [fetchQueue]);
+
+  // Fallback Polling: Dikurangi frekuensinya menjadi 60 detik untuk hemat egress
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchQueue();
+    }, 60000); 
+    return () => clearInterval(interval);
   }, [fetchQueue]);
 
   // Update waktu lokal setiap detik untuk countdown
@@ -526,16 +606,75 @@ const App = () => {
     };
   }, [user, sessionId, currentPage]);
 
-  const [notifiedIds, setNotifiedIds] = useState(new Set());
-  const playNotificationSound = React.useCallback(() => {
-    try {
-      const audio = new Audio('https://raw.githubusercontent.com/shubhamjain/ios-notification-sounds/master/iphone_notification.mp3');
-      audio.volume = 1.0;
-      audio.play().catch(e => console.error("Audio play prevented:", e));
-    } catch (e) {
-      console.error("Audio error:", e);
-    }
+  const customSoundUrlRef = React.useRef(null);
+  const customSoundChecked = React.useRef(false);
+
+  // Fetch custom notification sound URL on mount
+  React.useEffect(() => {
+    const fetchCustomSound = async () => {
+      try {
+        const { data, error } = await supabase.from('settings').select('*').eq('key', 'notification_sound_url').maybeSingle();
+        if (!error && data && data.value) {
+          customSoundUrlRef.current = data.value;
+        }
+
+        const { data: soundStatus } = await supabase.from('settings').select('*').eq('key', 'notification_sound_enabled').maybeSingle();
+        if (soundStatus) setIsSoundEnabled(soundStatus.value === 'true');
+      } catch (e) { 
+        // Silently skip if table missing or other error
+      }
+      customSoundChecked.current = true;
+    };
+    fetchCustomSound();
+
+    // Listen for changes to the settings table
+    const settingsChannel = supabase.channel('settings-notif-sound')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, (payload) => {
+        if (payload.new) {
+          if (payload.new.key === 'notification_sound_url') {
+            customSoundUrlRef.current = payload.new.value || null;
+          }
+          if (payload.new.key === 'notification_sound_enabled') {
+            setIsSoundEnabled(payload.new.value === 'true');
+          }
+        }
+        if (payload.eventType === 'DELETE' && payload.old?.key === 'notification_sound_url') {
+          customSoundUrlRef.current = null;
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(settingsChannel); };
   }, []);
+
+  // notification sound function
+
+  const lastPlayedRef = React.useRef(0);
+  const playedTextsRef = React.useRef(new Set());
+
+  const playNotificationSound = React.useCallback((textOrBk) => {
+    if (!isSoundEnabled || !textOrBk || textOrBk === "Unit" || textOrBk === "undefined") return;
+
+    // Debounce: Cegah suara yang sama bunyi berkali-kali dalam 5 detik
+    const now = Date.now();
+    if (now - lastPlayedRef.current < 5000 && playedTextsRef.current.has(textOrBk)) return;
+    
+    lastPlayedRef.current = now;
+    playedTextsRef.current.add(textOrBk);
+    setTimeout(() => playedTextsRef.current.delete(textOrBk), 10000);
+
+    try {
+      const soundUrl = customSoundUrlRef.current || 'https://raw.githubusercontent.com/shubhamjain/ios-notification-sounds/master/iphone_notification.mp3';
+      const audio = new Audio(soundUrl);
+      audio.play().catch(e => console.warn("Audio autoplay blocked by browser:", e));
+    } catch (e) { 
+      console.error("Audio notification error:", e); 
+    }
+  }, [isSoundEnabled]);
+
+  const lastNotifCheckRef = React.useRef(0);
+  const notifiedIds = React.useRef(new Set());
+  const notifInitialized = React.useRef(false);
 
   // Request notification permission
   useEffect(() => {
@@ -544,71 +683,65 @@ const App = () => {
     }
   }, []);
 
-  // Initial populate notifiedIds from rawHistory
+  // Check for new completed items — runs whenever rawHistory updates
   useEffect(() => {
-    if (rawHistory.length > 0 && notifiedIds.size === 0) {
-      setNotifiedIds(new Set(rawHistory.map(item => item.id)));
+    if (rawHistory.length === 0) return;
+
+    // Pertama kali: seed semua ID existing agar tidak trigger notif untuk data lama
+    if (!notifInitialized.current) {
+      rawHistory.forEach(item => notifiedIds.current.add(item.id));
+      notifInitialized.current = true;
+      return;
     }
-  }, [rawHistory, notifiedIds.size]);
 
-  // Check for new completed items
-  useEffect(() => {
-    if (rawHistory.length > 0 && notifiedIds.size > 0) {
-      const todayStr = new Date().toDateString();
-      const newItems = rawHistory.filter(item => {
-        const isNotified = notifiedIds.has(item.id);
-        if (isNotified) return false;
-        
-        // Cek apakah item ini selesai hari ini (id adalah timestamp)
-        try {
-          const itemDate = new Date(parseInt(item.id) * 1000); // ID adalah unix seconds
-          return itemDate.toDateString() === todayStr;
-        } catch (e) {
-          return false;
-        }
-      });
+    const todayStr = new Date().toDateString();
+    const currentMs = Date.now();
+    
+    // Throttling notifikasi untuk hemat resource browser
+    if (currentMs - lastNotifCheckRef.current < 2000) return;
+    lastNotifCheckRef.current = currentMs;
 
-      if (newItems.length > 0) {
-        // Mainkan suara notifikasi
-        playNotificationSound();
-
-        newItems.forEach(item => {
-          // Push Notification
-          if ("Notification" in window && Notification.permission === "granted") {
-            new Notification(`✅ Mobil Selesai`, { body: `Mobil BK ${item.bk} (${item.tipe}) sudah selesai.` });
-          }
-          // In-app Notification
-          Toastify({
-            text: `✅ Mobil BK ${item.bk} (${item.tipe}) sudah selesai.`,
-            duration: 10000,
-            close: true,
-            gravity: "top",
-            position: "right",
-            style: {
-              background: "linear-gradient(135deg, #10b981, #059669)",
-              borderRadius: "16px",
-              fontWeight: "900",
-              boxShadow: "0 20px 40px rgba(16,185,129,0.3)",
-              border: "1px solid rgba(255,255,255,0.2)"
-            }
-          }).showToast();
-        });
-
-        // Update notifiedIds agar tidak berulang
-        setNotifiedIds(prev => {
-          const next = new Set(prev);
-          newItems.forEach(item => next.add(item.id));
-          return next;
-        });
+    const newItems = rawHistory.filter(item => {
+      if (notifiedIds.current.has(item.id)) return false;
+      try {
+        const itemDate = new Date(parseInt(item.id) < 2000000000 ? parseInt(item.id) * 1000 : parseInt(item.id));
+        return itemDate.toDateString() === todayStr;
+      } catch (e) {
+        return false;
       }
+    });
+
+    if (newItems.length > 0) {
+      newItems.forEach(item => {
+        notifiedIds.current.add(item.id);
+        playNotificationSound(item.bk);
+
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification(`✅ Mobil Selesai`, { body: `Mobil ${item.bk} (${item.tipe}) sudah selesai.` });
+        }
+        Toastify({
+          text: `✅ Mobil ${item.bk} (${item.tipe}) sudah selesai.`,
+          duration: 10000,
+          close: true,
+          gravity: "top",
+          position: "right",
+          style: {
+            background: "linear-gradient(135deg, #10b981, #059669)",
+            borderRadius: "16px",
+            fontWeight: "900",
+            boxShadow: "0 20px 40px rgba(16,185,129,0.3)",
+            border: "1px solid rgba(255,255,255,0.2)"
+          }
+        }).showToast();
+      });
     }
-  }, [rawHistory, notifiedIds, playNotificationSound]);
+  }, [rawHistory, playNotificationSound]);
 
   const isAutoUpdating = useRef(false);
 
   useEffect(() => {
     const checkAutoStatus = async () => {
-      if (isAutoUpdating.current) return;
+      if (isAutoUpdating.current || queue.length === 0) return;
 
       const nowObj = new Date();
       // Ensure we use Jakarta Time (WIB - GMT+7)
@@ -642,58 +775,66 @@ const App = () => {
 
       if (targetStatus) {
         const toUpdateFiltered = queue.filter(q => {
-          if (targetStatus === 'menginap') return q.status !== 'menginap';
+          if (targetStatus === 'menginap') return q.status !== 'menginap' && q.status !== 'completed';
           if (targetStatus === 'istirahat') return q.status === 'working';
           return false;
         });
 
         if (toUpdateFiltered.length > 0) {
           isAutoUpdating.current = true;
-          for (const item of toUpdateFiltered) {
-            let sisaDetik = parseInt(item.estimasiDefault) || 0;
-            if (item.status === 'working') {
-              const targetTime = parseInt(item.targetTime) || Date.now();
-              sisaDetik = Math.max(0, Math.floor((targetTime - Date.now()) / 1000));
-            }
-            try {
+          try {
+            for (const item of toUpdateFiltered) {
+              let sisaDetik = parseInt(item.estimasiDefault) || 0;
+              if (item.status === 'working') {
+                const targetTime = parseInt(item.targetTime) || Date.now();
+                sisaDetik = Math.max(0, Math.floor((targetTime - Date.now()) / 1000));
+              }
+              
               await supabase.from('antrian').update({
                 status: targetStatus,
-                estimasiDefault: sisaDetik, // Disesuaikan
-                mechanicName: item.mechanicName || '', // Disesuaikan
-                targetTime: 0 // Disesuaikan
+                estimasiDefault: sisaDetik,
+                targetTime: 0
               }).eq('id', item.id);
-            } catch (e) {
-              console.error(e);
             }
+          } catch (e) {
+            console.error("AutoStatus Error:", e);
+          } finally {
+            isAutoUpdating.current = false;
+            // Realtime will trigger fetchQueue
           }
-          fetchQueue();
-          isAutoUpdating.current = false;
         }
       } else {
         // Wake up from Istirahat if break time is over
         const toWakeUp = queue.filter(q => q.status === 'istirahat');
         if (toWakeUp.length > 0) {
           isAutoUpdating.current = true;
-          for (const item of toWakeUp) {
-            const sisaDetik = parseInt(item.estimasiDefault) || 0;
-            const targetTime = Date.now() + (sisaDetik * 1000);
-            try {
+          try {
+            for (const item of toWakeUp) {
+              const sisaDetik = parseInt(item.estimasiDefault) || 0;
+              const targetTime = Date.now() + (sisaDetik * 1000);
               await supabase.from('antrian').update({
                 status: 'working',
-                targetTime: targetTime, // Disesuaikan
-                mechanicName: item.mechanicName || '' // Disesuaikan
+                targetTime: targetTime
               }).eq('id', item.id);
-            } catch (e) { }
+            }
+          } catch (e) {
+            console.error("WakeUp Error:", e);
+          } finally {
+            isAutoUpdating.current = false;
+            // Realtime will trigger fetchQueue
           }
-          fetchQueue();
-          isAutoUpdating.current = false;
         }
       }
     };
-    if (queue.length > 0) {
+
+    // Gunakan interval kecil daripada trigger langsung setiap kali 'queue' berubah 
+    // untuk mencegah cascade effect yang terlalu cepat.
+    const autoTimer = setTimeout(() => {
       checkAutoStatus();
-    }
-  }, [queue, fetchQueue, breakSettings]);
+    }, 2000);
+
+    return () => clearTimeout(autoTimer);
+  }, [queue, breakSettings]);
 
   const fullProcessedQueue = useMemo(() => {
     return queue
@@ -726,6 +867,9 @@ const App = () => {
   }, [queue, now]);
 
   const processedQueue = useMemo(() => fullProcessedQueue, [fullProcessedQueue]);
+
+  const configSlot = bookings.find(b => b.id === 999999);
+  const maxCount = configSlot ? (parseInt(configSlot.namaCustomer || configSlot.addedBy) || 4) : 4;
 
   const getDeviceInfo = () => {
     const ua = navigator.userAgent;
@@ -766,6 +910,10 @@ const App = () => {
         const loginTime = new Date().toLocaleString('id-ID');
 
         const userData = { name: data.name, username: data.username, role: data.role };
+        const today = new Date().toDateString();
+        
+        localStorage.setItem('chery_last_login_date', today);
+        setLastLoginDate(today);
         setSessionId(newSessionId);
         setUser(userData);
         setLoginForm({ username: '', password: '' });
@@ -872,6 +1020,7 @@ const App = () => {
       category: formData.category,
       keluhan: sanitizeInput(formData.keluhan || ''),
       checklist: formData.checklist || [],
+      menginap_reason: formData.menginap_reason || '',
     };
 
     const mechanicValue = formData.mechanicName || '';
@@ -899,14 +1048,24 @@ const App = () => {
 
     try {
       if (isEditing) {
-        const { error } = await supabase.from('antrian').update(updates).eq('id', formData.id);
-        if (error) throw error;
+        // Try updating antrian first
+        const { error, count } = await supabase.from('antrian').update(updates).eq('id', formData.id).select();
+        
+        // If not in antrian or update failed, try history (mostly for Owner editing completed units)
+        if (!error && (!count || count.length === 0)) {
+           // We might be editing a history item. 
+           // History might have different column names or requirements, but usually it matches 'antrian' schema
+           const { error: hError } = await supabase.from('history').update(updates).eq('id', formData.id);
+           if (hError) throw hError;
+        } else if (error) {
+           throw error;
+        }
       } else {
         const { error } = await supabase.from('antrian').insert(updates);
         if (error) throw error;
       }
 
-      setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '', mechanicName: '', checklist: [] });
+      setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '', mechanicName: '', checklist: [], menginap_reason: '' });
       setIsEditing(false);
     } catch (error) {
       console.error("Gagal menyimpan data", error);
@@ -1078,42 +1237,149 @@ const App = () => {
     const isAllDone = checklist.every(t => t.completed);
 
     if (checklist.length > 0 && !isAllDone) {
+      const unfinishedTasks = checklist.filter(t => !t.completed).map(t => t.text || "Tugas tanpa nama");
+      const errorText = unfinishedTasks.length > 0 
+        ? `⚠️ PEKERJAAN BELUM SELESAI: ${unfinishedTasks.join(', ')}`
+        : "⚠️ GAGAL SELESAI: Masih ada checklist yang belum tercentang!";
+
       Toastify({
-        text: "⚠️ GAGAL SELESAI: Masih ada keluhan/maintenance yang belum tercentang!",
-        duration: 4000,
+        text: errorText,
+        duration: 6000,
         gravity: "top",
         position: "center",
-        style: { background: "#e11d48", fontWeight: "black" }
+        style: { 
+          background: "linear-gradient(135deg, #e11d48, #be123c)", 
+          padding: "16px 24px",
+          fontWeight: "900",
+          borderRadius: "16px",
+          boxShadow: "0 10px 40px rgba(225,29,72,0.4)",
+          fontSize: "14px",
+          maxWidth: "400px",
+          textAlign: "center"
+        }
       }).showToast();
+      try { new Audio('https://raw.githubusercontent.com/shubhamjain/ios-notification-sounds/master/iphone_notification.mp3').play().catch(() => {}); } catch (e) {}
       return;
     }
 
+    if (!window.confirm(`Selesaikan pengerjaan unit ${item.bk}?`)) return;
+
     setIsLoadingProcess(true);
     try {
-      // 1. Insert into history (Sesuaikan Nama Kolom & Tambah WaktuSelesai)
-      const { error: insertError } = await supabase.from('history').insert({
+      const now = new Date();
+      // Ensure Jakarta time for string dates
+      const jakartaNow = new Date(now.getTime() + (7 * 3600000));
+      
+      const itemIdNum = parseInt(item.id);
+      const waktuMasukMs = itemIdNum < 2000000000 ? itemIdNum * 1000 : itemIdNum;
+      const waktuMasukDate = new Date(waktuMasukMs);
+      const waktuSelesaiDate = now;
+
+      // Hitung durasi
+      const selisihMs = waktuSelesaiDate.getTime() - waktuMasukDate.getTime();
+      const selisihMenit = Math.max(0, Math.round(selisihMs / 60000));
+      const jamKerja = Math.floor(selisihMenit / 60);
+      const menitKerja = selisihMenit % 60;
+      const jarakWaktuStr = jamKerja > 0
+        ? `${jamKerja} jam ${menitKerja} menit`
+        : `${menitKerja} menit`;
+
+      const namaBulan = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+      const bulanStr = namaBulan[now.getMonth()];
+      const tanggalISO = now.toISOString().split('T')[0];
+
+      // 1. Insert into history
+      const historyData = {
         id: item.id,
         bk: item.bk,
         tipe: item.tipe,
         category: item.category,
         keluhan: item.keluhan,
+        checklist: checklist,
         mechanicName: item.mechanicName || '',
         status: 'completed',
         estimasiDefault: item.estimasiDefault,
         targetTime: Date.now(),
         addedBy: item.addedBy || '',
-        Tanggal: Date.now(), // Gunakan timestamp (bigint) agar sesuai dengan skema database
-        waktuMasuk: new Date(parseInt(item.id) < 2000000000 ? item.id * 1000 : item.id).toLocaleString(),
-        waktuSelesai: new Date().toLocaleString('id-ID')
-      });
-      if (insertError) throw insertError;
+        Tanggal: tanggalISO,
+        waktuMasuk: waktuMasukDate.toLocaleString('id-ID', { hour12: false }),
+        waktuSelesai: waktuSelesaiDate.toLocaleString('id-ID', { hour12: false }),
+        'Jarak Waktu': jarakWaktuStr,
+        Bulan: bulanStr,
+      };
+
+      const { error: insertError } = await supabase.from('history').insert(historyData);
+
+      if (insertError) {
+        // Jika error "Conflict" (ID sudah ada), hapus saja dari antrian & anggap sukses
+        if (insertError.code === '23505' || insertError.status === 409) {
+           console.warn("Item ini sudah ada di history, melanjutkan pembersihan antrian...");
+        } 
+        // Fallback jika kolom checklist belum ada di tabel history Supabase
+        else if (insertError.code === 'PGRST204' || (insertError.message && insertError.message.includes('checklist'))) {
+           console.warn("Kolom 'checklist' tidak ditemukan di tabel history, mencoba simpan tanpa checklist...");
+           const { checklist: _, ...restHistory } = historyData;
+           if (checklist.length > 0) {
+             const checklistSummary = checklist.map(t => `${t.completed ? '✅' : '❌'} ${t.text}`).join('\n');
+             restHistory.keluhan = (restHistory.keluhan ? restHistory.keluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + checklistSummary;
+           }
+           
+           const { error: retryError } = await supabase.from('history').insert(restHistory);
+           if (retryError && retryError.code !== '23505') {
+             console.error("Retry Error:", retryError);
+             throw new Error(`Database Error (History Retry): ${retryError.message}`);
+           }
+        } else {
+           console.error("History Insert Error:", insertError);
+           throw new Error(`Database Error (History): ${insertError.message}`);
+        }
+      }
 
       // 2. Delete from antrian
       const { error: deleteError } = await supabase.from('antrian').delete().eq('id', item.id);
-      if (deleteError) throw deleteError;
+      if (deleteError) {
+        console.error("Antrian Delete Error:", deleteError);
+        throw new Error(`Database Error (Antrian): ${deleteError.message}`);
+      }
+
+      // 3. Sync to CRO Table (Customer Relation Officer)
+      try {
+        const croData = {
+          workOrderNo: String(item.id).substring(0, 15),
+          nama: item.addedBy || 'Pelanggan Workshop',
+          telepon: item.noTelp || '-',
+          vin: '-',
+          plat: item.bk,
+          serviceAdvisor: item.addedBy || '-',
+          tipeMobil: item.tipe,
+          deskripsi: `• ${item.keluhan || 'Perbaikan Workshop'}`,
+          tanggalDatang: tanggalISO.split('-').reverse().join('-'), // format DD-MM-YYYY
+          status: 'Belum',
+          respon: '',
+          lampiran: '[]'
+        };
+        await supabase.from('cro').insert(croData);
+      } catch (e) {
+        console.error("CRO Sync Error (Non-Fatal):", e);
+      }
+
+      Toastify({
+        text: `✅ Berhasil Menyelesaikan Pekerjaan: ${item.bk}`,
+        duration: 3000,
+        style: { background: "linear-gradient(135deg, #10b981, #059669)", borderRadius: "12px" }
+      }).showToast();
+
+      // Triggering sound is now handled globally via the rawHistory useEffect listener
+      // to prevent double sound (local + server sync).
 
     } catch (err) {
-      console.error(err);
+      console.error("Execution Error:", err);
+      Toastify({
+        text: `❌ GAGAL: ${err.message || "Terjadi kesalahan sistem"}`,
+        duration: 10000,
+        close: true,
+        style: { background: "#dc2626", borderRadius: "12px" }
+      }).showToast();
       setErrorMessage("Gagal menyelesaikan antrean.");
       setTimeout(() => setErrorMessage(""), 3000);
     } finally {
@@ -1129,13 +1395,14 @@ const App = () => {
       menit: Math.floor((item.estimasi % 3600) / 60),
       detik: item.estimasi % 60,
       mechanicName: item.mechanicName || '',
-      checklist: item.checklist || []
+      checklist: item.checklist || [],
+      menginap_reason: item.menginap_reason || ''
     });
     setIsEditing(true);
   };
 
   const handleCancelEdit = () => {
-    setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '', mechanicName: '', checklist: [] });
+    setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '', mechanicName: '', checklist: [], menginap_reason: '' });
     setIsEditing(false);
   };
 
@@ -1230,7 +1497,7 @@ const App = () => {
                   <div className="w-[1px] h-6 bg-zinc-200/50 mx-1 shrink-0"></div>
                   <button onClick={() => setCurrentPage('quotation')}
                     className={`px-4 md:px-6 py-2.5 rounded-2xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${currentPage === 'quotation' ? 'bg-emerald-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100'}`}>
-                    <FileText size={14} className="shrink-0" /> <span>Quotation</span>
+                    <FileText size={14} className={`shrink-0 ${currentPage === 'quotation' ? 'text-white' : 'text-black'}`} /> <span>Quotation</span>
                   </button>
                 </>
               )}
@@ -1265,7 +1532,7 @@ const App = () => {
         />
       )}
       {currentPage === 'login' && <LoginPage loginForm={loginForm} setLoginForm={setLoginForm} handleLogin={handleLogin} errorMessage={errorMessage} setCurrentPage={setCurrentPage} />}
-      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} formatTime={formatTime} handleComplete={handleComplete} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} />}
+      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} />}
       {currentPage === 'mechanic' && (
         <MechanicPanel
           user={user}
@@ -1274,6 +1541,7 @@ const App = () => {
           rawHistory={rawHistory}
           queue={fullProcessedQueue}
           formatTime={formatTime}
+          isLoadingProcess={isLoadingProcess}
           onStartWork={handleStartWork}
           onComplete={handleComplete}
           onToggleTask={handleToggleTask}
@@ -1300,6 +1568,18 @@ const App = () => {
           processedQueue={processedQueue}
           rawHistory={rawHistory}
           formatTime={formatTime}
+          handleSave={handleSave}
+          deleteItem={deleteItem}
+          editItem={editItem}
+          setFormData={setFormData}
+          formData={formData}
+          isEditing={isEditing}
+          setIsEditing={setIsEditing}
+          handleCancelEdit={handleCancelEdit}
+          handleAddTask={handleAddTask}
+          handleRemoveTask={handleRemoveTask}
+          handleToggleTask={handleToggleTask}
+          isLoadingProcess={isLoadingProcess}
         />
       )}
 
@@ -1332,6 +1612,21 @@ const App = () => {
         }
         .animate-pulse-subtle { animation: pulse-subtle 3s ease-in-out infinite; }
       `}</style>
+
+      {/* GLOBAL FIXED LOGOUT BUTTON BOTTOM LEFT */}
+      {user && !['display', 'login', 'booking-public'].includes(currentPage) && (
+        <div className="fixed bottom-6 left-6 z-[100] group/logout">
+            <button 
+                onClick={() => handleLogout()}
+                className="flex items-center gap-3 px-6 py-4 bg-white border-2 border-zinc-200 text-zinc-500 hover:bg-red-600 hover:text-white hover:border-red-600 rounded-2xl transition-all duration-300 font-black text-[10px] uppercase tracking-widest shadow-2xl hover:scale-110 active:scale-95 group-hover/logout:shadow-red-500/20"
+            >
+                <LogOut className="group-hover/logout:rotate-12 transition-transform" size={18} />
+                <span className="max-w-0 overflow-hidden group-hover/logout:max-w-xs transition-all duration-500 ease-in-out whitespace-nowrap">
+                    Keluar Sistem
+                </span>
+            </button>
+        </div>
+      )}
     </div>
   );
 };

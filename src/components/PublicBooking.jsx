@@ -3,6 +3,7 @@ import { Calendar as CalendarIcon, Clock, Send, User, ChevronLeft, ChevronRight,
 import Toastify from 'toastify-js';
 import { supabase } from '../utils/supabaseClient';
 import orientalLogo from '../assets/oriental.jpeg';
+import cheryLogo from '../assets/chery.png';
 
 const TIPE_MOBIL = [
     "Tiggo 5x", "Tiggo Cross", "Tiggo Cross Csh", "Tiggo 7", "Tiggo 8 Pro",
@@ -32,15 +33,34 @@ const KEPERLUAN = ["Free Service 1", "Free Service 2", "Free Service 3", "Genera
 const isSameDate = (dateA, dateB) => {
     const normalize = (d) => {
         if (!d) return "";
-        if (d instanceof Date) return d.toISOString().split('T')[0];
+        if (d instanceof Date) {
+            // Gunakan format lokal YYYY-MM-DD agar tidak tergeser timezone UTC
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        };
         const str = String(d);
         if (str.includes("/")) {
-            const [dd, mm, yyyy] = str.split("/");
-            return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+            const parts = str.split(/[ /,-]/);
+            if (parts.length === 3) {
+                // Asumsi DD/MM/YYYY atau YYYY/MM/DD
+                if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+                return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+            }
         }
         return str.split(/[T ]/)[0];
     };
     return normalize(dateA) === normalize(dateB);
+};
+
+const normalizeJam = (j) => {
+    if (!j) return "";
+    const sj = String(j).replace(':', '.');
+    const parts = sj.split('.');
+    const h = String(parts[0]).padStart(2, '0');
+    const m = String(parts[1] || '00').padEnd(2, '0');
+    return `${h}.${m}`;
 };
 
 export default function PublicBooking({ user }) {
@@ -55,6 +75,8 @@ export default function PublicBooking({ user }) {
         jam: '', tipeMobil: '', noPlat: '', namaCustomer: '', keperluanService: '', vin: '', noTelp: ''
     });
     const [userIP, setUserIP] = useState('');
+    const [showWarningModal, setShowWarningModal] = useState(false);
+    const [pendingBookJam, setPendingBookJam] = useState('');
 
     useEffect(() => {
         // Ambil IP User untuk pencegahan spam booking ganda
@@ -70,7 +92,14 @@ export default function PublicBooking({ user }) {
 
     const fetchBookings = async () => {
         try {
-            const { data, error } = await supabase.from('booking').select('*');
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const dateStr = yesterday.toISOString().split('T')[0];
+
+            const { data, error } = await supabase
+                .from('booking')
+                .select('*')
+                .or(`tanggal.gte.${dateStr},id.eq.999999`);
             if (error) throw error;
             if (Array.isArray(data)) setBookings(data);
         } catch (e) { console.error('Gagal fetch booking:', e); }
@@ -112,7 +141,7 @@ export default function PublicBooking({ user }) {
     const getDateAvailability = useCallback((dateStr) => {
         if (isClosed(dateStr)) return 'closed';
         const configSlot = bookings.find(b => b.id === 999999);
-        const maxSlots = configSlot ? parseInt(configSlot.namaCustomer) || 2 : 2;
+        const maxSlots = configSlot ? (parseInt(configSlot.namaCustomer || configSlot.nama_customer) || 4) : 4;
         const dynamicJam = generateSlots(maxSlots);
         
         const isToday = isSameDate(dateStr, new Date());
@@ -147,7 +176,9 @@ export default function PublicBooking({ user }) {
     }, [bookings, holidays]);
 
     const configSlot = bookings.find(b => b.id === 999999);
-    const maxSlotsCount = configSlot ? parseInt(configSlot.namaCustomer) || 2 : 2;
+    // PASTIKAN minimal ada 1 slot (default 4) agar daftar jam tidak kosong
+    const rawCount = configSlot ? (configSlot.namaCustomer || configSlot.nama_customer || configSlot.addedBy) : 4;
+    const maxSlotsCount = Math.max(1, parseInt(rawCount) || 4);
     const JAM_PILIHAN = useMemo(() => generateSlots(maxSlotsCount), [maxSlotsCount]);
 
     const getIsPastTime = useCallback((slotJam) => {
@@ -165,12 +196,20 @@ export default function PublicBooking({ user }) {
     }, [selectedDate]);
 
     const bookingsForDate = useMemo(() => {
-        return bookings.filter(b => isSameDate(b.tanggal, selectedDate) && (b.status === 'waiting confirm' || b.status === 'accepted'));
+        // Include completed agar sinkron dengan warna titik di kalender
+        return bookings.filter(b => isSameDate(b.tanggal, selectedDate) && (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed'));
     }, [bookings, selectedDate]);
 
     const handleBookClick = (jam) => {
-        setFormData({ ...formData, jam });
+        setPendingBookJam(jam);
+        setShowWarningModal(true);
+    };
+
+    const handleConfirmWarning = () => {
+        setFormData({ ...formData, jam: pendingBookJam });
         setIsBookingMode(true);
+        setShowWarningModal(false);
+        setPendingBookJam('');
     };
 
     const handleSubmit = async (e) => {
@@ -187,15 +226,15 @@ export default function PublicBooking({ user }) {
             return;
         }
 
-        // Cek ketersediaan slot (karena multi-slot sekarang linear per jam)
+        // Cek ketersediaan slot (1 unit per 30 mnt)
         const bookedAtThisTime = bookings.filter(b => 
             b.id !== 999999 &&
             isSameDate(b.tanggal, selectedDate) && 
-            b.jam === formData.jam && 
-            (b.status === 'waiting confirm' || b.status === 'accepted')
+            normalizeJam(b.jam) === normalizeJam(formData.jam) && 
+            (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed')
         ).length;
 
-        if (bookedAtThisTime >= 1) { // Sekarang set 1 slot 1 jam krn slot sudah dipecah per 30 mnt
+        if (bookedAtThisTime >= 1) { 
             Toastify({ text: `Maaf, slot jam ${formData.jam} baru saja terisi penuh!`, background: "orange" }).showToast();
             setIsBookingMode(false);
             fetchBookings();
@@ -229,13 +268,6 @@ export default function PublicBooking({ user }) {
             return;
         }
 
-        // 2. CEK KONFLIK SLOT WAKTU (Realtime)
-        const normalizeJam = (j) => {
-            if (!j) return "";
-            const sj = String(j).replace(':', '.');
-            const [h, m] = sj.split('.');
-            return `${String(h).padStart(2, '0')}.${String(m || '00').padEnd(2, '0')}`;
-        };
 
         const targetJam = normalizeJam(formData.jam);
 
@@ -243,9 +275,9 @@ export default function PublicBooking({ user }) {
             .from('booking')
             .select('jam, status')
             .eq('tanggal', selectedDate)
-            .in('status', ['waiting confirm', 'accepted']);
+            .in('status', ['waiting confirm', 'accepted', 'completed']);
 
-        const isConflict = allBookings?.some(b => normalizeJam(b.jam) === targetJam);
+        const isConflict = allBookings?.filter(b => normalizeJam(b.jam) === targetJam).length >= 1;
 
         if (isConflict) {
             Toastify({ text: `⚠️ Konflik: Slot jam ${formData.jam} baru saja terisi orang lain!`, style: { background: '#f97316' }, duration: 5000 }).showToast();
@@ -278,7 +310,7 @@ export default function PublicBooking({ user }) {
                 namaCustomer: formData.namaCustomer,
                 keperluanService: formData.keperluanService,
                 vin: formData.vin || '-',
-                bookingVia: user ? user.name : 'Web-Public',
+                bookingVia: user ? `Booking via: ${user.name}` : 'Web-Public',
                 noTelp: formData.noTelp,
                 ip_address: userIP,
                 status: 'accepted' // Langsung diterima krn sudah realtime & tervalidasi
@@ -455,11 +487,13 @@ export default function PublicBooking({ user }) {
                                          </p>
                                      </div>
                                      <div className="bg-emerald-500/10 px-3 md:px-5 py-3 md:py-4 rounded-2xl md:rounded-3xl border border-emerald-500/20 text-center flex flex-col items-center">
-                                         <p className="text-[6.5px] md:text-[8px] font-black text-emerald-500 uppercase tracking-widest mb-1 leading-none">Available</p>
+                                         <p className="text-[6.5px] md:text-[8px] font-black text-emerald-500 uppercase tracking-widest mb-1 leading-none">Sisa Slot</p>
                                          <p className="text-sm md:text-base font-black text-emerald-400 leading-none">
                                             {(() => {
-                                                const occupied = (bookingsForDate || []).length;
-                                                return Math.max(0, JAM_PILIHAN.length - occupied);
+                                                const occupiedCount = (bookingsForDate || []).length;
+                                                // Kapasitas total = Jumlah Baris Jam * 1 unit
+                                                const totalCapacity = (JAM_PILIHAN.length || 0);
+                                                return Math.max(0, totalCapacity - occupiedCount);
                                             })()}
                                          </p>
                                      </div>
@@ -469,14 +503,11 @@ export default function PublicBooking({ user }) {
                             <div className="flex-1 p-6 md:p-8 flex flex-col z-10 gap-6 md:gap-8">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {JAM_PILIHAN.map((jam, idx) => {
-                                        const booking = bookingsForDate.find(b => {
-                                            // Normalisasi perbandingan jam (bisa string atau number di DB)
-                                            const bJam = String(b.jam).includes('.') ? String(b.jam) : `${b.jam}.00`;
-                                            const normalizedB = parseFloat(bJam).toFixed(2);
-                                            const normalizedTarget = parseFloat(jam).toFixed(2);
-                                            return normalizedB === normalizedTarget;
+                                        const bookingsAtThisTime = bookingsForDate.filter(b => {
+                                            return normalizeJam(b.jam) === normalizeJam(jam);
                                         });
-                                        const isOccupied = !!booking;
+
+                                        const isOccupied = bookingsAtThisTime.length >= 1;
                                         const isPastTime = getIsPastTime(jam);
                                         const isDisabled = isOccupied || isPastTime;
 
@@ -490,10 +521,10 @@ export default function PublicBooking({ user }) {
                                                     </div>
                                                     <div className="flex flex-col justify-center">
                                                         <p className={`text-[8.5px] md:text-[10px] font-black uppercase tracking-widest mb-1 text-white opacity-80`}>
-                                                            {isOccupied ? 'Slot Terisi' : isPastTime ? 'Waktu Terlewati' : 'Slot Tersedia'}
+                                                            {isOccupied ? 'Slot Terisi Penuh' : isPastTime ? 'Waktu Terlewati' : `Sisa Slot: ${Math.max(0, 1 - bookingsAtThisTime.length)} Unit`}
                                                         </p>
                                                         <h4 className={`text-sm md:text-base font-black tracking-tight text-white`}>
-                                                            {isOccupied ? 'BOOKED' : isPastTime ? 'CLOSED' : 'Klik Reservasi'}
+                                                            {isOccupied ? 'FULL BOOKED' : isPastTime ? 'CLOSED' : 'Klik Reservasi'}
                                                         </h4>
                                                     </div>
                                                 </div>
@@ -561,8 +592,8 @@ export default function PublicBooking({ user }) {
                                             </div>
                                             <div className="space-y-2 md:space-y-3">
                                                 <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Nomor Polisi</label>
-                                                <input required type="text" value={formData.noPlat} onChange={e => setFormData({ ...formData, noPlat: e.target.value.toUpperCase() })}
-                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-red-600 transition-all uppercase placeholder:text-zinc-600" placeholder="BK 1XXX MA" />
+                                                <input required type="text" value={formData.noPlat} onChange={e => setFormData({ ...formData, noPlat: e.target.value.toUpperCase().replace(/\s+/g, '') })}
+                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-red-600 transition-all uppercase placeholder:text-zinc-600" placeholder="BK1XXXMA" />
                                             </div>
                                         </div>
                                     </section>
@@ -602,10 +633,58 @@ export default function PublicBooking({ user }) {
                 </div>
             </div>
 
-            <style jsx>{`
+            <style>{`
                 .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
                 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+                .animate-modal-in { animation: modalIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+                @keyframes modalIn { from { opacity: 0; transform: scale(0.9) translateY(20px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+                .animate-modal-overlay { animation: overlayIn 0.3s ease-out forwards; }
+                @keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
             `}</style>
+
+            {/* WARNING MODAL */}
+            {showWarningModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-modal-overlay" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }}>
+                    <div className="bg-white rounded-[2rem] w-full max-w-md shadow-2xl overflow-hidden animate-modal-in border border-zinc-200">
+                        {/* Header with Logo */}
+                        <div className="bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900 px-8 pt-8 pb-6 text-center relative overflow-hidden">
+                            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMjAgMjBsMjAgMjBNMjAgMjBMMCA0ME0wIDBsMjAgMjBNNDAgMEwyMCAyMCIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMDMpIiBzdHJva2Utd2lkdGg9IjEiIGZpbGw9Im5vbmUiLz48L3N2Zz4=')] opacity-50"></div>
+                            <img src={cheryLogo} alt="Chery" className="h-16 w-auto mx-auto mb-4 drop-shadow-2xl relative z-10" />
+                            <h3 className="text-white font-black text-lg uppercase tracking-wider relative z-10">Informasi Penting</h3>
+                            <div className="w-12 h-1 bg-red-600 rounded-full mx-auto mt-3 relative z-10"></div>
+                        </div>
+                        {/* Content */}
+                        <div className="px-8 py-6 text-center">
+                            <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-amber-200">
+                                <AlertCircle className="text-amber-500" size={32} />
+                            </div>
+                            <h4 className="font-black text-zinc-900 text-base uppercase tracking-wide mb-2">Batas Keterlambatan</h4>
+                            <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4 mb-4">
+                                <p className="text-amber-800 font-black text-xl">Maksimal <span className="text-red-600">15 Menit</span></p>
+                                <p className="text-amber-600 text-xs font-bold mt-1">dari jadwal booking yang dipilih</p>
+                            </div>
+                            <p className="text-zinc-500 text-xs font-bold leading-relaxed">
+                                Jika Anda terlambat lebih dari 30 menit, booking akan otomatis <span className="text-red-600 font-black">dipindahkan ke antrian reguler</span>.
+                            </p>
+                        </div>
+                        {/* Actions */}
+                        <div className="px-8 pb-8 flex gap-3">
+                            <button 
+                                onClick={() => { setShowWarningModal(false); setPendingBookJam(''); }}
+                                className="flex-1 py-3.5 rounded-xl bg-zinc-100 text-zinc-600 font-black text-xs uppercase tracking-widest hover:bg-zinc-200 transition-all active:scale-95"
+                            >
+                                Batal
+                            </button>
+                            <button 
+                                onClick={handleConfirmWarning}
+                                className="flex-1 py-3.5 rounded-xl bg-red-600 text-white font-black text-xs uppercase tracking-widest hover:bg-red-700 transition-all active:scale-95 shadow-lg shadow-red-200 flex items-center justify-center gap-2"
+                            >
+                                <CheckCircle2 size={16} /> Saya Mengerti
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

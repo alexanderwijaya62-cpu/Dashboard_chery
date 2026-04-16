@@ -84,6 +84,16 @@ export default function HolidaySettings({ user, breakSettings, setBreakSettings 
         }
     };
 
+    const safeDate = (d) => {
+        if (!d) return new Date();
+        const str = String(d);
+        if (str.includes('/')) {
+            const [dd, mm, yyyy] = str.split('/');
+            return new Date(`${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`);
+        }
+        return new Date(str);
+    };
+
     return (
         <div className="flex flex-col h-full bg-white text-zinc-900 animate-in fade-in duration-500 overflow-hidden">
             {/* Header + Add Form (Fixed Top) */}
@@ -150,26 +160,29 @@ export default function HolidaySettings({ user, breakSettings, setBreakSettings 
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-                                {holidays.sort((a, b) => new Date(a.date) - new Date(b.date)).map((item, idx) => (
-                                    <div key={idx} className="flex justify-between items-center p-4 bg-zinc-50/50 rounded-2xl border border-zinc-100 group hover:border-zinc-900 hover:bg-white transition-all shadow-sm hover:shadow-md">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-zinc-100 flex flex-col items-center justify-center leading-none shrink-0 group-hover:bg-zinc-900 group-hover:text-white transition-all">
-                                                <span className="text-[8px] font-black text-red-500 uppercase">{new Date(item.date).toLocaleDateString('id-ID', { month: 'short' })}</span>
-                                                <span className="text-lg font-black">{new Date(item.date).getDate()}</span>
+                                {holidays.sort((a, b) => safeDate(a.date) - safeDate(b.date)).map((item, idx) => {
+                                    const dObj = safeDate(item.date);
+                                    return (
+                                        <div key={idx} className="flex justify-between items-center p-4 bg-zinc-50/50 rounded-2xl border border-zinc-100 group hover:border-zinc-900 hover:bg-white transition-all shadow-sm hover:shadow-md">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-zinc-100 flex flex-col items-center justify-center leading-none shrink-0 group-hover:bg-zinc-900 group-hover:text-white transition-all">
+                                                    <span className="text-[8px] font-black text-red-500 uppercase">{dObj.toLocaleDateString('id-ID', { month: 'short' })}</span>
+                                                    <span className="text-lg font-black">{dObj.getDate()}</span>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-black text-zinc-900 truncate">{item.note}</p>
+                                                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">{dObj.toLocaleDateString('id-ID', { weekday: 'short', year: 'numeric' })}</p>
+                                                </div>
                                             </div>
-                                            <div className="min-w-0">
-                                                <p className="text-xs font-black text-zinc-900 truncate">{item.note}</p>
-                                                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">{new Date(item.date).toLocaleDateString('id-ID', { weekday: 'short', year: 'numeric' })}</p>
-                                            </div>
+                                            <button
+                                                onClick={() => handleDeleteHoliday(item.id)}
+                                                className="p-2 text-zinc-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
                                         </div>
-                                        <button
-                                            onClick={() => handleDeleteHoliday(item.id)}
-                                            className="p-2 text-zinc-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>

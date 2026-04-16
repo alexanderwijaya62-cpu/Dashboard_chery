@@ -241,7 +241,7 @@ export default function CroBookingPanel({ user }) {
     }, []); // Fixed infinite loop by removing bookings from dependency
 
     const configSlot = bookings.find(b => b.id === 999999);
-    const maxSlotsCount = configSlot ? parseInt(configSlot.namaCustomer) || 8 : 8;
+    const maxSlotsCount = configSlot ? (parseInt(configSlot.namaCustomer || configSlot.nama_customer) || 4) : 4;
     const dynamicJamPilihan = useMemo(() => generateSlots(maxSlotsCount), [maxSlotsCount]);
 
     const updateMaxSlots = async (val) => {

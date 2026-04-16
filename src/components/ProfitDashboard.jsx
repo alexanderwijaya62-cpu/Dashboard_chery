@@ -32,7 +32,7 @@ export default function ProfitDashboard() {
       setIsLoading(true);
       if (searchTerm.length < 2) {
         // Updated limit to 20 as requested
-        const { data } = await supabase.from('sparepart_master').select('*').limit(20);
+        const { data } = await supabase.from('sparepart_master').select('id, part_name, part_number, wholesale_price_no_tax, sales_guide_price_no_tax').limit(20);
         if (data) setMasterParts(data);
         setIsLoading(false);
         return;

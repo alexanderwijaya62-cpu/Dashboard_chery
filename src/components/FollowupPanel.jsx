@@ -75,9 +75,15 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
         try {
             if (!isBackground) showLoading("Mengambil data dari server...");
 
+            const sixMonthsAgo = new Date();
+            sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+            const dateStr = sixMonthsAgo.toISOString().split('T')[0];
+
             const { data: supaData, error } = await supabase
                 .from('cro')
-                .select('*');
+                .select('*')
+                .order('id', { ascending: false })
+                .limit(2000);
 
             if (error) throw error;
 
@@ -776,7 +782,6 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
         <div className="flex h-screen bg-[#F2F2F7] relative">
             {isLoading && (
                 <div className="fixed inset-0 bg-black/50 z-[9999] flex flex-col justify-center items-center">
-                    <div className="w-10 h-10 border-4 border-white/30 border-t-white rounded-full animate-spin mb-4"></div>
                     <p className="text-white font-medium text-lg">{loadingText}</p>
                 </div>
             )}
@@ -901,15 +906,12 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                         )}
                     </div>
                     <div className="p-4 mt-auto border-t border-zinc-100 flex flex-col gap-2">
-                        {user?.role === 'admin' && (
-                            <button onClick={() => setCurrentPage('display')} className="w-full text-center px-4 py-3 rounded-xl font-bold text-[13px] text-zinc-600 bg-zinc-50 hover:bg-zinc-200 transition-all mb-2 flex items-center justify-center gap-2">
-                                <LayoutDashboard size={16} /> Dashboard Utama
-                            </button>
-                        )}
-                        <button onClick={handleLogout} className="w-full text-center px-4 py-3 rounded-xl font-bold text-[13px] text-red-500 bg-red-50 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-2">
-                            <LogOut size={16} /> Logout
+                    {user?.role === 'admin' && (
+                        <button onClick={() => setCurrentPage('display')} className="w-full text-center px-4 py-3 rounded-xl font-bold text-[13px] text-zinc-600 bg-zinc-50 hover:bg-zinc-200 transition-all mb-2 flex items-center justify-center gap-2">
+                            <LayoutDashboard size={16} /> Dashboard Utama
                         </button>
-                    </div>
+                    )}
+                </div>
                 </div>
             </div>
 
