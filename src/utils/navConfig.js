@@ -77,6 +77,7 @@ export const NAV_CONFIG = {
   warranty: [
     { id: 'warranty-dashboard', icon: LayoutDashboard, label: 'Dashboard', page: 'warranty', ariaLabel: 'Warranty Dashboard' },
     { id: 'warranty-wo', icon: ShieldCheck, label: 'Work Order', page: 'warranty-wo', ariaLabel: 'Warranty Work Order' },
+    { id: 'warranty-search', icon: Search, label: 'Warranty Search', page: 'warranty-search', ariaLabel: 'Warranty Search' },
   ],
 };
 

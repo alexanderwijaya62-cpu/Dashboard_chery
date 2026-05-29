@@ -31,6 +31,7 @@ import BottomNavBar from './components/BottomNavBar';
 import PublicNavBar from './components/PublicNavBar';
 import WarrantyPanel from './components/WarrantyPanel';
 import WarrantyDashboard from './components/WarrantyDashboard';
+import WarrantySearch from './components/WarrantySearch';
 import { getNavItems } from './utils/navConfig';
 
 // Helper sanitasi untuk mencegah "Injection" atau karakter berbahaya
@@ -328,7 +329,7 @@ const App = () => {
             cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-holidays', 'display', 'booking-public'],
             sparepart: ['sparepart', 'sparepart-view', 'sparepart-quotation', 'sparepart-profit', 'quotation', 'display', 'booking-public', 'stock-comparison'],
             owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'display', 'booking-public', 'stock-comparison'],
-            warranty: ['warranty', 'warranty-wo'],
+            warranty: ['warranty', 'warranty-wo', 'warranty-search'],
           };
 
           if (savedPage && allowedPages[role]?.includes(savedPage)) {
@@ -1642,6 +1643,7 @@ const App = () => {
       )}
       {currentPage === 'warranty' && <WarrantyDashboard user={user} onNavigate={setCurrentPage} />}
       {currentPage === 'warranty-wo' && <WarrantyPanel user={user} />}
+      {currentPage === 'warranty-search' && <WarrantySearch user={user} />}
       {currentPage === 'register' && (
         <RegisterPage 
           setCurrentPage={setCurrentPage} 
