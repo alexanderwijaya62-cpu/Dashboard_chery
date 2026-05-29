@@ -10,6 +10,18 @@ export default defineConfig({
       targets: ['defaults', 'not IE 11', 'Chrome >= 49', 'Samsung >= 5'],
     })
   ],
+  test: {
+    globals: true,
+  },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'https://cherymedan.web.id',
+        changeOrigin: true,
+        secure: false
+      }
+    }
+  },
   build: {
     chunkSizeWarningLimit: 1000,
     rollupOptions: {

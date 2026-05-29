@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EPCM Token Sync</title>
+</head>
+<body>
+    <script>
+        // Ambil token dari URL parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+        
+        if (token) {
+            // Simpan ke LocalStorage Dashboard (karena satu domain: localhost)
+            localStorage.setItem('chery_epcm_token', token);
+            console.log("✅ Token synced to localStorage");
+            
+            // Beritahu tab utama jika diperlukan (lewat event storage)
+            // Tab utama otomatis mendeteksi ini lewat window.addEventListener('storage')
+        }
+    </script>
+</body>
+</html>

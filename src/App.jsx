@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { LayoutDashboard, Settings, Calendar, Plus, Zap, FileText, LogOut } from 'lucide-react';
+import { LayoutDashboard, Settings, Calendar, Plus, Zap, FileText, LogOut, Truck } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 
-import { API_KEY, GAS_URL, GAS_USERS_URL } from './utils/config';
+import { API_KEY, GAS_URL, GAS_USERS_URL, IS_MAINTENANCE } from './utils/config';
 import { supabase } from './utils/supabaseClient';
 
 // Import Komponen Terpisah
@@ -20,7 +20,18 @@ import PublicBooking from './components/PublicBooking';
 import CroBookingPanel from './components/CroBookingPanel';
 import BookingManager from './components/BookingManager';
 import OwnerPanel from './components/OwnerPanel';
+import StockComparison from './components/StockComparison';
 import { USERS } from './data/users';
+import RegisterPage from './components/RegisterPage';
+import CustomerProfile from './components/CustomerProfile';
+import CustomerPanel from './components/CustomerPanel';
+import PublicTracking from './components/PublicTracking';
+import DesktopNavBar from './components/DesktopNavBar';
+import BottomNavBar from './components/BottomNavBar';
+import PublicNavBar from './components/PublicNavBar';
+import WarrantyPanel from './components/WarrantyPanel';
+import WarrantyDashboard from './components/WarrantyDashboard';
+import { getNavItems } from './utils/navConfig';
 
 // Helper sanitasi untuk mencegah "Injection" atau karakter berbahaya
 const sanitizeInput = (str) => {
@@ -52,42 +63,42 @@ const formatTime = (totalSeconds) => {
 };
 
 const isToday = (time) => {
-    if (!time) return false;
-    try {
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-        let d;
-        if (typeof time === 'number') {
-            d = (time < 2000000000) ? new Date(time * 1000) : new Date(time);
-        } else if (typeof time === 'string') {
-            if (time.includes('/')) {
-                const parts = time.split(/[ ,]/)[0].split('/');
-                if (parts.length === 3) d = new Date(parts[2], parts[1] - 1, parts[0]);
-            } else if (time.includes('-')) {
-                const parts = time.split(/[ T]/)[0].split('-');
-                if (parts.length === 3) {
-                    if (parts[0].length === 4) d = new Date(parts[0], parts[1] - 1, parts[2]); // ISO
-                    else d = new Date(parts[2], parts[1] - 1, parts[0]); // DD-MM-YYYY
-                }
-            } else {
-                d = new Date(time);
-            }
-        } else {
-            d = new Date(time);
+  if (!time) return false;
+  try {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    let d;
+    if (typeof time === 'number') {
+      d = (time < 2000000000) ? new Date(time * 1000) : new Date(time);
+    } else if (typeof time === 'string') {
+      if (time.includes('/')) {
+        const parts = time.split(/[ ,]/)[0].split('/');
+        if (parts.length === 3) d = new Date(parts[2], parts[1] - 1, parts[0]);
+      } else if (time.includes('-')) {
+        const parts = time.split(/[ T]/)[0].split('-');
+        if (parts.length === 3) {
+          if (parts[0].length === 4) d = new Date(parts[0], parts[1] - 1, parts[2]); // ISO
+          else d = new Date(parts[2], parts[1] - 1, parts[0]); // DD-MM-YYYY
         }
-        
-        if (!d || isNaN(d.getTime())) return false;
-        d.setHours(0, 0, 0, 0);
-        return d.getTime() === now.getTime();
-    } catch (e) { 
-        return false; 
+      } else {
+        d = new Date(time);
+      }
+    } else {
+      d = new Date(time);
     }
+
+    if (!d || isNaN(d.getTime())) return false;
+    d.setHours(0, 0, 0, 0);
+    return d.getTime() === now.getTime();
+  } catch (e) {
+    return false;
+  }
 };
 
 const App = () => {
   // --- 1. STATE DEFINITIONS ---
   const [currentPage, setCurrentPage] = useState(() => {
-    return localStorage.getItem('chery_current_page') || 'display';
+    return localStorage.getItem('chery_current_page') || 'login';
   });
   const [user, setUser] = useState(() => {
     const savedUser = localStorage.getItem('chery_auth_user');
@@ -99,8 +110,26 @@ const App = () => {
   const [lastLoginDate, setLastLoginDate] = useState(() => {
     return localStorage.getItem('chery_last_login_date') || null;
   });
-  const [isNavbarVisible, setIsNavbarVisible] = useState(true);
-  const [isAtTop, setIsAtTop] = useState(true);
+
+  // --- EPCM Token URL Listener ---
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const epcmToken = urlParams.get('epcmToken');
+    if (epcmToken) {
+      localStorage.setItem('chery_epcm_token', epcmToken);
+      // Bersihkan URL tanpa refresh
+      const newUrl = window.location.origin + window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+      Toastify({ 
+        text: "✅ EPCM Token Terhubung!", 
+        style: { background: "linear-gradient(135deg, #10b981, #059669)", borderRadius: "12px" } 
+      }).showToast();
+      
+      // Kirim event agar komponen yang sedang terbuka bisa update state
+      window.dispatchEvent(new Event('epcm_token_updated'));
+    }
+  }, []);
+
   const [queue, setQueue] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [now, setNow] = useState(Date.now());
@@ -125,13 +154,10 @@ const App = () => {
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
 
   // Refs
-  const navbarTimerRef = useRef(null);
 
   // --- 2. EFFECTS & LOGIC ---
   useEffect(() => {
     localStorage.setItem('chery_current_page', currentPage);
-    // Munculkan navbar setiap ganti halaman
-    setIsNavbarVisible(true);
   }, [currentPage]);
 
   // Update Location & Coordinates whenever App loads with a user
@@ -155,7 +181,7 @@ const App = () => {
               loc: `${data.city || ''}, ${data.stateProv || ''}`,
               coords: `${data.latitude}, ${data.longitude}`
             };
-          } catch(e) {}
+          } catch (e) { }
 
           // Provider 2: ipapi.co (Fallback)
           try {
@@ -166,7 +192,7 @@ const App = () => {
               loc: `${data.city || ''}, ${data.region || ''}`,
               coords: `${data.latitude}, ${data.longitude}`
             };
-          } catch(e) {}
+          } catch (e) { }
 
           return null;
         };
@@ -180,9 +206,9 @@ const App = () => {
 
         // Simpan data (Pasti Terisi & Tanpa Prompt Popup)
         const combinedLoc = `${location} (${ipCoords || '0,0'})`;
-        await supabase.from('users').update({ 
+        await supabase.from('users').update({
           lastIP: ip,
-          lastLocation: combinedLoc 
+          lastLocation: combinedLoc
         }).eq('username', user.username);
 
       } catch (e) {
@@ -194,26 +220,51 @@ const App = () => {
   }, [user?.username]); // Only run when user changes or app loads
 
   const handleLogout = async (isForced = false) => {
+    let networkFailed = false;
+
     if (user) {
       try {
-        await supabase
-          .from('users')
-          .update({ isOnline: false, sessionId: null })
-          .eq('username', user.username);
+        // Race the Supabase update against a 2-second timeout to ensure logout completes promptly
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Logout timeout')), 2000)
+        );
+        await Promise.race([
+          supabase
+            .from('users')
+            .update({ isOnline: false, sessionId: null })
+            .eq('username', user.username),
+          timeoutPromise
+        ]);
       } catch (err) {
         console.error("Gagal update status logout:", err);
+        networkFailed = true;
       }
     }
 
+    // Always clear local session and redirect, regardless of network outcome
     setUser(null);
     setSessionId(null);
-    setCurrentPage('display');
-    
+    localStorage.removeItem('chery_auth_user');
+    localStorage.removeItem('chery_session_id');
+    setCurrentPage('login');
+    window.history.pushState({}, '', '/login');
+
     // Reset URL to the main public domain
     window.history.pushState({}, '', '/');
-    
+
     if (!isForced) {
-      Toastify({ text: "✅ Berhasil Logout", style: { background: "#10b981" } }).showToast();
+      if (networkFailed) {
+        Toastify({
+          text: "⚠️ Logout berhasil (sesi remote tidak dapat dihapus)",
+          duration: 5000,
+          close: true,
+          gravity: "top",
+          position: "center",
+          style: { background: "#000000", borderRadius: "12px", fontWeight: "600" }
+        }).showToast();
+      } else {
+        Toastify({ text: "✅ Berhasil Logout", style: { background: "#000000", borderRadius: "12px" } }).showToast();
+      }
     }
   };
 
@@ -221,39 +272,19 @@ const App = () => {
   useEffect(() => {
     const path = window.location.pathname.toLowerCase();
     const savedUser = localStorage.getItem('chery_auth_user');
-    
-    // 1. PUBLIC ROUTES (No Login Required)
-    const publicPaths = ['/', '/display', '/board', '/booking', '/public'];
+
+    // 1. PUBLIC ROUTES — hanya login yang bisa diakses tanpa auth
+    const publicPaths = ['/login'];
     if (publicPaths.includes(path)) {
-      if (savedUser && savedUser !== 'null') {
-        // Redir ke staff/karyawan jika refresh di root tapi sudah login
-        const u = JSON.parse(savedUser);
-        if (u && u.role) {
-          const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner'].includes(u.role.toLowerCase()) ? '/staff' : '/karyawan';
-          window.history.replaceState({}, '', targetUrl);
-        } else {
-          setCurrentPage('display');
-          return;
-        }
-        // Lanjutkan ke bagian ROLE-BASED ACCESS
-      } else {
-        if (path === '/booking' || path === '/public') {
-          setCurrentPage('booking-public');
-        } else {
-          setCurrentPage('display');
-        }
-        return;
-      }
-    }
-    
-    // 2. LOGIN PAGE 
-    if (path === '/login') {
+      // path === '/login'
       if (savedUser && savedUser !== 'null') {
         const u = JSON.parse(savedUser);
         if (u && u.role) {
-          const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner'].includes(u.role.toLowerCase()) ? '/staff' : '/karyawan';
+          const role = u.role.toLowerCase();
+          const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner'].includes(role) ? '/staff' : 
+                            (role === 'customer' ? '/customer' : '/karyawan');
           window.history.replaceState({}, '', targetUrl);
-          window.location.reload(); 
+          window.location.reload();
         }
       } else {
         setCurrentPage('login');
@@ -261,11 +292,19 @@ const App = () => {
       return;
     }
 
-    // 3. PROTECTED ROUTES (Requires Login)
-    if (!savedUser) {
-      if (!publicPaths.includes(path)) {
-          setCurrentPage('login');
-          window.history.replaceState({}, '', '/login');
+    // 2. PROTECTED ROUTES (Semua rute lain butuh login)
+    // Root path '/' — redirect to login if not logged in
+    if (path === '/' || path === '') {
+      if (!savedUser || savedUser === 'null') {
+        setCurrentPage('login');
+        return;
+      }
+    }
+
+    if (!savedUser || savedUser === 'null') {
+      setCurrentPage('login');
+      if (path !== '/login') {
+        window.history.replaceState({}, '', '/login');
       }
       return;
     }
@@ -282,24 +321,28 @@ const App = () => {
 
     // Specific path mapping
     if (path === '/staff' || path === '/' || path === '/display') {
-      if (['admin', 'manager', 'cro', 'sparepart', 'owner'].includes(role)) {
-        const allowedPages = {
-          admin: ['admin', 'promo', 'display', 'booking-public'],
-          manager: ['manager', 'display', 'booking-public'],
-          cro: ['cro', 'cro-booking', 'display', 'booking-public'],
-          sparepart: ['sparepart', 'quotation', 'display', 'booking-public'],
-          owner: ['owner', 'display', 'booking-public']
-        };
+        if (['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty'].includes(role)) {
+          const allowedPages = {
+            admin: ['admin', 'admin-booking', 'promo', 'display', 'booking-public'],
+            manager: ['manager', 'manager-financial', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'display', 'booking-public'],
+            cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-holidays', 'display', 'booking-public'],
+            sparepart: ['sparepart', 'sparepart-view', 'sparepart-quotation', 'sparepart-profit', 'quotation', 'display', 'booking-public', 'stock-comparison'],
+            owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'display', 'booking-public', 'stock-comparison'],
+            warranty: ['warranty', 'warranty-wo'],
+          };
 
-        if (savedPage && allowedPages[role]?.includes(savedPage)) {
-          setCurrentPage(savedPage);
+          if (savedPage && allowedPages[role]?.includes(savedPage)) {
+            setCurrentPage(savedPage);
+          } else {
+            setCurrentPage(role === 'cro' ? 'cro' : role);
+          }
+        } else if (role === 'customer') {
+          window.history.replaceState({}, '', '/customer');
+          setCurrentPage('customer');
         } else {
-          setCurrentPage(role === 'cro' ? 'cro' : role);
+          window.history.replaceState({}, '', '/karyawan');
+          setCurrentPage('mechanic');
         }
-      } else {
-        window.history.replaceState({}, '', '/karyawan');
-        setCurrentPage('mechanic');
-      }
     } else if (path === '/karyawan') {
       if (role === 'mekanik') {
         setCurrentPage('mechanic');
@@ -309,16 +352,17 @@ const App = () => {
       }
     } else {
       // If path is unknown but logged in, send to their role's default page or respect saved page
-      const defaultPath = ['mekanik'].includes(role) ? '/karyawan' : '/staff';
+      const defaultPath = ['mekanik'].includes(role) ? '/karyawan' : (role === 'customer' ? '/customer' : '/staff');
       window.history.replaceState({}, '', defaultPath);
-      
+
       if (savedPage && (
         (role === 'mekanik' && savedPage === 'mechanic') ||
+        (role === 'customer' && (savedPage === 'customer' || savedPage === 'booking-public')) ||
         (['admin', 'manager', 'cro', 'sparepart', 'owner'].includes(role))
       )) {
         setCurrentPage(savedPage);
       } else {
-        setCurrentPage(role === 'mekanik' ? 'mechanic' : (role === 'cro' ? 'cro' : role));
+        setCurrentPage(role === 'mekanik' ? 'mechanic' : (role === 'customer' ? 'customer' : (role === 'cro' ? 'cro' : role)));
       }
     }
   }, []);
@@ -329,38 +373,7 @@ const App = () => {
       window.location.replace('https://cherymedan.web.id' + window.location.pathname + window.location.search);
     }
   }, []);
-  const resetNavbarTimer = useCallback(() => {
-    if (navbarTimerRef.current) clearTimeout(navbarTimerRef.current);
-    
-    // Navbar tetap muncul di Board & Public Booking jika berada di posisi paling atas
-    if (currentPage === 'display' || currentPage === 'booking-public') {
-        return;
-    }
 
-    navbarTimerRef.current = setTimeout(() => {
-      setIsNavbarVisible(false);
-    }, 2000);
-  }, [currentPage]);
-
-  useEffect(() => {
-    if (isNavbarVisible && isAtTop) {
-      resetNavbarTimer();
-    }
-    return () => {
-      if (navbarTimerRef.current) clearTimeout(navbarTimerRef.current);
-    };
-  }, [isNavbarVisible, isAtTop, resetNavbarTimer]);
-
-  // Monitor scroll position
-  useEffect(() => {
-    const handleScroll = () => {
-      const atTop = window.scrollY < 20;
-      setIsAtTop(atTop);
-      if (!atTop) setIsNavbarVisible(false);
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
 
   // Save break settings to localStorage
   useEffect(() => {
@@ -432,7 +445,7 @@ const App = () => {
         .from('history')
         .select('*')
         .order('targetTime', { ascending: false })
-        .limit(100); 
+        .limit(100);
 
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -513,7 +526,7 @@ const App = () => {
   useEffect(() => {
     const interval = setInterval(() => {
       fetchQueue();
-    }, 60000); 
+    }, 60000);
     return () => clearInterval(interval);
   }, [fetchQueue]);
 
@@ -551,7 +564,7 @@ const App = () => {
         .select('sessionId')
         .eq('username', user.username)
         .single();
-      
+
       if (!error && data && data.sessionId && data.sessionId !== sessionId) {
         handleLogout(true);
         Toastify({
@@ -595,7 +608,7 @@ const App = () => {
                 boxShadow: '0 20px 60px rgba(220,38,38,0.4)',
               }
             }).showToast();
-            try { new Audio('https://raw.githubusercontent.com/shubhamjain/ios-notification-sounds/master/iphone_notification.mp3').play().catch(() => {}); } catch (e) {}
+            try { new Audio('https://raw.githubusercontent.com/shubhamjain/ios-notification-sounds/master/iphone_notification.mp3').play().catch(() => { }); } catch (e) { }
           }
         }
       )
@@ -620,7 +633,7 @@ const App = () => {
 
         const { data: soundStatus } = await supabase.from('settings').select('*').eq('key', 'notification_sound_enabled').maybeSingle();
         if (soundStatus) setIsSoundEnabled(soundStatus.value === 'true');
-      } catch (e) { 
+      } catch (e) {
         // Silently skip if table missing or other error
       }
       customSoundChecked.current = true;
@@ -658,7 +671,7 @@ const App = () => {
     // Debounce: Cegah suara yang sama bunyi berkali-kali dalam 5 detik
     const now = Date.now();
     if (now - lastPlayedRef.current < 5000 && playedTextsRef.current.has(textOrBk)) return;
-    
+
     lastPlayedRef.current = now;
     playedTextsRef.current.add(textOrBk);
     setTimeout(() => playedTextsRef.current.delete(textOrBk), 10000);
@@ -666,9 +679,36 @@ const App = () => {
     try {
       const soundUrl = customSoundUrlRef.current || 'https://raw.githubusercontent.com/shubhamjain/ios-notification-sounds/master/iphone_notification.mp3';
       const audio = new Audio(soundUrl);
-      audio.play().catch(e => console.warn("Audio autoplay blocked by browser:", e));
-    } catch (e) { 
-      console.error("Audio notification error:", e); 
+      audio.play().then(() => {
+        // Voice Notification (TTS)
+        if ('speechSynthesis' in window) {
+          setTimeout(() => {
+            let speakText = textOrBk;
+            
+            // Logika untuk mendeteksi apakah ini plat nomor atau kalimat utuh
+            // Plat nomor biasanya pendek (< 20 karakter) dan jumlah kata sedikit (<= 4)
+            const words = textOrBk.trim().split(/\s+/);
+            const isPlate = words.length <= 4 && textOrBk.length < 20;
+
+            if (isPlate && !textOrBk.toLowerCase().includes('selesai')) {
+              // Format plat nomor agar dibaca per huruf/angka
+              const formattedBk = textOrBk.toUpperCase().split('').join(' ');
+              speakText = `Antrian selesai. Mobil, ${formattedBk}, telah selesai.`;
+            }
+            
+            const utterance = new SpeechSynthesisUtterance(speakText);
+            utterance.lang = 'id-ID';
+            utterance.rate = 0.9;
+            utterance.pitch = 1;
+            
+            // Hentikan suara lain yang sedang berjalan agar tidak tumpang tindih
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(utterance);
+          }, 1000); // Jeda 1 detik setelah bunyi notifikasi
+        }
+      }).catch(e => console.warn("Audio autoplay blocked by browser:", e));
+    } catch (e) {
+      console.error("Audio notification error:", e);
     }
   }, [isSoundEnabled]);
 
@@ -696,7 +736,7 @@ const App = () => {
 
     const todayStr = new Date().toDateString();
     const currentMs = Date.now();
-    
+
     // Throttling notifikasi untuk hemat resource browser
     if (currentMs - lastNotifCheckRef.current < 2000) return;
     lastNotifCheckRef.current = currentMs;
@@ -789,7 +829,7 @@ const App = () => {
                 const targetTime = parseInt(item.targetTime) || Date.now();
                 sisaDetik = Math.max(0, Math.floor((targetTime - Date.now()) / 1000));
               }
-              
+
               await supabase.from('antrian').update({
                 status: targetStatus,
                 estimasiDefault: sisaDetik,
@@ -900,7 +940,7 @@ const App = () => {
 
       const { data, error } = await supabase
         .from('users')
-        .select('id, username, name, role')
+        .select('id, username, name, role, plat_bk, vin')
         .eq('username', cleanUsername)
         .eq('password', cleanPassword)
         .single();
@@ -909,15 +949,21 @@ const App = () => {
         const { device, browser } = getDeviceInfo();
         const loginTime = new Date().toLocaleString('id-ID');
 
-        const userData = { name: data.name, username: data.username, role: data.role };
+        const userData = { 
+          name: data.name, 
+          username: data.username, 
+          role: data.role,
+          plat_bk: data.plat_bk,
+          vin: data.vin
+        };
         const today = new Date().toDateString();
-        
+
         localStorage.setItem('chery_last_login_date', today);
         setLastLoginDate(today);
         setSessionId(newSessionId);
         setUser(userData);
         setLoginForm({ username: '', password: '' });
-        
+
         await supabase.from('users').update({
           sessionId: newSessionId,
           lastDevice: device,
@@ -930,11 +976,17 @@ const App = () => {
           data.role?.toLowerCase() === 'sparepart' ? 'sparepart' :
             data.role?.toLowerCase() === 'cro' ? 'cro' :
               data.role?.toLowerCase() === 'manager' ? 'manager' :
-                data.role?.toLowerCase() === 'owner' ? 'owner' : 'admin';
-        
-        const targetUrl = ['admin', 'manager', 'cro', 'sparepart'].includes(data.role?.toLowerCase()) ? '/staff' : '/karyawan';
+                data.role?.toLowerCase() === 'owner' ? 'owner' : 
+                  data.role?.toLowerCase() === 'customer' ? 'customer' :
+                    data.role?.toLowerCase() === 'display' ? 'display' :
+                    data.role?.toLowerCase() === 'warranty' ? 'warranty' : 'admin';
+
+        const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner'].includes(data.role?.toLowerCase()) ? '/staff' : 
+                          (data.role?.toLowerCase() === 'customer' ? '/customer' : 
+                            (data.role?.toLowerCase() === 'display' ? '/display' :
+                              (data.role?.toLowerCase() === 'warranty' ? '/staff' : '/karyawan')));
         window.history.pushState({}, '', targetUrl);
-        
+
         setCurrentPage(targetPage);
         setErrorMessage('');
 
@@ -998,7 +1050,7 @@ const App = () => {
     if (isLoadingProcess) return;
 
     const totalSeconds = (parseInt(formData.jam || 0) * 3600) + (parseInt(formData.menit || 0) * 60) + parseInt(formData.detik || 0);
-    
+
     // VALIDASI: BK dan Tipe tidak boleh kosong
     if (!formData.bk.trim() || !formData.tipe) {
       setErrorMessage("Nomor Polisi dan Tipe Unit wajib diisi!");
@@ -1050,15 +1102,18 @@ const App = () => {
       if (isEditing) {
         // Try updating antrian first
         const { error, count } = await supabase.from('antrian').update(updates).eq('id', formData.id).select();
-        
+
         // If not in antrian or update failed, try history (mostly for Owner editing completed units)
         if (!error && (!count || count.length === 0)) {
-           // We might be editing a history item. 
-           // History might have different column names or requirements, but usually it matches 'antrian' schema
-           const { error: hError } = await supabase.from('history').update(updates).eq('id', formData.id);
-           if (hError) throw hError;
+          // History table may not have all columns (e.g. checklist), so only send safe fields
+          const historyUpdates = { ...updates };
+          delete historyUpdates.checklist;
+          delete historyUpdates.targetTime;
+          delete historyUpdates.menginap_reason;
+          const { error: hError } = await supabase.from('history').update(historyUpdates).eq('id', formData.id);
+          if (hError) throw hError;
         } else if (error) {
-           throw error;
+          throw error;
         }
       } else {
         const { error } = await supabase.from('antrian').insert(updates);
@@ -1155,9 +1210,9 @@ const App = () => {
           // Jika kolom tidak ada, coba update tanpa kolom tersebut sebagai fallback
           delete updateData.menginap_reason;
           await supabase.from('antrian').update(updateData).eq('id', item.id);
-          Toastify({ 
-             text: "⚠️ Fitur Alasan Menginap belum aktif di Database. Silakan tambah kolom 'menginap_reason' di Supabase.", 
-             style: { background: '#f59e0b' } 
+          Toastify({
+            text: "⚠️ Fitur Alasan Menginap belum aktif di Database. Silakan tambah kolom 'menginap_reason' di Supabase.",
+            style: { background: '#f59e0b' }
           }).showToast();
         } else {
           throw error;
@@ -1238,7 +1293,7 @@ const App = () => {
 
     if (checklist.length > 0 && !isAllDone) {
       const unfinishedTasks = checklist.filter(t => !t.completed).map(t => t.text || "Tugas tanpa nama");
-      const errorText = unfinishedTasks.length > 0 
+      const errorText = unfinishedTasks.length > 0
         ? `⚠️ PEKERJAAN BELUM SELESAI: ${unfinishedTasks.join(', ')}`
         : "⚠️ GAGAL SELESAI: Masih ada checklist yang belum tercentang!";
 
@@ -1247,8 +1302,8 @@ const App = () => {
         duration: 6000,
         gravity: "top",
         position: "center",
-        style: { 
-          background: "linear-gradient(135deg, #e11d48, #be123c)", 
+        style: {
+          background: "linear-gradient(135deg, #e11d48, #be123c)",
           padding: "16px 24px",
           fontWeight: "900",
           borderRadius: "16px",
@@ -1258,7 +1313,7 @@ const App = () => {
           textAlign: "center"
         }
       }).showToast();
-      try { new Audio('https://raw.githubusercontent.com/shubhamjain/ios-notification-sounds/master/iphone_notification.mp3').play().catch(() => {}); } catch (e) {}
+      try { new Audio('https://raw.githubusercontent.com/shubhamjain/ios-notification-sounds/master/iphone_notification.mp3').play().catch(() => { }); } catch (e) { }
       return;
     }
 
@@ -1269,7 +1324,7 @@ const App = () => {
       const now = new Date();
       // Ensure Jakarta time for string dates
       const jakartaNow = new Date(now.getTime() + (7 * 3600000));
-      
+
       const itemIdNum = parseInt(item.id);
       const waktuMasukMs = itemIdNum < 2000000000 ? itemIdNum * 1000 : itemIdNum;
       const waktuMasukDate = new Date(waktuMasukMs);
@@ -1284,7 +1339,7 @@ const App = () => {
         ? `${jamKerja} jam ${menitKerja} menit`
         : `${menitKerja} menit`;
 
-      const namaBulan = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+      const namaBulan = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
       const bulanStr = namaBulan[now.getMonth()];
       const tanggalISO = now.toISOString().split('T')[0];
 
@@ -1313,25 +1368,25 @@ const App = () => {
       if (insertError) {
         // Jika error "Conflict" (ID sudah ada), hapus saja dari antrian & anggap sukses
         if (insertError.code === '23505' || insertError.status === 409) {
-           console.warn("Item ini sudah ada di history, melanjutkan pembersihan antrian...");
-        } 
+          console.warn("Item ini sudah ada di history, melanjutkan pembersihan antrian...");
+        }
         // Fallback jika kolom checklist belum ada di tabel history Supabase
         else if (insertError.code === 'PGRST204' || (insertError.message && insertError.message.includes('checklist'))) {
-           console.warn("Kolom 'checklist' tidak ditemukan di tabel history, mencoba simpan tanpa checklist...");
-           const { checklist: _, ...restHistory } = historyData;
-           if (checklist.length > 0) {
-             const checklistSummary = checklist.map(t => `${t.completed ? '✅' : '❌'} ${t.text}`).join('\n');
-             restHistory.keluhan = (restHistory.keluhan ? restHistory.keluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + checklistSummary;
-           }
-           
-           const { error: retryError } = await supabase.from('history').insert(restHistory);
-           if (retryError && retryError.code !== '23505') {
-             console.error("Retry Error:", retryError);
-             throw new Error(`Database Error (History Retry): ${retryError.message}`);
-           }
+          console.warn("Kolom 'checklist' tidak ditemukan di tabel history, mencoba simpan tanpa checklist...");
+          const { checklist: _, ...restHistory } = historyData;
+          if (checklist.length > 0) {
+            const checklistSummary = checklist.map(t => `${t.completed ? '✅' : '❌'} ${t.text}`).join('\n');
+            restHistory.keluhan = (restHistory.keluhan ? restHistory.keluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + checklistSummary;
+          }
+
+          const { error: retryError } = await supabase.from('history').insert(restHistory);
+          if (retryError && retryError.code !== '23505') {
+            console.error("Retry Error:", retryError);
+            throw new Error(`Database Error (History Retry): ${retryError.message}`);
+          }
         } else {
-           console.error("History Insert Error:", insertError);
-           throw new Error(`Database Error (History): ${insertError.message}`);
+          console.error("History Insert Error:", insertError);
+          throw new Error(`Database Error (History): ${insertError.message}`);
         }
       }
 
@@ -1406,105 +1461,68 @@ const App = () => {
     setIsEditing(false);
   };
 
-  return (
-    <div className={`bg-[#F2F2F7] text-zinc-900 font-sans tracking-tight antialiased min-h-screen flex flex-col relative transition-colors duration-500 ${['login', 'promo', 'booking-public'].includes(currentPage) ? 'pt-14 pb-20' : 'pt-0 pb-0'}`}>
-      {/* Navbar Marker di Mobile: Muncul saat di atas */}
-      {isAtTop && (
-        <div className="md:hidden fixed top-0 left-1/2 -translate-x-1/2 z-[150] w-12 h-1.5 bg-zinc-300 rounded-b-full pointer-events-none opacity-50 animate-pulse"></div>
-      )}
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (IS_MAINTENANCE && !isLocal) {
+    return (
+      <div className="min-h-screen bg-[#0f172a] flex items-center justify-center p-6 font-sans">
+        <div className="relative w-full max-w-lg">
+          {/* Decorative Orbs */}
+          <div className="absolute -top-24 -left-24 w-64 h-64 bg-red-500/10 rounded-full blur-3xl animate-pulse"></div>
+          <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
 
-      {/* Navbar Container: Pointer events none agar tidak menghalangi menu di bawahnya */}
-      <div
-        className="fixed top-0 left-0 w-full z-[100] h-14 md:h-2 pointer-events-none"
-      >
-        {/* Detection trigger (invisible but clickable/hoverable) */}
-        <div
-          onMouseEnter={() => {
-            if (isAtTop) {
-              setIsNavbarVisible(true);
-              if (navbarTimerRef.current) clearTimeout(navbarTimerRef.current);
-            }
-          }}
-          onMouseLeave={() => isAtTop && isNavbarVisible && resetNavbarTimer()}
-          className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-full pointer-events-auto cursor-pointer"
-          onClick={() => isAtTop && setIsNavbarVisible(!isNavbarVisible)}
-        />
+          <div className="relative bg-slate-900/50 backdrop-blur-xl border border-white/10 p-12 rounded-[2.5rem] shadow-2xl text-center overflow-hidden">
+            {/* Glossy Overlay */}
+            <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
 
-        <nav
-          onMouseEnter={() => { if (navbarTimerRef.current) clearTimeout(navbarTimerRef.current); }}
-          onMouseLeave={() => isAtTop && isNavbarVisible && resetNavbarTimer()}
-          className={`fixed top-4 left-1/2 -translate-x-1/2 flex items-center justify-center transition-all duration-500 ease-out z-[101] pointer-events-auto ${isNavbarVisible && isAtTop ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-12 opacity-0 scale-95 pointer-events-none'}`}>
-          <div className="bg-white/70 backdrop-blur-2xl border border-white/40 p-1.5 rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] flex items-center gap-1.5 no-scrollbar overflow-x-auto max-w-[95vw]">
-            <div className="flex items-center gap-1 flex-nowrap shrink-0">
-              <button onClick={() => setCurrentPage('display')}
-                className={`px-4 md:px-6 py-2.5 rounded-2xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${currentPage === 'display' ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100'}`}>
-                <LayoutDashboard size={14} className="shrink-0" /> <span>Board</span>
-              </button>
+            <div className="relative z-10">
+              <div className="w-24 h-24 bg-gradient-to-tr from-slate-800 to-slate-700 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-inner border border-white/5">
+                <span className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-br from-red-500 to-orange-400">404</span>
+              </div>
 
-              <button onClick={() => setCurrentPage('booking-public')}
-                className={`px-4 md:px-6 py-2.5 rounded-2xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${currentPage === 'booking-public' ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100'}`}>
-                <Calendar size={14} className="shrink-0" /> <span>Booking</span>
-              </button>
+              <h1 className="text-4xl font-extrabold text-white mb-4 tracking-tight">
+                Page Not Found
+              </h1>
 
-              <div className="w-[1px] h-6 bg-zinc-200/50 mx-1 shrink-0"></div>
+              <p className="text-slate-400 text-lg leading-relaxed mb-10 max-w-xs mx-auto">
+                Not Available
+              </p>
 
-              {user?.role?.toLowerCase() === 'mekanik' ? (
-                <button onClick={() => setCurrentPage('mechanic')}
-                  className={`px-4 md:px-6 py-2.5 rounded-2xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${currentPage === 'mechanic' ? 'bg-white text-zinc-900 shadow-lg border border-zinc-100' : 'text-zinc-500 hover:bg-zinc-100'}`}>
-                  <Settings size={14} className="shrink-0" /> <span>Profile</span>
-                </button>
-              ) : (
-                <button onClick={() => {
-                  if (user) {
-                    if (user.role === 'sparepart') setCurrentPage('sparepart');
-                    else if (user.role === 'cro') setCurrentPage('cro');
-                    else if (user.role === 'manager') setCurrentPage('manager');
-                    else if (user.role === 'owner') setCurrentPage('owner');
-                    else setCurrentPage('admin');
-                  } else {
-                    setCurrentPage('login');
-                    window.history.pushState({}, '', '/login');
-                  }
-                }}
-                  className={`px-4 md:px-6 py-2.5 rounded-2xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${['admin', 'login', 'sparepart', 'cro', 'manager', 'owner'].includes(currentPage) ? 'bg-white text-zinc-900 shadow-md border border-zinc-100' : 'text-zinc-500 hover:bg-zinc-100'}`}>
-                  <Settings size={14} className="shrink-0" />
-                  <span>
-                    {user?.role === 'sparepart' ? 'Sparepart' : user?.role === 'cro' ? 'Follow Up' : user?.role === 'manager' ? 'Management' : user?.role === 'owner' ? 'Owner' : user ? 'Admin' : 'Login'}
-                  </span>
-                </button>
-              )}
+              <div className="h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent mb-8"></div>
 
-
-              {(user?.role === 'admin' || user?.role === 'manager' || user?.role === 'cro') && (
-                <>
-                  <div className="w-[1px] h-6 bg-zinc-200/50 mx-1 shrink-0"></div>
-                  {user?.role === 'admin' && (
-                    <button onClick={() => setCurrentPage('promo')}
-                      className={`px-4 md:px-6 py-2.5 rounded-2xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${currentPage === 'promo' ? 'bg-indigo-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100'}`}>
-                      Promo
-                    </button>
-                  )}
-                  {user?.role === 'manager' && (
-                    <button onClick={() => setCurrentPage('manager')}
-                      className={`px-4 md:px-6 py-2.5 rounded-2xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${currentPage === 'manager' ? 'bg-indigo-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100'}`}>
-                      Report
-                    </button>
-                  )}
-                </>
-              )}
-              {user?.role?.toLowerCase() === 'sparepart' && (
-                <>
-                  <div className="w-[1px] h-6 bg-zinc-200/50 mx-1 shrink-0"></div>
-                  <button onClick={() => setCurrentPage('quotation')}
-                    className={`px-4 md:px-6 py-2.5 rounded-2xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${currentPage === 'quotation' ? 'bg-emerald-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100'}`}>
-                    <FileText size={14} className={`shrink-0 ${currentPage === 'quotation' ? 'text-white' : 'text-black'}`} /> <span>Quotation</span>
-                  </button>
-                </>
-              )}
+              <div className="flex flex-col items-center gap-2">
+                <span className="text-[10px] uppercase tracking-[0.3em] font-bold text-slate-500">Lexx</span>
+                <div className="flex gap-1">
+                  <div className="w-1.5 h-1.5 rounded-full bg-red-500/40 animate-bounce"></div>
+                  <div className="w-1.5 h-1.5 rounded-full bg-red-500/40 animate-bounce delay-100"></div>
+                  <div className="w-1.5 h-1.5 rounded-full bg-red-500/40 animate-bounce delay-200"></div>
+                </div>
+              </div>
             </div>
           </div>
-        </nav>
+        </div>
       </div>
+    );
+  }
+
+  // Determine if navbars should be shown
+  const showNavbar = currentPage !== 'login' && user?.role?.toLowerCase() !== 'display';
+  // Check if on a dashboard page (not public)
+  const publicPages = ['display', 'booking-public', 'tracking-public', 'login'];
+  const isOnDashboard = user && !publicPages.includes(currentPage);
+  const hasSidebarItems = user && getNavItems(user.role?.toLowerCase()).length > 0;
+
+  return (
+    <div className={`bg-[#F2F2F7] text-zinc-900 font-sans tracking-tight antialiased h-screen flex flex-col relative transition-colors duration-500 overflow-hidden ${showNavbar ? 'pb-[64px] md:pb-0' : ''} ${isOnDashboard && hasSidebarItems ? 'pt-14 md:pt-0' : ''}`}>
+
+      {/* Universal Navigation - same navbar for all pages (public & logged in) */}
+      {showNavbar && (
+        <PublicNavBar
+          user={user}
+          currentPage={currentPage}
+          onNavigate={setCurrentPage}
+          onLogout={handleLogout}
+        />
+      )}
 
       {/* Loading Indicator untuk Proses Remote API */}
       {isLoadingProcess && (
@@ -1514,7 +1532,8 @@ const App = () => {
         </div>
       )}
 
-      {/* Render Pages */}
+      {/* Render Pages - Full screen scrollable area */}
+      <main className={`flex-1 overflow-y-auto overflow-x-hidden ${showNavbar ? 'md:ml-[220px]' : ''}`}>
       {currentPage === 'display' && (
         <DisplayBoard
           processedQueue={processedQueue}
@@ -1531,8 +1550,20 @@ const App = () => {
           bookings={bookings}
         />
       )}
+
+      {/* Logout button for display role — small button bottom-right */}
+      {currentPage === 'display' && user?.role?.toLowerCase() === 'display' && (
+        <button
+          onClick={() => handleLogout()}
+          className="fixed bottom-4 right-4 z-[100] bg-zinc-900/80 hover:bg-red-600 text-white text-[10px] font-bold uppercase tracking-wider px-4 py-2 rounded-full shadow-lg transition-all duration-200 opacity-30 hover:opacity-100"
+          aria-label="Logout"
+        >
+          Logout
+        </button>
+      )}
       {currentPage === 'login' && <LoginPage loginForm={loginForm} setLoginForm={setLoginForm} handleLogin={handleLogin} errorMessage={errorMessage} setCurrentPage={setCurrentPage} />}
-      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} />}
+      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} activeTab="dashboard" />}
+      {currentPage === 'admin-booking' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} activeTab="booking" />}
       {currentPage === 'mechanic' && (
         <MechanicPanel
           user={user}
@@ -1549,53 +1580,87 @@ const App = () => {
           onCancelOvernight={handleCancelOvernight}
         />
       )}
-      {currentPage === 'sparepart' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={isNavbarVisible} />}
+      {currentPage === 'sparepart' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="input" />}
+      {currentPage === 'sparepart-view' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="view" />}
+      {currentPage === 'sparepart-quotation' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="quotation" />}
+      {currentPage === 'sparepart-profit' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="profit" />}
       {currentPage === 'quotation' && <QuotationSPA />}
-      {currentPage === 'booking_manager' && <BookingManager user={user} handleLogout={handleLogout} isNavbarVisible={isNavbarVisible} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />}
+      {currentPage === 'booking_manager' && <BookingManager user={user} handleLogout={handleLogout} isNavbarVisible={true} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />}
       {currentPage === 'cro' && (
-         <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={isNavbarVisible} initialTab="belum" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="belum" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+      )}
+      {currentPage === 'cro-sudah' && (
+        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="sudah" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+      )}
+      {currentPage === 'cro-freeservice' && (
+        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="free_service" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+      )}
+      {currentPage === 'cro-laporan' && (
+        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="laporan" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
       )}
       {currentPage === 'cro-booking' && (
-        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={isNavbarVisible} initialTab="booking" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="booking" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+      )}
+      {currentPage === 'cro-holidays' && (
+        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="holidays" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
       )}
       {currentPage === 'booking-public' && <PublicBooking user={user} />}
       {currentPage === 'promo' && <PromosiSparepart />}
-      {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={setIsNavbarVisible} />}
+      {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="performance" />}
+      {currentPage === 'manager-financial' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="financial" />}
+      {currentPage === 'manager-wo' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="wo_tracking" />}
+      {currentPage === 'manager-vehicles' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="vehicles" />}
+      {currentPage === 'manager-cro' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="cro_history" />}
+      {currentPage === 'manager-holidays' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="holidays" />}
+      {currentPage === 'manager-staff' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="staff" />}
       {currentPage === 'owner' && user?.role === 'owner' && (
-        <OwnerPanel
-          user={user}
-          handleLogout={handleLogout}
-          processedQueue={processedQueue}
-          rawHistory={rawHistory}
-          formatTime={formatTime}
-          handleSave={handleSave}
-          deleteItem={deleteItem}
-          editItem={editItem}
-          setFormData={setFormData}
-          formData={formData}
-          isEditing={isEditing}
-          setIsEditing={setIsEditing}
-          handleCancelEdit={handleCancelEdit}
-          handleAddTask={handleAddTask}
-          handleRemoveTask={handleRemoveTask}
-          handleToggleTask={handleToggleTask}
-          isLoadingProcess={isLoadingProcess}
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="monitoring" />
+      )}
+      {currentPage === 'owner-workshop' && user?.role === 'owner' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="workshop" />
+      )}
+      {currentPage === 'owner-dms' && user?.role === 'owner' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="dms_search" />
+      )}
+      {currentPage === 'owner-warranty' && user?.role === 'owner' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="warranty_search" />
+      )}
+      {currentPage === 'owner-parts' && user?.role === 'owner' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="part_orders" />
+      )}
+      {currentPage === 'owner-users' && user?.role === 'owner' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="users" />
+      )}
+      {currentPage === 'owner-sound' && user?.role === 'owner' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="notification_sound" />
+      )}
+      {currentPage === 'owner-deleted' && user?.role === 'owner' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="deleted_bookings" />
+      )}
+      {currentPage === 'stock-comparison' && (
+        <StockComparison user={user} setCurrentPage={setCurrentPage} />
+      )}
+      {currentPage === 'warranty' && <WarrantyDashboard user={user} onNavigate={setCurrentPage} />}
+      {currentPage === 'warranty-wo' && <WarrantyPanel user={user} />}
+      {currentPage === 'register' && (
+        <RegisterPage 
+          setCurrentPage={setCurrentPage} 
+          setErrorMessage={setErrorMessage} 
+          errorMessage={errorMessage} 
         />
       )}
-
-      {/* Footer */}
-      {currentPage !== 'display' && !['admin', 'owner'].includes(currentPage) && (
-        <footer className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-zinc-200 px-4 md:px-8 py-2 md:py-2.5 flex flex-col md:flex-row justify-between items-center text-[7px] md:text-[9px] text-zinc-400 font-black uppercase tracking-[0.2em] z-50 gap-1 md:gap-0 transition-colors duration-500">
-          <div className="flex items-center gap-2 md:gap-4">
-            <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span> Service Operational</span>
-            <span className="text-zinc-200 hidden md:block">|</span>
-            <span className="hidden sm:inline">{queue.length} Active Cars</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-zinc-300">© 2026 Chery Oriental Medan</span>
-          </div>
-        </footer>
+      {currentPage === 'tracking-public' && (
+        <PublicTracking setCurrentPage={setCurrentPage} />
       )}
+      {currentPage === 'customer' && user?.role === 'customer' && (
+        !user.plat_bk ? (
+          <CustomerProfile user={user} setUser={setUser} />
+        ) : (
+          <CustomerPanel user={user} handleLogout={handleLogout} />
+        )
+      )}
+
+      </main>
 
       <style>{`
         @keyframes fadeIn {
@@ -1613,20 +1678,7 @@ const App = () => {
         .animate-pulse-subtle { animation: pulse-subtle 3s ease-in-out infinite; }
       `}</style>
 
-      {/* GLOBAL FIXED LOGOUT BUTTON BOTTOM LEFT */}
-      {user && !['display', 'login', 'booking-public'].includes(currentPage) && (
-        <div className="fixed bottom-6 left-6 z-[100] group/logout">
-            <button 
-                onClick={() => handleLogout()}
-                className="flex items-center gap-3 px-6 py-4 bg-white border-2 border-zinc-200 text-zinc-500 hover:bg-red-600 hover:text-white hover:border-red-600 rounded-2xl transition-all duration-300 font-black text-[10px] uppercase tracking-widest shadow-2xl hover:scale-110 active:scale-95 group-hover/logout:shadow-red-500/20"
-            >
-                <LogOut className="group-hover/logout:rotate-12 transition-transform" size={18} />
-                <span className="max-w-0 overflow-hidden group-hover/logout:max-w-xs transition-all duration-500 ease-in-out whitespace-nowrap">
-                    Keluar Sistem
-                </span>
-            </button>
-        </div>
-      )}
+      {/* Logout is now inside the sidebar menu */}
     </div>
   );
 };

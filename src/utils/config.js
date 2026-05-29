@@ -6,3 +6,10 @@ export const GAS_REVENUE_URL = "/api/gas_revenue";
 export const GAS_WO_TRACKING_URL = "/api/gas_laporanwo";
 export const GAS_CRO_URL = "/api/gas_cro";
 export const GAS_BOOKING_URL = "/api/gas_booking";
+export const CHERY_DMS_URL = "/api/chery_dms";
+export const CHERY_EPC_URL = "/api/chery_epc";
+export const CHERY_EPC_LOGIN_URL = "/api/chery_epc_login";
+
+// SET TRUE UNTUK NON-AKTIFKAN PROYEK (TAMPILAN 404)
+// SET FALSE UNTUK MENGAKTIFKAN KEMBALI
+export const IS_MAINTENANCE = false;

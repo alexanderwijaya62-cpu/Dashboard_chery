@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { PackageSearch, Plus, Trash2, Check, ArrowLeft, Send, Upload, Search, Filter, X, Menu, FileText, TrendingUp } from 'lucide-react';
+import { PackageSearch, Plus, Trash2, Check, ArrowLeft, ArrowRight, Send, Upload, Search, Filter, X, Menu, FileText, TrendingUp, Layers } from 'lucide-react';
 import QuotationSPA from '../quotation/QuotationSPA';
 import ProfitDashboard from './ProfitDashboard';
 import Toastify from 'toastify-js';
 import * as XLSX from 'xlsx';
 
 import { supabase } from '../utils/supabaseClient';
+import { CHERY_DMS_URL, API_KEY } from '../utils/config';
 
 const normalize = (s) => String(s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 
@@ -30,19 +31,27 @@ const formatDateForInput = (dateStr) => {
     return dateStr;
 };
 
-export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) {
-    const [activeTab, setActiveTab] = useState('input');
+export default function SparepartPanel({ user, handleLogout, isNavbarVisible, setCurrentPage, activeTab: activeTabProp }) {
+    const [activeTab, setActiveTab] = useState(activeTabProp || 'input');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+    // Sync activeTab with prop
+    useEffect(() => {
+      if (activeTabProp && activeTabProp !== activeTab) {
+        setActiveTab(activeTabProp);
+      }
+    }, [activeTabProp]);
     const [orders, setOrders] = useState([]);
-    const [masterParts, setMasterParts] = useState([]); 
     const [isLoading, setIsLoading] = useState(false);
     
-    // Filtering & Search states (Restored)
+    // Filtering & Search states
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState('all');
     const [filterDate, setFilterDate] = useState('');
     
-    const [searchMaster, setSearchMaster] = useState(''); // Search for Master Data
+    const [searchDms, setSearchDms] = useState(''); // Live search query for DMS
+    const [isDmsLoading, setIsDmsLoading] = useState(false);
+    const [dmsResults, setDmsResults] = useState([]);
 
     // Form State
     const [orderNumber, setOrderNumber] = useState('');
@@ -248,34 +257,26 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
         }
     };
 
-    const fetchMasterParts = async () => {
+    const fetchFromDms = async (query = '') => {
+        if (!query && !searchDms) return;
+        const q = query || searchDms;
+        setIsDmsLoading(true);
         try {
-            // Load only top 20 as default view to avoid heavy load
-            const { data, error } = await supabase.from('sparepart_master').select('*').limit(20);
-            if (error) throw error;
-            setMasterParts(data || []);
+            // Search from DMS
+            const resp = await fetch(`${CHERY_DMS_URL}/search?q=${q}`, {
+                headers: { 'x-api-key': API_KEY }
+            });
+            const result = await resp.json();
+            
+            const dmsData = result.data || result.items || (Array.isArray(result) ? result : []);
+            setDmsResults(dmsData.slice(0, 10)); // Top 10 results
         } catch (e) {
-            console.error("Gagal fetch master sparepart:", e);
+            console.error("DMS Fetch Error:", e);
+            Toastify({ text: "Gagal mencari di DMS: " + e.message, background: "#ef4444" }).showToast();
+        } finally {
+            setIsDmsLoading(false);
         }
     };
-
-    useEffect(() => {
-        const fetchSearchMaster = async () => {
-            if (searchMaster.length < 2) {
-                const { data } = await supabase.from('sparepart_master').select('*').limit(20);
-                if (data) setMasterParts(data);
-                return;
-            }
-            const { data } = await supabase
-                .from('sparepart_master')
-                .select('*')
-                .or(`part_name.ilike.%${searchMaster}%,part_number.ilike.%${searchMaster}%`)
-                .limit(100);
-            if (data) setMasterParts(data);
-        };
-        const tid = setTimeout(fetchSearchMaster, 400);
-        return () => clearTimeout(tid);
-    }, [searchMaster]);
 
     useEffect(() => {
         fetchOrders();
@@ -284,19 +285,8 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
             .on('postgres_changes', { event: '*', schema: 'public', table: 'sparepart' }, () => fetchOrders())
             .subscribe();
 
-        const masterChannel = supabase.channel('master-changes')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'sparepart_master' }, () => {
-                // Refresh search if any change occurs in master data
-                if (searchMaster.length >= 2) {
-                    setSearchMaster(s => s + ' '); // Trigger tiny change to refetch
-                    setTimeout(() => setSearchMaster(s => s.trim()), 10);
-                }
-            })
-            .subscribe();
-
         return () => {
             supabase.removeChannel(sparepartChannel);
-            supabase.removeChannel(masterChannel);
         };
     }, []);
 
@@ -622,201 +612,42 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
     const arrivedOrders = useMemo(() => orders.filter(o => o.status === 'arrived' || o.status === 'confirmed'), [orders]);
 
     return (
-        <div className="flex h-screen bg-[#FDFDFD] text-zinc-900 font-sans tracking-tight overflow-hidden selection:bg-zinc-200">
-            {/* Sidebar - Fixed & Sleek */}
-            <div className={`fixed inset-y-0 left-0 bg-zinc-950 text-white z-[60] flex flex-col transition-all duration-500 ease-in-out shadow-[10px_0_40px_rgba(0,0,0,0.1)]
-                ${isSidebarOpen ? 'w-72' : 'w-20'}`}
-                onMouseEnter={() => setIsSidebarOpen(true)}
-                onMouseLeave={() => setIsSidebarOpen(false)}
-            >
-                <div className="h-20 flex items-center px-6 border-b border-white/5">
-                    <div className="bg-white/10 p-2 rounded-xl border border-white/10 shrink-0">
-                        <PackageSearch size={22} className="text-white" />
-                    </div>
-                    <div className={`ml-4 transition-all duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                        <h2 className="font-black text-sm uppercase tracking-widest leading-none">Sparepart</h2>
-                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1 block">Operational Hub</span>
-                    </div>
-                </div>
-
-                <div className="flex-1 py-10 flex flex-col gap-1.5 px-3">
-                    {[
-                        { id: 'input', label: 'Input Order', icon: Plus },
-                        { id: 'view', label: 'Daftar Pesanan', icon: Search, badge: pendingOrders.length },
-                        { id: 'master', label: 'Master Database', icon: PackageSearch },
-                        { id: 'profit', label: 'Analisis Profit', icon: TrendingUp },
-                        { id: 'quotation', label: 'Quote Manager', icon: FileText }
-                    ].map((tab) => {
-                        const Icon = tab.icon;
-                        const isActive = activeTab === tab.id;
-                        return (
-                            <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id)}
-                                className={`flex items-center gap-4 px-4 py-3 rounded-2xl transition-all duration-300 relative group ${
-                                    isActive ? 'bg-white text-zinc-950 shadow-lg' : 'text-zinc-500 hover:text-white hover:bg-white/5'
-                                }`}
-                            >
-                                <Icon size={20} className="shrink-0" />
-                                <span className={`font-black text-sm uppercase tracking-tight transition-all duration-300 ${isSidebarOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
-                                    {tab.label}
-                                </span>
-                                {tab.badge > 0 && !isActive && (
-                                    <span className="absolute right-4 top-1/2 -translate-y-1/2 bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-black min-w-[18px] text-center">
-                                        {tab.badge}
-                                    </span>
-                                )}
-                            </button>
-                        );
-                    })}
-                </div>
-
-                <div className="p-6 border-t border-white/5 flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center font-black text-white/40 text-[10px] shrink-0 border border-white/5">
-                        SP
-                    </div>
-                    <div className={`transition-all duration-300 overflow-hidden ${isSidebarOpen ? 'opacity-100' : 'opacity-0 w-0'}`}>
-                        <p className="text-[10px] font-black uppercase text-white leading-none truncate">{user?.name || 'Staff'}</p>
-                    </div>
-                </div>
-            </div>
-
-            {/* Main Content Area */}
-            <div className={`flex-1 flex flex-col h-screen transition-all duration-500 ml-20 ${isSidebarOpen ? 'lg:ml-72' : 'ml-20'}`}>
+        <div className="flex flex-col w-full h-full bg-zinc-50 text-black font-sans tracking-tight overflow-hidden selection:bg-zinc-200">
+            {/* Main Content Area - no internal sidebar */}
+            <div className="flex-1 flex flex-col h-full">
                 
                 {/* Header Bar */}
-                <header className="h-20 border-b border-zinc-100 flex items-center justify-between px-10 bg-white/50 backdrop-blur-xl sticky top-0 z-50 shrink-0">
+                <header className="h-auto md:h-24 border-b border-zinc-200 flex flex-col md:flex-row items-start md:items-center justify-between px-4 md:px-12 py-4 md:py-0 bg-white backdrop-blur-xl sticky top-0 z-40 shrink-0 gap-3 md:gap-0">
                     <div>
-                        <h1 className="text-2xl font-black tracking-tighter uppercase italic flex items-center gap-3">
-                            {activeTab === 'input' ? 'Entry Data Pemesanan' : 
-                             activeTab === 'quotation' ? 'Sparepart Quotation' : 
-                             activeTab === 'master' ? 'Database Master Part' : 
-                             activeTab === 'profit' ? 'Analisis Profit' :
-                             'Monitoring Ketersediaan'}
-                            <div className="h-1.5 w-1.5 bg-blue-500 rounded-full"></div>
+                        <h1 className="text-3xl font-black tracking-tighter uppercase italic flex items-center gap-4 text-black">
+                            {activeTab === 'input' ? 'Order Management' : 
+                             activeTab === 'quotation' ? 'Quotation Hub' : 
+                             activeTab === 'profit' ? 'Profit Analysis' :
+                             'Logistics Monitor'}
+                            <div className="h-2 w-2 bg-black rounded-full animate-pulse"></div>
                         </h1>
                     </div>
 
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-6">
                         {activeTab === 'input' && (
                             <>
                                 <input type="file" accept=".xlsx, .xls, .csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-                                <button type="button" onClick={() => fileInputRef.current.click()} className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all border border-emerald-100">
-                                    <Upload size={14} /> Import Master Excel
+                                <button 
+                                    type="button" 
+                                    onClick={() => fileInputRef.current.click()} 
+                                    className="bg-white text-black border border-black px-8 py-3.5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest flex items-center gap-3 transition-all hover:bg-zinc-200 active:scale-95 shadow-sm"
+                                >
+                                    <Upload size={16} className="text-black" /> Bulk Import
                                 </button>
                             </>
                         )}
-                        {activeTab === 'master' && (
-                            <button 
-                                onClick={async () => {
-                                    const file = await new Promise(resolve => {
-                                        const input = document.createElement('input');
-                                        input.type = 'file';
-                                        input.onchange = e => resolve(e.target.files[0]);
-                                        input.click();
-                                    });
-                                    if (!file) return;
-                                    
-                                    setIsLoading(true);
-                                    const reader = new FileReader();
-                                    reader.onload = async (evt) => {
-                                        try {
-                                            const wb = XLSX.read(evt.target.result, { type: 'binary' });
-                                            const rawData = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-                                            
-                                            const parsePrice = (val) => {
-                                                if (val === undefined || val === null || val === '') return 0;
-                                                if (typeof val === 'number') return val;
-                                                
-                                                let clean = String(val).replace(/Rp|\s/gi, '').trim();
-                                                
-                                                if ((clean.match(/\./g) || []).length > 1) {
-                                                    clean = clean.replace(/\./g, '');
-                                                }
-                                                
-                                                if (clean.includes(',') && clean.includes('.')) {
-                                                    clean = clean.replace(/\./g, '').replace(/,/g, '.');
-                                                } else if (clean.includes(',')) {
-                                                    const parts = clean.split(',');
-                                                    if (parts[parts.length - 1].length === 2) {
-                                                        clean = clean.replace(/\./g, '').replace(/,/g, '.');
-                                                    } else {
-                                                        clean = clean.replace(/,/g, '');
-                                                    }
-                                                } else if (clean.includes('.')) {
-                                                    if (clean.split('.').pop().length === 3) {
-                                                        clean = clean.replace(/\./g, '');
-                                                    }
-                                                }
-                                                
-                                                const res = parseFloat(clean);
-                                                return isNaN(res) ? 0 : res;
-                                            };
-
-                                            const formatted = rawData.map(row => {
-                                                const normalizedRow = {};
-                                                Object.keys(row).forEach(key => {
-                                                    normalizedRow[key.trim().toLowerCase()] = row[key];
-                                                });
-
-                                                const getVal = (exactName) => normalizedRow[exactName.toLowerCase().trim()];
-
-                                                return {
-                                                    part_number: String(getVal('Spare part number') || '').trim(),
-                                                    part_name: String(getVal('Spare part name') || '').trim(),
-                                                    wholesale_price_no_tax: parsePrice(getVal('Wholesale price without tax')),
-                                                    wholesale_price: parsePrice(getVal('Wholesale price')),
-                                                    sales_guide_price_no_tax: parsePrice(getVal('Sales guide price excluding tax')),
-                                                    sales_guide_price: parsePrice(getVal('sales guide price')),
-                                                };
-                                            }).filter(r => r.part_number && r.part_name);
-
-                                            if (formatted.length === 0) throw new Error("Format Kolom Tidak Pas. Pastikan nama kolom sama persis dengan yang Anda berikan.");
-
-                                            const { error } = await supabase.from('sparepart_master').upsert(formatted, { onConflict: 'part_number' });
-                                            if (error) throw error;
-                                            
-                                            Toastify({ text: `Impor ${formatted.length} data berhasil!`, background: "black", color: "white" }).showToast();
-                                            fetchMasterParts();
-                                        } catch (err) {
-                                            Toastify({ text: "Gagal impor: " + err.message, background: "red" }).showToast();
-                                        } finally {
-                                            setIsLoading(false);
-                                        }
-                                    };
-                                    reader.readAsBinaryString(file);
-                                }}
-                                className="bg-zinc-900 text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-black transition-all"
-                            >
-                                <Upload size={14} /> Import Master CSV/Excel
-                            </button>
-                        )}
-                        {activeTab === 'master' && (
-                            <button 
-                                onClick={async () => {
-                                    if(confirm("Hapus seluruh data Master Sparepart? Tindakan ini tidak bisa dibatalkan.")) {
-                                        setIsLoading(true);
-                                        const { error } = await supabase.from('sparepart_master').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-                                        setIsLoading(false);
-                                        if (error) Toastify({ text: "Gagal: " + error.message, background: "red" }).showToast();
-                                        else {
-                                            Toastify({ text: "Database master dikosongkan.", background: "black" }).showToast();
-                                            fetchMasterParts();
-                                        }
-                                    }
-                                }}
-                                className="bg-red-50 text-red-600 border border-red-100 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-red-600 hover:text-white transition-all"
-                            >
-                                <Trash2 size={14} /> Hapus Semua
-                            </button>
-                        )}
                         {activeTab === 'view' && (
-                            <div className="flex gap-2">
-                                <div className="bg-zinc-100 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-                                    <span className="w-2 h-2 rounded-full bg-amber-500"></span> Pending {pendingOrders.length}
+                            <div className="flex gap-4">
+                                <div className="bg-zinc-100 px-6 py-2.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] flex items-center gap-2 border border-zinc-200 text-black">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-pulse"></span> {pendingOrders.length} Pending
                                 </div>
-                                <div className="bg-zinc-100 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-                                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Selesai {arrivedOrders.length}
+                                <div className="bg-zinc-100 px-6 py-2.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] flex items-center gap-2 border border-zinc-200 text-black">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-black"></span> {arrivedOrders.length} Arrived
                                 </div>
                             </div>
                         )}
@@ -833,158 +664,235 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
                     </div>
                 )}
 
-
-                {/* Main Content Area Wrapper */}
-                <main className="flex-1 overflow-y-auto no-scrollbar p-10 animate-fade-in relative">
-                    
-                    {/* Tab Contents */}
+                <div className="flex-1 overflow-y-auto p-4 md:p-12 no-scrollbar bg-zinc-50 pb-[72px] md:pb-12">
+                    {/* TAB: INPUT */}
                     {activeTab === 'input' && (
-                        <div className="max-w-6xl mx-auto space-y-10">
-                            <form onSubmit={handleSubmit} className="bg-white rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-zinc-100 p-10">
-                                <div className="flex items-center gap-4 mb-10 border-b border-zinc-50 pb-8">
-                                    <div className="p-4 bg-zinc-900 text-white rounded-2xl shadow-xl">
+                        <div className="max-w-6xl mx-auto space-y-12 pb-32">
+                            <form onSubmit={handleSubmit} className="bg-white rounded-[2.5rem] shadow-2xl shadow-zinc-200/50 border border-zinc-200 p-12">
+                                <div className="flex items-center gap-6 mb-12 border-b border-zinc-100 pb-10">
+                                    <div className="p-4 bg-black text-white rounded-2xl shadow-xl shadow-black/10">
                                         <Plus size={24} />
                                     </div>
                                     <div>
-                                        <h3 className="font-black text-xl tracking-tight uppercase tracking-widest">Informasi Utama</h3>
-                                        <p className="text-xs text-zinc-400 font-bold uppercase tracking-[0.2em] mt-1">Detail administratif pesanan</p>
+                                        <h3 className="font-black text-2xl tracking-tight uppercase text-black">New Quotation Order</h3>
+                                        <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-1">Manual entry or live DMS selection</p>
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-16">
                                     {[
                                         { label: 'Order Number', value: orderNumber, onChange: setOrderNumber, placeholder: 'QT-2026-X', type: 'text' },
-                                        { label: 'Founder / Pemesan', value: namaPemesan, onChange: setNamaPemesan, placeholder: 'Nama staff', type: 'text' },
-                                        { label: 'CSI Process Date', value: tanggalCSI, onChange: setTanggalCSI, type: 'date' },
-                                        { label: 'Catatan Order', value: orderNotes, onChange: setOrderNotes, placeholder: 'Opsional...', type: 'text' }
+                                        { label: 'Purchaser / Founder', value: namaPemesan, onChange: setNamaPemesan, placeholder: 'Staff Name', type: 'text' },
+                                        { label: 'Process Date', value: tanggalCSI, onChange: setTanggalCSI, type: 'date' },
+                                        { label: 'Order Notes', value: orderNotes, onChange: setOrderNotes, placeholder: 'Optional internal notes...', type: 'text' }
                                     ].map((f, i) => (
-                                        <div key={i} className="space-y-2">
-                                            <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">{f.label}</label>
+                                        <div key={i} className="space-y-3">
+                                            <label className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">{f.label}</label>
                                             <input 
                                                 type={f.type} 
                                                 value={f.value} 
                                                 onChange={e => f.onChange(e.target.value)} 
                                                 required={i < 2}
-                                                className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl px-5 py-3.5 font-bold text-sm focus:outline-none focus:ring-4 focus:ring-zinc-100 transition-all placeholder:text-zinc-300" 
+                                                className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl px-6 py-4 font-bold text-sm text-black focus:outline-none focus:ring-4 focus:ring-black/5 focus:border-black/50 transition-all placeholder:text-zinc-300" 
                                                 placeholder={f.placeholder}
                                             />
                                         </div>
                                     ))}
                                 </div>
 
-                                <div className="pt-10 border-t border-zinc-100">
-                                    <div className="flex justify-between items-center mb-8">
-                                        <div className="flex items-center gap-3">
-                                            <PackageSearch size={22} className="text-blue-500" />
-                                            <h3 className="font-black text-base uppercase tracking-widest">List Suku Cadang</h3>
+                                <div className="pt-12 border-t border-zinc-100">
+                                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-10 h-10 bg-zinc-100 text-black rounded-xl flex items-center justify-center">
+                                                <PackageSearch size={20} />
+                                            </div>
+                                            <h3 className="font-black text-lg uppercase tracking-tight text-black">Spareparts Catalog</h3>
                                         </div>
-                                        <button type="button" onClick={handleAddItem} className="bg-zinc-900 text-white px-6 py-2.5 rounded-xl flex items-center gap-2 text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all shadow-xl active:scale-95">
-                                            <Plus size={14} /> Item Baru
-                                        </button>
+                                        
+                                        <div className="relative w-full md:w-96 group">
+                                            <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-400 transition-colors" size={18} />
+                                            <input 
+                                                type="text" 
+                                                placeholder="Live Search DMS..."
+                                                className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl pl-12 pr-6 py-3.5 text-xs font-bold text-black focus:outline-none focus:ring-4 focus:ring-black/5 focus:border-black/50 transition-all"
+                                                value={searchDms}
+                                                onChange={(e) => {
+                                                    setSearchDms(e.target.value);
+                                                    const val = e.target.value;
+                                                    if (val.length >= 3) {
+                                                        const tid = setTimeout(() => fetchFromDms(val), 500);
+                                                        return () => clearTimeout(tid);
+                                                    }
+                                                }}
+                                            />
+                                            
+                                            {isDmsLoading && (
+                                                <div className="absolute right-5 top-1/2 -translate-y-1/2">
+                                                    <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                                                </div>
+                                            )}
+
+                                            {/* DMS Live Results Overlay */}
+                                            {dmsResults.length > 0 && searchDms.length >= 3 && (
+                                                <div className="absolute top-full left-0 right-0 mt-3 bg-white border border-zinc-200 rounded-3xl shadow-2xl z-[100] overflow-hidden divide-y divide-zinc-50 max-h-[400px] overflow-y-auto custom-scrollbar">
+                                                    {dmsResults.map((res, idx) => (
+                                                        <button 
+                                                            key={idx}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const newItems = [...items];
+                                                                // If last item is empty, replace it
+                                                                if (newItems.length > 0 && !newItems[newItems.length - 1].sparePartNumber && !newItems[newItems.length - 1].sparePartName) {
+                                                                    newItems[newItems.length - 1] = {
+                                                                        sparePartNumber: res.partCode || res.partNo || '',
+                                                                        sparePartName: res.partName || '',
+                                                                        orderAmount: 1,
+                                                                        orderingInstructions: ''
+                                                                    };
+                                                                } else {
+                                                                    newItems.push({
+                                                                        sparePartNumber: res.partCode || res.partNo || '',
+                                                                        sparePartName: res.partName || '',
+                                                                        orderAmount: 1,
+                                                                        orderingInstructions: ''
+                                                                    });
+                                                                }
+                                                                setItems(newItems);
+                                                                setDmsResults([]);
+                                                                setSearchDms('');
+                                                            }}
+                                                            className="w-full px-6 py-4 text-left hover:bg-zinc-100 transition-all flex items-center justify-between group"
+                                                        >
+                                                            <div>
+                                                                <p className="font-black text-sm uppercase text-black group-hover:text-zinc-600 transition-colors">{res.partName}</p>
+                                                                <p className="font-mono text-[10px] text-zinc-400 uppercase tracking-widest">{res.partCode || res.partNo}</p>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <p className="font-black text-xs text-black">Rp {res.retailGuidePrice?.toLocaleString()}</p>
+                                                                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Retail Est.</p>
+                                                            </div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
 
-                                    <div className="space-y-4">
+                                    <div className="space-y-6">
                                         {items.map((item, idx) => (
-                                            <div key={idx} className="bg-zinc-50/50 rounded-3xl p-6 border border-zinc-100 flex flex-wrap lg:flex-nowrap gap-6 items-end relative group hover:bg-white hover:shadow-lg transition-all border-dashed hover:border-solid">
-                                                <button type="button" onClick={() => handleRemoveItem(idx)} className="absolute -top-3 -right-3 bg-red-100 text-red-600 p-2.5 rounded-full opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500 hover:text-white shadow-lg">
+                                            <div key={idx} className="bg-zinc-50/50 rounded-[2rem] p-8 border border-zinc-200/50 flex flex-wrap lg:flex-nowrap gap-8 items-end relative group hover:bg-white hover:shadow-xl transition-all duration-500 hover:border-black/10">
+                                                <button 
+                                                    type="button" 
+                                                    onClick={() => handleRemoveItem(idx)} 
+                                                    className="absolute -top-3 -right-3 bg-white text-zinc-300 p-2.5 rounded-full opacity-0 group-hover:opacity-100 transition-all hover:bg-black hover:text-white shadow-xl border border-zinc-100"
+                                                >
                                                     <Trash2 size={14} />
                                                 </button>
-                                                <div className="flex-[2] min-w-[200px]">
-                                                    <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">Nama Suku Cadang</label>
-                                                    <input type="text" value={item.sparePartName} onChange={e => handleItemChange(idx, 'sparePartName', e.target.value)} required className="w-full bg-white border border-zinc-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-zinc-100 transition-all" />
+                                                <div className="flex-[2] min-w-[250px] space-y-2">
+                                                    <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest ml-1">Part Name</label>
+                                                    <input type="text" value={item.sparePartName} onChange={e => handleItemChange(idx, 'sparePartName', e.target.value)} required className="w-full bg-white border border-zinc-200 rounded-2xl px-5 py-4 text-sm font-bold text-black focus:ring-4 focus:ring-black/5 focus:border-black/30 transition-all" />
                                                 </div>
-                                                <div className="flex-1 min-w-[150px]">
-                                                    <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">Part Number</label>
-                                                    <input type="text" value={item.sparePartNumber} onChange={e => handleItemChange(idx, 'sparePartNumber', e.target.value)} required className="w-full bg-white border border-zinc-200 rounded-2xl px-4 py-3 text-sm font-mono font-bold focus:ring-4 focus:ring-zinc-100 transition-all uppercase" />
+                                                <div className="flex-1 min-w-[200px] space-y-2">
+                                                    <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest ml-1">Part Number</label>
+                                                    <input type="text" value={item.sparePartNumber} onChange={e => handleItemChange(idx, 'sparePartNumber', e.target.value.toUpperCase())} required className="w-full bg-white border border-zinc-200 rounded-2xl px-5 py-4 text-sm font-mono font-bold text-black focus:ring-4 focus:ring-black/5 focus:border-black/30 transition-all uppercase" />
                                                 </div>
-                                                <div className="w-24">
-                                                    <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1 text-center">Qty</label>
-                                                    <input type="number" min="1" value={item.orderAmount} onChange={e => handleItemChange(idx, 'orderAmount', parseInt(e.target.value) || 1)} required className="w-full bg-white border border-zinc-200 rounded-2xl px-2 py-3 text-sm font-black text-center" />
+                                                <div className="w-28 space-y-2">
+                                                    <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest text-center">Quantity</label>
+                                                    <input type="number" min="1" value={item.orderAmount} onChange={e => handleItemChange(idx, 'orderAmount', parseInt(e.target.value) || 1)} required className="w-full bg-white border border-zinc-200 rounded-2xl px-3 py-4 text-sm font-black text-center text-black focus:ring-4 focus:ring-black/5 focus:border-black/30 transition-all" />
                                                 </div>
-                                                <div className="flex-[1.5] min-w-[180px]">
-                                                    <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-2 ml-1">Instruksi / Catatan</label>
-                                                    <input type="text" value={item.orderingInstructions} onChange={e => handleItemChange(idx, 'orderingInstructions', e.target.value)} className="w-full bg-white border border-zinc-200 rounded-2xl px-4 py-3 text-sm font-bold" placeholder="Contoh: Urgent" />
+                                                <div className="flex-[1.5] min-w-[200px] space-y-2">
+                                                    <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest ml-1">Notes / Instructions</label>
+                                                    <input type="text" value={item.orderingInstructions} onChange={e => handleItemChange(idx, 'orderingInstructions', e.target.value)} className="w-full bg-white border border-zinc-200 rounded-2xl px-5 py-4 text-sm font-bold text-black focus:ring-4 focus:ring-black/5 focus:border-black/30 transition-all" placeholder="e.g. Urgent Special Order" />
                                                 </div>
                                             </div>
                                         ))}
+                                        
+                                        <button 
+                                            type="button" 
+                                            onClick={handleAddItem} 
+                                            className="w-full border-2 border-dashed border-zinc-200 rounded-[2rem] py-8 text-zinc-400 font-black text-[10px] uppercase tracking-[0.3em] hover:bg-zinc-50 hover:border-zinc-300 hover:text-zinc-600 transition-all active:scale-95 flex items-center justify-center gap-3"
+                                        >
+                                            <Plus size={16} /> Add Manual Row
+                                        </button>
                                     </div>
                                 </div>
 
-                                <div className="mt-16 pt-10 border-t border-zinc-100 flex flex-col md:flex-row justify-between items-center gap-10">
-                                    {(batchIndex > -1 && pendingBatch.length > 0) ? (
-                                        <div className="flex items-center gap-6 bg-zinc-50 px-6 py-3 rounded-[2rem] border border-zinc-100">
-                                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center font-black text-sm shadow-sm">
+                                <div className="mt-20 pt-12 border-t border-zinc-100 flex flex-col md:flex-row justify-between items-center gap-10">
+                                    {batchIndex > -1 && pendingBatch.length > 0 ? 
+                                        <div className="flex items-center gap-6 bg-zinc-100 px-8 py-4 rounded-[2.5rem] border border-zinc-200">
+                                            <div className="w-14 h-14 bg-black text-white rounded-full flex items-center justify-center font-black text-lg shadow-lg shadow-black/10">
                                                 {batchIndex + 1}
                                             </div>
                                             <div>
-                                                <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Progress Batch</p>
-                                                <p className="font-bold text-sm">Sedang Memproses {pendingBatch.length} Data</p>
+                                                <p className="text-[10px] font-black text-black uppercase tracking-widest">Processing Batch</p>
+                                                <p className="font-black text-base text-black">{pendingBatch.length - batchIndex - 1} Remaining in Queue</p>
                                             </div>
-                                            <button type="button" onClick={handleNextBatch} className="ml-4 text-blue-600 font-black text-xs uppercase tracking-widest hover:underline">Skip Data</button>
+                                            <button type="button" onClick={handleNextBatch} className="ml-6 text-zinc-400 hover:text-black font-black text-[10px] uppercase tracking-widest transition-colors">Skip Item</button>
                                         </div>
-                                    ) : <div className="hidden md:block"></div>}
+                                     : <div className="hidden md:block"></div>}
                                     
-                                    <button type="submit" className="w-full md:w-auto bg-zinc-950 text-white px-12 py-5 rounded-[2rem] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-black transition-all shadow-[0_20px_40px_rgba(0,0,0,0.2)] active:scale-95 text-xs">
-                                        <Send size={18} /> {batchIndex > -1 ? 'Simpan & Lanjut' : 'Finalize & Simpan'}
+                                    <button 
+                                        type="submit" 
+                                        className="w-full md:w-auto bg-black text-white px-16 py-6 rounded-[2rem] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-4 hover:bg-zinc-800 transition-all shadow-[0_20px_40px_rgba(0,0,0,0.15)] active:scale-95 text-xs"
+                                    >
+                                        {batchIndex > -1 ? 'Submit & Process Next' : 'Finalize Quotation Order'}
+                                        <ArrowRight size={20} />
                                     </button>
                                 </div>
                             </form>
                         </div>
                     )}
 
-                    {/* VIEW PAGE */}
+                    {/* TAB: VIEW */}
                     {activeTab === 'view' && (
-                        <div className="max-w-7xl mx-auto space-y-10">
-                            {/* Search & Filter Bar - Premium Header */}
-                            <div className="bg-white p-10 rounded-[2.5rem] shadow-xl border border-zinc-100 flex flex-wrap gap-8 items-end animate-in fade-in slide-in-from-top-4 duration-500">
-                                <div className="flex-1 min-w-[300px] space-y-2">
-                                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Cari Database Pesanan</label>
+                        <div className="max-w-7xl mx-auto space-y-12 pb-32">
+                            {/* Filter Bar */}
+                            <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl shadow-zinc-200/50 border border-zinc-200 flex flex-wrap gap-8 items-end animate-fade-in">
+                                <div className="flex-1 min-w-[300px] space-y-3">
+                                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Universal Search</label>
                                     <div className="relative group">
-                                        <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-300 group-focus-within:text-zinc-900 transition-colors" size={20} />
+                                        <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-300 transition-colors" size={20} />
                                         <input
                                             type="text"
                                             value={searchTerm}
                                             onChange={e => setSearchTerm(e.target.value)}
-                                            placeholder="Masukkan nomor order, nama, atau part..."
-                                            className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl pl-14 pr-6 py-4 font-bold text-sm focus:outline-none focus:ring-4 focus:ring-zinc-100 transition-all"
+                                            placeholder="Order ID, Customer Name, or SKU..."
+                                            className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl pl-16 pr-8 py-4.5 font-bold text-sm text-black focus:outline-none focus:ring-4 focus:ring-black/5 focus:border-black/30 transition-all shadow-sm"
                                         />
                                     </div>
                                 </div>
 
-                                <div className="w-full md:w-auto space-y-2">
-                                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Status Ketersediaan</label>
-                                    <div className="relative">
-                                        <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
-                                        <select
-                                            value={filterStatus}
-                                            onChange={e => setFilterStatus(e.target.value)}
-                                            className="appearance-none bg-zinc-50 border border-zinc-200 rounded-2xl pl-12 pr-10 py-4 font-black text-xs uppercase tracking-widest focus:outline-none focus:ring-4 focus:ring-zinc-100 transition-all cursor-pointer min-w-[200px]"
-                                        >
-                                            <option value="all">Semua Data</option>
-                                            <option value="pending">Belum Sampai</option>
-                                            <option value="partial">Parsial (Sebagian)</option>
-                                            <option value="arrived">Sudah Tiba</option>
-                                            <option value="confirmed">Konfirmasi Admin</option>
-                                        </select>
-                                    </div>
+                                <div className="w-full md:w-auto space-y-3">
+                                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Order Status</label>
+                                    <select
+                                        value={filterStatus}
+                                        onChange={e => setFilterStatus(e.target.value)}
+                                        className="appearance-none bg-zinc-50 border border-zinc-200 rounded-2xl px-10 py-4.5 font-black text-[11px] uppercase tracking-widest text-black focus:outline-none focus:ring-4 focus:ring-black/5 focus:border-black/30 transition-all cursor-pointer min-w-[220px] shadow-sm"
+                                    >
+                                        <option value="all">All Orders</option>
+                                        <option value="pending">Pending Receipt</option>
+                                        <option value="partial">Partial Arrival</option>
+                                        <option value="arrived">Fully Received</option>
+                                        <option value="confirmed">Admin Confirmed</option>
+                                    </select>
                                 </div>
 
-                                <div className="w-full md:w-auto space-y-2">
-                                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Filter Tanggal</label>
+                                <div className="w-full md:w-auto space-y-3">
+                                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Timeline Filter</label>
                                     <input
                                         type="date"
                                         value={filterDate}
                                         onChange={e => setFilterDate(e.target.value)}
-                                        className="bg-zinc-50 border border-zinc-200 rounded-2xl px-6 py-4 font-bold text-sm focus:outline-none focus:ring-4 focus:ring-zinc-100 transition-all h-[54px]"
+                                        className="bg-zinc-50 border border-zinc-200 rounded-2xl px-8 py-4.5 font-bold text-sm text-black focus:outline-none focus:ring-4 focus:ring-black/5 focus:border-black/30 transition-all h-[58px] shadow-sm"
                                     />
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-32">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                                 {filteredOrders.length === 0 ? (
-                                    <div className="lg:col-span-2 text-center py-40 bg-zinc-50 rounded-[3rem] border-2 border-dashed border-zinc-200">
-                                        <PackageSearch size={60} className="mx-auto text-zinc-200 mb-6" />
-                                        <p className="font-black text-zinc-300 uppercase tracking-widest">Database Kosong</p>
+                                    <div className="lg:col-span-2 text-center py-48 bg-white rounded-[3rem] border-2 border-dashed border-zinc-200 shadow-inner">
+                                        <PackageSearch size={64} className="mx-auto text-zinc-200 mb-8" />
+                                        <p className="font-black text-zinc-300 uppercase tracking-[0.4em] text-sm">Logistics Database Empty</p>
                                     </div>
                                 ) : (
                                     filteredOrders.map(order => {
@@ -993,54 +901,59 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
                                         const isPending = order.status === 'pending' || order.status === 'partial';
 
                                         return (
-                                            <div key={order.id} className="bg-white rounded-[2.5rem] overflow-hidden shadow-[0_15px_40px_rgba(0,0,0,0.03)] border border-zinc-100 hover:shadow-xl transition-all duration-500 group">
-                                                <div className={`px-10 py-8 flex justify-between items-center border-b border-zinc-50 ${isPending ? 'bg-zinc-50/50' : 'bg-emerald-50/20'}`}>
-                                                    <div>
-                                                        <div className="flex items-center gap-3 mb-1">
-                                                            <h3 className="font-black text-2xl tracking-tighter uppercase">{order.orderNumber || 'NO-ID'}</h3>
-                                                            {order.status === 'partial' && <span className="text-[9px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-black uppercase">Partial</span>}
-                                                            {order.status === 'confirmed' && <span className="text-[9px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-black uppercase">Confirmed</span>}
+                                            <div key={order.id} className="bg-white rounded-[3rem] overflow-hidden shadow-2xl shadow-zinc-900/5 border border-zinc-200 hover:shadow-lg hover:border-black/10 transition-all duration-500 group relative">
+                                                <div className={`px-10 py-10 flex justify-between items-center border-b border-zinc-100 ${isPending ? 'bg-zinc-50/30' : 'bg-zinc-50/10'}`}>
+                                                    <div className="space-y-1">
+                                                        <div className="flex items-center gap-4">
+                                                            <h3 className="font-black text-2xl tracking-tighter uppercase text-black">{order.orderNumber || 'NO-ID'}</h3>
+                                                            {order.status === 'partial' && <span className="text-[9px] bg-zinc-200 text-black px-3 py-1 rounded-full font-black uppercase tracking-widest">Partial</span>}
+                                                            {order.status === 'confirmed' && <span className="text-[9px] bg-zinc-200 text-black px-3 py-1 rounded-full font-black uppercase tracking-widest">Confirmed</span>}
+                                                            {order.status === 'pending' && <span className="text-[9px] bg-zinc-100 text-zinc-500 px-3 py-1 rounded-full font-black uppercase tracking-widest">Awaiting</span>}
                                                         </div>
-                                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">{order.namaPemesan || 'Tanpa Nama'} • {order.tanggalPembuatan || 'Setiap Saat'}</p>
+                                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">{order.namaPemesan || 'Staff'} • {order.tanggalPembuatan || 'Now'}</p>
                                                     </div>
-                                                    <div className="flex items-center gap-2">
+                                                    
+                                                    <div className="flex items-center gap-3">
                                                         {modifiedIds.has(order.id) ? (
-                                                            <button onClick={() => handleSaveChanges(order)} className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2">
-                                                                Simpan Update
+                                                            <button onClick={() => handleSaveChanges(order)} className="bg-black text-white px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-black/10 hover:bg-zinc-800 active:scale-95 transition-all">
+                                                                Sync Changes
                                                             </button>
                                                         ) : isPending ? (
-                                                            <button onClick={() => handleSetArrived(order)} className="bg-zinc-950 text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:scale-105 transition-all flex items-center gap-2 shadow-xl">
-                                                                Terima Semua
+                                                            <button onClick={() => handleSetArrived(order)} className="bg-black text-white px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-zinc-800 transition-all shadow-xl active:scale-95">
+                                                                Receive All
                                                             </button>
                                                         ) : (
-                                                            <div className="bg-emerald-50 text-emerald-600 p-2.5 rounded-full border border-emerald-100">
+                                                            <div className="bg-black text-white p-3 rounded-2xl shadow-lg shadow-black/10">
                                                                 <Check size={20} strokeWidth={4} />
                                                             </div>
                                                         )}
                                                     </div>
                                                 </div>
-                                                <div className="p-10 space-y-8">
+
+                                                <div className="p-12 space-y-10">
                                                     {order.orderNotes && (
-                                                        <div className="bg-blue-50/30 p-4 rounded-2xl border border-blue-50 text-xs font-bold text-blue-800 leading-relaxed italic">
+                                                        <div className="bg-zinc-50 p-6 rounded-[2rem] border border-zinc-100 text-xs font-bold text-zinc-600 leading-relaxed italic relative">
+                                                            <div className="absolute -top-3 left-6 bg-white px-2 text-[9px] font-black uppercase text-zinc-400 tracking-widest">Internal Memo</div>
                                                             "{order.orderNotes}"
                                                         </div>
                                                     )}
 
                                                     <div className="space-y-4">
+                                                        <p className="text-[9px] font-black text-zinc-400 uppercase tracking-[0.3em] ml-1">Consignment Items</p>
                                                         {itemsArray.map((item, idx) => (
-                                                            <div key={idx} className={`p-5 rounded-3xl border transition-all flex items-center justify-between ${item.isArrived ? 'bg-emerald-50/30 border-emerald-100' : 'bg-zinc-50 border-zinc-100'}`}>
+                                                            <div key={idx} className={`p-6 rounded-[2rem] border transition-all duration-500 flex items-center justify-between group/item ${item.isArrived ? 'bg-zinc-100 border-zinc-300' : 'bg-white border-zinc-200'}`}>
                                                                 <div className="flex-1">
-                                                                    <div className="font-black text-sm tracking-tight mb-1">{item.sparePartName}</div>
-                                                                    <div className="font-mono text-[10px] text-zinc-400 flex items-center gap-2">
+                                                                    <div className="font-black text-base tracking-tight text-black uppercase group-hover/item:text-zinc-600 transition-colors">{item.sparePartName}</div>
+                                                                    <div className="font-mono text-[10px] text-zinc-400 flex items-center gap-3 mt-1 uppercase tracking-widest">
                                                                         {item.sparePartNumber} 
-                                                                        <span className="w-1 h-1 bg-zinc-300 rounded-full"></span>
-                                                                        <span className="text-zinc-900 font-black">{item.orderAmount} UNIT</span>
+                                                                        <span className="w-1.5 h-1.5 bg-zinc-200 rounded-full"></span>
+                                                                        <span className="text-black font-black">{item.orderAmount} UNIT</span>
                                                                     </div>
                                                                 </div>
                                                                 <button 
                                                                     onClick={() => handleCheckItem(order, idx)}
                                                                     disabled={!isPending && !modifiedIds.has(order.id)}
-                                                                    className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-all ${item.isArrived ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white border-2 border-zinc-100 text-zinc-200 hover:border-emerald-500 hover:text-emerald-500'}`}
+                                                                    className={`w-12 h-12 rounded-[1.25rem] flex items-center justify-center transition-all shadow-sm ${item.isArrived ? 'bg-black text-white shadow-black/10' : 'bg-zinc-50 border border-zinc-200 text-zinc-200 hover:border-black/30 hover:text-black'}`}
                                                                 >
                                                                     <Check size={18} strokeWidth={4} />
                                                                 </button>
@@ -1055,101 +968,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
                             </div>
                         </div>
                     )}
-
-                    {activeTab === 'master' && (
-                        <div className="max-w-7xl mx-auto space-y-10 animate-fade-in">
-                            <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-zinc-100 flex items-center gap-6">
-                                <div className="flex-1 relative group">
-                                    <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} />
-                                    <input 
-                                        type="text" 
-                                        value={searchMaster} 
-                                        onChange={e => setSearchMaster(e.target.value)}
-                                        placeholder="Cari part number atau nama barang..."
-                                        className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl pl-14 pr-6 py-4 font-bold text-sm focus:outline-none focus:ring-4 focus:ring-zinc-100 transition-all"
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="bg-white rounded-[2.5rem] shadow-2xl border border-zinc-100 overflow-hidden">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left">
-                                        <thead>
-                                            <tr className="bg-zinc-950 text-white text-[10px] font-black uppercase tracking-[0.2em]">
-                                                <th className="px-10 py-6">ID & Part Name</th>
-                                                <th className="px-10 py-6">Wholesale (No Tax)</th>
-                                                <th className="px-10 py-6">Wholesale (Tax)</th>
-                                                <th className="px-10 py-6">Sales Guide (No Tax)</th>
-                                                <th className="px-10 py-6">Sales Guide (Tax)</th>
-                                                <th className="px-10 py-6 text-center">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-zinc-50">
-                                            {masterParts.filter(p => 
-                                                p.part_name.toLowerCase().includes(searchMaster.toLowerCase()) || 
-                                                p.part_number.toLowerCase().includes(searchMaster.toLowerCase())
-                                            ).map((part) => (
-                                                <tr key={part.id} className="hover:bg-zinc-50/50 transition-colors group">
-                                                    <td className="px-10 py-6">
-                                                        <div className="font-black text-xs tracking-tighter uppercase">{part.part_name}</div>
-                                                        <div className="font-mono text-[9px] text-zinc-400 mt-1 uppercase tracking-widest">{part.part_number}</div>
-                                                    </td>
-                                                    <td className="px-10 py-6 font-bold text-xs text-zinc-600">
-                                                        Rp {part.wholesale_price_no_tax?.toLocaleString('id-ID')}
-                                                    </td>
-                                                    <td className="px-10 py-6">
-                                                        <div className="font-black text-sm text-zinc-900 border-l-4 border-emerald-500 pl-4 bg-emerald-50/30 py-2 rounded-r-xl">
-                                                            Rp {part.wholesale_price?.toLocaleString('id-ID')}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-10 py-6 font-bold text-xs text-zinc-600">
-                                                        Rp {part.sales_guide_price_no_tax?.toLocaleString('id-ID')}
-                                                    </td>
-                                                    <td className="px-10 py-6">
-                                                        <div className="font-black text-sm text-zinc-900 border-l-4 border-blue-500 pl-4 bg-blue-50/30 py-2 rounded-r-xl">
-                                                            Rp {part.sales_guide_price?.toLocaleString('id-ID')}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-10 py-6">
-                                                        <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button 
-                                                                onClick={async () => {
-                                                                    const newName = prompt("Edit Part Name", part.part_name);
-                                                                    const newPrice = prompt("Edit Wholesale Price", part.wholesale_price);
-                                                                    if (newName && newPrice) {
-                                                                        const { error } = await supabase.from('sparepart_master').update({ 
-                                                                            part_name: newName, 
-                                                                            wholesale_price: parseFloat(newPrice) 
-                                                                        }).eq('id', part.id);
-                                                                        if (!error) fetchMasterParts();
-                                                                    }
-                                                                }}
-                                                                className="p-3 bg-zinc-100 text-zinc-600 rounded-xl hover:bg-zinc-900 hover:text-white transition-all shadow-sm"
-                                                            >
-                                                                <FileText size={16} />
-                                                            </button>
-                                                            <button 
-                                                                onClick={async () => {
-                                                                    if (confirm(`Hapus ${part.part_name}?`)) {
-                                                                        const { error } = await supabase.from('sparepart_master').delete().eq('id', part.id);
-                                                                        if (!error) fetchMasterParts();
-                                                                    }
-                                                                }}
-                                                                className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-all shadow-sm"
-                                                            >
-                                                                <Trash2 size={16} />
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
+                    {/* TAB: ANALYSIS & QUOTATION */}
                     {activeTab === 'profit' && (
                         <div className="flex-1 animate-fade-in pb-32">
                            <ProfitDashboard />
@@ -1158,10 +977,10 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
 
                     {activeTab === 'quotation' && (
                         <div className="flex-1 animate-fade-in pb-32">
-                            <QuotationSPA />
+                            {/* Quotation SPA moved to end of root div to avoid transform context */}
                         </div>
                     )}
-                </main>
+                </div>
             </div>
 
             <style>{`
@@ -1174,6 +993,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible }) 
                 }
                 .animate-fade-in { animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
             `}</style>
+            {activeTab === 'quotation' && <QuotationSPA onClose={() => setActiveTab('view')} />}
         </div>
     );
 }

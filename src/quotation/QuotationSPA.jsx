@@ -14,98 +14,194 @@ import {
   TrendingUp,
   AlertCircle,
   Package,
-  ArrowRight
+  ArrowRight,
+  MessageCircle,
+  Settings,
+  Share2,
+  ChevronDown,
+  Info,
+  Hash,
+  ClipboardList,
+  RefreshCw,
+  Key
 } from 'lucide-react';
 import { supabase } from '../utils/supabaseClient';
+import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL, API_KEY } from '../utils/config';
 
 // --- Components ---
 
-const Navbar = ({ activeTab, setActiveTab }) => {
-  const tabs = [
-    { id: 'builder', label: 'Quotation Builder', icon: Calculator },
-    { id: 'invoice', label: 'Invoice Preview', icon: FileText },
-    { id: 'analysis', label: 'Quotation Analysis', icon: BarChart3 },
-    { id: 'inventory_analysis', label: 'Inventory Profit', icon: TrendingUp },
-  ];
-
-  return (
-    <nav className="flex gap-2 bg-zinc-950 p-2 rounded-[2rem] border border-white/10 shadow-2xl mb-12 w-fit mx-auto sticky top-4 z-50">
-      {tabs.map((tab) => {
-        const Icon = tab.icon;
-        return (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-8 py-3 rounded-[1.5rem] transition-all duration-500 font-black text-[10px] uppercase tracking-widest ${
-              activeTab === tab.id 
-              ? 'bg-white text-zinc-950 shadow-[0_10px_20px_rgba(255,255,255,0.1)]' 
-              : 'text-zinc-500 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Icon size={14} strokeWidth={3} />
-            {tab.label}
-          </button>
-        );
-      })}
-    </nav>
-  );
-};
-
-export default function QuotationSPA() {
-  const [activeTab, setActiveTab] = useState('builder');
-  const [customerPreset, setCustomerPreset] = useState('RATU'); // RATU, GJ, CUSTOM
-  const [customMarkup, setCustomMarkup] = useState(15);
-  const [items, setItems] = useState([]);
+export default function QuotationSPA({ onClose }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [masterParts, setMasterParts] = useState([]);
-  const [invoiceMetadata, setInvoiceMetadata] = useState({
-    no: `QT-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
-    customer: '',
-    date: new Date().toLocaleDateString('id-ID'),
+  const [isSearching, setIsSearching] = useState(false);
+  const [epcmToken, setEpcmToken] = useState(() => localStorage.getItem('chery_epcm_token') || '');
+  const [isEpcLoggingIn, setIsEpcLoggingIn] = useState(false);
+  const [epcmImages, setEpcmImages] = useState({});
+  
+  // Customer Details
+  const [customerInfo, setCustomerInfo] = useState({
+    name: '',
+    phone: '',
+    vehicle: '',
+    poNumber: ''
   });
 
-  // --- Fetch Search Results (Server Side for 11,000+ items) ---
+  const [customerPreset, setCustomerPreset] = useState('RATU'); 
+  const [customMarkup, setCustomMarkup] = useState(15);
+  const [items, setItems] = useState([]);
+  const [globalDiscountPercent, setGlobalDiscountPercent] = useState(0);
+
+  const [invoiceMetadata, setInvoiceMetadata] = useState({
+    no: `EST/${new Date().getFullYear()}/CHY/${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
+    date: new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }),
+  });
+
+  // --- EPCM Auth Listener ---
   useEffect(() => {
-    const searchDatabase = async () => {
-      if (searchTerm.length < 2) {
-        // Option: keep the top 100 as default view
-        const { data } = await supabase.from('sparepart_master').select('*').limit(100);
-        if (data) setMasterParts(data);
+    const handleGlobalUpdate = () => {
+      const newToken = localStorage.getItem('chery_epcm_token');
+      if (newToken) {
+        setEpcmToken(newToken);
+      }
+    };
+    window.addEventListener('epcm_token_updated', handleGlobalUpdate);
+    return () => window.removeEventListener('epcm_token_updated', handleGlobalUpdate);
+  }, []);
+
+  const handleEpcAutoLogin = () => {
+    const message = `CARA HUBUNGKAN EPCM (BOOKMARK):\n\n` +
+      `1. Buka qrepcm.mychery.com & Pastikan sudah LOGIN.\n` +
+      `2. Klik Bookmark 'GET TOKEN EPCM' Anda.\n` +
+      `3. Dashboard ini akan otomatis terhubung & refresh.\n\n` +
+      `Belum punya Bookmark? Mau masukkan manual?`;
+    
+    if (confirm(message)) {
+      const manualToken = prompt("Masukkan Token EPCM Anda secara manual:");
+      if (manualToken && manualToken.trim()) {
+        setEpcmToken(manualToken.trim());
+        localStorage.setItem('chery_epcm_token', manualToken.trim());
+        alert("✅ EPCM Connected!");
+      }
+    }
+  };
+
+  const fetchEpcImages = async (partCode) => {
+    if (!epcmToken || !partCode) return;
+    try {
+      const searchUrl = `${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/search/fastSearch/part?keywordNumber=${partCode}&page=1&pageSize=5`)}`;
+      const resp = await fetch(searchUrl);
+      
+      // If token expired (often returns 401 or a specific JSON success:false)
+      if (resp.status === 401 || resp.status === 403) {
+        setEpcmToken('');
+        localStorage.removeItem('chery_epcm_token');
         return;
       }
 
-      const { data, error } = await supabase
-        .from('sparepart_master')
-        .select('*')
-        .or(`part_name.ilike.%${searchTerm}%,part_number.ilike.%${searchTerm}%`)
-        .limit(150);
-
-      if (!error && data) {
-        setMasterParts(data);
+      const result = await resp.json();
+      
+      // Check if EPCM API returned failure
+      if (result.success === false) {
+        if (result.message?.includes("token") || result.code === 401) {
+           setEpcmToken('');
+           localStorage.removeItem('chery_epcm_token');
+        }
+        return;
       }
-    };
 
-    const timeoutId = setTimeout(searchDatabase, 400); // Debounce
+      const contents = result.data?.contents || [];
+      const partInfo = contents[0]; 
+      
+      if (partInfo && partInfo.imageIds && partInfo.imageIds.length > 0) {
+        const imageUrls = partInfo.imageIds.map(id => 
+          `${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/base/file/view/${id}`)}`
+        );
+        setEpcmImages(prev => ({ ...prev, [partCode]: imageUrls }));
+      }
+    } catch (e) {
+      console.error("EPCM Fetch Error for", partCode, e);
+    }
+  };
+
+  const fetchDmsParts = async (code) => {
+    if (!code || code.length < 3) {
+      setMasterParts([]);
+      return;
+    }
+    setIsSearching(true);
+    try {
+      // Use EXACT URL from OwnerPanel
+      const resp = await fetch(`${CHERY_DMS_URL}?pageSize=10&status=1&code=${encodeURIComponent(code)}`, {
+        headers: { 'x-api-key': API_KEY }
+      });
+      const result = await resp.json();
+      const dmsData = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);
+      setMasterParts(dmsData);
+
+      if (epcmToken) {
+        // Use item.code specifically
+        const uniqueCodes = [...new Set(dmsData.map(item => item.code))];
+        uniqueCodes.forEach(partCode => {
+          if (partCode) fetchEpcImages(partCode);
+        });
+      }
+    } catch (e) {
+      console.error("DMS Search Error:", e);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => fetchDmsParts(searchTerm), 500);
     return () => clearTimeout(timeoutId);
-  }, [searchTerm]);
+  }, [searchTerm, epcmToken]);
 
-  // --- Logic ---
-  
-  const currentMarkup = useMemo(() => {
-    if (customerPreset === 'RATU') return 12.5;
-    if (customerPreset === 'GJ') return 10;
-    return customMarkup;
-  }, [customerPreset, customMarkup]);
-
-  const handleAddItem = (part) => {
-    const existing = items.find(i => i.part_number === part.part_number);
+  const handleAddItem = (item) => {
+    const part_number = item.code || '';
+    const existing = items.find(i => i.part_number === part_number);
+    
+    // Base Price is Retail (Inc Tax)
+    const basePrice = item.retailGuidePrice || item.price || 0;
+    
     if (existing) {
-      setItems(items.map(i => i.part_number === part.part_number ? { ...i, qty: (i.qty || 1) + 1 } : i));
+      setItems(items.map(i => i.part_number === part_number ? { ...i, qty: (i.qty || 1) + 1 } : i));
     } else {
-      setItems([...items, { ...part, qty: 1, discount: 0 }]);
+      setItems([...items, { 
+        part_number,
+        part_name: item.name || '',
+        unit_price: basePrice,
+        qty: 1, 
+        discount: 0 
+      }]);
     }
     setSearchTerm('');
   };
+
+  const totals = useMemo(() => {
+    const subtotal = items.reduce((acc, item) => {
+      // Since unit_price is already Inc Tax, we just apply discount
+      const itemPriceAfterDiscount = item.unit_price - (item.discount || 0);
+      return acc + (itemPriceAfterDiscount * (item.qty || 1));
+    }, 0);
+    
+    const subtotalAfterGlobalDiscount = subtotal * (1 - globalDiscountPercent / 100);
+    // If unit prices are Inc Tax, the grand total is just the subtotal after global discount.
+    // However, usually we show PPN separately. 
+    // If user wants "Retail inc tax" as unit price, maybe they want the breakdown?
+    // Let's assume Grand Total = Subtotal (Inc Tax).
+    const grandTotal = subtotalAfterGlobalDiscount;
+    const ppn = grandTotal - (grandTotal / 1.11);
+    const dpp = grandTotal - ppn;
+    
+    return { 
+      subtotalRaw: subtotal,
+      globalDiscountAmount: subtotal * (globalDiscountPercent / 100),
+      subtotal: dpp, 
+      ppn, 
+      grandTotal 
+    };
+  }, [items, globalDiscountPercent]);
 
   const removeItem = (part_number) => {
     setItems(items.filter(i => i.part_number !== part_number));
@@ -115,664 +211,406 @@ export default function QuotationSPA() {
     setItems(items.map(i => i.part_number === part_number ? { ...i, [field]: value } : i));
   };
 
-  const totals = useMemo(() => {
-    const subtotal = items.reduce((acc, item) => {
-      const sellingPrice = (item.wholesale_price_no_tax || 0) * (1 + currentMarkup / 100);
-      const totalItem = (sellingPrice - (item.discount || 0)) * (item.qty || 1);
-      return acc + totalItem;
-    }, 0);
-    const ppn = subtotal * 0.11;
-    const grandTotal = subtotal + ppn;
-    return { subtotal, ppn, grandTotal };
-  }, [items, currentMarkup]);
+  const downloadInvoice = () => {
+    window.print();
+  };
 
-  const filteredSearch = useMemo(() => {
-    if (!searchTerm) return [];
-    return masterParts.filter(p => 
-      (p.part_name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-      (p.part_number || '').toLowerCase().includes(searchTerm.toLowerCase())
-    ).slice(0, 8);
-  }, [searchTerm, masterParts]);
+  const sendWhatsApp = () => {
+    const message = `*Official Quotation - Chery Oriental*\n\n` +
+      `No: ${invoiceMetadata.no}\n` +
+      `Customer: ${customerInfo.name || 'Valued Customer'}\n` +
+      `Date: ${invoiceMetadata.date}\n\n` +
+      `*Items:*\n` +
+      items.map(i => `- ${i.part_name} (${i.qty}x) : Rp ${((i.unit_price - (i.discount || 0)) * i.qty).toLocaleString()}`).join('\n') +
+      `\n\n*Total: Rp ${totals.grandTotal.toLocaleString()}*`;
+    
+    const url = `https://wa.me/${(customerInfo.phone || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+  };
 
   return (
-    <div className="w-full h-full text-[#1a1a1a] font-sans antialiased selection:bg-zinc-200 p-10 overflow-y-auto no-scrollbar">
-      <div className="max-w-7xl mx-auto">
-        
-        {/* Header Section */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-10 mb-16">
-          <div className="space-y-4">
-            <h1 className="text-5xl font-black tracking-tighter italic uppercase leading-none">QUOTATION<br/><span className="text-zinc-300">SYSTEM</span></h1>
-            <div className="flex items-center gap-3">
-               <div className="h-2 w-12 bg-blue-600 rounded-full"></div>
-               <p className="text-zinc-400 font-black uppercase tracking-[0.3em] text-[10px]">Premium Sales Interface</p>
+    <div className="fixed inset-0 bg-[#F5F5F7] z-[9999] flex flex-col md:flex-row overflow-hidden font-sans selection:bg-black selection:text-white text-black antialiased">
+      
+      {/* LEFT PANEL: CONFIGURATOR */}
+      <aside className="w-full md:w-[380px] bg-white border-r border-gray-200 p-8 flex flex-col h-full overflow-y-auto no-print shadow-2xl z-20">
+        <div className="flex items-center justify-between mb-10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center">
+              <FileText className="text-white" size={20} />
+            </div>
+            <h2 className="text-[10px] font-black uppercase tracking-[0.2em]">Configurator</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* EPCM Status Dot */}
+            <div className={`w-2.5 h-2.5 rounded-full ${epcmToken ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]'}`}></div>
+            
+            {!epcmToken && (
+               <button 
+                  onClick={handleEpcAutoLogin}
+                  disabled={isEpcLoggingIn}
+                  className="p-2 text-zinc-400 hover:text-black transition-colors"
+                  title="Connect EPCM"
+               >
+                 {isEpcLoggingIn ? <RefreshCw size={16} className="animate-spin" /> : <Key size={16} />}
+               </button>
+            )}
+
+            <button 
+                onClick={() => window.location.reload()} 
+                className="p-2 text-gray-300 hover:text-black transition-colors ml-2"
+                title="Reset"
+            >
+              <Trash2 size={16} />
+            </button>
+            <button 
+                onClick={onClose || (() => window.history.back())} 
+                className="p-2 text-gray-300 hover:text-black transition-colors"
+                title="Back"
+            >
+              <ArrowRight className="rotate-180" size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-10 flex-1">
+          {/* Section 1: Customer & Settings */}
+          <div className="space-y-6">
+            <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">Customer & Pricing</h3>
+            
+            <div className="grid grid-cols-1 gap-5">
+              <input 
+                type="text" 
+                placeholder="Customer Name"
+                className="w-full bg-gray-50 border-b-2 border-black p-3 focus:bg-white transition-colors outline-none font-bold text-sm"
+                value={customerInfo.name}
+                onChange={(e) => setCustomerInfo({...customerInfo, name: e.target.value})}
+              />
+              <input 
+                type="text" 
+                placeholder="PO Number"
+                className="w-full bg-gray-50 border-b-2 border-black p-3 focus:bg-white transition-colors outline-none font-bold text-sm"
+                value={customerInfo.poNumber}
+                onChange={(e) => setCustomerInfo({...customerInfo, poNumber: e.target.value})}
+              />
+            </div>
+
+            <div className="space-y-4 pt-2">
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex justify-between">
+                Special Discount (%) <span>{globalDiscountPercent}%</span>
+              </label>
+              <input 
+                type="range" 
+                min="0" 
+                max="50" 
+                step="0.5"
+                className="w-full h-1.5 bg-gray-100 rounded-full appearance-none cursor-pointer accent-black"
+                value={globalDiscountPercent}
+                onChange={(e) => setGlobalDiscountPercent(parseFloat(e.target.value))}
+              />
             </div>
           </div>
-          
-          <div className="flex flex-col gap-3">
-            <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Select Customer Tier</label>
-            <div className="flex bg-white p-2 rounded-3xl border border-zinc-100 shadow-xl">
-                {['RATU', 'GJ', 'CUSTOM'].map(p => (
-                <button
-                    key={p}
-                    onClick={() => setCustomerPreset(p)}
-                    className={`px-8 py-3 rounded-2xl text-[10px] font-black tracking-widest transition-all ${
-                    customerPreset === p ? 'bg-zinc-950 text-white shadow-2xl' : 'text-zinc-400 hover:text-zinc-900 hover:bg-zinc-50'
-                    }`}
-                >
-                    {p === 'GJ' ? 'GJ / PAM' : p}
-                </button>
-                ))}
+
+          {/* Section 2: Part Search */}
+          <div className="space-y-6 border-t border-gray-100 pt-10">
+            <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">Part Inventory</h3>
+            
+            <div className="space-y-4">
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" size={18} />
+                <input 
+                  type="text" 
+                  placeholder="Cari part code/nama..."
+                  className="w-full bg-gray-50 border-b-2 border-black pl-12 pr-12 py-4 focus:bg-white transition-colors outline-none font-black text-sm uppercase"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                  {isSearching ? (
+                    <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <Plus size={18} className="text-gray-300" />
+                  )}
+                </div>
+
+                {searchTerm.length >= 3 && (
+                  <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 shadow-2xl z-[100] rounded-xl overflow-hidden divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
+                    {masterParts.length === 0 && !isSearching ? (
+                      <div className="p-6 text-center text-[10px] font-bold text-gray-300 uppercase tracking-widest">Tidak ditemukan</div>
+                      ) : masterParts.map((item, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => handleAddItem(item)}
+                          className="w-full px-6 py-5 text-left hover:bg-gray-50 flex items-center justify-between group transition-colors border-l-4 border-transparent hover:border-black"
+                        >
+                          <div className="flex items-center gap-4">
+                            {/* Image from EPCM if available */}
+                            <div className="w-12 h-12 bg-gray-100 rounded-xl overflow-hidden shrink-0 flex items-center justify-center border border-gray-100">
+                              {epcmImages[item.code] ? (
+                                <img 
+                                  src={epcmImages[item.code][0]} 
+                                  alt="" 
+                                  className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500" 
+                                />
+                              ) : (
+                                <Package size={20} className="text-gray-300" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-black text-[11px] uppercase text-black leading-none mb-1">{item.name}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="font-mono text-[9px] text-gray-400 font-bold uppercase tracking-widest">{item.code}</p>
+                                {epcmImages[item.code] && (
+                                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-black text-[10px]">Rp {(item.retailGuidePrice || 0).toLocaleString()}</p>
+                          </div>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Selection Summary */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-1">
+                <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400">Selected Items</h3>
+                <span className="text-[9px] font-black px-2 py-0.5 bg-black text-white rounded-md">{items.length}</span>
+              </div>
+              
+              {items.length === 0 ? (
+                <div className="border-2 border-dashed border-gray-100 rounded-2xl py-10 flex flex-col items-center justify-center gap-2 bg-gray-50/50">
+                  <Package size={20} className="text-gray-200" />
+                  <p className="text-[9px] font-bold text-gray-300 uppercase tracking-widest">Belum ada barang</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {items.map((item, idx) => (
+                    <div key={idx} className="bg-gray-50 rounded-xl p-4 group hover:bg-gray-100 transition-all border border-transparent hover:border-gray-200">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-black text-[10px] uppercase truncate leading-none mb-1">{item.part_name}</p>
+                          <p className="font-mono text-[9px] text-gray-400 font-bold uppercase tracking-widest">{item.part_number}</p>
+                        </div>
+                        <button onClick={() => removeItem(item.part_number)} className="text-gray-300 hover:text-red-500 transition-colors">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="text-[8px] font-bold text-gray-400 uppercase tracking-widest">Quantity</label>
+                          <input 
+                            type="number" 
+                            className="w-full bg-white border-b border-black px-2 py-1 text-xs font-black outline-none"
+                            value={item.qty}
+                            onChange={(e) => updateItem(item.part_number, 'qty', parseInt(e.target.value) || 1)}
+                          />
+                        </div>
+                        <div className="text-right flex flex-col justify-end">
+                          <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest mb-1">Subtotal</p>
+                          <p className="font-black text-xs">
+                            {((item.unit_price - (item.discount || 0)) * item.qty).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
+        {/* Sidebar Footer Actions */}
+        <div className="mt-auto pt-8 border-t border-gray-100 space-y-3">
+          <button 
+            onClick={downloadInvoice}
+            className="w-full bg-black text-white py-5 rounded-2xl font-black text-[10px] tracking-[0.2em] uppercase flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-black/10"
+          >
+            <Download size={18} /> Simpan PDF
+          </button>
+          <button 
+            onClick={sendWhatsApp}
+            className="w-full border-2 border-black py-5 rounded-2xl font-black text-[10px] tracking-[0.2em] uppercase flex items-center justify-center gap-3 hover:bg-black hover:text-white transition-all"
+          >
+            <Share2 size={18} /> WhatsApp
+          </button>
+        </div>
+      </aside>
 
-        {/* PAGE 1: BUILDER */}
-        {activeTab === 'builder' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 animate-in">
-            <div className="lg:col-span-8 space-y-10">
-              
-              {/* Search Section */}
-              <div className="space-y-4">
-                 <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Search Master Database</label>
-                 <div className="relative group">
-                    <div className="absolute inset-y-0 left-6 flex items-center pointer-events-none">
-                    <Search size={24} className="text-zinc-950 transition-colors" />
-                    </div>
-                    <input
-                    type="text"
-                    placeholder="Type part name or number to add..."
-                    className="w-full bg-white border-2 border-zinc-100 rounded-[2rem] py-6 pl-16 pr-8 text-lg font-bold focus:outline-none focus:ring-8 focus:ring-zinc-50 focus:border-zinc-950 transition-all shadow-xl placeholder:text-zinc-950/40"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                    
-                    {searchTerm && (
-                    <div className="absolute top-full left-0 right-0 mt-4 bg-white border border-zinc-100 rounded-[2.5rem] shadow-[0_30px_60px_rgba(0,0,0,0.12)] z-[100] overflow-hidden divide-y divide-zinc-50 animate-in">
-                        {filteredSearch.length === 0 ? (
-                             <div className="p-10 text-center font-black text-zinc-300 uppercase tracking-widest text-xs italic">Part Not Found</div>
-                        ) : filteredSearch.map(part => (
-                        <button
-                            key={part.part_number}
-                            onClick={() => handleAddItem(part)}
-                            className="w-full px-10 py-6 text-left hover:bg-zinc-50 flex items-center justify-between transition-colors group"
-                        >
-                            <div className="flex items-center gap-6">
-                            <div className="bg-zinc-100 p-4 rounded-2xl group-hover:bg-zinc-200 transition-colors">
-                                <Package size={24} className="text-zinc-600" />
-                            </div>
-                            <div>
-                                <div className="font-black text-lg tracking-tight uppercase">{part.part_name}</div>
-                                <div className="text-zinc-400 text-xs font-mono uppercase tracking-widest">{part.part_number}</div>
-                            </div>
-                            </div>
-                            <div className="text-right">
-                            <div className="text-sm font-black text-zinc-950">
-                                Rp {(part.wholesale_price_no_tax || 0).toLocaleString()}
-                            </div>
-                            <div className="text-[9px] text-zinc-400 font-black uppercase tracking-widest mt-1">Wholesale (Net)</div>
-                            </div>
-                        </button>
-                        ))}
-                    </div>
-                    )}
-                </div>
-              </div>
-
-              {/* Items List - Modern Cards Instead of Table */}
-              <div className="space-y-6">
-                  <div className="flex justify-between items-center px-2">
-                     <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-zinc-400">Cart Items ({items.length})</h3>
-                  </div>
-                  
-                  {items.length === 0 ? (
-                      <div className="bg-zinc-50 border-2 border-dashed border-zinc-100 rounded-[3rem] py-32 flex flex-col items-center gap-6">
-                          <div className="p-8 bg-white rounded-full shadow-inner">
-                             <TrendingUp size={48} className="text-zinc-200" />
-                          </div>
-                          <p className="font-black text-zinc-300 uppercase tracking-widest text-xs">Awaiting Entry</p>
-                      </div>
-                  ) : (
-                      <div className="space-y-4">
-                        {items.map((item) => {
-                            const sellingPrice = (item.wholesale_price_no_tax || 0) * (1 + currentMarkup / 100);
-                            const totalItem = (sellingPrice - (item.discount || 0)) * (item.qty || 1);
-                            return (
-                                <div key={item.part_number} className="bg-white border border-zinc-100 rounded-[2.5rem] p-8 shadow-xl hover:shadow-2xl transition-all group flex flex-col md:flex-row items-center gap-8">
-                                    <div className="flex-1 min-w-0">
-                                        <div className="font-black text-xl tracking-tight leading-none mb-2 uppercase">{item.part_name}</div>
-                                        <div className="font-mono text-[10px] text-zinc-400 uppercase tracking-[0.2em]">{item.part_number}</div>
-                                        <div className="mt-4 flex flex-wrap gap-2">
-                                            <span className="bg-emerald-50 text-emerald-700 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">Base: Rp {item.wholesale_price_no_tax?.toLocaleString()}</span>
-                                            <span className="bg-blue-50 text-blue-700 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">Price: Rp {sellingPrice.toLocaleString()}</span>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="flex items-center gap-8 bg-zinc-50 p-6 rounded-[2rem] border border-zinc-100">
-                                        <div className="w-24 text-center">
-                                            <label className="block text-[8px] font-black text-zinc-400 uppercase tracking-widest mb-1">Quantity</label>
-                                            <input 
-                                                type="number" 
-                                                value={item.qty}
-                                                onChange={(e) => updateItem(item.part_number, 'qty', Math.max(1, parseInt(e.target.value) || 0))}
-                                                className="w-full bg-transparent border-b-2 border-zinc-200 text-center font-black text-xl focus:border-zinc-950 transition-all outline-none"
-                                            />
-                                        </div>
-                                        <div className="w-32 text-center border-l border-zinc-200 pl-8">
-                                            <label className="block text-[8px] font-black text-zinc-400 uppercase tracking-widest mb-1">Discount Unit</label>
-                                            <input 
-                                                type="number" 
-                                                value={item.discount}
-                                                onChange={(e) => updateItem(item.part_number, 'discount', Math.max(0, parseInt(e.target.value) || 0))}
-                                                className="w-full bg-transparent border-b-2 border-zinc-200 text-right font-black text-lg focus:border-zinc-950 transition-all outline-none font-mono"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="text-right min-w-[150px]">
-                                        <div className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1">Line Total</div>
-                                        <div className="font-black text-2xl tracking-tighter">Rp {totalItem.toLocaleString()}</div>
-                                        <button 
-                                            onClick={() => removeItem(item.part_number)}
-                                            className="mt-2 text-red-500 font-bold text-[10px] uppercase tracking-widest hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
-                                        >
-                                            Remove Item
-                                        </button>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                      </div>
-                  )}
-              </div>
-            </div>
-
-            {/* Totalizer Section */}
-            <div className="lg:col-span-4 space-y-8 sticky top-32 h-fit">
-              <div className="bg-zinc-950 text-white p-12 rounded-[3.5rem] shadow-[0_40px_80px_rgba(0,0,0,0.3)] relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-48 h-48 bg-white/5 rounded-bl-full -z-0"></div>
-                
-                <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-zinc-600 mb-12 flex items-center gap-3">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div> Checkpoint Summary
-                </h3>
-
-                <div className="space-y-10 relative z-10">
-                  <div className="grid grid-cols-2 gap-6 bg-white/5 p-6 rounded-[2rem] border border-white/10">
-                    <div>
-                      <p className="text-[9px] uppercase font-black text-zinc-600 tracking-widest mb-2">Category</p>
-                      <p className="font-black text-lg tracking-tight uppercase">{customerPreset === 'GJ' ? 'GJ / PAM' : customerPreset}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[9px] uppercase font-black text-zinc-600 tracking-widest mb-2">Applied Markup</p>
-                      <p className="font-black text-3xl tracking-tighter text-emerald-400">+{currentMarkup}%</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4 pt-6">
-                    <div className="flex justify-between items-center text-zinc-500">
-                      <p className="text-[10px] font-black uppercase tracking-[0.3em]">Subtotal Net</p>
-                      <p className="font-mono font-bold text-lg">Rp {totals.subtotal.toLocaleString()}</p>
-                    </div>
-                    <div className="flex justify-between items-center text-zinc-600">
-                      <p className="text-[10px] font-black uppercase tracking-[0.3em]">PPN 11% (Calculated)</p>
-                      <p className="font-mono font-bold">Rp {totals.ppn.toLocaleString()}</p>
-                    </div>
-                  </div>
-
-                  <div className="pt-10 border-t border-white/10 mt-6">
-                    <p className="text-blue-500 text-[11px] font-black uppercase tracking-[0.5em] mb-4">Total Amount Due</p>
-                    <p className="text-5xl font-black tracking-tighter tabular-nums leading-none">
-                      <span className="text-lg font-bold text-zinc-700 mr-2 tracking-tight">Rp</span>
-                      {totals.grandTotal.toLocaleString()}
-                    </p>
-                  </div>
-
-                  <div className="pt-12 space-y-4">
-                    <button 
-                      disabled={items.length === 0}
-                      onClick={() => setActiveTab('invoice')}
-                      className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-900 disabled:text-zinc-800 disabled:border-zinc-800 text-white py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.3em] transition-all active:scale-95 shadow-2xl flex items-center justify-center gap-3"
-                    >
-                      <FileText size={18} strokeWidth={3} /> Preview Official Invoice
-                    </button>
-                    <button 
-                      disabled={items.length === 0}
-                      className="w-full bg-white/5 hover:bg-white/10 text-white py-4 rounded-[2rem] font-black text-xs uppercase tracking-[0.3em] transition-all active:scale-95 flex items-center justify-center gap-3 border border-white/10"
-                    >
-                      <Download size={18} strokeWidth={3} /> Export Metadata
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-emerald-500/10 border-2 border-emerald-500/20 p-8 rounded-[2.5rem] flex items-start gap-6">
-                <AlertCircle className="text-emerald-500 shrink-0" size={32} />
-                <div>
-                  <h4 className="font-black text-emerald-950 text-sm mb-2 uppercase tracking-widest">Tax System Notice</h4>
-                  <p className="text-emerald-900/60 text-[11px] font-bold leading-relaxed uppercase tracking-tight">
-                    PPN 11% is automatically added to the grand total in compliance with national trade regulations.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* PAGE 2: INVOICE */}
-        {activeTab === 'invoice' && (
-          <div className="animate-in pb-40">
-            <div className="bg-white border-2 border-zinc-100 rounded-[3.5rem] shadow-2xl p-20 max-w-5xl mx-auto min-h-[1100px] flex flex-col relative overflow-hidden">
-              {/* Branding Header */}
-              <div className="flex justify-between items-start mb-24">
-                <div className="space-y-6">
-                    <div className="bg-zinc-950 text-white px-6 py-3 rounded-2xl w-fit font-black italic tracking-tighter text-2xl uppercase">CHERY ORIENTAL</div>
-                    <div className="space-y-2 pl-1">
-                        <p className="text-[11px] font-black text-zinc-400 uppercase tracking-[0.4em]">Official Workshop Affiliate</p>
-                        <p className="text-xs text-zinc-500 font-bold">Jl. Raya Surabaya-Malang No. 123, Surabaya</p>
-                        <p className="text-[10px] text-zinc-400 font-black uppercase tracking-widest">+62 821-3322-1111 • chery-oriental.id</p>
-                    </div>
-                </div>
-                <div className="text-right">
-                    <h3 className="text-7xl font-black text-zinc-900/5 tracking-tighter -mt-6 mb-4 select-none">OFFICIAL QUOTE</h3>
-                    <div className="space-y-6 pt-4">
-                        <div className="space-y-1">
-                            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Ref. Number</p>
-                            <p className="text-xl font-black tracking-tighter uppercase">{invoiceMetadata.no}</p>
-                        </div>
-                        <div className="space-y-1">
-                            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Date Issued</p>
-                            <p className="text-sm font-black uppercase tracking-widest text-zinc-400">{invoiceMetadata.date}</p>
-                        </div>
-                    </div>
-                </div>
-              </div>
-
-              {/* Customer Info */}
-              <div className="flex justify-between gap-12 mb-20 border-y-2 border-zinc-950 py-16">
-                <div>
-                    <p className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.4em] mb-6">Billed To / Recipient</p>
-                    <input 
-                        className="text-3xl font-black tracking-tight uppercase leading-none mb-4 border-b-2 border-zinc-100 focus:border-zinc-950 transition-all outline-none w-full bg-transparent"
-                        placeholder="ENTER RECIPIENT NAME..."
-                        value={invoiceMetadata.customer}
-                        onChange={(e) => setInvoiceMetadata({...invoiceMetadata, customer: e.target.value})}
-                    />
-                    <div className="flex items-center gap-4">
-                        <span className="bg-zinc-100 px-4 py-1.5 rounded-full text-[10px] font-black text-zinc-500 uppercase tracking-widest">Tier: {customerPreset}</span>
-                        <span className="text-[10px] text-zinc-400 font-black uppercase tracking-widest">Status: active</span>
-                    </div>
-                </div>
-                <div className="text-right min-w-[200px]">
-                    <p className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.4em] mb-6">Projected Validity</p>
-                    <p className="text-2xl font-black tracking-tighter uppercase">14 CALENDAR DAYS</p>
-                    <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mt-2 animate-pulse">Subject to stock availability</p>
-                </div>
-              </div>
-
-              {/* Invoice Table */}
-              <div className="flex-1 mb-24">
-                <table className="w-full text-left">
-                    <thead>
-                        <tr className="border-b-4 border-zinc-900">
-                            <th className="py-6 text-[10px] font-black uppercase tracking-[0.4em] text-zinc-900 pr-4">#</th>
-                            <th className="py-6 text-[10px] font-black uppercase tracking-[0.4em] text-zinc-900">Catalogue Part Identity</th>
-                            <th className="py-6 text-[10px] font-black uppercase tracking-[0.4em] text-zinc-900 text-center w-24">Qty</th>
-                            <th className="py-6 text-[10px] font-black uppercase tracking-[0.4em] text-zinc-900 text-right w-52">Unit Rate</th>
-                            <th className="py-6 text-[10px] font-black uppercase tracking-[0.4em] text-zinc-900 text-right w-52">Subtotal</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-100">
-                        {items.map((item, index) => {
-                            const unitPrice = (item.wholesale_price_no_tax || 0) * (1 + currentMarkup / 100) - (item.discount || 0);
-                            const total = unitPrice * item.qty;
-                            return (
-                                <tr key={item.part_number} className="group">
-                                    <td className="py-8 text-sm font-black text-zinc-200 group-hover:text-zinc-400 transition-colors">{String(index + 1).padStart(2, '0')}</td>
-                                    <td className="py-8">
-                                        <div className="font-black text-lg tracking-tight leading-none mb-2 uppercase">{item.part_name}</div>
-                                        <div className="font-mono text-[10px] text-zinc-400 uppercase tracking-widest">{item.part_number}</div>
-                                    </td>
-                                    <td className="py-8 text-center font-black text-base tracking-tight">{item.qty} <span className="text-[9px] text-zinc-400 ml-1">PCS</span></td>
-                                    <td className="py-8 text-right font-black text-base tracking-tight">Rp {unitPrice.toLocaleString()}</td>
-                                    <td className="py-8 text-right font-black text-xl tracking-tighter">Rp {total.toLocaleString()}</td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
-              </div>
-
-              {/* Footer Summary */}
-              <div className="mt-auto pt-16 border-t-2 border-zinc-100 flex justify-between gap-24">
-                <div className="flex-1 space-y-12">
-                    <div>
-                        <p className="text-[9px] font-black uppercase tracking-[0.4em] text-zinc-400 mb-2">Terms & Conditions</p>
-                        <p className="text-[10px] text-zinc-400 font-bold uppercase leading-loose tracking-tight italic">
-                            1. Prices are valid for 14 days from issued date.<br/>
-                            2. 50% deposit required for special order parts.<br/>
-                            3. Returns only accepted in original packaging within 3 days.
-                        </p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-10">
-                         <div>
-                            <p className="text-[9px] font-black text-zinc-300 uppercase tracking-[0.5em] mb-12">Authorized By</p>
-                            <div className="w-full h-px bg-zinc-950 mb-4"></div>
-                            <p className="text-[10px] font-black text-zinc-950 uppercase tracking-widest text-center">Service Manager</p>
-                         </div>
-                         <div>
-                            <p className="text-[9px] font-black text-zinc-300 uppercase tracking-[0.5em] mb-12">Order Approval</p>
-                            <div className="w-full h-px bg-zinc-950 mb-4"></div>
-                            <p className="text-[10px] font-black text-zinc-950 uppercase tracking-widest text-center">Customer Sign</p>
-                         </div>
-                    </div>
-                </div>
-                <div className="w-2/5 space-y-6 bg-zinc-50 p-10 rounded-[3rem] border border-zinc-100">
-                    <div className="flex justify-between items-center text-zinc-500">
-                        <p className="text-[10px] font-black uppercase tracking-[0.3em]">Total Bruto (Excl. Tax)</p>
-                        <p className="font-black text-base">Rp {totals.subtotal.toLocaleString()}</p>
-                    </div>
-                    <div className="flex justify-between items-center text-zinc-400">
-                        <p className="text-[10px] font-black uppercase tracking-[0.3em]">Computed Tax (VAT 11%)</p>
-                        <p className="font-bold text-base">Rp {totals.ppn.toLocaleString()}</p>
-                    </div>
-                    <div className="pt-8 border-t-4 border-zinc-950 mt-6">
-                        <p className="text-[11px] font-black uppercase tracking-[0.6em] text-blue-600 mb-4">Final Amount Payable</p>
-                        <p className="text-5xl font-black tracking-tighter leading-none">
-                            <span className="text-xl font-bold text-zinc-300 mr-2 tracking-tight">Rp</span>
-                            {totals.grandTotal.toLocaleString()}
-                        </p>
-                    </div>
-                </div>
-              </div>
-
-              <div className="absolute top-0 right-0 w-4 h-full bg-zinc-950"></div>
-            </div>
+      {/* RIGHT PANEL: PREVIEW */}
+      <main className="flex-1 h-full overflow-y-auto custom-scrollbar p-12 lg:p-20 flex flex-col items-center">
+        {/* INVOICE SHEET */}
+        <div id="invoice-sheet" className="bg-white w-full max-w-[900px] min-h-[1200px] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.1)] flex flex-col p-16 relative overflow-hidden origin-top scale-90 md:scale-100">
             
-            <div className="flex justify-center mt-12 gap-6 no-print">
-                <button 
-                  onClick={() => window.print()}
-                  className="bg-zinc-950 text-white px-12 py-5 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] flex items-center gap-3 shadow-[0_20px_40px_rgba(0,0,0,0.3)] hover:scale-105 active:scale-95 transition-all"
-                >
-                    <Printer size={20} strokeWidth={3} /> Print Official Copy
-                </button>
-                <button 
-                  onClick={() => setActiveTab('builder')}
-                  className="bg-white border-2 border-zinc-100 text-zinc-400 px-12 py-5 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] flex items-center gap-3 hover:text-zinc-950 hover:border-zinc-950 transition-all hover:shadow-xl"
-                >
-                    Back to Design
-                </button>
-            </div>
-          </div>
-        )}
-
-        {/* PAGE 3: ANALYSIS */}
-        {activeTab === 'analysis' && (
-          <div className="animate-in space-y-12 pb-40">
-            {/* Stats Overview */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-                <div className="bg-white border-2 border-zinc-100 p-12 rounded-[3.5rem] shadow-xl hover:shadow-2xl transition-all group overflow-hidden relative">
-                    <TrendingUp className="text-emerald-500 mb-8 group-hover:scale-125 transition-transform" size={40} strokeWidth={3} />
-                    <p className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.4em] mb-2">Quoted Profit Margin</p>
-                    <h4 className="text-5xl font-black tracking-tighter text-zinc-950 leading-none">
-                        <span className="text-xl text-zinc-300 font-bold mr-2">Rp</span>
-                        {items.reduce((acc, item) => acc + (item.wholesale_price_no_tax * (currentMarkup / 100)) * item.qty, 0).toLocaleString()}
-                    </h4>
-                    <div className="absolute bottom-0 right-0 p-4 opacity-5">
-                       <BarChart3 size={100} strokeWidth={3} />
-                    </div>
-                </div>
-                <div className="bg-white border-2 border-zinc-100 p-12 rounded-[3.5rem] shadow-xl hover:shadow-2xl transition-all group">
-                    <Percent className="text-blue-500 mb-8 group-hover:scale-125 transition-transform" size={40} strokeWidth={3} />
-                    <p className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.4em] mb-2">Effective Yield</p>
-                    <h4 className="text-5xl font-black tracking-tighter text-zinc-950 leading-none">{currentMarkup.toFixed(1)}<span className="text-2xl text-zinc-300 ml-1">%</span></h4>
-                </div>
-                <div className="bg-zinc-950 text-white p-12 rounded-[3.5rem] shadow-2xl group">
-                    <Package className="text-blue-500 mb-8 group-hover:scale-125 transition-transform" size={40} strokeWidth={3} />
-                    <p className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.4em] mb-2">Catalogue Coverage</p>
-                    <h4 className="text-5xl font-black tracking-tighter leading-none">{items.length}<span className="text-2xl text-zinc-600 ml-2">SKU</span></h4>
-                </div>
+            {/* Header Estimasi */}
+            <div className="flex justify-between items-start mb-24 relative z-10">
+              <div className="space-y-4">
+                <div className="h-2 w-16 bg-black"></div>
+                <h1 className="text-7xl font-black tracking-tighter leading-none italic uppercase">Estimasi</h1>
+                <p className="text-gray-400 font-bold tracking-[0.4em] text-[10px] uppercase">Chery Authorized Parts & Service</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-1">Nomor Dokumen</p>
+                <p className="font-black text-lg leading-none">{invoiceMetadata.no}</p>
+                <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest mt-12">Medan, {invoiceMetadata.date}</p>
+              </div>
             </div>
 
-            {/* Analysis Table */}
-            <div className="bg-white border-2 border-zinc-100 rounded-[3.5rem] shadow-2xl overflow-hidden">
-                <div className="p-10 border-b-2 border-zinc-100 flex justify-between items-center bg-zinc-50/50">
-                    <h3 className="font-black italic tracking-tighter text-3xl uppercase leading-none">PROFIT<br/><span className="text-zinc-300">METRICS</span></h3>
-                    <div className="bg-zinc-950 text-white px-8 py-4 rounded-[1.5rem] shadow-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3">
-                        <ArrowRight size={14} strokeWidth={3} /> Target: {customerPreset} Tier
-                    </div>
+            {/* Info Customer & PO */}
+            <div className="mb-20 grid grid-cols-2 gap-20">
+              <div className="space-y-6">
+                <div>
+                  <p className="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-4">Ditujukan Kepada</p>
+                  <h3 className="text-4xl font-black uppercase tracking-tighter mb-1">{customerInfo.name || 'PELANGGAN UMUM'}</h3>
+                  <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">{customerInfo.vehicle || 'ALL CHERY MODELS'}</p>
                 </div>
-                
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead>
-                            <tr className="bg-white/50">
-                                <th className="px-12 py-8 text-[10px] font-black uppercase tracking-[0.4em] text-zinc-400">Part Identification</th>
-                                <th className="px-12 py-8 text-[10px] font-black uppercase tracking-[0.4em] text-zinc-400 text-right">COGS (Base)</th>
-                                <th className="px-12 py-8 text-[10px] font-black uppercase tracking-[0.4em] text-zinc-400 text-right">Revenue (Unit)</th>
-                                <th className="px-12 py-8 text-[10px] font-black uppercase tracking-[0.4em] text-zinc-400 text-right">Yield/Unit</th>
-                                <th className="px-12 py-8 text-[10px] font-black uppercase tracking-[0.4em] text-zinc-400 text-right">Rating</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-50">
-                            {items.length === 0 ? (
-                                <tr>
-                                    <td colSpan="5" className="px-12 py-40 text-center text-zinc-200 font-black uppercase tracking-[0.3em] italic">
-                                        No Data To Analyze
-                                    </td>
-                                </tr>
-                            ) : items.map((item) => {
-                                const sellingPrice = (item.wholesale_price_no_tax || 0) * (1 + currentMarkup / 100);
-                                const profitPerUnit = sellingPrice - (item.wholesale_price_no_tax || 0);
-                                const marginPercent = (profitPerUnit / sellingPrice) * 100;
-                                
-                                return (
-                                    <tr key={item.part_number} className="hover:bg-zinc-50 transition-colors group">
-                                        <td className="px-12 py-10">
-                                            <div className="font-black text-xl tracking-tight uppercase group-hover:text-blue-600 transition-colors leading-none mb-2">{item.part_name}</div>
-                                            <div className="font-mono text-[10px] text-zinc-300 uppercase tracking-widest">{item.part_number}</div>
-                                        </td>
-                                        <td className="px-12 py-10 text-right font-black text-xs font-mono text-zinc-400">
-                                            Rp {item.wholesale_price_no_tax?.toLocaleString()}
-                                        </td>
-                                        <td className="px-12 py-10 text-right font-black text-lg tracking-tight">
-                                            Rp {sellingPrice.toLocaleString()}
-                                        </td>
-                                        <td className="px-12 py-10 text-right">
-                                            <div className="font-black text-lg tracking-tighter text-zinc-950">
-                                                +Rp {profitPerUnit.toLocaleString()}
-                                            </div>
-                                        </td>
-                                        <td className="px-12 py-10 text-right">
-                                            <div className="inline-flex items-center gap-3 bg-emerald-50 px-6 py-2 rounded-full text-emerald-700 text-[10px] font-black tracking-widest uppercase border border-emerald-100">
-                                                {marginPercent.toFixed(1)}% Yield
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-          </div>
-        )}
-
-        {/* PAGE 4: INVENTORY PROFIT ANALYSIS (Dedicated Dashboard) */}
-        {activeTab === 'inventory_analysis' && (
-          <div className="animate-in space-y-12 pb-40">
-            {/* Real-time Intel Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-                <div className="md:col-span-2 bg-white border-2 border-zinc-100 p-10 rounded-[3rem] shadow-xl">
-                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.3em] ml-1 mb-6 block">Target Margin Simulator</label>
-                    <div className="flex items-center gap-10">
-                        <div className="flex-1 bg-zinc-50 p-2 rounded-[2rem] border border-zinc-100 flex items-center">
-                            <input 
-                                type="range" 
-                                min="-20" 
-                                max="100" 
-                                step="1"
-                                value={customMarkup}
-                                onChange={(e) => setCustomMarkup(parseFloat(e.target.value))}
-                                className="flex-1 h-3 bg-zinc-200 rounded-lg appearance-none cursor-pointer accent-zinc-950 mx-6"
-                            />
-                        </div>
-                        <div className={`px-10 py-5 rounded-[2rem] font-black text-4xl tracking-tighter shadow-2xl ${customMarkup < 0 ? 'bg-red-600 text-white' : 'bg-zinc-950 text-white'}`}>
-                            {customMarkup}%
-                        </div>
-                    </div>
-                    <p className="mt-6 text-[10px] font-bold text-zinc-400 uppercase tracking-widest italic">{customMarkup < 0 ? '⚠️ Warning: Selling Below COGS' : 'Simulating projected profit across active catalog'}</p>
-                </div>
-
-                <div className="bg-zinc-50 border-2 border-zinc-100 p-10 rounded-[3rem] flex flex-col justify-between">
-                    <TrendingUp size={32} className="text-zinc-300" />
-                    <div>
-                        <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1">Catalog Count</p>
-                        <h4 className="text-4xl font-black tracking-tighter">{masterParts.length}</h4>
-                    </div>
-                </div>
-
-                <div className={`p-10 rounded-[3rem] flex flex-col justify-between border-2 transition-all ${
-                    masterParts.some(p => (p.wholesale_price_no_tax * (customMarkup/100)) < 0) 
-                    ? 'bg-red-50 border-red-200 shadow-xl shadow-red-100' 
-                    : 'bg-emerald-50 border-emerald-100'
-                }`}>
-                    <AlertCircle size={32} className={customMarkup < 0 ? 'text-red-500' : 'text-emerald-500'} />
-                    <div>
-                        <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${customMarkup < 0 ? 'text-red-400' : 'text-emerald-400'}`}>Loss Items</p>
-                        <h4 className={`text-4xl font-black tracking-tighter ${customMarkup < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                            {customMarkup < 0 ? masterParts.length : 0}
-                        </h4>
-                    </div>
-                </div>
+                {customerInfo.phone && (
+                  <div className="flex items-center gap-2 text-gray-400 font-bold text-[10px] uppercase tracking-widest">
+                    <MessageCircle size={12} /> {customerInfo.phone}
+                  </div>
+                )}
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-4">Referensi PO</p>
+                <h3 className="text-2xl font-black uppercase tracking-tighter">{customerInfo.poNumber || '-'}</h3>
+                <div className="inline-block mt-8 px-6 py-2.5 bg-black text-white text-[10px] font-black uppercase tracking-widest">Draf Estimasi</div>
+              </div>
             </div>
 
-            {/* Matrix Section */}
-            <div className="bg-white border-2 border-zinc-100 rounded-[3.5rem] shadow-2xl overflow-hidden">
-                <div className="p-12 border-b-2 border-zinc-100 flex flex-col lg:flex-row justify-between items-center gap-10">
-                    <div>
-                        <h3 className="font-black italic tracking-tighter text-4xl uppercase leading-none">PROFIT & LOSS<br/><span className="text-zinc-950/40">MASTER MATRIX</span></h3>
-                    </div>
-                    <div className="relative w-full lg:w-96">
-                       <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-950" size={24} />
-                       <input 
-                          type="text" 
-                          placeholder="Search identifier..."
-                          value={searchTerm}
-                          onChange={(e) => setSearchTerm(e.target.value)}
-                          className="w-full bg-zinc-50 border-2 border-zinc-100 rounded-[2rem] pl-16 pr-8 py-5 text-lg font-bold focus:outline-none focus:ring-8 focus:ring-zinc-50 focus:border-zinc-950 transition-all placeholder:text-zinc-950/40"
-                       />
-                    </div>
-                </div>
-                
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead>
-                            <tr className="bg-zinc-950 text-white">
-                                <th className="px-8 py-8 text-[9px] font-black uppercase tracking-[0.3em]">Part Identity</th>
-                                <th className="px-8 py-8 text-[9px] font-black uppercase tracking-[0.3em] text-right">COGS (Net)</th>
-                                <th className="px-8 py-8 text-[9px] font-black uppercase tracking-[0.3em] text-center bg-zinc-900 border-x border-white/5">Profit (No Disc)</th>
-                                <th className="px-8 py-8 text-[9px] font-black uppercase tracking-[0.3em] text-center bg-zinc-800">Profit RATU</th>
-                                <th className="px-8 py-8 text-[9px] font-black uppercase tracking-[0.3em] text-center bg-zinc-800">Profit GJ (10%)</th>
-                                <th className="px-8 py-8 text-[9px] font-black uppercase tracking-[0.3em] text-center bg-blue-950">Max Disc (Target: 15%)</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-50">
-                            {masterParts.filter(p => 
-                                (p.part_name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-                                (p.part_number || '').toLowerCase().includes(searchTerm.toLowerCase())
-                            ).slice(0, 100).map((part) => {
-                                const base = part.wholesale_price_no_tax || 0;
-                                const guide = part.sales_guide_price_no_tax || 0;
-                                
-                                const pNoDiscount = guide - base;
-                                const mNoDiscount = base > 0 ? (pNoDiscount / base * 100).toFixed(1) : 0;
-
-                                const discountedRatu = guide * 0.875;
-                                const pRatu = Math.round(discountedRatu - base);
-                                const mRatu = base > 0 ? (pRatu / base * 100).toFixed(1) : 0;
-
-                                const discountedGj = guide * 0.90;
-                                const pGj = Math.round(discountedGj - base);
-                                const mGj = base > 0 ? (pGj / base * 100).toFixed(1) : 0;
-
-                                // Recommened Max Discount Calculation
-                                const minSellingPrice = base * 1.15; // 15% Fixed target for this view
-                                const maxSafeDiscount = guide > 0 ? Math.max(0, ((guide - minSellingPrice) / guide) * 100).toFixed(1) : 0;
-
-                                return (
-                                    <tr key={part.id} className="hover:bg-zinc-50 transition-colors group text-[11px]">
-                                        <td className="px-8 py-8">
-                                            <div className="font-black text-lg tracking-tight uppercase group-hover:text-blue-600 transition-colors leading-none mb-2 text-zinc-950">{part.part_name}</div>
-                                            <div className="font-mono text-xs text-zinc-950 font-bold uppercase tracking-widest bg-zinc-100 w-fit px-2 py-1 rounded">{part.part_number}</div>
-                                        </td>
-                                        <td className="px-8 py-8 text-right font-black text-zinc-950 bg-zinc-50/10">
-                                            Rp {guide.toLocaleString()}
-                                        </td>
-                                        <td className="px-8 py-8 text-right font-black text-zinc-950 border-x border-zinc-100">
-                                            Rp {base.toLocaleString()}
-                                        </td>
-                                        <td className="px-8 py-8 text-center bg-zinc-50/20 border-r border-zinc-100">
-                                            <div className={`font-black ${pNoDiscount < 0 ? 'text-red-600' : 'text-zinc-950'}`}>Rp {pNoDiscount.toLocaleString()}</div>
-                                            <div className={`text-[9px] font-bold ${pNoDiscount < 0 ? 'text-red-500' : 'text-zinc-950'}`}>{mNoDiscount}%</div>
-                                        </td>
-                                        <td className={`px-8 py-8 text-center font-black border-r border-zinc-100 ${pRatu < 0 ? 'bg-red-50 text-red-600' : 'bg-white text-zinc-950'}`}>
-                                            <div className="text-[10px] text-zinc-950/60 mb-1">Selling: Rp {discountedRatu.toLocaleString()}</div>
-                                            <div className="text-base">Rp {pRatu.toLocaleString()}</div>
-                                            <div className={`text-[9px] font-bold ${pRatu < 0 ? 'text-red-400' : 'text-blue-500'}`}>Profit: {mRatu}%</div>
-                                        </td>
-                                        <td className={`px-8 py-8 text-center font-black ${pGj < 0 ? 'bg-red-50 text-red-600' : 'bg-zinc-50/40 text-zinc-950'}`}>
-                                            <div className="text-[10px] text-zinc-950/60 mb-1">Selling: Rp {discountedGj.toLocaleString()}</div>
-                                            <div className="text-base">Rp {pGj.toLocaleString()}</div>
-                                            <div className={`text-[9px] font-bold ${pGj < 0 ? 'text-red-400' : 'text-indigo-500'}`}>Profit: {mGj}%</div>
-                                        </td>
-                                        <td className={`px-8 py-8 text-center font-black tracking-tighter ${maxSafeDiscount <= 0 ? 'bg-red-50 text-red-600' : 'bg-blue-50/30 text-blue-600'}`}>
-                                            <div className="flex items-center justify-center gap-2 text-xl">
-                                                {maxSafeDiscount}%
-                                            </div>
-                                            <div className="text-[9px] uppercase font-bold opacity-60">Max Disc Info</div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
+            {/* Table */}
+            <div className="flex-1 mb-24">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b-[4px] border-black text-[10px] font-black uppercase tracking-widest">
+                    <th className="pb-6 w-32">Pratinjau</th>
+                    <th className="pb-6">Detail Part</th>
+                    <th className="pb-6 text-right w-40">Harga Satuan</th>
+                    <th className="pb-6 text-center w-24">Qty</th>
+                    <th className="pb-6 text-right w-44">Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {items.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="py-24 text-center text-gray-200 font-black uppercase tracking-[0.4em] italic">Belum ada item yang dipilih</td>
+                      </tr>
+                   ) : items.map((item, index) => {
+                      const finalUnitPrice = item.unit_price - (item.discount || 0);
+                      return (
+                          <tr key={index} className="group">
+                              <td className="py-8">
+                                <div className="w-24 h-24 bg-gray-50 rounded-2xl overflow-hidden border border-gray-100 p-1 flex items-center justify-center">
+                                  {epcmImages[item.part_number] ? (
+                                    <img 
+                                      src={epcmImages[item.part_number][0]} 
+                                      alt={item.part_name} 
+                                      className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
+                                    />
+                                  ) : (
+                                    <Package size={32} className="text-gray-200" />
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-8">
+                                  <div className="font-black text-xl tracking-tighter text-black uppercase leading-none mb-2">{item.part_number}</div>
+                                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-tight">{item.part_name}</div>
+                              </td>
+                              <td className="py-8 text-right font-bold text-sm text-gray-600">Rp {finalUnitPrice.toLocaleString()}</td>
+                              <td className="py-8 text-center font-black text-xl">{item.qty}</td>
+                              <td className="py-8 text-right font-black text-2xl tracking-tighter">Rp {(finalUnitPrice * item.qty).toLocaleString()}</td>
+                          </tr>
+                      );
+                  })}
+                </tbody>
+              </table>
             </div>
-          </div>
-        )}
-      </div>
+
+            {/* Totals Section */}
+            <div className="mt-auto flex justify-end">
+              <div className="w-96 space-y-5">
+                <div className="flex justify-between items-center text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                  <span>Gross Subtotal</span>
+                  <span className="text-black font-black">Rp {totals.subtotalRaw.toLocaleString()}</span>
+                </div>
+                {globalDiscountPercent > 0 && (
+                  <div className="flex justify-between items-center text-[10px] font-black text-red-500 bg-red-50 px-4 py-3 rounded-xl uppercase tracking-widest">
+                    <span>Diskon Khusus ({globalDiscountPercent}%)</span>
+                    <span>- Rp {totals.globalDiscountAmount.toLocaleString()}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">
+                  <span>PPN (11%)</span>
+                  <span className="text-black font-black">Rp {totals.ppn.toLocaleString()}</span>
+                </div>
+                <div className="pt-8 border-t-[6px] border-black flex justify-between items-end">
+                  <span className="font-black uppercase tracking-tighter text-sm italic">Total Estimasi</span>
+                  <div className="text-right">
+                    <p className="text-5xl font-black tracking-tighter leading-none">
+                      Rp {totals.grandTotal.toLocaleString()}
+                    </p>
+                    <p className="text-[9px] font-black text-gray-300 uppercase tracking-[0.3em] mt-3">Termasuk PPN 11%</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Decorative */}
+            <div className="mt-32 pt-12 border-t border-gray-100 flex justify-between items-center">
+              <p className="text-[10px] font-black tracking-[0.2em] uppercase text-gray-200 italic">
+                Harga tidak mengikat dan dapat berubah sewaktu-waktu
+              </p>
+              <div className="flex items-center gap-4">
+                <div className="h-px w-20 bg-gray-100"></div>
+                <p className="text-[10px] font-black tracking-[0.4em] uppercase text-gray-200">
+                  Official Estimation
+                </p>
+              </div>
+            </div>
+
+            {/* Decorative Side bar */}
+            <div className="absolute top-0 right-0 w-4 h-full bg-black opacity-5"></div>
+        </div>
+      </main>
 
       <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(30px) scale(0.98); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-
-        .animate-in {
-          animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #E4E4E7; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #D4D4D8; }
 
         @media print {
-            nav, .no-print, header, .no-scrollbar {
-                display: none !important;
+            .no-print, nav, aside { display: none !important; }
+            body, html { background: white !important; margin: 0 !important; padding: 0 !important; }
+            .fixed { position: relative !important; overflow: visible !important; }
+            .flex-col { flex-direction: column !important; }
+            .md\\:flex-row { flex-direction: column !important; }
+            .w-full { width: 100% !important; }
+            #invoice-sheet { 
+              box-shadow: none !important; 
+              border: none !important; 
+              transform: none !important; 
+              margin: 0 !important; 
+              padding: 0 !important;
+              width: 100% !important;
+              max-width: 100% !important;
+              border-radius: 0 !important;
             }
-            .max-w-7xl {
-                max-width: 100% !important;
-                padding: 0 !important;
-                margin: 0 !important;
-            }
-            .p-10, .p-20 {
-                padding: 0 !important;
-            }
-            .shadow-2xl, .shadow-xl {
-                box-shadow: none !important;
-            }
-            body {
-                background: white;
-            }
+            .p-12, .p-20 { padding: 0 !important; }
+            .bg-zinc-100, .bg-zinc-50 { background: white !important; }
         }
+
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-in { animation: fadeIn 0.5s ease-out forwards; }
       `}</style>
     </div>
   );
 }
+

@@ -15,7 +15,7 @@ import ReactApexChart from 'react-apexcharts';
 import { supabase } from '../utils/supabaseClient';
 
 
-const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSettings, setBreakSettings, setIsNavbarVisible }) => {
+const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSettings, setBreakSettings, setIsNavbarVisible, activeTab: activeTabProp }) => {
   const [usersData, setUsersData] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const mainRef = useRef(null);
@@ -25,13 +25,14 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
   const [entityFilter, setEntityFilter] = useState('all');
   const [financialPage, setFinancialPage] = useState(1);
   const [woTrackingData, setWoTrackingData] = useState([]);
-  const [activeTab, setActiveTab] = useState(() => {
-    return localStorage.getItem('chery_manager_tab') || 'performance';
-  });
+  const [activeTab, setActiveTab] = useState(activeTabProp || 'performance');
 
+  // Sync activeTab with prop
   useEffect(() => {
-    localStorage.setItem('chery_manager_tab', activeTab);
-  }, [activeTab]);
+    if (activeTabProp && activeTabProp !== activeTab) {
+      setActiveTab(activeTabProp);
+    }
+  }, [activeTabProp]);
 
   const [timeFilter, setTimeFilter] = useState('today');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -47,7 +48,6 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
 
   const [croHistory, setCroHistory] = useState([]);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
-  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   const fetchFinancialData = React.useCallback(async () => {
     setIsLoading(true);
@@ -831,76 +831,17 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
   // Navbar visibility logic simplified to hover only in App.jsx
 
   return (
-    <div className="fixed inset-0 bg-[#F2F2F7] overflow-hidden flex flex-col font-sans antialiased text-zinc-900 transition-colors duration-500">
-      {/* Mobile Drawer Overlay */}
-      {isMobileSidebarOpen && (
-        <div className="md:hidden fixed inset-0 bg-black/50 z-[55] backdrop-blur-sm" onClick={() => setIsMobileSidebarOpen(false)}></div>
-      )}
-
-      {/* Sidebar - Desktop always narrow-to-expand, Mobile toggleable drawer */}
-      <aside className={`fixed left-0 top-0 bottom-0 z-[60] bg-white border-r-2 border-zinc-200 transition-all duration-500 ease-in-out flex flex-col shadow-2xl overflow-hidden group
-        ${isMobileSidebarOpen ? 'w-[280px] translate-x-0 p-8' : '-translate-x-full md:translate-x-0 md:w-20 md:hover:w-72 p-2 md:p-4 md:hover:p-8'}`}>
-
-        <div className={`flex items-center gap-4 mb-12 px-2 transition-all duration-300 whitespace-nowrap
-          ${isMobileSidebarOpen ? 'opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'}`}>
-          <div className="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center shadow-lg shadow-red-200 shrink-0">
-            <TrendingUp className="text-white" size={24} />
-          </div>
-          <div className="overflow-hidden">
-            <h1 className="text-xl font-black tracking-tighter uppercase leading-none">Workshop</h1>
-            <p className="text-[10px] font-bold text-zinc-400 mt-1 uppercase tracking-widest">Manager Hub</p>
-          </div>
-        </div>
-
-        <nav className="flex-1 space-y-2 overflow-y-auto overflow-x-hidden custom-scrollbar">
-          {[
-            { id: 'performance', label: 'Dashboard Utama', icon: LayoutDashboard },
-            { id: 'financial', label: 'Laporan Revenue', icon: DollarSign },
-            { id: 'wo_tracking', label: 'Tracking Pengerjaan', icon: Activity },
-            { id: 'vehicles', label: 'Database Mobil', icon: Database },
-            { id: 'cro_history', label: 'Riwayat CRO', icon: History },
-            { id: 'holidays', label: 'Libur Dealer', icon: Settings },
-            { id: 'staff', label: 'Manajemen Staff', icon: Users }
-          ].map(item => (
-            <button key={item.id}
-              onClick={() => { setActiveTab(item.id); setIsMobileSidebarOpen(false); }}
-              className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all duration-200 font-bold uppercase text-[10px] tracking-widest whitespace-nowrap
-                ${activeTab === item.id ? 'bg-zinc-900 text-white shadow-xl' : 'text-zinc-400 hover:text-zinc-900 hover:bg-zinc-50'}`}>
-              <item.icon size={20} strokeWidth={2.5} className="shrink-0" />
-              <span className={`transition-all duration-300 ${isMobileSidebarOpen ? 'opacity-100 translate-x-0' : 'md:opacity-0 md:-translate-x-4 md:group-hover:opacity-100 md:group-hover:translate-x-0'}`}>
-                {item.label}
-              </span>
-            </button>
-          ))}
-        </nav>
-
-        <div className="mt-auto pt-6 border-t border-zinc-100 flex items-center gap-4 px-2 overflow-hidden transition-all duration-300">
-          <div className={`flex items-center gap-4 transition-all duration-300 whitespace-nowrap ${isMobileSidebarOpen ? 'opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'}`}>
-            <div className="w-10 h-10 rounded-full bg-zinc-100 border-2 border-white shadow-sm flex items-center justify-center font-black text-zinc-400 shrink-0">M</div>
-            <div className="overflow-hidden">
-              <p className="text-[11px] font-black uppercase tracking-tight truncate">{user?.name || 'Manager'}</p>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content dengan margin-left responsive */}
+    <div className="bg-white overflow-hidden flex flex-col font-sans antialiased text-black transition-colors duration-500 w-full h-full">
+      {/* Main Content - no internal sidebar */}
       <main
         ref={mainRef}
-        className={`flex-1 md:ml-20 ${activeTab === 'holidays' ? 'overflow-hidden' : 'overflow-y-auto'} p-4 md:p-12 custom-scrollbar space-y-10 lg:space-y-16 mt-0 pt-16 md:pt-16`}
+        className={`flex-1 ${activeTab === 'holidays' ? 'overflow-hidden' : 'overflow-y-auto'} p-4 md:p-12 custom-scrollbar space-y-10 lg:space-y-16 overflow-x-hidden`}
       >
-        {/* Toggle Button Mobile */}
-        <button
-          onClick={() => setIsMobileSidebarOpen(true)}
-          className="md:hidden fixed top-6 left-6 z-50 bg-white p-3 rounded-2xl shadow-xl border-2 border-zinc-200 text-zinc-900"
-        >
-          <Menu size={24} />
-        </button>
-
-        {/* ── EXPORT SUMMARY BUTTON ── */}
+        {/* EXPORT SUMMARY - only on Dashboard Utama */}
+        {activeTab === 'performance' && (
         <div className="flex flex-col lg:flex-row justify-between items-center gap-6 mb-8 group/header">
           <div className="flex items-center gap-6">
-             <div className="bg-emerald-600 p-4 rounded-3xl text-white shadow-xl shadow-emerald-100 group-hover/header:rotate-6 transition-transform">
+             <div className="bg-black p-4 rounded-3xl text-white shadow-xl shadow-zinc-200 group-hover/header:rotate-6 transition-transform">
                 <FileSpreadsheet size={32} />
              </div>
              <div>
@@ -911,7 +852,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
           <button 
             onClick={handleExportSummary}
             disabled={isSyncing}
-            className={`w-full lg:w-auto ${isSyncing ? 'bg-zinc-400' : 'bg-emerald-600 hover:bg-zinc-900'} text-white px-10 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-2xl shadow-emerald-200 transition-all flex items-center justify-center gap-4 group/btn`}
+            className={`w-full lg:w-auto ${isSyncing ? 'bg-zinc-300 text-zinc-500' : 'bg-black hover:bg-zinc-800'} text-white px-8 md:px-10 py-4 md:py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-2xl shadow-zinc-200 transition-all flex items-center justify-center gap-4 group/btn min-h-[44px]`}
           >
             {isSyncing ? (
                 <>
@@ -927,6 +868,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
             )}
           </button>
         </div>
+        )}
         {activeTab !== 'staff' && (
           <section className="flex flex-col lg:flex-row justify-between items-center gap-6 mb-12">
             <div className="text-center lg:text-left">
@@ -939,7 +881,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
                 {['today', 'this_month', 'year', 'custom', 'all'].map(t => (
                   <button
                     key={t} onClick={() => setTimeFilter(t)}
-                    className={`px-4 lg:px-6 py-3 lg:py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${timeFilter === t ? 'bg-zinc-900 text-white shadow-lg scale-[1.05]' : 'text-zinc-400 hover:text-zinc-900'}`}
+                    className={`px-4 lg:px-6 py-3 lg:py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all min-w-[44px] min-h-[44px] ${timeFilter === t ? 'bg-zinc-900 text-white shadow-lg scale-[1.05]' : 'text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200'}`}
                   >
                     {t === 'today' ? 'Hari Ini' : t === 'this_month' ? 'Bulan Ini' : t === 'year' ? 'Tahunan' : t === 'custom' ? 'Kustom' : 'Semua'}
                   </button>
@@ -953,22 +895,22 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
                     <select
                       value={selectedYear}
                       onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                      className="text-[11px] font-black uppercase outline-none cursor-pointer"
+                      className="text-[11px] font-black uppercase outline-none cursor-pointer min-h-[44px]"
                     >
                       {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                   </div>
                 )}
                 {timeFilter === 'custom' && (
-                  <div className="flex items-center gap-3 bg-white px-4 py-3 rounded-2xl border-2 border-zinc-200 shadow-sm animate-fade-in">
+                  <div className="flex flex-col sm:flex-row items-center gap-3 bg-white px-4 py-3 rounded-2xl border-2 border-zinc-200 shadow-sm animate-fade-in w-full sm:w-auto">
                     <div className="flex items-center gap-2">
                       <span className="text-[9px] font-bold text-zinc-400">DARI:</span>
-                      <input type="date" value={customRange.start} onChange={(e) => setCustomRange({ ...customRange, start: e.target.value })} className="text-[10px] font-black outline-none bg-transparent" />
+                      <input type="date" value={customRange.start} onChange={(e) => setCustomRange({ ...customRange, start: e.target.value })} className="text-[10px] font-black outline-none bg-transparent min-h-[44px]" />
                     </div>
-                    <div className="w-px h-4 bg-zinc-200 mx-2"></div>
+                    <div className="w-px h-4 bg-zinc-200 mx-2 hidden sm:block"></div>
                     <div className="flex items-center gap-2">
                       <span className="text-[9px] font-bold text-zinc-400">KE:</span>
-                      <input type="date" value={customRange.end} onChange={(e) => setCustomRange({ ...customRange, end: e.target.value })} className="text-[10px] font-black outline-none bg-transparent" />
+                      <input type="date" value={customRange.end} onChange={(e) => setCustomRange({ ...customRange, end: e.target.value })} className="text-[10px] font-black outline-none bg-transparent min-h-[44px]" />
                     </div>
                   </div>
                 )}
@@ -982,36 +924,36 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 animate-in">
             {activeTab === 'wo_tracking' ? (
               [
-                { l: 'Total WO', v: stats.totalWo, i: Activity, c: 'text-zinc-600', b: 'bg-zinc-50' },
-                { l: 'WO EUR', v: stats.eurCount, i: ShieldCheck, c: 'text-blue-600', b: 'bg-blue-50' },
-                { l: 'WO IFS', v: stats.ifsCount, i: Star, c: 'text-orange-600', b: 'bg-orange-50' },
-                { l: 'WO IKC', v: stats.ikcCount, i: Zap, c: 'text-emerald-600', b: 'bg-emerald-50' }
+                { l: 'Total WO', v: stats.totalWo, i: Activity, c: 'text-black', b: 'bg-zinc-100' },
+                { l: 'WO EUR', v: stats.eurCount, i: ShieldCheck, c: 'text-black', b: 'bg-zinc-100' },
+                { l: 'WO IFS', v: stats.ifsCount, i: Star, c: 'text-black', b: 'bg-zinc-100' },
+                { l: 'WO IKC', v: stats.ikcCount, i: Zap, c: 'text-black', b: 'bg-zinc-100' }
               ].map((s, idx) => (
-                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border-2 border-dashed border-zinc-200 shadow-sm hover:translate-y-[-4px] transition-all duration-300 flex flex-col gap-6 group">
+                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border-2 border-dashed border-zinc-200 shadow-sm hover:translate-y-[-4px] hover:bg-zinc-50 transition-all duration-300 flex flex-col gap-6 group">
                   <div className={`w-12 h-12 md:w-14 md:h-14 ${s.b} ${s.c} rounded-2xl flex items-center justify-center shadow-sm group-hover:rotate-6 transition-transform`}><s.i size={24} strokeWidth={2.5} /></div>
                   <div><p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-1">{s.l}</p><p className="text-2xl md:text-3xl font-black text-black tracking-tighter leading-none tabular-nums italic">{s.v}</p></div>
                 </div>
               ))
             ) : activeTab === 'performance' ? (
               [
-                { l: 'Mobil Selesai', v: stats.selesaiCount, i: CheckCircle, c: 'text-emerald-600', b: 'bg-emerald-50' },
-                { l: 'Proses Pengerjaan', v: stats.workingCount, i: Wrench, c: 'text-blue-600', b: 'bg-blue-50' },
-                { l: 'Mobil Menginap', v: stats.overnightCount, i: Shield, c: 'text-zinc-600', b: 'bg-zinc-50' },
-                { l: 'Antrian Tunggu', v: stats.waitingCount, i: Clock, c: 'text-orange-600', b: 'bg-orange-50' }
+                { l: 'Mobil Selesai', v: stats.selesaiCount, i: CheckCircle, c: 'text-black', b: 'bg-zinc-100' },
+                { l: 'Proses Pengerjaan', v: stats.workingCount, i: Wrench, c: 'text-black', b: 'bg-zinc-100' },
+                { l: 'Mobil Menginap', v: stats.overnightCount, i: Shield, c: 'text-black', b: 'bg-zinc-100' },
+                { l: 'Antrian Tunggu', v: stats.waitingCount, i: Clock, c: 'text-black', b: 'bg-zinc-100' }
               ].map((s, idx) => (
-                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border-2 border-dashed border-zinc-200 shadow-sm hover:translate-y-[-4px] transition-all duration-300 flex flex-col gap-6 group">
+                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border-2 border-dashed border-zinc-200 shadow-sm hover:translate-y-[-4px] hover:bg-zinc-50 transition-all duration-300 flex flex-col gap-6 group">
                   <div className={`w-12 h-12 md:w-14 md:h-14 ${s.b} ${s.c} rounded-2xl flex items-center justify-center shadow-sm group-hover:rotate-6 transition-transform`}><s.i size={24} strokeWidth={2.5} /></div>
                   <div><p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-1">{s.l}</p><p className="text-2xl md:text-3xl font-black text-black tracking-tighter leading-none tabular-nums italic">{s.v}</p></div>
                 </div>
               ))
             ) : (
               [
-                { l: 'Total Jasa (Fee)', v: formatCurrency(financialSummary.jasa), i: Wrench, c: 'text-blue-600', b: 'bg-blue-50' },
-                { l: 'Total Sparepart', v: formatCurrency(financialSummary.s_part), i: Package, c: 'text-orange-600', b: 'bg-orange-50' },
-                { l: 'Grand Total Revenue', v: formatCurrency(financialSummary.grandTotal), i: DollarSign, c: 'text-emerald-600', b: 'bg-emerald-50' },
-                { l: 'Total WO (Unit)', v: (sortedFinancialData?.length || 0), i: Activity, c: 'text-zinc-600', b: 'bg-zinc-50' }
+                { l: 'Total Jasa (Fee)', v: formatCurrency(financialSummary.jasa), i: Wrench, c: 'text-black', b: 'bg-zinc-100' },
+                { l: 'Total Sparepart', v: formatCurrency(financialSummary.s_part), i: Package, c: 'text-black', b: 'bg-zinc-100' },
+                { l: 'Grand Total Revenue', v: formatCurrency(financialSummary.grandTotal), i: DollarSign, c: 'text-black', b: 'bg-zinc-100' },
+                { l: 'Total WO (Unit)', v: (sortedFinancialData?.length || 0), i: Activity, c: 'text-black', b: 'bg-zinc-100' }
               ].map((s, idx) => (
-                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border-2 border-dashed border-zinc-200 shadow-sm hover:translate-y-[-4px] transition-all duration-300 flex flex-col gap-6 group">
+                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border-2 border-dashed border-zinc-200 shadow-sm hover:translate-y-[-4px] hover:bg-zinc-50 transition-all duration-300 flex flex-col gap-6 group">
                   <div className={`w-12 h-12 md:w-14 md:h-14 ${s.b} ${s.c} rounded-2xl flex items-center justify-center shadow-sm group-hover:rotate-6 transition-transform`}><s.i size={24} strokeWidth={2.5} /></div>
                   <div><p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-1">{s.l}</p><p className="text-2xl md:text-3xl font-black text-black tracking-tighter leading-none tabular-nums italic">{s.v}</p></div>
                 </div>
@@ -1033,7 +975,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
               <div className="bg-white p-6 md:p-12 rounded-[2.5rem] md:rounded-[4rem] border-2 border-zinc-200 shadow-xl relative overflow-hidden group">
                 <div className="absolute top-0 right-0 w-96 h-96 bg-zinc-50 rounded-bl-full -z-0"></div>
                 <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-10 mb-12">
-                  <div><h3 className="text-2xl md:text-3xl font-black text-red-600 uppercase tracking-tighter mb-2 italic">Tren Pendapatan Bulanan</h3><p className="text-zinc-400 text-[10px] font-black tracking-[0.5em] uppercase">Analisis Historis Kumulatif</p></div>
+                  <div><h3 className="text-2xl md:text-3xl font-black text-black uppercase tracking-tighter mb-2 italic">Tren Pendapatan Bulanan</h3><p className="text-zinc-400 text-[10px] font-black tracking-[0.5em] uppercase">Analisis Historis Kumulatif</p></div>
                 </div>
                 <div className="relative w-full h-[300px] md:h-[450px]">
                   {financialData.length === 0 ? (
@@ -1051,7 +993,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
                           itemMargin: { horizontal: 20 }
                         },
                         chart: { type: 'area', background: 'transparent', toolbar: { show: false }, zoom: { enabled: false } },
-                        colors: ['#2563eb', '#ea580c', '#dc2626'],
+                        colors: ['#000000', '#71717a', '#a1a1aa'],
                         fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.1, stops: [0, 90, 100] } },
                         dataLabels: { enabled: false },
                         stroke: { curve: 'smooth', width: 4 },
@@ -1069,10 +1011,10 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-10">
                 <div className="bg-white p-6 md:p-12 rounded-[2.5rem] md:rounded-[3.5rem] border-2 border-zinc-200 shadow-2xl relative group">
-                  <h3 className="text-xl md:text-2xl font-black text-zinc-900 uppercase tracking-tighter mb-8 md:mb-10 flex items-center gap-4"><Award className="text-red-600" size={28} /> Top Performance SA</h3>
+                  <h3 className="text-xl md:text-2xl font-black text-zinc-900 uppercase tracking-tighter mb-8 md:mb-10 flex items-center gap-4"><Award className="text-black" size={28} /> Top Performance SA</h3>
                   <div className="space-y-4">
                     {revenueLeaders.saArr.slice(0, 5).map((s, i) => (
-                      <div key={i} className="flex justify-between items-center p-4 md:p-6 bg-zinc-50 rounded-2xl md:rounded-3xl border border-zinc-100 hover:scale-[1.02] transition-all hover:bg-white hover:shadow-xl">
+                      <div key={i} className="flex justify-between items-center p-4 md:p-6 bg-zinc-50 rounded-2xl md:rounded-3xl border border-zinc-100 hover:scale-[1.02] transition-all hover:bg-zinc-200 hover:shadow-xl">
                         <div className="flex items-center gap-4 md:gap-6">
                           <span className="text-[10px] font-black text-zinc-300">#{i + 1}</span>
                           <div>
@@ -1080,16 +1022,16 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
                             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{s.count} UNIT DITANGANI</span>
                           </div>
                         </div>
-                        <span className="text-base md:text-xl font-black text-red-600 tabular-nums">{formatCurrency(s.totalJasa)}</span>
+                        <span className="text-base md:text-xl font-black text-black tabular-nums">{formatCurrency(s.totalJasa)}</span>
                       </div>
                     ))}
                   </div>
                 </div>
                 <div className="bg-white p-6 md:p-12 rounded-[2.5rem] md:rounded-[3.5rem] border-2 border-zinc-200 shadow-2xl relative group">
-                  <h3 className="text-xl md:text-2xl font-black text-zinc-900 uppercase tracking-tighter mb-8 md:mb-10 flex items-center gap-4"><Star className="text-blue-600" size={28} /> Lead Mechanic</h3>
+                  <h3 className="text-xl md:text-2xl font-black text-zinc-900 uppercase tracking-tighter mb-8 md:mb-10 flex items-center gap-4"><Star className="text-black" size={28} /> Lead Mechanic</h3>
                   <div className="space-y-4">
                     {revenueLeaders.mechArr.slice(0, 5).map((m, i) => (
-                      <div key={i} className="flex justify-between items-center p-4 md:p-6 bg-zinc-50 rounded-2xl md:rounded-3xl border border-zinc-100 hover:scale-[1.02] transition-all hover:bg-white hover:shadow-xl">
+                      <div key={i} className="flex justify-between items-center p-4 md:p-6 bg-zinc-50 rounded-2xl md:rounded-3xl border border-zinc-100 hover:scale-[1.02] transition-all hover:bg-zinc-200 hover:shadow-xl">
                         <div className="flex items-center gap-4 md:gap-6">
                           <span className="text-[10px] font-black text-zinc-300">#{i + 1}</span>
                           <div>
@@ -1097,7 +1039,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
                             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{m.count} UNIT SELESAI</span>
                           </div>
                         </div>
-                        <span className="text-base md:text-xl font-black text-blue-600 tabular-nums">{formatCurrency(m.totalJasa)}</span>
+                        <span className="text-base md:text-xl font-black text-black tabular-nums">{formatCurrency(m.totalJasa)}</span>
                       </div>
                     ))}
                   </div>
@@ -1107,143 +1049,143 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
           )}
 
           {activeTab === 'financial' && (
-            <div className="bg-white rounded-[2.5rem] md:rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden animate-in">
-              <div className="p-6 md:p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col xl:flex-row justify-between items-center gap-6 md:gap-10">
-                <div><h3 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-center md:text-left">Audit Transaksi Workshop</h3><p className="text-[10px] font-black text-zinc-400 tracking-[0.4em] mt-2 text-center md:text-left">Data Finansial Service Operasional</p></div>
+            <div className="bg-white rounded-[2rem] md:rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden animate-in">
+              <div className="p-4 md:p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col xl:flex-row justify-between items-center gap-6 md:gap-10">
+                <div><h3 className="text-xl md:text-3xl font-black uppercase tracking-tighter text-center md:text-left">Audit Transaksi Workshop</h3><p className="text-[10px] font-black text-zinc-400 tracking-[0.4em] mt-2 text-center md:text-left">Data Finansial Service Operasional</p></div>
                 <div className="flex flex-col md:flex-row items-center gap-4 md:gap-8 w-full xl:w-auto">
                   <input type="file" id="import-revenue-btn" className="hidden" accept=".xlsx, .xls" onChange={handleWorkshopUpload} />
-                  <label htmlFor="import-revenue-btn" className="w-full md:w-auto bg-red-600 text-white px-8 py-4 rounded-3xl font-black text-[10px] uppercase tracking-[0.2em] cursor-pointer shadow-2xl hover:bg-black transition-all flex items-center justify-center gap-4">
+                  <label htmlFor="import-revenue-btn" className="w-full md:w-auto bg-black text-white px-8 py-4 rounded-3xl font-black text-[10px] uppercase tracking-[0.2em] cursor-pointer shadow-2xl hover:bg-zinc-800 transition-all flex items-center justify-center gap-4 min-h-[44px]">
                     <Upload size={18} /> Import Invoice Pelanggan
                   </label>
                   <div className="flex bg-zinc-100 p-2 rounded-2xl md:rounded-3xl border border-zinc-200 shadow-inner w-full md:w-auto overflow-x-auto no-scrollbar">
                     {['all', 'EUR', 'IFS', 'IKC'].map(e => (
-                      <button key={e} onClick={() => setEntityFilter(e)} className={`px-4 md:px-6 py-2 md:py-3 rounded-xl md:rounded-2xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${entityFilter === e ? 'bg-white text-zinc-900 shadow-lg' : 'text-zinc-400'}`}>{e === 'all' ? 'SEMUA' : e}</button>
+                      <button key={e} onClick={() => setEntityFilter(e)} className={`px-4 md:px-6 py-2 md:py-3 rounded-xl md:rounded-2xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap min-w-[44px] min-h-[44px] ${entityFilter === e ? 'bg-white text-zinc-900 shadow-lg' : 'text-zinc-400'}`}>{e === 'all' ? 'SEMUA' : e}</button>
                     ))}
                   </div>
                   <div className="relative w-full xl:min-w-[400px]">
                     <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-400" size={20} />
-                    <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Cari WO atau No Polisi..." className="pl-14 pr-8 py-5 bg-white border-2 border-zinc-200 rounded-3xl text-[12px] font-black focus:border-zinc-900 transition-all w-full uppercase shadow-sm " />
+                    <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Cari WO atau No Polisi..." className="pl-14 pr-8 py-5 bg-white border-2 border-zinc-200 rounded-3xl text-[12px] font-black focus:border-zinc-900 transition-all w-full uppercase shadow-sm min-h-[44px]" />
                   </div>
                 </div>
               </div>
               <div className="overflow-x-auto custom-scrollbar">
-                <table className="w-full text-left font-black uppercase min-w-[1000px] ">
+                <table className="w-full text-left font-black uppercase min-w-[800px]">
                   <thead>
                     <tr className="bg-zinc-100/30 text-[10px] text-zinc-600 tracking-[0.2em] border-b border-zinc-200 font-black">
-                      <th className="px-12 py-8 cursor-pointer hover:text-zinc-900" onClick={() => requestSort('no_wo')}>Karakteristik Order {sortConfig.key === 'no_wo' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-12 py-8 cursor-pointer hover:text-zinc-900" onClick={() => requestSort('sa')}>Tim Operasional {sortConfig.key === 'sa' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-12 py-8 text-right text-blue-600 cursor-pointer" onClick={() => requestSort('jasa')}>Jasa Service {sortConfig.key === 'jasa' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-12 py-8 text-right text-orange-600 cursor-pointer" onClick={() => requestSort('s_part')}>Sparepart {sortConfig.key === 's_part' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-12 py-8 text-right underline decoration-4 decoration-zinc-100 cursor-pointer" onClick={() => requestSort('g_total')}>Total Akhir {sortConfig.key === 'g_total' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-6 md:px-12 py-6 md:py-8 cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('no_wo')}>Karakteristik Order {sortConfig.key === 'no_wo' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-6 md:px-12 py-6 md:py-8 cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('sa')}>Tim Operasional {sortConfig.key === 'sa' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-6 md:px-12 py-6 md:py-8 text-right cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('jasa')}>Jasa Service {sortConfig.key === 'jasa' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-6 md:px-12 py-6 md:py-8 text-right cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('s_part')}>Sparepart {sortConfig.key === 's_part' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-6 md:px-12 py-6 md:py-8 text-right underline decoration-4 decoration-zinc-100 cursor-pointer min-h-[44px]" onClick={() => requestSort('g_total')}>Total Akhir {sortConfig.key === 'g_total' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y-2 divide-zinc-50">
                     {sortedFinancialData.slice((financialPage - 1) * rowsPerPage, financialPage * rowsPerPage).map((row, i) => (
-                      <tr key={i} className="hover:bg-zinc-50/80 transition-all duration-300 font-black uppercase group">
-                        <td className="px-12 py-10">
+                      <tr key={i} className="hover:bg-zinc-100 transition-all duration-300 font-black uppercase group">
+                        <td className="px-6 md:px-12 py-6 md:py-10">
                           <p className="text-[20px] text-zinc-900 tracking-tighter leading-none">{row.no_wo || 'N/A'}</p>
                           <p className="text-[12px] text-zinc-400 mt-2 tracking-widest leading-none flex items-center gap-2"><Calendar size={12} /> {formatDisplayDate(row.wkt_masuk)}</p>
                         </td>
-                        <td className="px-12 py-10">
+                        <td className="px-6 md:px-12 py-6 md:py-10">
                           <p className="text-[16px] text-zinc-900 tracking-tight leading-none mb-4">{row.tipe_kendaraan || 'GENERAL SERVICE'}</p>
-                          <div className="flex items-center gap-3"><span className="text-[10px] bg-zinc-100 px-3 py-1 rounded-lg text-zinc-400 font-black">SA: {row.sa || '---'}</span><span className="text-[10px] bg-blue-50 px-3 py-1 rounded-lg text-blue-600 font-black">MKN: {row.mekanik || '---'}</span></div>
+                          <div className="flex items-center gap-3"><span className="text-[10px] bg-zinc-100 px-3 py-1 rounded-lg text-zinc-600 font-black">SA: {row.sa || '---'}</span><span className="text-[10px] bg-zinc-100 px-3 py-1 rounded-lg text-zinc-600 font-black">MKN: {row.mekanik || '---'}</span></div>
                         </td>
-                        <td className="px-12 py-10 text-right text-blue-600 font-black text-xl tabular-nums">{formatCurrency(row.jasa)}</td>
-                        <td className="px-12 py-10 text-right text-orange-600 font-black text-xl tabular-nums">{formatCurrency(row.s_part)}</td>
-                        <td className="px-12 py-10 text-right font-black text-3xl tabular-nums">{formatCurrency(row.g_total)}</td>
+                        <td className="px-6 md:px-12 py-6 md:py-10 text-right text-black font-black text-base md:text-xl tabular-nums">{formatCurrency(row.jasa)}</td>
+                        <td className="px-6 md:px-12 py-6 md:py-10 text-right text-black font-black text-base md:text-xl tabular-nums">{formatCurrency(row.s_part)}</td>
+                        <td className="px-6 md:px-12 py-6 md:py-10 text-right font-black text-xl md:text-3xl tabular-nums">{formatCurrency(row.g_total)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <div className="p-12 border-t-2 border-zinc-100 flex flex-col md:flex-row justify-between items-center bg-zinc-50/20 gap-8">
+              <div className="p-4 md:p-12 border-t-2 border-zinc-100 flex flex-col md:flex-row justify-between items-center bg-zinc-50/20 gap-4 md:gap-8">
                 <p className="text-[11px] font-black uppercase text-zinc-400 tracking-widest  whitespace-nowrap">Halaman {financialPage} dari {Math.ceil(sortedFinancialData.length / rowsPerPage)}</p>
-                <p className="text-[11px] font-black uppercase text-zinc-900 tracking-widest flex items-center gap-3"><Activity size={18} className="text-red-600" /> TOTAL: {sortedFinancialData.length} UNIT DATA</p>
+                <p className="text-[11px] font-black uppercase text-zinc-900 tracking-widest flex items-center gap-3"><Activity size={18} className="text-black" /> TOTAL: {sortedFinancialData.length} UNIT DATA</p>
                 <div className="flex gap-4">
-                  <button disabled={financialPage === 1} onClick={() => setFinancialPage(p => p - 1)} className={`px-12 py-5 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all ${financialPage === 1 ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white shadow-2xl hover:scale-105 active:scale-95'}`}>Prev</button>
-                  <button disabled={financialPage * rowsPerPage >= sortedFinancialData.length} onClick={() => setFinancialPage(p => p + 1)} className={`px-12 py-5 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all ${financialPage * rowsPerPage >= sortedFinancialData.length ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white shadow-2xl hover:scale-105 active:scale-95'}`}>Next</button>
+                  <button disabled={financialPage === 1} onClick={() => setFinancialPage(p => p - 1)} className={`px-8 md:px-12 py-4 md:py-5 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all min-w-[44px] min-h-[44px] ${financialPage === 1 ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white shadow-2xl hover:scale-105 active:scale-95'}`}>Prev</button>
+                  <button disabled={financialPage * rowsPerPage >= sortedFinancialData.length} onClick={() => setFinancialPage(p => p + 1)} className={`px-8 md:px-12 py-4 md:py-5 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all min-w-[44px] min-h-[44px] ${financialPage * rowsPerPage >= sortedFinancialData.length ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white shadow-2xl hover:scale-105 active:scale-95'}`}>Next</button>
                 </div>
               </div>
             </div>
           )}
 
           {activeTab === 'wo_tracking' && (
-            <div className="bg-white rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden animate-in">
-              <div className="p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col xl:flex-row justify-between items-center gap-10">
-                <div><h3 className="text-3xl font-black  uppercase tracking-tighter">Status Pengerjaan Workshop</h3><p className="text-[10px] font-black text-zinc-400 tracking-[0.4em] mt-2 ">Realtime Workflow Monitoring</p></div>
+            <div className="bg-white rounded-[2rem] md:rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden animate-in">
+              <div className="p-4 md:p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col xl:flex-row justify-between items-center gap-6 md:gap-10">
+                <div><h3 className="text-xl md:text-3xl font-black  uppercase tracking-tighter">Status Pengerjaan Workshop</h3><p className="text-[10px] font-black text-zinc-400 tracking-[0.4em] mt-2 ">Realtime Workflow Monitoring</p></div>
                 <div className="flex flex-col sm:flex-row items-center gap-8 w-full xl:w-auto">
                   <input type="file" id="import-tracking-btn" className="hidden" accept=".xlsx, .xls" onChange={handleWorkshopUpload} />
-                  <label htmlFor="import-tracking-btn" className="bg-blue-600 text-white px-10 py-5 rounded-[2rem] font-black text-[11px] uppercase tracking-[0.2em] cursor-pointer shadow-2xl hover:bg-black hover:scale-110 active:scale-95 transition-all flex items-center gap-4">
+                  <label htmlFor="import-tracking-btn" className="bg-black text-white px-8 md:px-10 py-4 md:py-5 rounded-[2rem] font-black text-[11px] uppercase tracking-[0.2em] cursor-pointer shadow-2xl hover:bg-zinc-800 hover:scale-110 active:scale-95 transition-all flex items-center gap-4 min-h-[44px] w-full sm:w-auto justify-center">
                     <Upload size={20} /> Import Excel
                   </label>
                   <div className="flex bg-zinc-100 p-2 rounded-3xl border border-zinc-200 w-full sm:w-auto overflow-x-auto custom-scrollbar">
                     {['all', 'Estimasi', 'On Progress', 'Ready', 'Closed', 'Open', 'Cancelled', 'Pre-Cancelled'].map(s => (
-                      <button key={s} onClick={() => setWoStatusFilter(s)} className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${woStatusFilter === s ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-400 hover:text-zinc-600'}`}>{s === 'all' ? 'SEMUA' : s}</button>
+                      <button key={s} onClick={() => setWoStatusFilter(s)} className={`px-4 md:px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap min-w-[44px] min-h-[44px] ${woStatusFilter === s ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200'}`}>{s === 'all' ? 'SEMUA' : s}</button>
                     ))}
                   </div>
                   <div className="relative w-full xl:min-w-[400px]">
                     <Search className="absolute left-8 top-1/2 -translate-y-1/2 text-zinc-400" size={24} />
-                    <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Cari WO, Plat, Mekanik..." className="pl-18 pr-10 py-6 bg-white border-2 border-zinc-200 rounded-[2rem] text-sm font-black focus:border-zinc-900 shadow-sm uppercase  w-full" />
+                    <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Cari WO, Plat, Mekanik..." className="pl-18 pr-10 py-4 md:py-6 bg-white border-2 border-zinc-200 rounded-[2rem] text-sm font-black focus:border-zinc-900 shadow-sm uppercase w-full min-h-[44px]" />
                   </div>
                 </div>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-left font-black uppercase ">
+                <table className="w-full text-left font-black uppercase min-w-[800px]">
                   <thead>
                     <tr className="bg-zinc-100/30 text-[11px] text-zinc-600 tracking-[0.2em] border-b border-zinc-200 uppercase font-black">
-                      <th className="px-12 py-8 cursor-pointer hover:text-zinc-900" onClick={() => requestSort('no_wo')}>No. WO / Plat {sortConfig.key === 'no_wo' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-12 py-8 cursor-pointer hover:text-zinc-900" onClick={() => requestSort('status')}>Status {sortConfig.key === 'status' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-12 py-8 cursor-pointer hover:text-zinc-900" onClick={() => requestSort('sa')}>Team Support {sortConfig.key === 'sa' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-12 py-8 cursor-pointer hover:text-zinc-900" onClick={() => requestSort('wkt_masuk')}>Waktu Masuk {sortConfig.key === 'wkt_masuk' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-12 py-8 text-right underline cursor-pointer" onClick={() => requestSort('wkt_estimasi')}>Estimasi Selesai {sortConfig.key === 'wkt_estimasi' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-6 md:px-12 py-6 md:py-8 cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('no_wo')}>No. WO / Plat {sortConfig.key === 'no_wo' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-6 md:px-12 py-6 md:py-8 cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('status')}>Status {sortConfig.key === 'status' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-6 md:px-12 py-6 md:py-8 cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('sa')}>Team Support {sortConfig.key === 'sa' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-6 md:px-12 py-6 md:py-8 cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('wkt_masuk')}>Waktu Masuk {sortConfig.key === 'wkt_masuk' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-6 md:px-12 py-6 md:py-8 text-right underline cursor-pointer min-h-[44px]" onClick={() => requestSort('wkt_estimasi')}>Estimasi Selesai {sortConfig.key === 'wkt_estimasi' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y-2 divide-zinc-50">
                     {sortedWoTrackingData.slice((woTrackingPage - 1) * rowsPerPage, woTrackingPage * rowsPerPage).map((row, i) => (
-                      <tr key={i} className="hover:bg-zinc-50/80 transition-all duration-300 font-black uppercase group">
-                        <td className="px-12 py-10">
+                      <tr key={i} className="hover:bg-zinc-100 transition-all duration-300 font-black uppercase group">
+                        <td className="px-6 md:px-12 py-6 md:py-10">
                           <p className="text-[20px] text-zinc-900 tracking-tighter leading-none">{row.no_wo || 'N/A'}</p>
                           <p className="text-[12px] text-zinc-400 mt-3 font-bold px-3 py-1 bg-zinc-100 rounded-lg w-max tracking-widest">{row.no_pol || '---'}</p>
                         </td>
-                        <td className="px-12 py-10">
-                          <span className={`px-8 py-3 rounded-2xl text-[11px] font-black border-2 shadow-xl ${(row.status || '').toLowerCase().includes('selesai') || (row.status || '').toLowerCase().includes('ready') || (row.status || '').toLowerCase().includes('closed') ? 'bg-green-600 text-white border-green-500 shadow-green-100' : (row.status || '').toLowerCase().includes('on progress') ? 'bg-blue-600 text-white border-blue-500 shadow-blue-100' : 'bg-orange-500 text-white border-orange-400 shadow-orange-100'}`}>{row.status || 'PROSES'}</span>
+                        <td className="px-6 md:px-12 py-6 md:py-10">
+                          <span className={`px-8 py-3 rounded-2xl text-[11px] font-black border-2 shadow-xl ${(row.status || '').toLowerCase().includes('selesai') || (row.status || '').toLowerCase().includes('ready') || (row.status || '').toLowerCase().includes('closed') ? 'bg-green-50 text-green-700 border-green-200 shadow-green-50' : (row.status || '').toLowerCase().includes('on progress') ? 'bg-zinc-100 text-zinc-700 border-zinc-200 shadow-zinc-50' : 'bg-yellow-50 text-yellow-700 border-yellow-200 shadow-yellow-50'}`}>{row.status || 'PROSES'}</span>
                         </td>
-                        <td className="px-12 py-10">
+                        <td className="px-6 md:px-12 py-6 md:py-10">
                           <div className="space-y-2.5">
                             <div className="flex items-center gap-3"><div className="w-2 h-2 rounded-full bg-zinc-400"></div> <span className="text-[14px]">{row.sa || '---'} (SA)</span></div>
-                            <div className="flex items-center gap-3"><div className="w-2 h-2 rounded-full bg-blue-500"></div> <span className="text-[14px]">{row.mekanik || '---'} (MKN)</span></div>
+                            <div className="flex items-center gap-3"><div className="w-2 h-2 rounded-full bg-zinc-600"></div> <span className="text-[14px]">{row.mekanik || '---'} (MKN)</span></div>
                           </div>
                         </td>
-                        <td className="px-12 py-10 text-[14px] text-zinc-600 tabular-nums">{formatDisplayDate(row.wkt_masuk || row.wktmasuk)}</td>
-                        <td className="px-12 py-10 text-right"><span className="bg-zinc-900 text-white px-8 py-4 rounded-[1.2rem] text-[12px] shadow-2xl tabular-nums inline-block border border-zinc-700 font-black">{formatDisplayDate(row.wkt_estimasi || row.wktestimasi)}</span></td>
+                        <td className="px-6 md:px-12 py-6 md:py-10 text-[14px] text-zinc-600 tabular-nums">{formatDisplayDate(row.wkt_masuk || row.wktmasuk)}</td>
+                        <td className="px-6 md:px-12 py-6 md:py-10 text-right"><span className="bg-zinc-900 text-white px-8 py-4 rounded-[1.2rem] text-[12px] shadow-2xl tabular-nums inline-block border border-zinc-700 font-black">{formatDisplayDate(row.wkt_estimasi || row.wktestimasi)}</span></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <div className="p-12 border-t-2 border-zinc-100 flex flex-col md:flex-row justify-between items-center bg-zinc-50/20 gap-8">
-                <div className="flex items-center gap-6">
+              <div className="p-4 md:p-12 border-t-2 border-zinc-100 flex flex-col md:flex-row justify-between items-center bg-zinc-50/20 gap-4 md:gap-8">
+                <div className="flex flex-wrap items-center gap-4 md:gap-6">
                   <p className="text-[11px] font-black uppercase text-zinc-400 tracking-widest  whitespace-nowrap">Tampilkan:</p>
-                  <select value={rowsPerPage} onChange={(e) => setRowsPerPage(parseInt(e.target.value))} className="bg-white border-2 border-zinc-200 rounded-2xl px-6 py-3 text-xs font-black outline-none focus:border-zinc-900 cursor-pointer shadow-sm">
+                  <select value={rowsPerPage} onChange={(e) => setRowsPerPage(parseInt(e.target.value))} className="bg-white border-2 border-zinc-200 rounded-2xl px-6 py-3 text-xs font-black outline-none focus:border-zinc-900 cursor-pointer shadow-sm min-h-[44px]">
                     <option value={10}>10 Baris</option><option value={20}>20 Baris</option><option value={40}>40 Baris</option><option value={100}>100 Baris</option>
                   </select>
-                  <p className="text-[11px] font-black uppercase text-zinc-900 tracking-widest  ml-4 flex items-center gap-3"><Activity size={18} className="text-red-600" /> TOTAL: {sortedWoTrackingData.length} UNIT DATA</p>
+                  <p className="text-[11px] font-black uppercase text-zinc-900 tracking-widest  ml-4 flex items-center gap-3"><Activity size={18} className="text-black" /> TOTAL: {sortedWoTrackingData.length} UNIT DATA</p>
                 </div>
                 <div className="flex gap-4">
-                  <button disabled={woTrackingPage === 1} onClick={() => setWoTrackingPage(p => p - 1)} className={`px-12 py-5 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all ${woTrackingPage === 1 ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white shadow-2xl hover:scale-105 active:scale-95'}`}>Prev</button>
-                  <button disabled={woTrackingPage * rowsPerPage >= sortedWoTrackingData.length} onClick={() => setWoTrackingPage(p => p + 1)} className={`px-12 py-5 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all ${woTrackingPage * rowsPerPage >= sortedWoTrackingData.length ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white shadow-2xl hover:scale-105 active:scale-95'}`}>Next</button>
+                  <button disabled={woTrackingPage === 1} onClick={() => setWoTrackingPage(p => p - 1)} className={`px-8 md:px-12 py-4 md:py-5 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all min-w-[44px] min-h-[44px] ${woTrackingPage === 1 ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white shadow-2xl hover:scale-105 active:scale-95'}`}>Prev</button>
+                  <button disabled={woTrackingPage * rowsPerPage >= sortedWoTrackingData.length} onClick={() => setWoTrackingPage(p => p + 1)} className={`px-8 md:px-12 py-4 md:py-5 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all min-w-[44px] min-h-[44px] ${woTrackingPage * rowsPerPage >= sortedWoTrackingData.length ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white shadow-2xl hover:scale-105 active:scale-95'}`}>Next</button>
                 </div>
               </div>
             </div>
           )}
 
           {activeTab === 'vehicles' && (
-            <div className="bg-white rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden animate-in">
-              <div className="p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col md:flex-row justify-between items-center gap-10">
-                <h3 className="text-3xl font-black  uppercase tracking-tighter">Database Frekuensi Kendaraan</h3>
+            <div className="bg-white rounded-[2rem] md:rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden animate-in">
+              <div className="p-4 md:p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col md:flex-row justify-between items-center gap-6 md:gap-10">
+                <h3 className="text-xl md:text-3xl font-black  uppercase tracking-tighter">Database Frekuensi Kendaraan</h3>
                 <div className="relative group">
                   <Search size={22} className="absolute left-8 top-1/2 -translate-y-1/2 text-zinc-400 group-hover:text-zinc-900" />
-                  <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Masukkan No Plat..." className="pl-18 pr-10 py-6 bg-white border-2 border-zinc-200 rounded-[2rem] text-sm font-black focus:border-zinc-900 w-full md:min-w-[450px] shadow-sm uppercase " />
+                  <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Masukkan No Plat..." className="pl-18 pr-10 py-4 md:py-6 bg-white border-2 border-zinc-200 rounded-[2rem] text-sm font-black focus:border-zinc-900 w-full md:min-w-[450px] shadow-sm uppercase min-h-[44px]" />
                 </div>
               </div>
               <div className="p-6 md:p-12">
@@ -1265,12 +1207,12 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
           )}
 
           {activeTab === 'cro_history' && (
-            <div className="bg-white rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden min-h-[600px] animate-in">
-              <div className="p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col xl:flex-row justify-between items-center gap-10">
-                <div><h3 className="text-3xl font-black  uppercase tracking-tighter">Riwayat Follow Up Customer</h3><p className="text-[10px] font-black text-zinc-400 tracking-[0.4em] mt-2 ">Data hasil respon customer CRO</p></div>
+            <div className="bg-white rounded-[2rem] md:rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden min-h-[600px] animate-in">
+              <div className="p-4 md:p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col xl:flex-row justify-between items-center gap-6 md:gap-10">
+                <div><h3 className="text-xl md:text-3xl font-black  uppercase tracking-tighter">Riwayat Follow Up Customer</h3><p className="text-[10px] font-black text-zinc-400 tracking-[0.4em] mt-2 ">Data hasil respon customer CRO</p></div>
                 <div className="relative w-full xl:min-w-[500px]">
                   <Search className="absolute left-8 top-1/2 -translate-y-1/2 text-zinc-400" size={24} />
-                  <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Cari Nama, Plat, atau Respon..." className="pl-18 pr-10 py-6 bg-white border-2 border-zinc-200 rounded-[2rem] text-sm font-black focus:border-zinc-900 transition-all w-full uppercase shadow-sm" />
+                  <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Cari Nama, Plat, atau Respon..." className="pl-18 pr-10 py-4 md:py-6 bg-white border-2 border-zinc-200 rounded-[2rem] text-sm font-black focus:border-zinc-900 transition-all w-full uppercase shadow-sm min-h-[44px]" />
                 </div>
               </div>
               <div className="p-4 md:p-8">
@@ -1284,7 +1226,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
                       const s = searchTerm.toLowerCase();
                       return !s || (item.nama || '').toLowerCase().includes(s) || (item.plat || '').toLowerCase().includes(s) || (item.respon || '').toLowerCase().includes(s);
                     }).map((item, idx) => (
-                      <div key={idx} className="bg-white border-2 border-zinc-100 rounded-[2.5rem] p-8 shadow-xl shadow-zinc-100/50 hover:shadow-2xl transition-all group overflow-hidden relative">
+                      <div key={idx} className="bg-white border-2 border-zinc-100 rounded-[1.5rem] md:rounded-[2.5rem] p-4 md:p-8 shadow-xl shadow-zinc-100/50 hover:shadow-2xl transition-all group overflow-hidden relative">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-zinc-50 rounded-bl-[4rem] -z-10 group-hover:scale-110 transition-transform"></div>
                         <div className="flex justify-between items-start mb-6">
                           <div className="px-5 py-2 bg-zinc-900 text-white text-[10px] font-black rounded-xl uppercase tracking-widest shadow-lg shadow-zinc-200">{item.plat}</div>
@@ -1312,27 +1254,27 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
           )}
 
           {activeTab === 'staff' && (
-            <div className="bg-white rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden animate-in">
-              <div className="p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col sm:flex-row justify-between items-center gap-8 font-black uppercase">
+            <div className="bg-white rounded-[2rem] md:rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden animate-in">
+              <div className="p-4 md:p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col sm:flex-row justify-between items-center gap-4 md:gap-8 font-black uppercase">
                 <div>
                   <h3 className="text-3xl font-black uppercase tracking-tighter">Manajemen Staff</h3>
                   <p className="text-[10px] font-black text-zinc-400 tracking-[0.4em] mt-2 ">Kelola Akses User Bengkel</p>
                 </div>
                 <button
                   onClick={() => { setUserFormData({ username: '', password: '', name: '', role: 'mekanik' }); setIsUserModalOpen(true); }}
-                  className="px-10 py-5 bg-zinc-900 text-white rounded-[1.8rem] font-black text-xs uppercase tracking-widest shadow-xl hover:scale-105 transition-all"
+                  className="px-8 md:px-10 py-4 md:py-5 bg-zinc-900 text-white rounded-[1.8rem] font-black text-xs uppercase tracking-widest shadow-xl hover:scale-105 transition-all min-w-[44px] min-h-[44px]"
                 >
                   Tambah Staf Baru
                 </button>
               </div>
-              <div className="max-h-[600px] overflow-auto custom-scrollbar">
-                <table className="w-full text-left border-collapse font-black uppercase min-w-[800px]">
+              <div className="max-h-[600px] overflow-auto overflow-x-auto custom-scrollbar">
+                <table className="w-full text-left border-collapse font-black uppercase min-w-[700px]">
                   <thead className="sticky top-0 z-20 bg-white">
                     <tr className="bg-zinc-50/80 text-[10px] font-black uppercase text-zinc-400 tracking-[0.2em] backdrop-blur-md">
-                      <th className="px-12 py-8">Nama Lengkap</th>
-                      <th className="px-12 py-8">User ID</th>
-                      <th className="px-12 py-8">Role / Akses</th>
-                      <th className="px-12 py-8 text-right">Aksi</th>
+                      <th className="px-6 md:px-12 py-6 md:py-8">Nama Lengkap</th>
+                      <th className="px-6 md:px-12 py-6 md:py-8">User ID</th>
+                      <th className="px-6 md:px-12 py-6 md:py-8">Role / Akses</th>
+                      <th className="px-6 md:px-12 py-6 md:py-8 text-right">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y-2 divide-zinc-50">
@@ -1341,18 +1283,18 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
                     ) : (
                       usersData.map((u, i) => (
                         <tr key={i} className="hover:bg-zinc-50 transition-all font-black uppercase">
-                          <td className="px-12 py-10 flex items-center gap-4 text-zinc-900">
+                          <td className="px-6 md:px-12 py-6 md:py-10 flex items-center gap-4 text-zinc-900">
                             <div className="w-10 h-10 bg-zinc-900 text-white flex items-center justify-center rounded-xl text-lg">{u.name?.charAt(0)}</div>
                             <div><p className="text-lg">{u.name}</p></div>
                           </td>
-                          <td className="px-12 py-10 text-zinc-400">{u.username}</td>
-                          <td className="px-12 py-10">
-                            <span className={`px-4 py-2 rounded-lg text-[10px] ${u.role === 'admin' ? 'bg-red-50 text-red-600' : u.role === 'mekanik' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>{u.role}</span>
+                          <td className="px-6 md:px-12 py-6 md:py-10 text-zinc-400">{u.username}</td>
+                          <td className="px-6 md:px-12 py-6 md:py-10">
+                            <span className={`px-4 py-2 rounded-lg text-[10px] ${u.role === 'admin' ? 'bg-zinc-900 text-white' : u.role === 'mekanik' ? 'bg-zinc-100 text-black' : 'bg-zinc-200 text-black'}`}>{u.role}</span>
                           </td>
-                          <td className="px-12 py-10 text-right">
+                          <td className="px-6 md:px-12 py-6 md:py-10 text-right">
                             <div className="flex justify-end gap-3">
-                              <button onClick={() => { setUserFormData({ ...u, password: '' }); setIsUserModalOpen(true); }} className="p-3 bg-zinc-100 text-zinc-900 rounded-xl hover:bg-zinc-900 hover:text-white transition-all"><Settings size={16} /></button>
-                              <button onClick={() => handleDeleteUser(u.username)} className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-all"><X size={16} /></button>
+                              <button onClick={() => { setUserFormData({ ...u, password: '' }); setIsUserModalOpen(true); }} className="p-3 bg-zinc-100 text-zinc-900 rounded-xl hover:bg-zinc-200 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"><Settings size={16} /></button>
+                              <button onClick={() => handleDeleteUser(u.username)} className="p-3 bg-zinc-100 text-black rounded-xl hover:bg-black hover:text-white transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"><X size={16} /></button>
                             </div>
                           </td>
                         </tr>
@@ -1375,21 +1317,21 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
                 <form onSubmit={handleUpsertUser} className="p-10 space-y-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-zinc-400 ml-1">Nama Lengkap</label>
-                    <input required value={userFormData.name} onChange={e => setUserFormData({ ...userFormData, name: e.target.value })} className="w-full bg-zinc-50 border-2 border-zinc-100 p-5 rounded-2xl font-black uppercase outline-none focus:border-zinc-900 transition-all" placeholder="Contoh: Budi Santoso" />
+                    <input required value={userFormData.name} onChange={e => setUserFormData({ ...userFormData, name: e.target.value })} className="w-full bg-zinc-50 border-2 border-zinc-100 p-5 rounded-2xl font-black uppercase outline-none focus:border-zinc-900 transition-all min-h-[44px]" placeholder="Contoh: Budi Santoso" />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-zinc-400 ml-1">Username</label>
-                      <input required value={userFormData.username} onChange={e => setUserFormData({ ...userFormData, username: e.target.value })} className="w-full bg-zinc-50 border-2 border-zinc-100 p-5 rounded-2xl font-black outline-none focus:border-zinc-900 transition-all uppercase" placeholder="userid" />
+                      <input required value={userFormData.username} onChange={e => setUserFormData({ ...userFormData, username: e.target.value })} className="w-full bg-zinc-50 border-2 border-zinc-100 p-5 rounded-2xl font-black outline-none focus:border-zinc-900 transition-all uppercase min-h-[44px]" placeholder="userid" />
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-zinc-400 ml-1">Password</label>
-                      <input value={userFormData.password} onChange={e => setUserFormData({ ...userFormData, password: e.target.value })} className="w-full bg-zinc-50 border-2 border-zinc-100 p-5 rounded-2xl font-black outline-none focus:border-zinc-900 transition-all" type="password" placeholder="••••••••" />
+                      <input value={userFormData.password} onChange={e => setUserFormData({ ...userFormData, password: e.target.value })} className="w-full bg-zinc-50 border-2 border-zinc-100 p-5 rounded-2xl font-black outline-none focus:border-zinc-900 transition-all min-h-[44px]" type="password" placeholder="••••••••" />
                     </div>
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-zinc-400 ml-1">Role / Hak Akses</label>
-                    <select value={userFormData.role} onChange={e => setUserFormData({ ...userFormData, role: e.target.value })} className="w-full bg-zinc-50 border-2 border-zinc-100 p-5 rounded-2xl font-black uppercase outline-none focus:border-zinc-900 transition-all appearance-none cursor-pointer">
+                    <select value={userFormData.role} onChange={e => setUserFormData({ ...userFormData, role: e.target.value })} className="w-full bg-zinc-50 border-2 border-zinc-100 p-5 rounded-2xl font-black uppercase outline-none focus:border-zinc-900 transition-all appearance-none cursor-pointer min-h-[44px]">
                       <option value="admin">Admin Service</option>
                       <option value="mekanik">Mekanik Bengkel</option>
                       <option value="sparepart">Sparepart Staff</option>
@@ -1397,7 +1339,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
                       <option value="manager">Manager Hub</option>
                     </select>
                   </div>
-                  <button type="submit" disabled={isLoading} className="w-full bg-zinc-900 text-white p-6 rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50">
+                  <button type="submit" disabled={isLoading} className="w-full bg-zinc-900 text-white p-6 rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 min-h-[44px]">
                     {isLoading ? 'Processing...' : 'Simpan Data Staf'}
                   </button>
                 </form>
@@ -1412,30 +1354,30 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
       {selectedVehicle && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-zinc-900/80 backdrop-blur-3xl" onClick={() => setSelectedVehicle(null)}></div>
-          <div className="bg-zinc-950 w-full max-w-5xl rounded-[5rem] shadow-3xl relative z-10 flex flex-col max-h-[90vh] overflow-hidden animate-in border-4 border-zinc-800">
-            <div className="p-16 border-b-2 border-zinc-800 bg-zinc-900 flex items-center justify-between">
+          <div className="bg-zinc-950 w-full max-w-5xl rounded-[2rem] md:rounded-[5rem] shadow-3xl relative z-10 flex flex-col max-h-[90vh] overflow-hidden animate-in border-4 border-zinc-800">
+            <div className="p-6 md:p-16 border-b-2 border-zinc-800 bg-zinc-900 flex items-center justify-between">
               <div className="flex items-center gap-10">
-                <div className="w-24 h-24 bg-zinc-900 text-white rounded-[2.5rem] flex items-center justify-center shadow-2xl text-red-500 scale-110"><Car size={48} /></div>
+                <div className="w-24 h-24 bg-zinc-900 text-white rounded-[2.5rem] flex items-center justify-center shadow-2xl text-black scale-110"><Car size={48} /></div>
                 <div>
-                  <h3 className="text-6xl font-black  tracking-tighter leading-none mb-3 underline decoration-red-500 underline-offset-8 decoration-4">{selectedVehicle}</h3>
+                  <h3 className="text-2xl md:text-6xl font-black  tracking-tighter leading-none mb-3 underline decoration-black underline-offset-8 decoration-4">{selectedVehicle}</h3>
                   <p className="text-[12px] font-black uppercase text-zinc-400 tracking-[0.5em] mt-4">Audit Riwayat Servis Kendaraan</p>
                 </div>
               </div>
-              <button onClick={() => setSelectedVehicle(null)} className="w-20 h-20 border-2 border-zinc-800 rounded-[2rem] hover:bg-white hover:text-black transition-all flex items-center justify-center shadow-xl group">
+              <button onClick={() => setSelectedVehicle(null)} className="w-12 h-12 md:w-20 md:h-20 border-2 border-zinc-800 rounded-[1rem] md:rounded-[2rem] hover:bg-white hover:text-black transition-all flex items-center justify-center shadow-xl group min-w-[44px] min-h-[44px]">
                 <X size={36} className="group-hover:rotate-90 transition-transform duration-500" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-16 custom-scrollbar font-black uppercase ">
+            <div className="flex-1 overflow-y-auto p-4 md:p-16 custom-scrollbar font-black uppercase ">
               <div className="space-y-10">
                 {rawHistory.filter(h => h.bk === selectedVehicle).sort((a, b) => parseDateToTimestamp(b.id) - parseDateToTimestamp(a.id)).map((v, i) => (
-                  <div key={i} className="bg-zinc-900 border-2 border-zinc-800 rounded-[3.5rem] p-12 flex flex-col md:flex-row items-center gap-16 group hover:bg-zinc-800 transition-all hover:shadow-2xl hover:border-zinc-700">
+                  <div key={i} className="bg-zinc-900 border-2 border-zinc-800 rounded-[2rem] md:rounded-[3.5rem] p-6 md:p-12 flex flex-col md:flex-row items-center gap-6 md:gap-16 group hover:bg-zinc-800 transition-all hover:shadow-2xl hover:border-zinc-700">
                     <div className="flex-1">
                       <p className="text-[12px] text-zinc-500 mb-3 tracking-[0.3em] font-black underline underline-offset-4 decoration-zinc-800 ">Waktu Kedatangan</p>
                       <p className="text-3xl tracking-tighter text-white font-black">{formatDisplayDate(v.id)}</p>
                     </div>
                     <div className="flex-1 space-y-3">
                       <p className="text-[12px] text-zinc-500 mb-2 tracking-[0.3em] font-black ">Operasional Hub</p>
-                      <p className="text-sm font-black text-white">Mekanik Lead: <span className="text-blue-500">{v.mechanicName || 'N/A'}</span></p>
+                      <p className="text-sm font-black text-white">Mekanik Lead: <span className="text-zinc-300">{v.mechanicName || 'N/A'}</span></p>
                       <p className="text-sm font-black text-zinc-500">Admin Input: {v.addedBy || 'CORE_SYSTEM'}</p>
                     </div>
                     <div className="flex-1">

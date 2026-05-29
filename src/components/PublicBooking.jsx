@@ -380,9 +380,9 @@ export default function PublicBooking({ user }) {
                         <CalendarIcon className="text-white w-4 md:w-5" />
                     </div>
                     <div>
-                        <h1 className="text-[13px] md:text-base font-black tracking-tight uppercase leading-none italic">Service <span className="text-red-600">Booking</span></h1>
+                        <h1 className="text-[13px] md:text-base font-black tracking-tight uppercase leading-none italic">Service <span className="text-black">Booking</span></h1>
                         <p className="text-[7.5px] md:text-[9px] font-black text-zinc-400 mt-1 uppercase tracking-widest flex items-center gap-1.5">
-                            <MapPin size={10} className="text-red-500" /> Chery Oriental Medan
+                            <MapPin size={10} className="text-black" /> Chery Oriental Medan
                         </p>
                     </div>
                 </div>
@@ -476,7 +476,7 @@ export default function PublicBooking({ user }) {
                                         {new Date(selectedDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                                     </h2>
                                     <p className="text-[8px] md:text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2">
-                                        <Clock size={10} className="text-red-500" /> Pilih Waktu Kedatangan
+                                        <Clock size={10} className="text-black" /> Pilih Waktu Kedatangan
                                     </p>
                                 </div>
                                  <div className="flex items-center gap-3 md:gap-4 shrink-0">
@@ -512,7 +512,7 @@ export default function PublicBooking({ user }) {
                                         const isDisabled = isOccupied || isPastTime;
 
                                         return (
-                                            <div key={idx} className={`p-4 md:p-5 rounded-[1.5rem] border flex items-center justify-between group/item transition-all ${isDisabled ? 'bg-red-600/20 border-red-900/30 opacity-60 cursor-not-allowed' : 'bg-emerald-600 border-emerald-700 cursor-pointer hover:bg-emerald-700'
+                                            <div key={idx} className={`p-4 md:p-5 rounded-[1.5rem] border flex items-center justify-between group/item transition-all ${isDisabled ? 'bg-zinc-200 border-zinc-300 opacity-60 cursor-not-allowed' : 'bg-black border-zinc-800 cursor-pointer hover:bg-zinc-800'
                                                 }`} onClick={() => !isDisabled && handleBookClick(jam)}>
                                                 <div className="flex items-center gap-4">
                                                     <div className={`w-14 h-14 md:w-16 md:h-16 rounded-xl flex items-center justify-center font-mono text-sm md:text-base font-black transition-all bg-white text-zinc-900 shadow-lg
@@ -534,7 +534,7 @@ export default function PublicBooking({ user }) {
                                 </div>
 
                                 <div className="mt-auto px-6 py-8 md:p-8 bg-[#222] border border-white/5 rounded-[2rem] text-center space-y-3 relative overflow-hidden">
-                                    <div className="absolute inset-0 bg-red-600/5 mix-blend-overlay pointer-events-none"></div>
+                                    <div className="absolute inset-0 bg-zinc-800/5 mix-blend-overlay pointer-events-none"></div>
                                     <img src={orientalLogo} alt="Chery VIP" className="h-10 mx-auto -mt-2 mb-3 object-contain opacity-90 drop-shadow-xl" />
                                     <h3 className="text-xs md:text-sm font-black text-white uppercase tracking-widest italic relative z-10">Layanan VIP Chery Oriental</h3>
                                     <p className="text-zinc-500 text-[8px] md:text-[9.5px] font-black leading-relaxed max-w-lg mx-auto uppercase tracking-widest relative z-10">
@@ -547,8 +547,8 @@ export default function PublicBooking({ user }) {
                         <div className="flex-1 flex flex-col h-full bg-[#1A1A1A] animate-fade-in relative z-20">
                             <div className="p-6 md:p-8 border-b border-white/5 flex justify-between items-start bg-white/5 shrink-0">
                                 <div>
-                                    <p className="text-red-500 font-black uppercase tracking-[0.3em] text-[8px] md:text-[9px] mb-1.5 md:mb-2 px-1">Tahap 2: Registrasi</p>
-                                    <h2 className="text-xl md:text-2xl font-black text-white tracking-widest uppercase leading-none">Detail <span className="text-red-600">Kendaraan</span></h2>
+                                    <p className="text-zinc-400 font-black uppercase tracking-[0.3em] text-[8px] md:text-[9px] mb-1.5 md:mb-2 px-1">Tahap 2: Registrasi</p>
+                                    <h2 className="text-xl md:text-2xl font-black text-white tracking-widest uppercase leading-none">Detail <span className="text-white">Kendaraan</span></h2>
                                 </div>
                                 <button onClick={() => setIsBookingMode(false)} className="p-2 md:p-3 bg-white/5 border border-white/10 hover:bg-white/10 text-white rounded-xl transition-all">
                                     <X size={20} strokeWidth={3} />
@@ -563,17 +563,17 @@ export default function PublicBooking({ user }) {
                                         <div className="space-y-4 md:space-y-0 md:grid md:grid-cols-2 gap-4 md:gap-6">
                                             <div className="space-y-2 md:space-y-3">
                                                 <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                                                    Nama Pemilik <span className="text-red-600 text-lg leading-none">*</span>
+                                                    Nama Pemilik <span className="text-black text-lg leading-none">*</span>
                                                 </label>
                                                 <input required type="text" value={formData.namaCustomer} onChange={e => setFormData({ ...formData, namaCustomer: e.target.value })}
-                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-red-600 transition-all uppercase placeholder:text-zinc-600" placeholder="Contoh: Darma Sutejo" />
+                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase placeholder:text-zinc-600" placeholder="Contoh: Darma Sutejo" />
                                             </div>
                                             <div className="space-y-2 md:space-y-3">
                                                 <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                                                    No WhatsApp (Aktif) <span className="text-red-600 text-lg leading-none">*</span>
+                                                    No WhatsApp (Aktif) <span className="text-black text-lg leading-none">*</span>
                                                 </label>
                                                 <input required type="tel" value={formData.noTelp} onChange={e => setFormData({ ...formData, noTelp: e.target.value })}
-                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-red-600 transition-all placeholder:text-zinc-600" placeholder="081267XXXXX" />
+                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all placeholder:text-zinc-600" placeholder="081267XXXXX" />
                                             </div>
                                         </div>
                                     </section>
@@ -585,7 +585,7 @@ export default function PublicBooking({ user }) {
                                             <div className="space-y-2 md:space-y-3">
                                                 <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Model Chery</label>
                                                 <select required value={formData.tipeMobil} onChange={e => setFormData({ ...formData, tipeMobil: e.target.value })}
-                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-red-600 transition-all uppercase appearance-none cursor-pointer">
+                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase appearance-none cursor-pointer">
                                                     <option value="" disabled className="text-zinc-500 bg-zinc-900">Pilih Model</option>
                                                     {TIPE_MOBIL.map(t => <option key={t} value={t} className="bg-zinc-900 text-white">{t}</option>)}
                                                 </select>
@@ -593,7 +593,7 @@ export default function PublicBooking({ user }) {
                                             <div className="space-y-2 md:space-y-3">
                                                 <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Nomor Polisi</label>
                                                 <input required type="text" value={formData.noPlat} onChange={e => setFormData({ ...formData, noPlat: e.target.value.toUpperCase().replace(/\s+/g, '') })}
-                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-red-600 transition-all uppercase placeholder:text-zinc-600" placeholder="BK1XXXMA" />
+                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase placeholder:text-zinc-600" placeholder="BK1XXXMA" />
                                             </div>
                                         </div>
                                     </section>
@@ -604,7 +604,7 @@ export default function PublicBooking({ user }) {
                                             <div className="space-y-2 md:space-y-3">
                                                 <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Kebutuhan Service</label>
                                                 <select required value={formData.keperluanService} onChange={e => setFormData({ ...formData, keperluanService: e.target.value })}
-                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-red-600 transition-all uppercase appearance-none cursor-pointer">
+                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase appearance-none cursor-pointer">
                                                     <option value="" disabled className="text-zinc-500 bg-zinc-900">Pilih Layanan</option>
                                                     {KEPERLUAN.map(t => <option key={t} value={t} className="bg-zinc-900 text-white">{t}</option>)}
                                                 </select>
@@ -612,14 +612,14 @@ export default function PublicBooking({ user }) {
                                             <div className="space-y-2 md:space-y-3">
                                                 <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">No Rangka (Vin) - Opsional</label>
                                                 <input type="text" value={formData.vin} onChange={e => setFormData({ ...formData, vin: e.target.value.toUpperCase() })}
-                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-red-600 transition-all uppercase placeholder:text-zinc-600" placeholder="Opsional..." />
+                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase placeholder:text-zinc-600" placeholder="Opsional..." />
                                             </div>
                                         </div>
                                     </section>
                                 </div>
 
                                 <div className="mt-auto border-t border-white/10 bg-black/20 p-6 md:p-8 shrink-0 flex flex-col items-center gap-4">
-                                    <button type="submit" disabled={isLoading} className="w-full bg-red-600 hover:bg-white hover:text-red-900 py-4 rounded-2xl font-black text-xs md:text-sm uppercase tracking-[0.2em] flex items-center justify-center gap-3 transition-all shadow-xl active:scale-95 disabled:opacity-50">
+                                    <button type="submit" disabled={isLoading} className="w-full bg-white hover:bg-zinc-200 text-black py-4 rounded-2xl font-black text-xs md:text-sm uppercase tracking-[0.2em] flex items-center justify-center gap-3 transition-all duration-150 shadow-xl active:scale-95 disabled:bg-zinc-200 disabled:text-zinc-300">
                                         {isLoading ? <Clock className="animate-spin w-4 h-4" /> : <Send size={18} />}
                                         {isLoading ? 'Processing Request...' : 'Finalize Reservation'}
                                     </button>
@@ -651,7 +651,7 @@ export default function PublicBooking({ user }) {
                             <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMjAgMjBsMjAgMjBNMjAgMjBMMCA0ME0wIDBsMjAgMjBNNDAgMEwyMCAyMCIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMDMpIiBzdHJva2Utd2lkdGg9IjEiIGZpbGw9Im5vbmUiLz48L3N2Zz4=')] opacity-50"></div>
                             <img src={cheryLogo} alt="Chery" className="h-16 w-auto mx-auto mb-4 drop-shadow-2xl relative z-10" />
                             <h3 className="text-white font-black text-lg uppercase tracking-wider relative z-10">Informasi Penting</h3>
-                            <div className="w-12 h-1 bg-red-600 rounded-full mx-auto mt-3 relative z-10"></div>
+                            <div className="w-12 h-1 bg-black rounded-full mx-auto mt-3 relative z-10"></div>
                         </div>
                         {/* Content */}
                         <div className="px-8 py-6 text-center">
@@ -660,11 +660,11 @@ export default function PublicBooking({ user }) {
                             </div>
                             <h4 className="font-black text-zinc-900 text-base uppercase tracking-wide mb-2">Batas Keterlambatan</h4>
                             <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4 mb-4">
-                                <p className="text-amber-800 font-black text-xl">Maksimal <span className="text-red-600">15 Menit</span></p>
+                                <p className="text-amber-800 font-black text-xl">Maksimal <span className="text-black">15 Menit</span></p>
                                 <p className="text-amber-600 text-xs font-bold mt-1">dari jadwal booking yang dipilih</p>
                             </div>
                             <p className="text-zinc-500 text-xs font-bold leading-relaxed">
-                                Jika Anda terlambat lebih dari 30 menit, booking akan otomatis <span className="text-red-600 font-black">dipindahkan ke antrian reguler</span>.
+                                Jika Anda terlambat lebih dari 30 menit, booking akan otomatis <span className="text-black font-black">dipindahkan ke antrian reguler</span>.
                             </p>
                         </div>
                         {/* Actions */}
@@ -677,7 +677,7 @@ export default function PublicBooking({ user }) {
                             </button>
                             <button 
                                 onClick={handleConfirmWarning}
-                                className="flex-1 py-3.5 rounded-xl bg-red-600 text-white font-black text-xs uppercase tracking-widest hover:bg-red-700 transition-all active:scale-95 shadow-lg shadow-red-200 flex items-center justify-center gap-2"
+                                className="flex-1 py-3.5 rounded-xl bg-black text-white font-black text-xs uppercase tracking-widest hover:bg-zinc-800 transition-all duration-150 active:scale-95 shadow-lg flex items-center justify-center gap-2"
                             >
                                 <CheckCircle2 size={16} /> Saya Mengerti
                             </button>

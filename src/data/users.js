@@ -73,5 +73,17 @@ export const USERS = [
     password: 'Manager123!',
     name: 'Service Manager',
     role: 'manager'
+  },
+  {
+    username: 'Customer',
+    password: 'Customer123!',
+    name: 'Pelanggan Setia',
+    role: 'customer'
+  },
+  {
+    username: 'Display',
+    password: 'Display123',
+    name: 'Display Board',
+    role: 'display'
   }
 ];

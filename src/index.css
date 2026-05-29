@@ -1,16 +1,23 @@
 @import "tailwindcss";
 
 @theme {
-    --color-primary: #ef4444;
+    --color-primary: #000000;
+    --color-primary-hover: #27272a; /* zinc-800 */
+    --color-bg: #ffffff;
+    --color-bg-secondary: #fafafa; /* zinc-50 */
+    --color-border: #e4e4e7; /* zinc-200 */
+    --color-text: #000000;
+    --color-text-muted: #a1a1aa; /* zinc-400 */
+    --color-disabled-text: #d4d4d8; /* zinc-300 */
+    --color-disabled-bg: #e4e4e7; /* zinc-200 */
 }
 
 :root {
     --bg-primary: #ffffff;
-    --bg-secondary: #f4f4f7;
-    --text-primary: #09090b;
-    --text-muted: #71717a;
-    --border-primary: #27272a;
-    /* High contrast border */
+    --bg-secondary: #fafafa;
+    --text-primary: #000000;
+    --text-muted: #a1a1aa;
+    --border-primary: #e4e4e7;
     color-scheme: light;
 
     /* Base font size scaling untuk laptop layar kecil */
@@ -34,6 +41,22 @@ body {
 /* Base transitions for all elements */
 * {
     border-color: var(--border-primary);
+}
+
+/* Status badge muted colors (≤50% saturation of default Tailwind palette) */
+.badge-success {
+    background-color: hsl(142, 35%, 90%);
+    color: hsl(142, 35%, 30%);
+}
+
+.badge-error {
+    background-color: hsl(0, 35%, 92%);
+    color: hsl(0, 35%, 35%);
+}
+
+.badge-pending {
+    background-color: hsl(45, 40%, 90%);
+    color: hsl(45, 40%, 30%);
 }
 
 /* Custom utility animations */

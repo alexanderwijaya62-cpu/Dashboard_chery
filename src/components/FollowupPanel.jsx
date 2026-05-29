@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { LayoutDashboard, LogOut, Clock, CheckCircle, Calendar, LineChart, Upload, Download, Search, X, ChevronRight, ChevronLeft, Image as ImageIcon, Send, Menu, Filter, MoreVertical } from 'lucide-react';
+import { LayoutDashboard, Clock, CheckCircle, Calendar, LineChart, Upload, Download, Search, X, ChevronRight, ChevronLeft, Image as ImageIcon, Send, Menu, Filter, MoreVertical } from 'lucide-react';
 import Toastify from 'toastify-js';
 import * as XLSX from 'xlsx';
 
@@ -10,10 +10,18 @@ import HolidaySettings from './HolidaySettings';
 export default function FollowupPanel({ user, handleLogout, isNavbarVisible, initialTab = 'belum', setCurrentPage, breakSettings, setBreakSettings }) {
     const [currentTab, setCurrentTab] = useState(initialTab);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+    // Sync currentTab with initialTab prop
+    useEffect(() => {
+      if (initialTab && initialTab !== currentTab) {
+        setCurrentTab(initialTab);
+      }
+    }, [initialTab]);
     const [data, setData] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [loadingText, setLoadingText] = useState('');
     const [cloudStatus, setCloudStatus] = useState(false);
+    const [isImagesEnabled, setIsImagesEnabled] = useState(true);
 
     // Filter states
     const [filters, setFilters] = useState({ nama: '', tanggal: '', plat: '', tipe: '', keluhan: '', vin: '', respon: '' });
@@ -75,13 +83,19 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
         try {
             if (!isBackground) showLoading("Mengambil data dari server...");
 
-            const sixMonthsAgo = new Date();
-            sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-            const dateStr = sixMonthsAgo.toISOString().split('T')[0];
+            // Cek pengaturan bandwidth: Apakah gambar harus dimuat?
+            const { data: settingsData } = await supabase.from('settings').select('*').eq('key', 'cro_images_enabled').maybeSingle();
+            const showImages = settingsData ? settingsData.value === 'true' : true;
+            setIsImagesEnabled(showImages);
+
+            // Optimasi Egress: Jika showImages false, JANGAN ambil kolom 'lampiran'
+            const selectCols = showImages 
+                ? '*' 
+                : 'id, workOrderNo, nama, telepon, vin, plat, serviceAdvisor, kilometer, tipeMobil, deskripsi, tanggalDatang, tahunBeli, partLama, partBaru, status, respon, tanggalFollowUp';
 
             const { data: supaData, error } = await supabase
                 .from('cro')
-                .select('*')
+                .select(selectCols)
                 .order('id', { ascending: false })
                 .limit(2000);
 
@@ -105,7 +119,7 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
                 status: r.status,
                 respon: r.respon,
                 tanggalFollowUp: r.tanggalFollowUp,
-                lampiran: r.lampiran
+                lampiran: r.lampiran || ""
             }));
             setData(mapped);
             saveToLocal(mapped);
@@ -225,7 +239,7 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
             return { isDue: true, overdue: false, priority: 3, text: `H-${diffDays}`, color: "bg-orange-100 text-orange-800 border-orange-300" };
         }
 
-        return { isDue: false, overdue: false, priority: 99, text: "Aman", color: "text-blue-700" };
+        return { isDue: false, overdue: false, priority: 99, text: "Aman", color: "text-zinc-600" };
     };
 
     const fsBadgeCount = useMemo(() => {
@@ -779,7 +793,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
     };
 
     return (
-        <div className="flex h-screen bg-[#F2F2F7] relative">
+        <div className="flex flex-col w-full h-full bg-white relative">
             {isLoading && (
                 <div className="fixed inset-0 bg-black/50 z-[9999] flex flex-col justify-center items-center">
                     <p className="text-white font-medium text-lg">{loadingText}</p>
@@ -797,7 +811,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                         >
                             <Download size={16} /> Download Original
                         </a>
-                        <button onClick={() => setLightboxImage(null)} className="p-3 bg-white/10 hover:bg-red-600 text-white rounded-xl transition-all">
+                        <button onClick={() => setLightboxImage(null)} className="p-3 bg-white/10 hover:bg-zinc-700 text-white rounded-xl transition-all">
                             <X size={24} />
                         </button>
                     </div>
@@ -817,108 +831,10 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                 </div>
             )}
 
-            {/* Overlay for mobile sidebar */}
-            {isSidebarOpen && (
-                <div
-                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[55] lg:hidden transition-opacity duration-300"
-                    onClick={() => setIsSidebarOpen(false)}
-                />
-            )}
-
-            {/* Sidebar */}
-            <div
-                className={`fixed left-0 top-0 h-full bg-white border-r border-zinc-200 shadow-2xl transition-all duration-300 z-[60] flex flex-col ${isNavbarVisible ? 'pt-[4.5rem]' : 'pt-4'} 
-                ${isSidebarOpen ? 'w-64 translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-4 lg:hover:w-64'}`}
-                onMouseEnter={() => {
-                    if (window.innerWidth > 1024) setIsSidebarOpen(true);
-                }}
-                onMouseLeave={() => {
-                    if (window.innerWidth > 1024) setIsSidebarOpen(false);
-                }}
-            >
-                <div className={`flex flex-col h-full transition-opacity duration-300 ${!isSidebarOpen ? 'opacity-0 lg:opacity-0 lg:group-hover:opacity-100 overflow-hidden' : 'opacity-100'}`}>
-                    <div className="px-6 py-4 flex flex-col border-b border-zinc-100 relative">
-                        {/* Close button for mobile */}
-                        <button
-                            onClick={() => setIsSidebarOpen(false)}
-                            className="lg:hidden absolute top-4 right-4 p-2 text-zinc-400 hover:text-zinc-900"
-                        >
-                            <X size={20} />
-                        </button>
-                        <h2 className="font-black text-zinc-900 uppercase tracking-widest text-sm mb-1">CRO Follow Up</h2>
-                        {cloudStatus && <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded w-max border border-green-200">☁️ Cloud Tersambung</span>}
-                    </div>
-                    <div className="flex-1 py-4 flex flex-col gap-2 px-4 overflow-y-auto">
-                        <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1 px-2">Menu Utama</p>
-                        <button
-                            onClick={() => setCurrentTab('belum')}
-                            className={`flex justify-between items-center px-4 py-3 rounded-xl font-bold text-sm transition-all ${currentTab === 'belum' ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100'}`}
-                        >
-                            <span>⏳ Belum Follow Up</span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${currentTab === 'belum' ? 'bg-white/20' : 'bg-zinc-100 text-zinc-400'}`}>
-                                {data.filter(x => {
-                                    const s = (x.status || x.Status || '').toLowerCase();
-                                    return s === '' || s === 'belum';
-                                }).length}
-                            </span>
-                        </button>
-                        <button
-                            onClick={() => setCurrentTab('sudah')}
-                            className={`flex justify-between items-center px-4 py-3 rounded-xl font-bold text-sm transition-all ${currentTab === 'sudah' ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100'}`}
-                        >
-                            <span>✅ Sudah Follow Up</span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${currentTab === 'sudah' ? 'bg-white/20' : 'bg-zinc-100 text-zinc-400'}`}>
-                                {data.filter(x => (x.status || x.Status || '').toLowerCase() === 'sudah').length}
-                            </span>
-                        </button>
-
-                        <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1 mt-4 border-t border-zinc-100 pt-4 px-2">Laporan</p>
-                        <button
-                            onClick={() => setCurrentTab('free_service')}
-                            className={`flex justify-between items-center px-4 py-3 rounded-xl font-bold text-sm transition-all ${currentTab === 'free_service' ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100'}`}
-                        >
-                            📅 Free Service
-                            {fsBadgeCount > 0 && <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{fsBadgeCount}</span>}
-                        </button>
-                        <button
-                            onClick={() => setCurrentTab('laporan')}
-                            className={`text-left px-4 py-3 rounded-xl font-bold text-sm transition-all ${currentTab === 'laporan' ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100'}`}
-                        >
-                            📊 Laporan Bulanan
-                        </button>
-
-                        {(user?.role === 'cro' || user?.role === 'admin') && (
-                            <>
-                                <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1 mt-4 border-t border-zinc-100 pt-4 px-2">Sistem Booking</p>
-                                <button
-                                    onClick={() => setCurrentTab('booking')}
-                                    className={`flex justify-between items-center px-4 py-3 rounded-xl font-bold text-sm transition-all ${currentTab === 'booking' ? 'bg-red-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100'}`}
-                                >
-                                    <span>📅 Booking Management</span>
-                                </button>
-                                <button
-                                    onClick={() => setCurrentTab('holidays')}
-                                    className={`flex justify-between items-center px-4 py-3 rounded-xl font-bold text-sm transition-all ${currentTab === 'holidays' ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-500 hover:bg-zinc-100'}`}
-                                >
-                                    <span>🔧 Libur Dealer</span>
-                                </button>
-                            </>
-                        )}
-                    </div>
-                    <div className="p-4 mt-auto border-t border-zinc-100 flex flex-col gap-2">
-                    {user?.role === 'admin' && (
-                        <button onClick={() => setCurrentPage('display')} className="w-full text-center px-4 py-3 rounded-xl font-bold text-[13px] text-zinc-600 bg-zinc-50 hover:bg-zinc-200 transition-all mb-2 flex items-center justify-center gap-2">
-                            <LayoutDashboard size={16} /> Dashboard Utama
-                        </button>
-                    )}
-                </div>
-                </div>
-            </div>
-
-            {/* Main Content */}
-            <div className={`flex-1 h-screen flex flex-col transition-all duration-300 ${isNavbarVisible ? 'pt-20' : 'pt-8'} ${currentTab === 'booking' ? 'p-0' : 'px-4 sm:px-8 pb-12'} ${isSidebarOpen ? 'lg:ml-64' : 'ml-0 lg:ml-4'}`}>
+            {/* Main Content - no internal sidebar */}
+            <div className={`flex-1 flex flex-col ${currentTab === 'booking' ? 'p-0' : 'px-4 sm:px-8 pb-4'}`}>
                 {currentTab !== 'booking' && (
-                    <div className="flex flex-row justify-between items-center mb-6 shrink-0 gap-4 w-full">
+                    <div className="flex flex-row justify-between items-center mb-6 shrink-0 gap-4 w-full pt-4">
                         <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-zinc-900 leading-tight">
                             {currentTab === 'belum' && "⏳ Belum Follow Up"}
                             {currentTab === 'sudah' && "✅ Sudah Follow Up"}
@@ -926,13 +842,6 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                             {currentTab === 'laporan' && "📊 Laporan Feedback Bulanan"}
                             {currentTab === 'holidays' && "🔧 Libur Dealer"}
                         </h1>
-
-                        <button
-                            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                            className="lg:hidden p-3 bg-white border border-zinc-200 text-zinc-900 rounded-2xl shadow-sm active:scale-95 transition-all"
-                        >
-                            {isSidebarOpen ? <X size={22} /> : <Menu size={22} />}
-                        </button>
                     </div>
                 )}
 
@@ -948,7 +857,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                     ) : (currentTab === 'belum' || currentTab === 'sudah') ? (
                         <>
                             <div className="bg-zinc-50 p-4 border-b border-zinc-200 shrink-0 flex flex-col md:flex-row md:items-center gap-4">
-                                <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 flex-1">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2 flex-1">
                                     <input type="text" placeholder="Nama..." value={filters.nama} onChange={e => updateFilter('nama', e.target.value)} className="p-2 text-xs border border-zinc-300 rounded focus:ring-1 focus:ring-zinc-900 outline-none" />
                                     <input type="text" placeholder="DD-MM-YYYY" value={filters.tanggal} onChange={e => updateFilter('tanggal', e.target.value)} className="p-2 text-xs border border-zinc-300 rounded focus:ring-1 focus:ring-zinc-900 outline-none" />
                                     <input type="text" placeholder="Plat..." value={filters.plat} onChange={e => updateFilter('plat', e.target.value)} className="p-2 text-xs border border-zinc-300 rounded focus:ring-1 focus:ring-zinc-900 outline-none" />
@@ -956,7 +865,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                     <input type="text" placeholder="Tipe..." value={filters.tipe} onChange={e => updateFilter('tipe', e.target.value)} className="p-2 text-xs border border-zinc-300 rounded focus:ring-1 focus:ring-zinc-900 outline-none" />
                                     <input type="text" placeholder="Keluhan..." value={filters.keluhan} onChange={e => updateFilter('keluhan', e.target.value)} className="p-2 text-xs border border-zinc-300 rounded focus:ring-1 focus:ring-zinc-900 outline-none" />
                                     {currentTab === 'sudah' && (
-                                        <input type="text" placeholder="Cari Respon..." value={filters.respon} onChange={e => updateFilter('respon', e.target.value)} className="p-2 text-xs border border-zinc-300 rounded focus:ring-1 focus:ring-zinc-900 outline-none ring-1 ring-blue-100" />
+                                        <input type="text" placeholder="Cari Respon..." value={filters.respon} onChange={e => updateFilter('respon', e.target.value)} className="p-2 text-xs border border-zinc-300 rounded focus:ring-1 focus:ring-zinc-900 outline-none ring-1 ring-zinc-200" />
                                     )}
                                 </div>
 
@@ -965,7 +874,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                     <button onClick={() => fileInputRef.current?.click()} className="bg-white border border-zinc-300 text-zinc-600 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-zinc-100 transition-all flex-1 md:flex-none justify-center">
                                         <Upload size={14} /> <span className="hidden sm:inline">Import</span>
                                     </button>
-                                    <button onClick={handleExportExcel} className="bg-zinc-900 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-black shadow-sm transition-all flex-1 md:flex-none justify-center">
+                                    <button onClick={handleExportExcel} className="bg-black text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-zinc-800 shadow-sm transition-all duration-150 flex-1 md:flex-none justify-center">
                                         <Download size={14} /> <span className="hidden sm:inline">Export</span>
                                     </button>
                                 </div>
@@ -1013,7 +922,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
 
                                                     {currentTab === 'sudah' && (
                                                         <div className="space-y-2 pt-2 border-t border-zinc-50">
-                                                            {parseLampiran(item.lampiran).length > 0 && (
+                                                            {isImagesEnabled && parseLampiran(item.lampiran).length > 0 && (
                                                                 <div className="flex flex-wrap gap-2">
                                                                     {parseLampiran(item.lampiran).map((img, idx) => (
                                                                         <div key={idx} className="relative w-20 h-20 rounded-lg overflow-hidden border border-zinc-100 shadow-sm" onClick={() => setLightboxImage(img)}>
@@ -1025,6 +934,11 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                                                     ))}
                                                                 </div>
                                                             )}
+                                                            {!isImagesEnabled && (
+                                                                <div className="bg-zinc-100/50 p-2 rounded-lg text-center">
+                                                                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest italic">Egress Saving Active</span>
+                                                                </div>
+                                                            )}
                                                             <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-100">
                                                                 <span className="block text-[8px] uppercase font-bold text-zinc-400 mb-1">Hasil Respon</span>
                                                                 <p className="text-xs text-zinc-700 italic">"{item.respon || "-"}"</p>
@@ -1034,7 +948,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
 
                                                     <button
                                                         onClick={() => openModal(item)}
-                                                        className={`w-full py-3 text-xs font-black rounded-xl shadow-sm transition-all active:scale-[0.98] ${currentTab === 'belum' ? 'bg-zinc-900 text-white active:bg-black' : 'bg-zinc-200 text-zinc-800'}`}
+                                                        className={`w-full py-3 text-xs font-black rounded-xl shadow-sm transition-all duration-150 active:scale-[0.98] ${currentTab === 'belum' ? 'bg-black text-white hover:bg-zinc-800' : 'bg-zinc-200 text-black hover:bg-zinc-300'}`}
                                                     >
                                                         {currentTab === 'belum' ? 'MULAI FOLLOW UP' : 'LIHAT RESPONT'}
                                                     </button>
@@ -1051,7 +965,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                         <tr>
                                             <th className="py-3 px-4 font-bold">Nama Customer</th>
                                             <th className="py-3 px-4 font-bold">WO No. & SA</th>
-                                            <th className="py-3 px-4 font-bold text-blue-700">Tgl Masuk</th>
+                                            <th className="py-3 px-4 font-bold text-black">Tgl Masuk</th>
                                             <th className="py-3 px-4 font-bold">Plat & Tipe</th>
                                             <th className="py-3 px-4 font-bold">Keluhan / Deskripsi</th>
                                             {currentTab === 'sudah' && (
@@ -1066,19 +980,19 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                     <tbody className="divide-y divide-zinc-100">
                                         {paginatedMainData.length > 0 ? (
                                             paginatedMainData.map(item => (
-                                                <tr key={item.id} className="hover:bg-blue-50">
+                                                <tr key={item.id} className="hover:bg-zinc-50">
                                                     <td className="py-3 px-4 align-top">
                                                         <div className="font-bold text-zinc-900">{item.nama}</div>
                                                         <div className="text-[10px] text-zinc-500 font-mono">{item.vin}</div>
                                                     </td>
                                                     <td className="py-3 px-4 align-top">
                                                         <div className="text-xs font-black text-zinc-800">{item.workOrderNo || "-"}</div>
-                                                        <div className="text-[10px] font-bold text-blue-600 uppercase mt-0.5">{item.serviceAdvisor || "No SA"}</div>
+                                                        <div className="text-[10px] font-bold text-zinc-500 uppercase mt-0.5">{item.serviceAdvisor || "No SA"}</div>
                                                     </td>
                                                     <td className="py-3 px-4 align-top font-medium text-zinc-600">
                                                         <div className="flex flex-col gap-1">
                                                             {item.dates.map((d, i) => (
-                                                                <span key={i} className="whitespace-nowrap px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[11px] font-bold border border-blue-100">{d}</span>
+                                                                <span key={i} className="whitespace-nowrap px-2 py-0.5 bg-zinc-50 text-black rounded text-[11px] font-bold border border-zinc-200">{d}</span>
                                                             ))}
                                                         </div>
                                                     </td>
@@ -1104,21 +1018,27 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                                             </td>
                                                             <td className="py-3 px-4 align-top">
                                                                 <div className="flex flex-wrap gap-1.5 mt-1">
-                                                                    {parseLampiran(item.lampiran).map((img, idx) => (
-                                                                        <div key={idx} className="relative group w-12 h-12 cursor-pointer transition-all hover:ring-2 hover:ring-blue-400 rounded-lg overflow-hidden" onClick={() => setLightboxImage(img)}>
-                                                                            <img src={img} className="w-full h-full object-cover" alt="thumb" />
-                                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                                                                <Search size={14} className="text-white" />
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                                    {parseLampiran(item.lampiran).length === 0 && <span className="text-zinc-300 text-[10px] italic">Tanpa Bukti</span>}
+                                                                    {isImagesEnabled ? (
+                                                                        <>
+                                                                            {parseLampiran(item.lampiran).map((img, idx) => (
+                                                                                <div key={idx} className="relative group w-12 h-12 cursor-pointer transition-all hover:ring-2 hover:ring-zinc-400 rounded-lg overflow-hidden" onClick={() => setLightboxImage(img)}>
+                                                                                    <img src={img} className="w-full h-full object-cover" alt="thumb" />
+                                                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                                                        <Search size={14} className="text-white" />
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                            {parseLampiran(item.lampiran).length === 0 && <span className="text-zinc-300 text-[10px] italic">Tanpa Bukti</span>}
+                                                                        </>
+                                                                    ) : (
+                                                                        <span className="text-[10px] text-orange-400 font-bold italic bg-orange-50 px-2 py-1 rounded border border-orange-100">Egress Saved</span>
+                                                                    )}
                                                                 </div>
                                                             </td>
                                                         </>
                                                     )}
                                                     <td className="py-3 px-4 align-top text-center">
-                                                        <button onClick={() => openModal(item)} className={`px-4 py-1.5 text-xs font-bold rounded-lg ${currentTab === 'belum' ? 'bg-zinc-900 text-white hover:bg-black' : 'bg-zinc-200 text-zinc-800 hover:bg-zinc-300'}`}>
+                                                        <button onClick={() => openModal(item)} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 ${currentTab === 'belum' ? 'bg-black text-white hover:bg-zinc-800' : 'bg-zinc-200 text-black hover:bg-zinc-300'}`}>
                                                             {currentTab === 'belum' ? 'Follow Up' : 'Lihat Respon'}
                                                         </button>
                                                     </td>
@@ -1168,23 +1088,31 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                 <input type="text" placeholder="Nama..." value={fsFilters.nama} onChange={e => updateFsFilter('nama', e.target.value)} className="w-full sm:min-w-[150px] p-2 text-xs border border-zinc-300 rounded" />
                                 <input type="text" placeholder="Plat..." value={fsFilters.plat} onChange={e => updateFsFilter('plat', e.target.value)} className="w-full sm:min-w-[120px] p-2 text-xs border border-zinc-300 rounded" />
                                 <input type="text" placeholder="Tipe..." value={fsFilters.tipe} onChange={e => updateFsFilter('tipe', e.target.value)} className="w-full sm:min-w-[120px] p-2 text-xs border border-zinc-300 rounded" />
+                                {!isImagesEnabled && (
+                                    <div className="flex-1 flex items-center justify-end">
+                                        <span className="text-[10px] bg-orange-100 text-orange-700 px-3 py-1 rounded-lg font-black uppercase tracking-widest border border-orange-200 flex items-center gap-2">
+                                            <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse"></div>
+                                            Egress Saving Mode Active
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                             <div className="flex-1 overflow-auto bg-white">
                                 {/* Mobile view FS */}
                                 <div className="md:hidden divide-y divide-zinc-100">
                                     {fsDataList.map(item => (
-                                        <div key={item.id} className={`p-4 ${item.statusJadwal.isDue ? 'bg-red-50' : 'bg-white'}`}>
+                                        <div key={item.id} className={`p-4 ${item.statusJadwal.isDue ? 'bg-zinc-100' : 'bg-white'}`}>
                                             <div className="flex justify-between items-start mb-2">
                                                 <div>
                                                     <h4 className="font-bold text-zinc-900">{item.nama}</h4>
                                                     <p className="text-[10px] text-zinc-500">{item.plat} • {item.tipeMobil}</p>
                                                 </div>
                                                 <div className="text-right">
-                                                    <div className="text-xs font-black text-blue-700">{item.jadwalServis}</div>
+                                                    <div className="text-xs font-black text-black">{item.jadwalServis}</div>
                                                     {item.statusJadwal.isDue && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border inline-block mt-1 ${item.statusJadwal.color}`}>{item.statusJadwal.text}</span>}
                                                 </div>
                                             </div>
-                                            <button onClick={() => openFsModal(item.id)} className="w-full mt-2 py-2.5 bg-green-500 text-white text-[11px] font-bold rounded-xl shadow-sm">
+                                            <button onClick={() => openFsModal(item.id)} className="w-full mt-2 py-2.5 bg-black text-white text-[11px] font-bold rounded-xl shadow-sm hover:bg-zinc-800 transition-all duration-150">
                                                 REMINDER WA
                                             </button>
                                         </div>
@@ -1196,7 +1124,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                         <tr>
                                             <th className="py-3 px-4 font-bold">Nama Customer</th>
                                             <th className="py-3 px-4 font-bold">Tgl Masuk (Ref)</th>
-                                            <th className="py-3 px-4 font-bold text-blue-700">Jadwal Servis</th>
+                                            <th className="py-3 px-4 font-bold text-black">Jadwal Servis</th>
                                             <th className="py-3 px-4 font-bold">Plat</th>
                                             <th className="py-3 px-4 font-bold">Tipe Mobil</th>
                                             <th className="py-3 px-4 font-bold text-center">Pengingat WA</th>
@@ -1204,30 +1132,29 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                     </thead>
                                     <tbody className="divide-y divide-zinc-100">
                                         {fsDataList.map(item => (
-                                            <tr key={item.id} className={`${item.statusJadwal.isDue ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-blue-50'}`}>
-                                                <td className="py-3 px-4 align-top font-bold text-zinc-900">{item.nama}</td>
+                                            <tr key={item.id} className={`${item.statusJadwal.isDue ? 'bg-zinc-100 hover:bg-zinc-200' : 'hover:bg-zinc-50'}`}>
+                                                <td className="py-3 px-4 align-top font-bold text-black">{item.nama}</td>
                                                 <td className="py-3 px-4 align-top text-zinc-600">{item.tanggalDatang}</td>
                                                 <td className="py-3 px-4 align-top">
-                                                    <div className="font-bold">{item.jadwalServis}</div>
+                                                    <div className="font-bold text-black">{item.jadwalServis}</div>
                                                     {item.statusJadwal.isDue && <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${item.statusJadwal.color}`}>{item.statusJadwal.text}</span>}
                                                 </td>
-                                                <td className="py-3 px-4 align-top font-bold text-zinc-800">{item.plat}</td>
+                                                <td className="py-3 px-4 align-top font-bold text-black">{item.plat}</td>
                                                 <td className="py-3 px-4 align-top text-zinc-600">{item.tipeMobil}</td>
                                                 <td className="py-3 px-4 align-top text-center">
-                                                    <button onClick={() => openFsModal(item.id)} className="border border-green-500 text-green-600 bg-white px-3 py-1 text-xs font-bold rounded-lg hover:bg-green-500 hover:text-white transition-colors">
+                                                    <button onClick={() => openFsModal(item.id)} className="border border-black text-black bg-white px-3 py-1 text-xs font-bold rounded-lg hover:bg-black hover:text-white transition-colors duration-150">
                                                         Reminder WA
                                                     </button>
                                                 </td>
                                             </tr>
-                                        ))}
-                                    </tbody>
+                                        ))}                                    </tbody>
                                 </table>
                             </div>
                         </div>
                     ) : (
                         <div className="p-4 lg:p-8 animate-fade-in overflow-y-auto">
                             <h2 className="text-3xl font-black text-zinc-900 tracking-tighter mb-8 flex items-center gap-4">
-                                <LineChart className="text-red-500" /> REKAP STATUS FOLLOW UP
+                                <LineChart className="text-black" /> REKAP STATUS FOLLOW UP
                             </h2>
                             {renderReport()}
                         </div>
@@ -1242,7 +1169,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                     <div className="bg-white w-full max-w-5xl rounded-3xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden">
                         <div className="flex justify-between items-center p-5 border-b border-zinc-200 bg-zinc-50 shrink-0">
                             <h2 className="text-xl font-bold text-zinc-900">Detail Kendaraan & Form Follow Up</h2>
-                            <button onClick={closeModal} className="text-zinc-400 hover:text-red-500 p-1"><X /></button>
+                            <button onClick={closeModal} className="text-zinc-400 hover:text-black p-1"><X /></button>
                         </div>
                         <div className="p-4 sm:p-6 overflow-y-auto flex flex-col lg:flex-row gap-6 sm:gap-8">
                             {/* Kiri */}
@@ -1321,7 +1248,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                             ))}
                                         </div>
                                         <textarea rows={5} value={templateText} onChange={e => setTemplateText(e.target.value)} placeholder="Template terisi otomatis..." className="w-full text-sm p-3 border border-zinc-300 rounded-lg mb-2 focus:outline-none focus:border-zinc-500" />
-                                        <button onClick={() => sendWhatsApp(templateText, data.find(x => x.id === selectedId)?.telepon)} className="bg-green-500 text-white w-max px-4 py-2 rounded-lg text-xs font-bold font-medium mb-6 hover:bg-green-600 transition-colors">Buka Chat WA</button>
+                                        <button onClick={() => sendWhatsApp(templateText, data.find(x => x.id === selectedId)?.telepon)} className="bg-black text-white w-max px-4 py-2 rounded-lg text-xs font-bold font-medium mb-6 hover:bg-zinc-800 transition-colors duration-150">Buka Chat WA</button>
 
                                         <h3 className="font-bold text-zinc-700 border-b border-zinc-200 pb-2 mb-4">Catatan Respon</h3>
                                         <textarea
@@ -1383,7 +1310,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                             </div>
                                         </div>
 
-                                        <button onClick={submitFollowUp} className="w-full bg-zinc-900 text-white py-3 rounded-xl font-bold hover:bg-black transition-colors">Simpan & Selesai</button>
+                                        <button onClick={submitFollowUp} className="w-full bg-black text-white py-3 rounded-xl font-bold hover:bg-zinc-800 transition-colors duration-150">Simpan & Selesai</button>
                                     </>
                                 ) : (
                                     <>
@@ -1406,21 +1333,31 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                                 <p className="text-xs font-bold text-zinc-700 mb-3 flex items-center gap-2">
                                                     <ImageIcon size={14} /> Lampiran Gambar ({currentAttachedImages.length}):
                                                 </p>
-                                                <div className="flex flex-wrap gap-3">
-                                                    {currentAttachedImages.map((img, idx) => (
-                                                        <div key={idx} className="relative group w-32 h-32">
-                                                            <img
-                                                                src={img}
-                                                                className="w-full h-full object-cover rounded-xl cursor-pointer shadow-md border-2 border-white ring-1 ring-zinc-200 transition-transform hover:scale-[1.05]"
-                                                                onClick={() => setLightboxImage(img)}
-                                                                alt={`Lampiran-${idx}`}
-                                                            />
-                                                            <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center pointer-events-none">
-                                                                <Search className="text-white" size={20} />
-                                                            </div>
+                                                {!isImagesEnabled ? (
+                                                    <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl flex items-center gap-3">
+                                                        <AlertTriangle size={18} className="text-orange-500" strokeWidth={3} />
+                                                        <div className="flex-1">
+                                                            <p className="text-xs font-black text-orange-800 uppercase tracking-tight">Gamabar Sedang Dinonaktifkan</p>
+                                                            <p className="text-[10px] text-orange-700">Aktifkan "Load Images" di Owner Panel untuk dapat melihat atau mengunduh lampiran.</p>
                                                         </div>
-                                                    ))}
-                                                </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex flex-wrap gap-3">
+                                                        {currentAttachedImages.map((img, idx) => (
+                                                            <div key={idx} className="relative group w-32 h-32">
+                                                                <img
+                                                                    src={img}
+                                                                    className="w-full h-full object-cover rounded-xl cursor-pointer shadow-md border-2 border-white ring-1 ring-zinc-200 transition-transform hover:scale-[1.05]"
+                                                                    onClick={() => setLightboxImage(img)}
+                                                                    alt={`Lampiran-${idx}`}
+                                                                />
+                                                                <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center pointer-events-none">
+                                                                    <Search className="text-white" size={20} />
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                     </>
@@ -1439,16 +1376,16 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                             <h2 className="text-lg font-bold">Pengingat Berkala</h2>
                             <button onClick={() => setIsFsModalOpen(false)}><X className="text-zinc-400" /></button>
                         </div>
-                        <div className="bg-blue-50 text-blue-800 p-4 rounded-xl text-sm mb-4">
+                        <div className="bg-zinc-50 text-black p-4 rounded-xl text-sm mb-4 border border-zinc-200">
                             Kirim pengingat untuk <strong>{data.find(x => x.id === fsSelectedId)?.nama}</strong> berserta plat <strong>{data.find(x => x.id === fsSelectedId)?.plat}</strong>
                         </div>
                         <div className="flex gap-2 mb-4">
                             {['Pagi', 'Siang', 'Sore/Malam'].map(t => (
-                                <button key={t} onClick={() => generateFsTemplate(t)} className="flex-1 py-1.5 border border-zinc-300 rounded text-xs hover:bg-zinc-900 hover:text-white transition-colors">{t}</button>
+                                <button key={t} onClick={() => generateFsTemplate(t)} className="flex-1 py-1.5 border border-black rounded text-xs hover:bg-black hover:text-white transition-colors duration-150">{t}</button>
                             ))}
                         </div>
                         <textarea rows={6} value={fsTemplateText} onChange={e => setFsTemplateText(e.target.value)} className="w-full text-sm p-3 border border-zinc-300 rounded-lg mb-4 focus:outline-none" />
-                        <button onClick={() => sendWhatsApp(fsTemplateText, data.find(x => x.id === fsSelectedId)?.telepon)} className="bg-green-500 text-white w-full py-2 rounded-xl font-bold flex justify-center items-center gap-2 hover:bg-green-600 transition-colors">
+                        <button onClick={() => sendWhatsApp(fsTemplateText, data.find(x => x.id === fsSelectedId)?.telepon)} className="bg-black text-white w-full py-2 rounded-xl font-bold flex justify-center items-center gap-2 hover:bg-zinc-800 transition-colors duration-150">
                             <Send size={16} /> Buka WhatsApp
                         </button>
                     </div>

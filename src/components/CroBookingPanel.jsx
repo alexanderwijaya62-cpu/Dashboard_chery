@@ -28,6 +28,9 @@ const generateSlots = (count) => {
 };
 const KEPERLUAN = ["Free Service 1", "Free Service 2", "Free Service 3", "Keluhan"];
 
+// Image reference fields to skip when rendering booking records (graceful null handling)
+const IMAGE_FIELDS_TO_SKIP = ['image', 'imageUrl', 'imageFile', 'attachment', 'photo', 'foto'];
+
 
 
 export default function CroBookingPanel({ user }) {
@@ -65,7 +68,15 @@ export default function CroBookingPanel({ user }) {
                 .order('tanggal', { ascending: false });
 
             if (error) throw error;
-            setBookings(data || []);
+            // Gracefully skip image reference fields from booking records
+            const sanitized = (data || []).map(record => {
+                const cleaned = { ...record };
+                IMAGE_FIELDS_TO_SKIP.forEach(field => {
+                    delete cleaned[field];
+                });
+                return cleaned;
+            });
+            setBookings(sanitized);
         } catch (e) {
             console.error("Fetch Error:", e);
             Toastify({ text: `Gagal fetch data: ${e.message}`, background: "red" }).showToast();
@@ -181,7 +192,11 @@ export default function CroBookingPanel({ user }) {
 
                 const { error } = await supabase
                     .from('booking')
-                    .insert(bookingsToInsert);
+                    .insert(bookingsToInsert.map(b => {
+                        const clean = { ...b };
+                        IMAGE_FIELDS_TO_SKIP.forEach(field => delete clean[field]);
+                        return clean;
+                    }));
 
                 if (error) throw error;
 
@@ -372,6 +387,9 @@ export default function CroBookingPanel({ user }) {
                     status: 'accepted'
                 };
 
+                // Ensure no image/file data is sent to Supabase storage
+                IMAGE_FIELDS_TO_SKIP.forEach(field => delete newBooking[field]);
+
                 const { error } = await supabase
                     .from('booking')
                     .insert([newBooking]);
@@ -534,14 +552,14 @@ export default function CroBookingPanel({ user }) {
     };
 
     return (
-        <div className="flex-1 w-full bg-white relative overflow-hidden flex flex-col h-full animate-fade-in transition-colors duration-500 p-0">
-            <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center px-6 lg:px-8 py-3 mb-0 gap-4 xl:gap-6 shrink-0 relative z-10 border-b border-zinc-100">
-                <div className="flex items-center gap-6">
+        <div className="flex-1 w-full max-w-[100vw] bg-white relative overflow-hidden flex flex-col h-full animate-fade-in transition-colors duration-500 p-0">
+            <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center px-3 md:px-6 lg:px-8 py-3 mb-0 gap-4 xl:gap-6 shrink-0 relative z-10 border-b border-zinc-100">
+                <div className="flex flex-col md:flex-row items-start md:items-center gap-3 md:gap-6 w-full md:w-auto">
                     <div className="flex items-center gap-3">
-                        <div className="bg-emerald-500 p-2 rounded-lg text-white">
+                        <div className="bg-black p-2 rounded-lg text-white">
                             <Calendar size={20} />
                         </div>
-                        <h2 className="text-xl font-black text-zinc-900 leading-none">Booking Management</h2>
+                        <h2 className="text-lg md:text-xl font-black text-zinc-900 leading-none">Booking Management</h2>
                     </div>
                     
                     <div className="flex items-center gap-2 md:gap-3 bg-zinc-50 border border-zinc-200 px-3 md:px-4 py-1.5 rounded-2xl shadow-sm">
@@ -551,7 +569,7 @@ export default function CroBookingPanel({ user }) {
                                 onClick={() => {
                                     if (maxSlotsCount > 1) updateMaxSlots(maxSlotsCount - 1);
                                 }}
-                                className="w-6 h-6 flex items-center justify-center bg-white border border-zinc-200 rounded-lg text-zinc-600 hover:bg-zinc-900 hover:text-white transition-all text-xs font-black shadow-sm"
+                                className="min-w-[44px] min-h-[44px] md:w-6 md:h-6 md:min-w-0 md:min-h-0 flex items-center justify-center bg-white border border-zinc-200 rounded-lg text-zinc-600 hover:bg-zinc-900 hover:text-white transition-all text-xs font-black shadow-sm"
                             >
                                 -
                             </button>
@@ -562,7 +580,7 @@ export default function CroBookingPanel({ user }) {
                                 onClick={() => {
                                     updateMaxSlots(maxSlotsCount + 1);
                                 }}
-                                className="w-6 h-6 flex items-center justify-center bg-white border border-zinc-200 rounded-lg text-zinc-600 hover:bg-zinc-900 hover:text-white transition-all text-xs font-black shadow-sm"
+                                className="min-w-[44px] min-h-[44px] md:w-6 md:h-6 md:min-w-0 md:min-h-0 flex items-center justify-center bg-white border border-zinc-200 rounded-lg text-zinc-600 hover:bg-zinc-900 hover:text-white transition-all text-xs font-black shadow-sm"
                             >
                                 +
                             </button>
@@ -570,17 +588,17 @@ export default function CroBookingPanel({ user }) {
                     </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 xl:gap-3 w-full xl:w-auto">
-                    <nav className="flex items-center gap-1 bg-zinc-100 p-1 rounded-xl border border-zinc-200">
+                <div className="flex flex-col md:flex-row md:flex-wrap items-start md:items-center gap-2 xl:gap-3 w-full xl:w-auto">
+                    <nav className="flex items-center gap-1 bg-zinc-100 p-1 rounded-xl border border-zinc-200 w-full md:w-auto">
                         <button 
                             onClick={() => setCurrentView('list')}
-                            className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${currentView === 'list' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-900'}`}
+                            className={`flex-1 md:flex-none min-h-[44px] md:min-h-0 px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${currentView === 'list' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-900'}`}
                         >
                             List View
                         </button>
                         <button 
                             onClick={() => setCurrentView('booking')}
-                            className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${currentView === 'booking' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-900'}`}
+                            className={`flex-1 md:flex-none min-h-[44px] md:min-h-0 px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${currentView === 'booking' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-900'}`}
                         >
                             Booking System
                         </button>
@@ -588,29 +606,29 @@ export default function CroBookingPanel({ user }) {
 
                     <div className="h-4 w-px bg-zinc-200 mx-2 hidden xl:block"></div>
 
-                    <div className="flex bg-zinc-100 p-1 rounded-xl border border-zinc-200">
-                        <button onClick={() => setActiveTab('waiting')} className={`px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-2 ${activeTab === 'waiting' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-900'}`}>
-                            Waiting {pendingCount > 0 && <span className="bg-red-500 text-white px-1.5 py-0.5 rounded-full text-[8px]">{pendingCount}</span>}
+                    <div className="flex bg-zinc-100 p-1 rounded-xl border border-zinc-200 w-full md:w-auto">
+                        <button onClick={() => setActiveTab('waiting')} className={`flex-1 md:flex-none min-h-[44px] md:min-h-0 px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all flex items-center justify-center gap-2 ${activeTab === 'waiting' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-900'}`}>
+                            Waiting {pendingCount > 0 && <span className="bg-black text-white px-1.5 py-0.5 rounded-full text-[8px]">{pendingCount}</span>}
                         </button>
-                        <button onClick={() => setActiveTab('processed')} className={`px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'processed' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-900'}`}>
+                        <button onClick={() => setActiveTab('processed')} className={`flex-1 md:flex-none min-h-[44px] md:min-h-0 px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'processed' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-900'}`}>
                             Processed
                         </button>
-                        <button onClick={() => setActiveTab('all')} className={`px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'all' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-900'}`}>
+                        <button onClick={() => setActiveTab('all')} className={`flex-1 md:flex-none min-h-[44px] md:min-h-0 px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'all' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-900'}`}>
                             All
                         </button>
                     </div>
 
-                    <div className="flex items-center gap-2 h-full">
-                        <button onClick={handleExportTemplate} className="bg-white border-2 border-dashed border-zinc-200 hover:border-zinc-400 text-zinc-600 px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center gap-2 transition-all">
+                    <div className="flex items-center gap-2 h-full w-full md:w-auto">
+                        <button onClick={handleExportTemplate} className="flex-1 md:flex-none min-h-[44px] bg-white border-2 border-dashed border-zinc-200 hover:border-zinc-400 text-zinc-600 px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all">
                             <Download size={14} /> Template
                         </button>
-                        <button onClick={() => fileInputRef.current?.click()} className="bg-zinc-100 hover:bg-zinc-200 text-zinc-900 px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center gap-2 transition-all">
+                        <button onClick={() => fileInputRef.current?.click()} className="flex-1 md:flex-none min-h-[44px] bg-zinc-100 hover:bg-zinc-200 text-zinc-900 px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all">
                             <Upload size={14} /> Import
                         </button>
                         <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleImportExcel} />
                     </div>
 
-                    <button onClick={() => { setIsEditing(null); setIsModalOpen(true); }} className="bg-zinc-900 hover:bg-red-600 text-white px-6 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-zinc-200 group">
+                    <button onClick={() => { setIsEditing(null); setIsModalOpen(true); }} className="w-full md:w-auto min-h-[44px] bg-black hover:bg-zinc-800 text-white px-6 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-zinc-200 group">
                         <Plus size={14} className="group-hover:rotate-90 transition-transform" /> New
                     </button>
                 </div>
@@ -618,28 +636,28 @@ export default function CroBookingPanel({ user }) {
 
             {currentView === 'list' ? (
                 <>
-                    <div className="px-6 lg:px-8 py-3 shrink-0 flex flex-col md:flex-row gap-4 bg-zinc-50/50 border-b border-zinc-100">
+                    <div className="px-3 md:px-6 lg:px-8 py-3 shrink-0 flex flex-col gap-3 md:gap-4 bg-zinc-50/50 border-b border-zinc-100">
                 <div className="relative group flex-1">
-                    <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-300 group-focus-within:text-red-600 transition-colors" size={20} />
+                    <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-300 group-focus-within:text-black transition-colors" size={20} />
                     <input
                         type="text"
                         placeholder="Search by name, plate number, or car type..."
-                        className="w-full bg-zinc-50 border border-zinc-100 p-3 pl-12 rounded-[1.2rem] text-sm font-bold text-zinc-900 focus:bg-white focus:ring-4 focus:ring-red-50 focus:border-red-600 outline-none transition-all shadow-sm group-hover:shadow-md"
+                        className="w-full bg-zinc-50 border border-zinc-100 p-3 pl-12 rounded-[1.2rem] text-sm font-bold text-black focus:bg-white focus:ring-4 focus:ring-zinc-100 focus:border-black outline-none transition-all shadow-sm group-hover:shadow-md min-h-[44px]"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-col md:flex-row flex-wrap gap-2">
                     <input
                         type="date"
-                        className="bg-zinc-50 border border-zinc-100 px-4 py-2 rounded-xl text-[10px] font-black uppercase outline-none focus:border-red-600 cursor-pointer"
+                        className="bg-zinc-50 border border-zinc-100 px-4 py-2 rounded-xl text-sm md:text-[10px] font-black uppercase outline-none focus:border-black cursor-pointer min-h-[44px]"
                         value={filterDate}
                         onChange={(e) => setFilterDate(e.target.value)}
                     />
 
                     <select
-                        className="bg-zinc-50 border border-zinc-100 px-4 py-2 rounded-xl text-[10px] font-black uppercase outline-none focus:border-red-600"
+                        className="bg-zinc-50 border border-zinc-100 px-4 py-2 rounded-xl text-sm md:text-[10px] font-black uppercase outline-none focus:border-black min-h-[44px]"
                         value={filterKeperluan}
                         onChange={(e) => setFilterKeperluan(e.target.value)}
                     >
@@ -650,7 +668,7 @@ export default function CroBookingPanel({ user }) {
                     {(filterDate || filterKeperluan || searchTerm) && (
                         <button
                             onClick={() => { setFilterDate(''); setFilterKeperluan(''); setSearchTerm(''); }}
-                            className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-red-600 hover:text-white transition-all shadow-sm"
+                            className="bg-zinc-100 text-black px-4 py-2 rounded-xl text-sm md:text-[10px] font-black uppercase hover:bg-black hover:text-white transition-all shadow-sm min-h-[44px]"
                         >
                             Reset
                         </button>
@@ -658,7 +676,7 @@ export default function CroBookingPanel({ user }) {
 
                     <button
                         onClick={() => setSortAsc(!sortAsc)}
-                        className="bg-zinc-50 border border-zinc-100 px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-white transition-all"
+                        className="bg-zinc-50 border border-zinc-100 px-4 py-2 rounded-xl text-sm md:text-[10px] font-black uppercase flex items-center gap-2 hover:bg-white transition-all min-h-[44px]"
                     >
                         {sortAsc ? 'Oldest First' : 'Newest First'}
                         <Clock size={14} className={sortAsc ? '' : 'rotate-180 transition-transform'} />
@@ -668,7 +686,7 @@ export default function CroBookingPanel({ user }) {
 
             <div className="flex-1 flex flex-col bg-white overflow-hidden">
                 <div className="hidden lg:block overflow-y-auto overflow-x-auto flex-1 custom-scrollbar">
-                    <table className="w-full text-left border-collapse">
+                    <table className="w-full min-w-[900px] text-left border-collapse">
                         <thead className="sticky top-0 bg-zinc-50 z-10 border-b border-zinc-100">
                             <tr>
                                 <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-zinc-400">No.</th>
@@ -686,7 +704,7 @@ export default function CroBookingPanel({ user }) {
                                     <td className="px-6 py-6 text-[10px] font-black text-zinc-400">#{(b.noUrut || idx + 1).toString().padStart(3, '0')}</td>
                                     <td className="px-6 py-6">
                                         <div className="space-y-1">
-                                            <span className="bg-red-50 text-red-600 px-3 py-1 rounded-lg text-[10px] font-black border border-red-100 block w-fit">
+                                            <span className="bg-zinc-100 text-black px-3 py-1 rounded-lg text-[10px] font-black border border-zinc-200 block w-fit">
                                                 {formatDateDisplay(b.tanggal)}
                                             </span>
                                             <span className="flex items-center gap-1.5 text-xs font-bold text-zinc-900 pl-1">
@@ -696,7 +714,7 @@ export default function CroBookingPanel({ user }) {
                                     </td>
                                     <td className="px-6 py-6">
                                         <div className="space-y-0.5">
-                                            <h3 className="font-black text-zinc-900 group-hover:text-red-700 transition-colors uppercase text-sm leading-tight">{b.namaCustomer || '-'}</h3>
+                                            <h3 className="font-black text-black group-hover:text-zinc-600 transition-colors uppercase text-sm leading-tight">{b.namaCustomer || '-'}</h3>
                                             <p className="text-[10px] font-bold text-zinc-400 tracking-wide">VIN: {b.vin || '-'}</p>
                                         </div>
                                     </td>
@@ -711,10 +729,10 @@ export default function CroBookingPanel({ user }) {
                                     <td className="px-6 py-6">
                                         <div className="space-y-2">
                                             <div className={`px-4 py-2 rounded-xl text-[10px] font-black border flex flex-col gap-1 shadow-sm
-                                                ${b.keperluanService?.startsWith('Keluhan') ? 'bg-rose-50 text-rose-700 border-rose-100 shadow-rose-50' : 'bg-emerald-50 text-emerald-700 border-emerald-100 shadow-emerald-50'}`}>
+                                                ${b.keperluanService?.startsWith('Keluhan') ? 'bg-zinc-100 text-black border-zinc-300 shadow-zinc-50' : 'bg-zinc-50 text-black border-zinc-200 shadow-zinc-50'}`}>
                                                 <span className="uppercase tracking-widest">{b.keperluanService?.split(':')[0]}</span>
                                                 {b.keperluanService?.includes(':') && (
-                                                    <span className="text-[8px] font-bold text-rose-500 normal-case italic border-t border-rose-100 pt-1 mt-1">
+                                                    <span className="text-[8px] font-bold text-zinc-500 normal-case italic border-t border-zinc-200 pt-1 mt-1">
                                                         {b.keperluanService.split(':')[1]}
                                                     </span>
                                                 )}
@@ -724,23 +742,23 @@ export default function CroBookingPanel({ user }) {
                                     </td>
                                     <td className="px-6 py-6">
                                         <a href={`https://wa.me/${String(b.noTelp).replace(/^0/, '62')}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 group/wa">
-                                            <div className="p-2 bg-green-50 text-green-600 rounded-lg group-hover/wa:bg-green-600 group-hover/wa:text-white transition-all">
+                                            <div className="p-2 bg-zinc-100 text-black rounded-lg group-hover/wa:bg-black group-hover/wa:text-white transition-all">
                                                 <Phone size={14} />
                                             </div>
-                                            <span className="text-xs font-bold text-zinc-600 border-b border-zinc-200 hover:border-green-600 transition-all">{b.noTelp}</span>
+                                            <span className="text-xs font-bold text-zinc-600 border-b border-zinc-200 hover:border-black transition-all">{b.noTelp}</span>
                                         </a>
                                     </td>
                                     <td className="px-6 py-6 border-l border-zinc-100/10">
                                         <div className="flex flex-col items-center justify-center gap-3">
                                             {b.status === 'waiting confirm' ? (
                                                 <div className="flex items-center justify-center gap-2">
-                                                    <button onClick={() => handleStatusUpdate(b.id, 'accepted')} className="p-3 bg-green-500 hover:bg-green-600 text-white rounded-[1rem] shadow-lg shadow-green-100 transition-all active:scale-90" title="Terima Booking">
+                                                    <button onClick={() => handleStatusUpdate(b.id, 'accepted')} className="p-3 bg-black hover:bg-zinc-800 text-white rounded-[1rem] shadow-lg shadow-zinc-100 transition-all active:scale-90" title="Terima Booking">
                                                         <CheckCircle size={18} />
                                                     </button>
-                                                    <button onClick={() => handleStatusUpdate(b.id, 'declined')} className="p-3 bg-red-100 hover:bg-red-500 hover:text-white text-red-600 rounded-[1rem] transition-all active:scale-90" title="Tolak Booking">
+                                                    <button onClick={() => handleStatusUpdate(b.id, 'declined')} className="p-3 bg-zinc-100 hover:bg-black hover:text-white text-black rounded-[1rem] transition-all active:scale-90" title="Tolak Booking">
                                                         <XCircle size={18} />
                                                     </button>
-                                                    <button onClick={() => handleEdit(b)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-all" title="Edit Booking">
+                                                    <button onClick={() => handleEdit(b)} className="p-2 text-black hover:bg-zinc-100 rounded-lg transition-all" title="Edit Booking">
                                                         <Plus size={16} /> Edit
                                                     </button>
                                                 </div>
@@ -751,9 +769,9 @@ export default function CroBookingPanel({ user }) {
                                                             value={b.status}
                                                             onChange={(e) => handleStatusUpdate(b.id, e.target.value)}
                                                             className={`text-[9px] font-black uppercase tracking-[0.05em] px-3 py-1.5 rounded-full border cursor-pointer outline-none transition-all
-                                                                ${b.status === 'accepted' ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' :
-                                                                    b.status === 'declined' ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100' :
-                                                                        b.status === 'completed' ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100' :
+                                                                ${b.status === 'accepted' ? 'bg-zinc-50 text-black border-zinc-300 hover:bg-zinc-100' :
+                                                                    b.status === 'declined' ? 'bg-zinc-100 text-black border-zinc-300 hover:bg-zinc-200' :
+                                                                        b.status === 'completed' ? 'bg-zinc-50 text-black border-zinc-300 hover:bg-zinc-100' :
                                                                             'bg-zinc-50 text-zinc-500 border-zinc-200 hover:bg-zinc-100'}`}
                                                         >
                                                             <option value="accepted">Accepted</option>
@@ -762,13 +780,13 @@ export default function CroBookingPanel({ user }) {
                                                             <option value="waiting confirm">Waiting</option>
                                                             <option value="no show">No Show</option>
                                                         </select>
-                                                        <button onClick={() => handleEdit(b)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg" title="Edit">
+                                                        <button onClick={() => handleEdit(b)} className="p-1.5 text-black hover:bg-zinc-100 rounded-lg" title="Edit">
                                                             <Plus size={14} />
                                                         </button>
                                                     </div>
                                                 </div>
                                             )}
-                                            <button onClick={() => handleDelete(b)} className="text-[10px] font-bold text-zinc-300 hover:text-red-500 flex items-center gap-1 transition-all" title="Hapus Data">
+                                            <button onClick={() => handleDelete(b)} className="text-[10px] font-bold text-zinc-300 hover:text-black flex items-center gap-1 transition-all" title="Hapus Data">
                                                 <Trash2 size={12} /> Hapus
                                             </button>
                                         </div>
@@ -779,7 +797,7 @@ export default function CroBookingPanel({ user }) {
                     </table>
                 </div>
 
-                <div className="lg:hidden flex-1 overflow-y-auto bg-zinc-50 p-2 space-y-4">
+                <div className="lg:hidden flex-1 overflow-y-auto overflow-x-hidden bg-zinc-50 p-2 space-y-4 max-w-[100vw]">
                     {sortedAndFilteredBookings.map((b, idx) => (
                         <div key={b.id} className="bg-white border border-zinc-100 rounded-3xl p-5 shadow-sm space-y-4 relative overflow-hidden">
                             <div className="absolute top-0 right-0 py-2 px-4 bg-zinc-50 rounded-bl-3xl border-l border-b border-zinc-100 text-[9px] font-black text-zinc-400">
@@ -787,7 +805,7 @@ export default function CroBookingPanel({ user }) {
                             </div>
 
                             <div className="flex items-center gap-4">
-                                <div className="bg-red-50 w-14 h-14 rounded-2xl flex flex-col items-center justify-center text-red-600 border border-red-100 shrink-0">
+                                <div className="bg-zinc-100 w-14 h-14 rounded-2xl flex flex-col items-center justify-center text-black border border-zinc-200 shrink-0">
                                     <span className="text-[10px] font-black leading-none uppercase">{parseDateForSort(b.tanggal).toLocaleDateString('id-ID', { month: 'short' })}</span>
                                     <span className="text-lg font-black leading-none">{parseDateForSort(b.tanggal).getDate()}</span>
                                 </div>
@@ -806,7 +824,7 @@ export default function CroBookingPanel({ user }) {
                                 <div className="bg-zinc-50 p-4 rounded-2xl border border-zinc-100 col-span-2">
                                     <p className="text-[8px] font-black text-zinc-400 uppercase tracking-widest mb-2">Layanan / Plan</p>
                                     <div className={`px-4 py-3 rounded-xl text-[11px] font-black border
-                                        ${b.keperluanService?.startsWith('Keluhan') ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
+                                        ${b.keperluanService?.startsWith('Keluhan') ? 'bg-zinc-100 text-black border-zinc-300' : 'bg-zinc-50 text-black border-zinc-200'}`}>
                                         {b.keperluanService}
                                     </div>
                                     <p className="text-[9px] font-bold text-zinc-400 mt-2 italic px-1">Unit: {b.tipeMobil} • {b.vin || '-'}</p>
@@ -814,21 +832,21 @@ export default function CroBookingPanel({ user }) {
                             </div>
 
                             <div className="flex items-center justify-between pt-2">
-                                <a href={`https://wa.me/${String(b.noTelp).replace(/^0/, '62')}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-green-50 px-3 py-2 rounded-xl border border-green-100">
-                                    <Phone size={14} className="text-green-600" />
-                                    <span className="text-[11px] font-black text-green-700">{b.noTelp}</span>
+                                <a href={`https://wa.me/${String(b.noTelp).replace(/^0/, '62')}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-zinc-100 px-3 py-2 rounded-xl border border-zinc-200">
+                                    <Phone size={14} className="text-black" />
+                                    <span className="text-[11px] font-black text-black">{b.noTelp}</span>
                                 </a>
 
                                 <div className="flex items-center gap-2">
-                                    <button onClick={() => handleEdit(b)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-xl" title="Edit">
+                                    <button onClick={() => handleEdit(b)} className="p-2 text-black hover:bg-zinc-100 rounded-xl" title="Edit">
                                         <Plus size={16} />
                                     </button>
                                     {b.status === 'waiting confirm' ? (
                                         <div className="flex gap-2">
-                                            <button onClick={() => handleStatusUpdate(b.id, 'accepted')} className="p-2.5 bg-green-500 text-white rounded-xl shadow-lg shadow-green-100">
+                                            <button onClick={() => handleStatusUpdate(b.id, 'accepted')} className="p-2.5 bg-black text-white rounded-xl shadow-lg shadow-zinc-100">
                                                 <CheckCircle size={16} />
                                             </button>
-                                            <button onClick={() => handleStatusUpdate(b.id, 'declined')} className="p-2.5 bg-red-100 text-red-600 rounded-xl">
+                                            <button onClick={() => handleStatusUpdate(b.id, 'declined')} className="p-2.5 bg-zinc-100 text-black rounded-xl">
                                                 <XCircle size={16} />
                                             </button>
                                         </div>
@@ -854,30 +872,30 @@ export default function CroBookingPanel({ user }) {
             {isModalOpen && (
                 <div className="fixed inset-0 bg-white z-[999] flex flex-col animate-fade-in overflow-hidden">
                     <div className="flex-1 relative flex flex-col overflow-hidden">
-                        <button onClick={() => setIsModalOpen(false)} className="absolute top-6 right-8 p-3 bg-zinc-100 hover:bg-red-600 text-zinc-900 hover:text-white rounded-2xl transition-all z-[1000] shadow-sm">
+                        <button onClick={() => setIsModalOpen(false)} className="absolute top-6 right-8 p-3 bg-zinc-100 hover:bg-black text-black hover:text-white rounded-2xl transition-all z-[1000] shadow-sm">
                             <X size={24} strokeWidth={3} />
                         </button>
 
-                        <div className="px-8 py-6 md:px-12 md:py-10 flex-1 flex flex-col overflow-hidden">
+                        <div className="px-4 py-4 md:px-8 md:py-6 lg:px-12 lg:py-10 flex-1 flex flex-col overflow-hidden">
                             <div className="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-zinc-100 pb-6 shrink-0">
                                 <div>
                                     <h2 className="text-xl md:text-2xl font-black text-zinc-900 uppercase tracking-tight leading-none">
                                         {isEditing ? 'Edit Existing Booking' : 'New Manual Booking'}
                                     </h2>
                                     <div className="text-zinc-400 font-bold text-[9px] uppercase tracking-widest mt-1.5 flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 bg-red-600 rounded-full animate-pulse"></div> CRO ENTRY SYSTEM
+                                        <div className="w-1.5 h-1.5 bg-black rounded-full animate-pulse"></div> CRO ENTRY SYSTEM
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-4 bg-zinc-50 px-4 py-2 rounded-2xl border border-zinc-100">
-                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[8px] font-black uppercase text-zinc-400">Ready</span></div>
-                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-amber-400"></div><span className="text-[8px] font-black uppercase text-zinc-400">Partial</span></div>
-                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-500"></div><span className="text-[8px] font-black uppercase text-zinc-400">Full</span></div>
+                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-zinc-400"></div><span className="text-[8px] font-black uppercase text-zinc-400">Ready</span></div>
+                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-zinc-300"></div><span className="text-[8px] font-black uppercase text-zinc-400">Partial</span></div>
+                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-black"></div><span className="text-[8px] font-black uppercase text-zinc-400">Full</span></div>
                                 </div>
                             </div>
 
-                            <form onSubmit={handleFormSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-12 flex-1 overflow-hidden h-full">
+                            <form onSubmit={handleFormSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-12 flex-1 overflow-y-auto lg:overflow-hidden h-full">
                                 {/* Column 1: Date */}
-                                <div className="space-y-8 flex flex-col h-full border-r border-zinc-100 pr-10">
+                                <div className="space-y-8 flex flex-col h-full lg:border-r border-zinc-100 lg:pr-10">
                                     <div className="space-y-4">
                                         <h3 className="text-[11px] font-black uppercase tracking-widest text-zinc-900 flex items-center gap-3">
                                             <div className="w-6 h-6 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">1</div> Select Date
@@ -909,10 +927,10 @@ export default function CroBookingPanel({ user }) {
                                                             key={idx} type="button" disabled={isPast || status === 'closed'}
                                                             onClick={() => setFormData({ ...formData, tanggal: item.date, jam: '' })}
                                                             className={`relative aspect-[4/5] rounded-xl flex flex-col items-center justify-center transition-all border-2 ${isPast || status === 'closed' ? 'bg-zinc-100/30 border-transparent text-zinc-200 cursor-not-allowed opacity-20' :
-                                                                isActive ? 'bg-zinc-900 border-zinc-900 text-white shadow-lg z-10 scale-110' :
-                                                                    status === 'empty' ? 'bg-white border-zinc-100 text-zinc-800 hover:border-red-400' :
-                                                                        status === 'partial' ? 'bg-white border-amber-200 text-zinc-800 hover:border-amber-500 shadow-sm' :
-                                                                            'bg-white border-rose-50 text-rose-200 cursor-not-allowed opacity-50'
+                                                                isActive ? 'bg-black border-black text-white shadow-lg z-10 scale-110' :
+                                                                    status === 'empty' ? 'bg-white border-zinc-100 text-zinc-800 hover:border-zinc-400' :
+                                                                        status === 'partial' ? 'bg-white border-zinc-300 text-zinc-800 hover:border-zinc-500 shadow-sm' :
+                                                                            'bg-white border-zinc-50 text-zinc-200 cursor-not-allowed opacity-50'
                                                                 }`}
                                                         >
                                                             <span className="text-[11px] font-black">{item.day}</span>
@@ -925,7 +943,7 @@ export default function CroBookingPanel({ user }) {
                                 </div>
 
                                 {/* Column 2: Arrival & Unit */}
-                                <div className="space-y-10 flex flex-col h-full border-r border-zinc-100 pr-10">
+                                <div className="space-y-10 flex flex-col h-full lg:border-r border-zinc-100 lg:pr-10">
                                     <div className="space-y-4">
                                         <h3 className="text-[11px] font-black uppercase tracking-widest text-zinc-900 flex items-center gap-3">
                                             <div className="w-6 h-6 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">2</div> Arrival Slot
@@ -947,10 +965,10 @@ export default function CroBookingPanel({ user }) {
                                                         key={j} type="button" disabled={(isFull && !isEditing) || isPastTime} onClick={() => setFormData({ ...formData, jam: j })}
                                                         className={`relative py-3.5 px-2 rounded-[1.2rem] border-2 font-black text-[10px] uppercase tracking-widest transition-all overflow-hidden ${formData.jam === j ? 'bg-black border-black text-white shadow-lg scale-105' :
                                                             isFull ? 'bg-zinc-100 border-transparent text-zinc-300 cursor-not-allowed grayscale opacity-30 shadow-inner' :
-                                                                'bg-white border-zinc-100 text-zinc-400 hover:border-red-200 hover:text-red-700 hover:bg-red-50'}`}
+                                                                'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black hover:bg-zinc-50'}`}
                                                     >
                                                         {j} WIB
-                                                        <div className={`absolute bottom-0 right-0 left-0 h-1 ${isFull ? 'bg-red-600' : 'bg-emerald-500/10'}`}></div>
+                                                        <div className={`absolute bottom-0 right-0 left-0 h-1 ${isFull ? 'bg-black' : 'bg-zinc-200'}`}></div>
                                                     </button>
                                                 );
                                             })}
@@ -962,27 +980,27 @@ export default function CroBookingPanel({ user }) {
                                             <div className="w-6 h-6 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">3</div> Customer & Unit
                                         </h3>
                                         <div className="grid grid-cols-1 gap-4">
-                                            <div className="grid grid-cols-2 gap-4">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 <div className="space-y-1.5">
                                                     <label className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Nama Customer</label>
-                                                    <input required type="text" className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl p-4 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all" placeholder="Input Nama" value={formData.namaCustomer} onChange={e => setFormData({ ...formData, namaCustomer: e.target.value })} />
+                                                    <input required type="text" className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl p-4 text-sm md:text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[44px]" placeholder="Input Nama" value={formData.namaCustomer} onChange={e => setFormData({ ...formData, namaCustomer: e.target.value })} />
                                                 </div>
                                                 <div className="space-y-1.5">
                                                     <label className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">WhatsApp</label>
-                                                    <input required type="tel" className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl p-4 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all" placeholder="08..." value={formData.noTelp} onChange={e => setFormData({ ...formData, noTelp: e.target.value })} />
+                                                    <input required type="tel" className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl p-4 text-sm md:text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[44px]" placeholder="08..." value={formData.noTelp} onChange={e => setFormData({ ...formData, noTelp: e.target.value })} />
                                                 </div>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-4">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 <div className="space-y-1.5">
                                                     <label className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Model Unit</label>
-                                                    <select required className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl p-4 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all appearance-none cursor-pointer" value={formData.tipeMobil} onChange={e => setFormData({ ...formData, tipeMobil: e.target.value })}>
+                                                    <select required className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl p-4 text-sm md:text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all appearance-none cursor-pointer min-h-[44px]" value={formData.tipeMobil} onChange={e => setFormData({ ...formData, tipeMobil: e.target.value })}>
                                                         <option value="">- Pilih Model -</option>
                                                         {TIPE_MOBIL.map(t => <option key={t} value={t}>{t}</option>)}
                                                     </select>
                                                 </div>
                                                 <div className="space-y-1.5">
                                                     <label className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">No Polisi</label>
-                                                    <input required type="text" className="w-full uppercase bg-zinc-50 border border-zinc-100 rounded-2xl p-4 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all" placeholder="BK XXXX XX" value={formData.noPlat} onChange={e => setFormData({ ...formData, noPlat: e.target.value })} />
+                                                    <input required type="text" className="w-full uppercase bg-zinc-50 border border-zinc-100 rounded-2xl p-4 text-sm md:text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[44px]" placeholder="BK XXXX XX" value={formData.noPlat} onChange={e => setFormData({ ...formData, noPlat: e.target.value })} />
                                                 </div>
                                             </div>
                                         </div>
@@ -990,7 +1008,7 @@ export default function CroBookingPanel({ user }) {
                                 </div>
 
                                 {/* Column 3: Service Plan & Submit */}
-                                <div className="space-y-8 flex flex-col h-full bg-zinc-50/50 p-8 border-l border-zinc-100">
+                                <div className="space-y-8 flex flex-col h-full bg-zinc-50/50 p-4 md:p-8 lg:border-l border-zinc-100">
                                     <div className="space-y-6">
                                         <h3 className="text-[11px] font-black uppercase tracking-widest text-zinc-900 flex items-center gap-3">
                                             <div className="w-6 h-6 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">4</div> Service Plan
@@ -998,7 +1016,7 @@ export default function CroBookingPanel({ user }) {
                                         <div className="grid grid-cols-2 gap-3">
                                             {KEPERLUAN.map(plan => (
                                                 <button key={plan} type="button" onClick={() => setFormData({ ...formData, keperluanService: plan })}
-                                                    className={`py-4 px-2 rounded-2xl border-2 font-black text-[9px] uppercase tracking-widest transition-all text-center leading-tight ${formData.keperluanService === plan ? 'bg-red-600 border-red-600 text-white shadow-lg' : 'bg-white border-zinc-100 text-zinc-400 hover:border-red-200 hover:text-red-600'
+                                                    className={`py-4 px-2 rounded-2xl border-2 font-black text-[9px] uppercase tracking-widest transition-all text-center leading-tight ${formData.keperluanService === plan ? 'bg-black border-black text-white shadow-lg' : 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
                                                         }`}
                                                 >
                                                     {plan}
@@ -1009,7 +1027,7 @@ export default function CroBookingPanel({ user }) {
                                         {formData.keperluanService === 'Keluhan' && (
                                             <div className="animate-in fade-in slide-in-from-top-4">
                                                 <label className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1 mb-2 block">Detail Masalah</label>
-                                                <textarea required className="w-full bg-white border border-zinc-100 rounded-2xl p-4 text-xs font-bold text-zinc-900 min-h-[120px] outline-none focus:border-red-600 transition-all shadow-inner" placeholder="Jelaskan kendala kendaraan Anda secara detail..." value={formData.keluhanDetail} onChange={e => setFormData({ ...formData, keluhanDetail: e.target.value })} />
+                                                <textarea required className="w-full bg-white border border-zinc-100 rounded-2xl p-4 text-xs font-bold text-black min-h-[120px] outline-none focus:border-black transition-all shadow-inner" placeholder="Jelaskan kendala kendaraan Anda secara detail..." value={formData.keluhanDetail} onChange={e => setFormData({ ...formData, keluhanDetail: e.target.value })} />
                                             </div>
                                         )}
                                     </div>
@@ -1017,7 +1035,7 @@ export default function CroBookingPanel({ user }) {
                                     <div className="pt-8 mt-auto flex flex-col gap-4">
                                         <div className="p-4 bg-white rounded-2xl border border-zinc-100">
                                             <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-400 tracking-widest mb-1.5">
-                                                <Info size={12} className="text-blue-500" /> Information
+                                                <Info size={12} className="text-black" /> Information
                                             </div>
                                             <p className="text-[10px] font-bold text-zinc-600 leading-relaxed">Pastikan data yang diinput sudah sesuai dengan STNK dan keluhan customer.</p>
                                         </div>
@@ -1035,20 +1053,20 @@ export default function CroBookingPanel({ user }) {
 
                 </>
             ) : (
-                <div className="flex-1 overflow-y-auto bg-zinc-50 p-6">
-                    <div className="max-w-[1400px] mx-auto bg-white rounded-[2.5rem] border border-zinc-200 shadow-2xl shadow-zinc-200/50 overflow-hidden flex flex-col lg:flex-row min-h-[700px]">
+                <div className="flex-1 overflow-y-auto bg-zinc-50 p-3 md:p-6">
+                    <div className="max-w-[100vw] md:max-w-[1400px] mx-auto bg-white rounded-2xl md:rounded-[2.5rem] border border-zinc-200 shadow-2xl shadow-zinc-200/50 overflow-hidden flex flex-col lg:flex-row min-h-[700px]">
                         
                         {/* HEADER MOBILE/TABLET */}
                         <div className="lg:hidden p-6 border-b border-zinc-100 bg-zinc-50/50">
-                            <h2 className="text-xl font-black text-zinc-900 uppercase tracking-tighter">New Manual Booking</h2>
+                            <h2 className="text-xl font-black text-black uppercase tracking-tighter">New Manual Booking</h2>
                             <div className="flex items-center gap-2 mt-1">
-                                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                                <div className="w-2 h-2 bg-black rounded-full animate-pulse"></div>
                                 <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">CRO Entry System</span>
                             </div>
                         </div>
 
                         {/* COLUMN 1: SELECT DATE */}
-                        <div className="lg:w-[400px] shrink-0 p-8 border-r border-zinc-100 flex flex-col">
+                        <div className="lg:w-[400px] shrink-0 p-4 md:p-8 border-b lg:border-b-0 lg:border-r border-zinc-100 flex flex-col">
                             <div className="flex items-center gap-4 mb-8">
                                 <div className="w-10 h-10 bg-zinc-900 rounded-2xl flex items-center justify-center text-white font-black text-sm">1</div>
                                 <h3 className="text-xs font-black text-zinc-900 uppercase tracking-[0.2em]">Select Date</h3>
@@ -1083,14 +1101,14 @@ export default function CroBookingPanel({ user }) {
                                                     className={`aspect-square rounded-[1rem] flex items-center justify-center text-xs font-black transition-all border-2 relative group
                                                         ${isPast ? 'opacity-20 cursor-not-allowed border-transparent' : 
                                                           status === 'closed' ? 'bg-zinc-50 border-transparent text-zinc-300 cursor-not-allowed' :
-                                                          isActive ? 'bg-zinc-900 border-zinc-900 text-white shadow-xl shadow-zinc-200 scale-110 z-10' :
-                                                          'bg-white border-zinc-100 hover:border-red-500 text-zinc-600'
+                                                          isActive ? 'bg-black border-black text-white shadow-xl shadow-zinc-200 scale-110 z-10' :
+                                                          'bg-white border-zinc-100 hover:border-zinc-400 text-zinc-600'
                                                         }`}
                                                 >
                                                     {item.day}
                                                     {!isPast && status !== 'closed' && (
                                                         <div className={`absolute bottom-1 w-1 h-1 rounded-full ${
-                                                            status === 'empty' ? 'bg-emerald-500' : status === 'partial' ? 'bg-amber-400' : 'bg-red-500'
+                                                            status === 'empty' ? 'bg-zinc-400' : status === 'partial' ? 'bg-zinc-300' : 'bg-black'
                                                         }`} />
                                                     )}
                                                 </button>
@@ -1101,14 +1119,14 @@ export default function CroBookingPanel({ user }) {
                             </div>
 
                             <div className="mt-8 flex items-center justify-center gap-4 text-[8px] font-black uppercase text-zinc-400 tracking-widest">
-                                <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Ready</div>
-                                <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-amber-400"></div> Partial</div>
-                                <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-red-500"></div> Full</div>
+                                <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-zinc-400"></div> Ready</div>
+                                <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-zinc-300"></div> Partial</div>
+                                <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-black"></div> Full</div>
                             </div>
                         </div>
 
                         {/* COLUMN 2: SLOT & CUSTOMER */}
-                        <div className="flex-1 p-8 border-r border-zinc-100 bg-zinc-50/30">
+                        <div className="flex-1 p-4 md:p-8 border-b lg:border-b-0 lg:border-r border-zinc-100 bg-zinc-50/30">
                             <div className="flex items-center gap-4 mb-8">
                                 <div className="w-10 h-10 bg-zinc-900 rounded-2xl flex items-center justify-center text-white font-black text-sm">2</div>
                                 <h3 className="text-xs font-black text-zinc-900 uppercase tracking-[0.2em]">Arrival Slot</h3>
@@ -1139,13 +1157,13 @@ export default function CroBookingPanel({ user }) {
                                 <h3 className="text-xs font-black text-zinc-900 uppercase tracking-[0.2em]">Customer & Unit</h3>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <label className="text-[9px] font-black uppercase text-zinc-400 tracking-widest pl-1">Nama Customer</label>
                                     <input 
                                         type="text" 
                                         placeholder="Input Nama"
-                                        className="w-full bg-white border-2 border-zinc-100 rounded-2xl p-4 text-xs font-bold text-zinc-900 outline-none focus:border-zinc-900 transition-all shadow-sm"
+                                        className="w-full bg-white border-2 border-zinc-100 rounded-2xl p-4 text-sm md:text-xs font-bold text-zinc-900 outline-none focus:border-zinc-900 transition-all shadow-sm min-h-[44px]"
                                         value={formData.namaCustomer}
                                         onChange={e => setFormData({ ...formData, namaCustomer: e.target.value })}
                                     />
@@ -1155,7 +1173,7 @@ export default function CroBookingPanel({ user }) {
                                     <input 
                                         type="text" 
                                         placeholder="08.."
-                                        className="w-full bg-white border-2 border-zinc-100 rounded-2xl p-4 text-xs font-bold text-zinc-900 outline-none focus:border-zinc-900 transition-all shadow-sm"
+                                        className="w-full bg-white border-2 border-zinc-100 rounded-2xl p-4 text-sm md:text-xs font-bold text-zinc-900 outline-none focus:border-zinc-900 transition-all shadow-sm min-h-[44px]"
                                         value={formData.noTelp}
                                         onChange={e => setFormData({ ...formData, noTelp: e.target.value })}
                                     />
@@ -1163,7 +1181,7 @@ export default function CroBookingPanel({ user }) {
                                 <div className="space-y-2">
                                     <label className="text-[9px] font-black uppercase text-zinc-400 tracking-widest pl-1">Model Unit</label>
                                     <select 
-                                        className="w-full bg-white border-2 border-zinc-100 rounded-2xl p-4 text-xs font-bold text-zinc-900 outline-none focus:border-zinc-900 transition-all shadow-sm"
+                                        className="w-full bg-white border-2 border-zinc-100 rounded-2xl p-4 text-sm md:text-xs font-bold text-zinc-900 outline-none focus:border-zinc-900 transition-all shadow-sm min-h-[44px]"
                                         value={formData.tipeMobil}
                                         onChange={e => setFormData({ ...formData, tipeMobil: e.target.value })}
                                     >
@@ -1176,7 +1194,7 @@ export default function CroBookingPanel({ user }) {
                                     <input 
                                         type="text" 
                                         placeholder="BK XXXX XX"
-                                        className="w-full bg-white border-2 border-zinc-100 rounded-2xl p-4 text-xs font-bold text-zinc-900 outline-none focus:border-zinc-900 transition-all shadow-sm uppercase"
+                                        className="w-full bg-white border-2 border-zinc-100 rounded-2xl p-4 text-sm md:text-xs font-bold text-zinc-900 outline-none focus:border-zinc-900 transition-all shadow-sm uppercase min-h-[44px]"
                                         value={formData.noPlat}
                                         onChange={e => setFormData({ ...formData, noPlat: e.target.value })}
                                     />
@@ -1185,7 +1203,7 @@ export default function CroBookingPanel({ user }) {
                         </div>
 
                         {/* COLUMN 3: SERVICE PLAN */}
-                        <div className="lg:w-[450px] shrink-0 p-8 flex flex-col">
+                        <div className="lg:w-[450px] shrink-0 p-4 md:p-8 flex flex-col">
                             <div className="flex items-center gap-4 mb-8">
                                 <div className="w-10 h-10 bg-zinc-900 rounded-2xl flex items-center justify-center text-white font-black text-sm">4</div>
                                 <h3 className="text-xs font-black text-zinc-900 uppercase tracking-[0.2em]">Service Plan</h3>
@@ -1218,11 +1236,11 @@ export default function CroBookingPanel({ user }) {
                             )}
 
                             <div className="mt-auto space-y-6">
-                                <div className="p-6 bg-blue-50/50 rounded-3xl border border-blue-100 flex gap-4">
-                                    <Info className="text-blue-500 shrink-0" size={20} />
+                                <div className="p-6 bg-zinc-50 rounded-3xl border border-zinc-200 flex gap-4">
+                                    <Info className="text-black shrink-0" size={20} />
                                     <div className="space-y-1">
-                                        <p className="text-[9px] font-black uppercase text-blue-600 tracking-widest">Information</p>
-                                        <p className="text-[10px] font-bold text-blue-900/60 leading-relaxed">Pastikan data yang diinput sudah sesuai dengan STNK dan keluhan customer.</p>
+                                        <p className="text-[9px] font-black uppercase text-black tracking-widest">Information</p>
+                                        <p className="text-[10px] font-bold text-zinc-600 leading-relaxed">Pastikan data yang diinput sudah sesuai dengan STNK dan keluhan customer.</p>
                                     </div>
                                 </div>
 

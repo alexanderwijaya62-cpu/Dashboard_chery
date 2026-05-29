@@ -12,6 +12,7 @@ import {
   Filter
 } from 'lucide-react';
 import { supabase } from '../utils/supabaseClient';
+import { CHERY_DMS_URL, API_KEY } from '../utils/config';
 import * as XLSX from 'xlsx';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
@@ -28,107 +29,50 @@ export default function ProfitDashboard() {
   const [isDataLoaded, setIsDataLoaded] = useState(false);
 
   useEffect(() => {
-    const searchMaster = async () => {
-      setIsLoading(true);
-      if (searchTerm.length < 2) {
-        // Updated limit to 20 as requested
-        const { data } = await supabase.from('sparepart_master').select('id, part_name, part_number, wholesale_price_no_tax, sales_guide_price_no_tax').limit(20);
-        if (data) setMasterParts(data);
-        setIsLoading(false);
+    const searchDms = async () => {
+      if (searchTerm.length < 3) {
+        setMasterParts([]);
         return;
       }
-
-      const { data, error } = await supabase
-        .from('sparepart_master')
-        .select('*')
-        .or(`part_name.ilike.%${searchTerm}%,part_number.ilike.%${searchTerm}%`)
-        .limit(250); // Show up to 250 matches
       
-      if (!error && data) setMasterParts(data);
-      setIsLoading(false);
+      setIsLoading(true);
+      try {
+        const resp = await fetch(`${CHERY_DMS_URL}/search?q=${searchTerm}`, {
+          headers: { 'x-api-key': API_KEY }
+        });
+        const result = await resp.json();
+        const dmsData = result.data || result.items || (Array.isArray(result) ? result : []);
+        
+        // Map DMS format to ProfitDashboard format
+        const mapped = dmsData.map(item => ({
+          id: item.partCode || item.partNo || Math.random().toString(),
+          part_name: item.partName || '',
+          part_number: item.partCode || item.partNo || '',
+          wholesale_price_no_tax: item.wholesalePriceNoTax || item.price || 0,
+          sales_guide_price_no_tax: item.retailGuidePrice || 0,
+        }));
+
+        setMasterParts(mapped);
+      } catch (e) {
+        console.error("DMS Search Error:", e);
+      } finally {
+        setIsLoading(false);
+      }
     };
-    
-    const tid = setTimeout(searchMaster, 400);
-    return () => clearTimeout(tid);
+
+    const timeoutId = setTimeout(searchDms, 500); // Debounce
+    return () => clearTimeout(timeoutId);
   }, [searchTerm]);
 
+  // Note: Full dataset fetching is disabled as DMS does not support 'get all' bulk retrieval
+  // Global analysis will now work on the search results instead.
   useEffect(() => {
-    const fetchFullDataForAnalysis = async () => {
-        // Fetch all 11,000+ items using chunking to bypass Supabase 1000 limit
-        let allData = [];
-        let from = 0;
-        const step = 1000;
-        let finished = false;
-
-        while (!finished) {
-            const { data, error } = await supabase
-                .from('sparepart_master')
-                .select('id, part_name, part_number, wholesale_price_no_tax, sales_guide_price_no_tax')
-                .range(from, from + step - 1);
-            
-            if (error) {
-                console.error("Fetch Error:", error);
-                finished = true;
-                break;
-            }
-
-            if (data && data.length > 0) {
-                allData = [...allData, ...data];
-                if (data.length < step) {
-                    finished = true;
-                } else {
-                    from += step;
-                }
-            } else {
-                finished = true;
-            }
-        }
-        
-        if (allData.length > 0) {
-            setFullDataset(allData);
-            setIsDataLoaded(true);
-        }
-    };
-    fetchFullDataForAnalysis();
+    setIsDataLoaded(true);
   }, []);
 
   const totalFilteredCount = useMemo(() => {
-    let list = fullDataset;
-
-    // Filter by search
-    if (searchTerm.length >= 2) {
-        list = list.filter(p => 
-            p.part_name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-            p.part_number?.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-    }
-
-    // Filter by margin
-    if (marginRangeFilter === 'LOSS') {
-        list = list.filter(part => {
-            const base = part.wholesale_price_no_tax || 0;
-            const guide = part.sales_guide_price_no_tax || 0;
-            const priceRatu = guide * (1 - (ratuDiscount / 100));
-            return (priceRatu - base) < 0;
-        });
-    } else if (marginRangeFilter !== 'ALL') {
-        list = list.filter(part => {
-            const base = part.wholesale_price_no_tax || 0;
-            const guide = part.sales_guide_price_no_tax || 0;
-            const pNoDiscount = guide - base;
-            const m = base > 0 ? (pNoDiscount / base * 100) : 0;
-            
-            if (marginRangeFilter === '0-10') return m >= 0 && m < 10;
-            if (marginRangeFilter === '10-20') return m >= 10 && m < 20;
-            if (marginRangeFilter === '20-30') return m >= 20 && m < 30;
-            if (marginRangeFilter === '30-50') return m >= 30 && m < 50;
-            if (marginRangeFilter === '50+') return m >= 50;
-            return true;
-        });
-    }
-
-    return list.length;
-  }, [fullDataset, marginRangeFilter, searchTerm, ratuDiscount]);
+    return masterParts.length;
+  }, [masterParts]);
 
   const filteredItems = useMemo(() => {
     let result = masterParts;
@@ -160,54 +104,16 @@ export default function ProfitDashboard() {
   }, [masterParts, marginRangeFilter, ratuDiscount]);
 
   const exportToExcel = async () => {
-    if (!isDataLoaded) {
-        Toastify({ text: "Data sedang disiapkan... Mohon coba lagi sesaat.", background: "orange" }).showToast();
-        return;
-    }
-
     Toastify({
-        text: "🚀 Exporting Full Filtered Match...",
+        text: "🚀 Exporting Current Search View...",
         duration: 2000,
         gravity: "top",
         position: "center",
-        style: { background: "linear-gradient(to right, #00b09b, #96c93d)" }
+        style: { background: "linear-gradient(to right, #ef4444, #991b1b)" }
     }).showToast();
 
     try {
-        // Re-use full dataset for export to be 100% accurate across all 11,000 items
-        let finalExportItems = fullDataset;
-
-        // Apply Search
-        if (searchTerm.length >= 2) {
-            finalExportItems = finalExportItems.filter(p => 
-                p.part_name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                p.part_number?.toLowerCase().includes(searchTerm.toLowerCase())
-            );
-        }
-
-        // Apply Filter
-        if (marginRangeFilter === 'LOSS') {
-            finalExportItems = finalExportItems.filter(part => {
-                const base = part.wholesale_price_no_tax || 0;
-                const guide = part.sales_guide_price_no_tax || 0;
-                const priceRatu = guide * (1 - (ratuDiscount / 100));
-                return (priceRatu - base) < 0;
-            });
-        } else if (marginRangeFilter !== 'ALL') {
-            finalExportItems = finalExportItems.filter(part => {
-                    const base = part.wholesale_price_no_tax || 0;
-                    const guide = part.sales_guide_price_no_tax || 0;
-                    const pNoDiscount = guide - base;
-                    const m = base > 0 ? (pNoDiscount / base * 100) : 0;
-                    
-                    if (marginRangeFilter === '0-10') return m >= 0 && m < 10;
-                    if (marginRangeFilter === '10-20') return m >= 10 && m < 20;
-                    if (marginRangeFilter === '20-30') return m >= 20 && m < 30;
-                    if (marginRangeFilter === '30-50') return m >= 30 && m < 50;
-                    if (marginRangeFilter === '50+') return m >= 50;
-                    return true;
-            });
-        }
+        let finalExportItems = filteredItems;
 
         const dataToExport = finalExportItems.map(part => {
                 const base = part.wholesale_price_no_tax || 0;
