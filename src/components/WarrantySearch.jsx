@@ -1,35 +1,12 @@
 import React, { useState } from 'react';
-import { Search, ShieldCheck, AlertCircle, Car, User, Clock, CheckCircle2, X, FileText } from 'lucide-react';
-
-const STATUS_COLORS = {
-  'open':       { bg: 'bg-blue-50',   text: 'text-blue-700',   border: 'border-blue-200',   label: 'Open' },
-  'estimasi':   { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200', label: 'Estimasi' },
-  'approved':   { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', label: 'Approved' },
-  'progress':   { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', label: 'In Progress' },
-  'checker':    { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', label: 'Checker' },
-  'selesai':    { bg: 'bg-green-50',  text: 'text-green-700',  border: 'border-green-200',  label: 'Selesai' },
-  'closed':     { bg: 'bg-zinc-100',  text: 'text-zinc-600',   border: 'border-zinc-200',   label: 'Closed' },
-};
-
-function getStatusStyle(status) {
-  const key = (status || '').toLowerCase();
-  return STATUS_COLORS[key] || { bg: 'bg-zinc-100', text: 'text-zinc-600', border: 'border-zinc-200', label: status || '-' };
-}
-
-function formatDate(val) {
-  if (!val || val === '0000-00-00 00:00:00') return '-';
-  try {
-    const d = new Date(val);
-    if (isNaN(d)) return val;
-    return d.toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-  } catch { return val; }
-}
+import { Search, ShieldCheck, AlertCircle, Car, User, Clock, X, FileText } from 'lucide-react';
+import { getStatusStyle, getKategoriStyle, formatDate, formatKm, fetchWarrantyAPI } from '../utils/warrantyConfig';
 
 function InfoRow({ label, value }) {
   return (
-    <div className="flex items-start gap-3 py-2.5 border-b border-zinc-100 last:border-0">
-      <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider w-40 shrink-0 pt-0.5">{label}</span>
-      <span className="text-sm text-zinc-800 font-medium flex-1">{value || '-'}</span>
+    <div className="flex items-start gap-3 py-2 border-b border-zinc-100 last:border-0">
+      <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider w-36 shrink-0 pt-0.5">{label}</span>
+      <span className="text-sm text-zinc-800 font-medium flex-1 break-words">{value || '-'}</span>
     </div>
   );
 }
@@ -64,10 +41,7 @@ export default function WarrantySearch() {
         to: '',
       });
 
-      const res = await fetch(`/api/warranty?${params}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      if (json.error) throw new Error(json.error);
+      const json = await fetchWarrantyAPI(params);
 
       let data = json.data || [];
 
@@ -259,17 +233,25 @@ export default function WarrantySearch() {
                 <div className="px-5 py-4 space-y-0">
                   <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-3">Informasi Kendaraan</p>
                   <InfoRow label="No. WO DMS" value={selectedWO.no_wo_dms} />
+                  <InfoRow label="Kategori" value={selectedWO.kategori} />
                   <InfoRow label="No. Polisi" value={selectedWO.no_polisi} />
                   <InfoRow label="No. Chassis" value={selectedWO.no_chassis} />
+                  <InfoRow label="No. Engine" value={selectedWO.no_engine} />
                   <InfoRow label="Kendaraan" value={selectedWO.nama_kendaraan} />
+                  <InfoRow label="Tahun" value={selectedWO.tahun_produksi} />
+                  <InfoRow label="KM Masuk" value={formatKm(selectedWO.stand_km)} />
 
                   <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-3 mt-5">Informasi Pelanggan</p>
                   <InfoRow label="Nama Pelanggan" value={selectedWO.nama_pelanggan} />
+                  <InfoRow label="No. Telp" value={selectedWO.no_telp_pelanggan} />
                   <InfoRow label="Nama Pembawa" value={selectedWO.nama_pembawa} />
 
                   <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-3 mt-5">Tim Pengerjaan</p>
+                  <InfoRow label="SA" value={selectedWO.id_karyawan} />
                   <InfoRow label="Mekanik" value={selectedWO.nama_mekanik1} />
                   <InfoRow label="Leader" value={selectedWO.nama_leader1} />
+                  {selectedWO.keluhan && <InfoRow label="Keluhan" value={selectedWO.keluhan} />}
+                  {selectedWO.perintah && <InfoRow label="Perintah" value={selectedWO.perintah} />}
 
                   <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-3 mt-5">Timeline</p>
                   <InfoRow label="Waktu Masuk" value={formatDate(selectedWO.waktu_masuk)} />

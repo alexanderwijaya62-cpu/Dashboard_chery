@@ -1,37 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ShieldCheck, RefreshCw, AlertCircle, TrendingUp, Clock, CheckCircle2, FileText, Wrench, Users, BarChart2 } from 'lucide-react';
-
-async function fetchWarranty(params) {
-  const res = await fetch(`/api/warranty?${params}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  if (json.error) throw new Error(json.error);
-  return json;
-}
-
-const STATUS_COLORS = {
-  'open':       { bg: 'bg-blue-50',   text: 'text-blue-700',   border: 'border-blue-200',   dot: 'bg-blue-500',   label: 'Open' },
-  'estimasi':   { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200', dot: 'bg-yellow-500', label: 'Estimasi' },
-  'approved':   { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', dot: 'bg-purple-500', label: 'Approved' },
-  'progress':   { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', dot: 'bg-orange-500', label: 'In Progress' },
-  'checker':    { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', dot: 'bg-indigo-500', label: 'Checker' },
-  'selesai':    { bg: 'bg-green-50',  text: 'text-green-700',  border: 'border-green-200',  dot: 'bg-green-500',  label: 'Selesai' },
-  'closed':     { bg: 'bg-zinc-100',  text: 'text-zinc-600',   border: 'border-zinc-200',   dot: 'bg-zinc-400',   label: 'Closed' },
-};
-
-function getStatusStyle(status) {
-  const key = (status || '').toLowerCase();
-  return STATUS_COLORS[key] || { bg: 'bg-zinc-100', text: 'text-zinc-600', border: 'border-zinc-200', dot: 'bg-zinc-400', label: status || '-' };
-}
-
-function formatDate(val) {
-  if (!val || val === '0000-00-00 00:00:00') return '-';
-  try {
-    const d = new Date(val);
-    if (isNaN(d)) return val;
-    return d.toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-  } catch { return val; }
-}
+import { ShieldCheck, RefreshCw, AlertCircle, TrendingUp, Clock, CheckCircle2, FileText, Wrench, BarChart2 } from 'lucide-react';
+import { getStatusStyle, STATUS_COLORS, formatDate, fetchWarrantyAPI } from '../utils/warrantyConfig';
 
 export default function WarrantyDashboard({ onNavigate }) {
   const [allData, setAllData] = useState([]);
@@ -53,7 +22,7 @@ export default function WarrantyDashboard({ onNavigate }) {
         from: '',
         to: '',
       });
-      const json = await fetchWarranty(params);
+      const json = await fetchWarrantyAPI(params);
       setAllData(json.data || []);
       setLastUpdated(new Date());
     } catch (err) {
@@ -75,8 +44,8 @@ export default function WarrantyDashboard({ onNavigate }) {
     return acc;
   }, {});
 
-  const activeCount = (statusCounts['open'] || 0) + (statusCounts['estimasi'] || 0) +
-    (statusCounts['approved'] || 0) + (statusCounts['progress'] || 0) + (statusCounts['checker'] || 0);
+  const activeCount = (statusCounts['open'] || 0) + (statusCounts['ready'] || 0) +
+    (statusCounts['in progress'] || 0) + (statusCounts['checker'] || 0);
   const selesaiCount = statusCounts['selesai'] || 0;
   const closedCount = statusCounts['closed'] || 0;
 
