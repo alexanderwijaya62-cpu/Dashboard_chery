@@ -197,8 +197,8 @@ export default async function handler(req, res) {
     }
 
     try {
-        const username = process.env.DMS_USER;
-        const password = process.env.DMS_PASS;
+        const username = process.env.DMS_USER || 'Alex';
+        const password = process.env.DMS_PASS || 'Alex123!';
         const enterpriseCode = process.env.DMS_ENTERPRISE_CODE || '10007901';
 
         if (!username || !password) {
