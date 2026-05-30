@@ -92,12 +92,27 @@ function DetailPage({ settlement, onBack }) {
       apiFetch({ endpoint: 'warranty-search-vin', vin, length: 25, from, to })
         .then(r => {
           let wos = r.data || [];
-          // Strict filter: only keep WOs whose no_wo contains the settlement YYMM code
-          // e.g. settlementYYMM="2604" matches "IFS-2604xxx", "IKC-2604xxx"
-          if (settlementYYMM) {
-            const filtered = wos.filter(w => (w.no_wo || '').includes(settlementYYMM));
-            // Use filtered result — if empty, show nothing (don't fallback to old WOs)
-            wos = filtered;
+          // Filter by waktu_masuk matching the settlement year+month (YYYY-MM)
+          // settlementYYMM is "YYMM" e.g. "2604" → full year-month "2026-04"
+          if (settlementYYMM && wos.length > 0) {
+            const fullYM = `20${settlementYYMM.slice(0,2)}-${settlementYYMM.slice(2)}`; // "2026-04"
+            const filtered = wos.filter(w => {
+              const wm = (w.waktu_masuk || '').slice(0, 7); // "2026-04"
+              return wm === fullYM;
+            });
+            if (filtered.length > 0) wos = filtered;
+            // If still empty, try ±1 month
+            else {
+              const [fy, fm] = fullYM.split('-').map(Number);
+              const prevM = fm === 1 ? `${fy-1}-12` : `${fy}-${String(fm-1).padStart(2,'0')}`;
+              const nextM = fm === 12 ? `${fy+1}-01` : `${fy}-${String(fm+1).padStart(2,'0')}`;
+              const nearby = wos.filter(w => {
+                const wm = (w.waktu_masuk || '').slice(0, 7);
+                return wm === prevM || wm === nextM;
+              });
+              if (nearby.length > 0) wos = nearby;
+              else wos = []; // nothing relevant found
+            }
           }
           setVinData(prev => ({ ...prev, [vin]: { wos, loading: false } }));
         })
