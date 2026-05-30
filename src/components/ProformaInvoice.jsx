@@ -127,7 +127,9 @@ function ExpandedDetail({ settlementId }) {
   // Cross-reference VINs after detail loads
   useEffect(() => {
     if (!detail) return;
-    const items = detail.items || detail.claimSettlementItems || detail.data?.items || [];
+    // DMS detail returns { payload: { content: [...] } } or { payload: [...] }
+    const payload = detail.payload || detail;
+    const items = payload.content || payload.items || payload.claimSettlementItems || payload.data?.items || [];
     const vins = [...new Set(items.map(it => it.vin || it.vinCode || it.chassisNo).filter(Boolean))];
     vins.forEach(vin => {
       if (vinData[vin]) return;
@@ -155,7 +157,9 @@ function ExpandedDetail({ settlementId }) {
   );
   if (!detail) return null;
 
-  const items = detail.items || detail.claimSettlementItems || detail.data?.items || [];
+  // DMS detail returns { payload: { content: [...] } }
+  const payload = detail.payload || detail;
+  const items = payload.content || payload.items || payload.claimSettlementItems || payload.data?.items || [];
 
   if (items.length === 0) return (
     <p className="text-sm text-zinc-400 py-3 px-2 italic">Tidak ada item detail.</p>
@@ -249,10 +253,11 @@ export default function ProformaInvoice() {
         beginCreateTime: beginISO,
         endCreateTime:   endISO,
       });
-      // Support various response shapes
-      const rows = json.data || json.items || json.records || json.list || [];
+      // DMS returns: { payload: { content: [...], totalElements: N } }
+      const payload = json.payload || json;
+      const rows = payload.content || payload.data || payload.items || payload.records || payload.list || [];
       setData(rows);
-      setTotalRecords(json.total || json.totalCount || json.recordsTotal || rows.length);
+      setTotalRecords(payload.totalElements || payload.total || payload.totalCount || payload.recordsTotal || rows.length);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -291,7 +296,7 @@ export default function ProformaInvoice() {
 
   // Summary stats
   const totalFeeSum    = filtered.reduce((s, r) => s + (Number(r.laborFee || 0) + Number(r.materialFee || 0)), 0);
-  const refusedFeeSum  = filtered.reduce((s, r) => s + Number(r.refusedFee || r.refuseFee || 0), 0);
+  const refusedFeeSum  = filtered.reduce((s, r) => s + Number(r.totalRefusePayFee || r.refusedFee || r.refuseFee || 0), 0);
 
   return (
     <div className="flex flex-col h-full bg-zinc-50 overflow-hidden">
@@ -430,7 +435,7 @@ export default function ProformaInvoice() {
                     const laborFee    = row.laborFee    ?? row.labor_fee    ?? 0;
                     const materialFee = row.materialFee ?? row.material_fee ?? 0;
                     const totalFee    = row.totalFee    ?? row.total_fee    ?? (Number(laborFee) + Number(materialFee));
-                    const refusedFee  = row.refusedFee  ?? row.refuseFee   ?? row.refused_fee ?? 0;
+                    const refusedFee  = row.totalRefusePayFee ?? row.refusedFee  ?? row.refuseFee   ?? row.refused_fee ?? 0;
                     const id          = row.id || row.settlementId || '';
 
                     return (
