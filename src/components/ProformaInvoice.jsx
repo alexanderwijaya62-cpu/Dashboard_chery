@@ -69,23 +69,39 @@ const apiFetch = async (params) => {
 };
 
 // ─── Detail Page ──────────────────────────────────────────────
+const ITEMS_PER_PAGE = 50;
+const VIN_BATCH_SIZE = 5; // max concurrent VIN lookups
+
 function DetailPage({ settlement, onBack }) {
-  const [items, setItems]     = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState(null);
-  const [vinData, setVinData] = useState({});
+  const [items, setItems]       = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+  const [vinData, setVinData]   = useState({});
+  const [itemPage, setItemPage] = useState(0);
   const loaded = useRef(false);
+  const vinQueue = useRef([]);
+  const vinRunning = useRef(0);
+
+  // Batched VIN cross-ref — max VIN_BATCH_SIZE concurrent
+  const processVinQueue = useCallback(() => {
+    while (vinRunning.current < VIN_BATCH_SIZE && vinQueue.current.length > 0) {
+      const vin = vinQueue.current.shift();
+      vinRunning.current++;
+      apiFetch({ endpoint: 'warranty-search-vin', vin, length: 10 })
+        .then(r => setVinData(prev => ({ ...prev, [vin]: { wos: r.data || [], loading: false } })))
+        .catch(() => setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: false } })))
+        .finally(() => { vinRunning.current--; processVinQueue(); });
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
       const json = await apiFetch({ endpoint: 'proforma-detail', id: settlement.id });
       const payload = json.payload || json;
-      // DMS detail has separate arrays for maintain (BY) and warranty (BX) orders
       const maintainOrders = payload.maintainOrders || [];
       const warrantyOrders = payload.warrantyOrders || [];
       const adjustmentOrders = payload.expenseAdjustmentOrders || [];
-      // Combine all items with type tag
       const list = [
         ...maintainOrders.map(o => ({ ...o, _type: 'maintain' })),
         ...warrantyOrders.map(o => ({ ...o, _type: 'warranty' })),
@@ -93,20 +109,19 @@ function DetailPage({ settlement, onBack }) {
       ];
       setItems(list);
 
-      // Cross-ref VINs in background
+      // Queue VIN cross-refs — only unique VINs, batched
       const vins = [...new Set(list.map(it => it.vin || it.vinCode || it.chassisNo).filter(Boolean))];
       vins.forEach(vin => {
         setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: true } }));
-        apiFetch({ endpoint: 'warranty-search-vin', vin, length: 50 })
-          .then(r => setVinData(prev => ({ ...prev, [vin]: { wos: r.data || [], loading: false } })))
-          .catch(() => setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: false } })));
+        vinQueue.current.push(vin);
       });
+      processVinQueue();
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [settlement.id]);
+  }, [settlement.id, processVinQueue]);
 
   useEffect(() => { if (!loaded.current) { loaded.current = true; load(); } }, [load]);
 
@@ -175,16 +190,28 @@ function DetailPage({ settlement, onBack }) {
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="flex items-center gap-4 text-xs text-zinc-400 font-bold uppercase tracking-wider">
-              <span>{items.filter(i => i._type === 'maintain').length} Free Service (BY)</span>
-              <span>·</span>
-              <span>{items.filter(i => i._type === 'warranty').length} Warranty (BX)</span>
-              {items.filter(i => i._type === 'adjustment').length > 0 && <>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4 text-xs text-zinc-400 font-bold uppercase tracking-wider">
+                <span>{items.filter(i => i._type === 'maintain').length} Free Service (BY)</span>
                 <span>·</span>
-                <span>{items.filter(i => i._type === 'adjustment').length} Adjustment</span>
-              </>}
+                <span>{items.filter(i => i._type === 'warranty').length} Warranty (BX)</span>
+                {items.filter(i => i._type === 'adjustment').length > 0 && <>
+                  <span>·</span>
+                  <span>{items.filter(i => i._type === 'adjustment').length} Adjustment</span>
+                </>}
+              </div>
+              {/* Pagination controls */}
+              {items.length > ITEMS_PER_PAGE && (
+                <div className="flex items-center gap-2 text-xs">
+                  <button onClick={() => setItemPage(p => Math.max(0, p-1))} disabled={itemPage === 0}
+                    className="px-2.5 py-1.5 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed font-semibold">← Prev</button>
+                  <span className="text-zinc-500 font-medium">{itemPage+1} / {Math.ceil(items.length/ITEMS_PER_PAGE)}</span>
+                  <button onClick={() => setItemPage(p => Math.min(Math.ceil(items.length/ITEMS_PER_PAGE)-1, p+1))} disabled={itemPage >= Math.ceil(items.length/ITEMS_PER_PAGE)-1}
+                    className="px-2.5 py-1.5 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed font-semibold">Next →</button>
+                </div>
+              )}
             </div>
-            {items.map((item, idx) => {
+            {items.slice(itemPage * ITEMS_PER_PAGE, (itemPage + 1) * ITEMS_PER_PAGE).map((item, idx) => {
               const itemCode = item.code || item.claimCode || '-';
               const kat      = getKategori(itemCode);
 
@@ -284,6 +311,16 @@ function DetailPage({ settlement, onBack }) {
                 </div>
               );
             })}
+            {/* Bottom pagination */}
+            {items.length > ITEMS_PER_PAGE && (
+              <div className="flex items-center justify-center gap-3 pt-2">
+                <button onClick={() => { setItemPage(p => Math.max(0, p-1)); window.scrollTo(0,0); }} disabled={itemPage === 0}
+                  className="px-4 py-2 rounded-xl border border-zinc-200 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
+                <span className="text-sm text-zinc-500">Halaman {itemPage+1} dari {Math.ceil(items.length/ITEMS_PER_PAGE)} · {items.length} total item</span>
+                <button onClick={() => { setItemPage(p => Math.min(Math.ceil(items.length/ITEMS_PER_PAGE)-1, p+1)); window.scrollTo(0,0); }} disabled={itemPage >= Math.ceil(items.length/ITEMS_PER_PAGE)-1}
+                  className="px-4 py-2 rounded-xl border border-zinc-200 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
+              </div>
+            )}
           </div>
         )}
       </div>
