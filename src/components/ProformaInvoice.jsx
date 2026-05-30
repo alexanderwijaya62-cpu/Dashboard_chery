@@ -70,19 +70,21 @@ const apiFetch = async (params) => {
 
 // ─── Detail Page ──────────────────────────────────────────────
 const ITEMS_PER_PAGE = 50;
-const VIN_BATCH_SIZE = 5; // max concurrent VIN lookups
+const VIN_BATCH_SIZE = 5;
 
 function DetailPage({ settlement, onBack }) {
-  const [items, setItems]       = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState(null);
-  const [vinData, setVinData]   = useState({});
-  const [itemPage, setItemPage] = useState(0);
+  const [items, setItems]         = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
+  const [vinData, setVinData]     = useState({});
+  const [itemPage, setItemPage]   = useState(0);
+  const [search, setSearch]       = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [typeFilter, setTypeFilter]   = useState('all'); // all | maintain | warranty | adjustment
   const loaded = useRef(false);
   const vinQueue = useRef([]);
   const vinRunning = useRef(0);
 
-  // Batched VIN cross-ref — max VIN_BATCH_SIZE concurrent
   const processVinQueue = useCallback(() => {
     while (vinRunning.current < VIN_BATCH_SIZE && vinQueue.current.length > 0) {
       const vin = vinQueue.current.shift();
@@ -108,8 +110,6 @@ function DetailPage({ settlement, onBack }) {
         ...adjustmentOrders.map(o => ({ ...o, _type: 'adjustment' })),
       ];
       setItems(list);
-
-      // Queue VIN cross-refs — only unique VINs, batched
       const vins = [...new Set(list.map(it => it.vin || it.vinCode || it.chassisNo).filter(Boolean))];
       vins.forEach(vin => {
         setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: true } }));
@@ -124,6 +124,24 @@ function DetailPage({ settlement, onBack }) {
   }, [settlement.id, processVinQueue]);
 
   useEffect(() => { if (!loaded.current) { loaded.current = true; load(); } }, [load]);
+
+  // Filter + search
+  const filteredItems = items.filter(item => {
+    if (typeFilter !== 'all' && item._type !== typeFilter) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      const vin = item.vin || item.vinCode || item.chassisNo || '';
+      const hay = [item.code || '', vin, item.customerName || '', item.productCategoryCode || ''].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const totalItemPages = Math.ceil(filteredItems.length / ITEMS_PER_PAGE);
+  const pagedItems = filteredItems.slice(itemPage * ITEMS_PER_PAGE, (itemPage + 1) * ITEMS_PER_PAGE);
+
+  const handleSearch = (e) => { e.preventDefault(); setSearch(searchInput); setItemPage(0); };
+  const clearSearch = () => { setSearch(''); setSearchInput(''); setItemPage(0); };
 
   const code     = settlement.code || '-';
   const st       = getStatus(settlement.status);
@@ -190,28 +208,63 @@ function DetailPage({ settlement, onBack }) {
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4 text-xs text-zinc-400 font-bold uppercase tracking-wider">
-                <span>{items.filter(i => i._type === 'maintain').length} Free Service (BY)</span>
+            {/* Filter & Search toolbar */}
+            <div className="flex flex-wrap items-center gap-2 py-2">
+              <form onSubmit={handleSearch} className="flex items-center gap-1.5">
+                <div className="relative">
+                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400"/>
+                  <input type="text" value={searchInput} onChange={e => setSearchInput(e.target.value)}
+                    placeholder="Cari kode, VIN, nama..."
+                    className="pl-7 pr-3 py-1.5 text-xs border border-zinc-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 w-48 text-zinc-900"/>
+                </div>
+                <button type="submit" className="px-2.5 py-1.5 bg-zinc-900 text-white text-xs font-bold rounded-lg hover:bg-zinc-700 transition-colors">Cari</button>
+                {search && <button type="button" onClick={clearSearch} className="p-1.5 text-zinc-400 hover:text-zinc-700"><X size={14}/></button>}
+              </form>
+
+              <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setItemPage(0); }}
+                className="px-2.5 py-1.5 text-xs border border-zinc-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900 font-medium">
+                <option value="all">Semua Tipe</option>
+                <option value="maintain">Free Service (BY)</option>
+                <option value="warranty">Warranty (BX)</option>
+                <option value="adjustment">Adjustment</option>
+              </select>
+
+              <div className="flex items-center gap-3 ml-auto text-xs text-zinc-400 font-bold uppercase tracking-wider">
+                <span>{items.filter(i => i._type === 'maintain').length} BY</span>
                 <span>·</span>
-                <span>{items.filter(i => i._type === 'warranty').length} Warranty (BX)</span>
+                <span>{items.filter(i => i._type === 'warranty').length} BX</span>
                 {items.filter(i => i._type === 'adjustment').length > 0 && <>
                   <span>·</span>
-                  <span>{items.filter(i => i._type === 'adjustment').length} Adjustment</span>
+                  <span>{items.filter(i => i._type === 'adjustment').length} Adj</span>
                 </>}
+                {(search || typeFilter !== 'all') && (
+                  <span className="text-zinc-600">→ {filteredItems.length} hasil</span>
+                )}
               </div>
-              {/* Pagination controls */}
-              {items.length > ITEMS_PER_PAGE && (
-                <div className="flex items-center gap-2 text-xs">
-                  <button onClick={() => setItemPage(p => Math.max(0, p-1))} disabled={itemPage === 0}
-                    className="px-2.5 py-1.5 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed font-semibold">← Prev</button>
-                  <span className="text-zinc-500 font-medium">{itemPage+1} / {Math.ceil(items.length/ITEMS_PER_PAGE)}</span>
-                  <button onClick={() => setItemPage(p => Math.min(Math.ceil(items.length/ITEMS_PER_PAGE)-1, p+1))} disabled={itemPage >= Math.ceil(items.length/ITEMS_PER_PAGE)-1}
-                    className="px-2.5 py-1.5 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed font-semibold">Next →</button>
-                </div>
-              )}
             </div>
-            {items.slice(itemPage * ITEMS_PER_PAGE, (itemPage + 1) * ITEMS_PER_PAGE).map((item, idx) => {
+
+            {/* Pagination top */}
+            {totalItemPages > 1 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-400">{itemPage * ITEMS_PER_PAGE + 1}–{Math.min((itemPage+1)*ITEMS_PER_PAGE, filteredItems.length)} dari {filteredItems.length}</span>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setItemPage(p => Math.max(0, p-1))} disabled={itemPage === 0}
+                    className="px-2.5 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
+                  <span className="text-xs text-zinc-500 font-medium">{itemPage+1} / {totalItemPages}</span>
+                  <button onClick={() => setItemPage(p => Math.min(totalItemPages-1, p+1))} disabled={itemPage >= totalItemPages-1}
+                    className="px-2.5 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
+                </div>
+              </div>
+            )}
+
+            {filteredItems.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-32 gap-3">
+                <Search size={28} className="text-zinc-300"/>
+                <p className="text-sm font-bold text-zinc-400">Tidak ada hasil</p>
+              </div>
+            )}
+
+            {pagedItems.map((item, idx) => {
               const itemCode = item.code || item.claimCode || '-';
               const kat      = getKategori(itemCode);
 
@@ -237,8 +290,9 @@ function DetailPage({ settlement, onBack }) {
               return (
                 <div key={idx} className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
                   {/* Item header */}
-                  <div className="px-5 py-4 border-b border-zinc-100 flex flex-wrap items-center gap-3">
+                  <div className="px-5 py-4 border-b border-zinc-100 flex flex-wrap items-center gap-2">
                     <span className="font-black text-zinc-900 text-sm">{itemCode}</span>
+                    {/* DMS category badge (BY/BX) */}
                     <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold border ${kat.bg} ${kat.text} ${kat.border}`}>{kat.label}</span>
                     {vin && <span className="font-mono text-xs text-zinc-500 bg-zinc-100 px-2.5 py-1 rounded-lg">{vin}</span>}
                     {item.isRefusePay && (
@@ -246,14 +300,21 @@ function DetailPage({ settlement, onBack }) {
                         <XCircle size={10}/> Refused
                       </span>
                     )}
+                    {/* After Sales cross-ref badges */}
                     {vd.loading ? (
                       <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 ml-auto">
                         <Loader2 size={10} className="animate-spin"/> cross-ref...
                       </span>
                     ) : perintah ? (
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold border ml-auto ${isFree ? 'bg-green-50 text-green-700 border-green-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                        {isFree ? '✓ Free Service' : '✓ Warranty'}
-                      </span>
+                      <div className="ml-auto flex items-center gap-2">
+                        {/* Perintah category from After Sales */}
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold border ${isFree ? 'bg-green-50 text-green-700 border-green-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                          {isFree ? '✓ Free Service' : '✓ Warranty'}
+                        </span>
+                        {/* IFS/IKC WO type badges */}
+                        {ifsWO && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200">IFS</span>}
+                        {ikcWO && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-200">IKC</span>}
+                      </div>
                     ) : null}
                   </div>
 
@@ -312,12 +373,12 @@ function DetailPage({ settlement, onBack }) {
               );
             })}
             {/* Bottom pagination */}
-            {items.length > ITEMS_PER_PAGE && (
+            {totalItemPages > 1 && (
               <div className="flex items-center justify-center gap-3 pt-2">
-                <button onClick={() => { setItemPage(p => Math.max(0, p-1)); window.scrollTo(0,0); }} disabled={itemPage === 0}
+                <button onClick={() => { setItemPage(p => Math.max(0, p-1)); }} disabled={itemPage === 0}
                   className="px-4 py-2 rounded-xl border border-zinc-200 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
-                <span className="text-sm text-zinc-500">Halaman {itemPage+1} dari {Math.ceil(items.length/ITEMS_PER_PAGE)} · {items.length} total item</span>
-                <button onClick={() => { setItemPage(p => Math.min(Math.ceil(items.length/ITEMS_PER_PAGE)-1, p+1)); window.scrollTo(0,0); }} disabled={itemPage >= Math.ceil(items.length/ITEMS_PER_PAGE)-1}
+                <span className="text-sm text-zinc-500">Halaman {itemPage+1} dari {totalItemPages} · {filteredItems.length} total item</span>
+                <button onClick={() => { setItemPage(p => Math.min(totalItemPages-1, p+1)); }} disabled={itemPage >= totalItemPages-1}
                   className="px-4 py-2 rounded-xl border border-zinc-200 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
               </div>
             )}
