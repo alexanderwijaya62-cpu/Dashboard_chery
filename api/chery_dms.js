@@ -354,6 +354,8 @@ export default async function handler(req, res) {
         const draw = req.query.draw || 1;
         const start = req.query.start || 0;
         const length = req.query.length || 50;
+        const from = req.query.from || '';
+        const to   = req.query.to   || '';
 
         const targetUrl = `${BASE}/aftersales/work-order/data?draw=${draw}&start=${start}&length=${length}` +
             `&columns[0][data]=action&columns[0][name]=action&columns[0][searchable]=false&columns[0][orderable]=false&columns[0][search][value]=&columns[0][search][regex]=false` +
@@ -377,7 +379,7 @@ export default async function handler(req, res) {
             `&columns[18][data]=last_update&columns[18][name]=last_update&columns[18][searchable]=true&columns[18][orderable]=true&columns[18][search][value]=&columns[18][search][regex]=false` +
             `&order[0][column]=18&order[0][dir]=desc` +
             `&search[value]=${encodeURIComponent(vin)}&search[regex]=false` +
-            `&status=&from=&to=&_=${Date.now()}`;
+            `&status=&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&_=${Date.now()}`;
 
         let wAttempts = 0;
         while (wAttempts < 2) {

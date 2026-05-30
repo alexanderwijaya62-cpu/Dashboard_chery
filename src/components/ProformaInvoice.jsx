@@ -87,9 +87,9 @@ function DetailPage({ settlement, onBack }) {
 
   const processVinQueue = useCallback(() => {
     while (vinRunning.current < VIN_BATCH_SIZE && vinQueue.current.length > 0) {
-      const vin = vinQueue.current.shift();
+      const { vin, from, to } = vinQueue.current.shift();
       vinRunning.current++;
-      apiFetch({ endpoint: 'warranty-search-vin', vin, length: 10 })
+      apiFetch({ endpoint: 'warranty-search-vin', vin, length: 10, from, to })
         .then(r => setVinData(prev => ({ ...prev, [vin]: { wos: r.data || [], loading: false } })))
         .catch(() => setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: false } })))
         .finally(() => { vinRunning.current--; processVinQueue(); });
@@ -110,10 +110,37 @@ function DetailPage({ settlement, onBack }) {
         ...adjustmentOrders.map(o => ({ ...o, _type: 'adjustment' })),
       ];
       setItems(list);
-      const vins = [...new Set(list.map(it => it.vin || it.vinCode || it.chassisNo).filter(Boolean))];
-      vins.forEach(vin => {
+
+      // Build VIN → date range map from repairTime
+      // Group by VIN, take earliest and latest repairTime as range (±15 days buffer)
+      const vinDateMap = {};
+      list.forEach(it => {
+        const vin = it.vin || it.vinCode || it.chassisNo;
+        if (!vin || !it.repairTime) return;
+        const d = new Date(it.repairTime);
+        if (isNaN(d)) return;
+        if (!vinDateMap[vin]) vinDateMap[vin] = { min: d, max: d };
+        else {
+          if (d < vinDateMap[vin].min) vinDateMap[vin].min = d;
+          if (d > vinDateMap[vin].max) vinDateMap[vin].max = d;
+        }
+      });
+
+      const uniqueVins = [...new Set(list.map(it => it.vin || it.vinCode || it.chassisNo).filter(Boolean))];
+      uniqueVins.forEach(vin => {
         setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: true } }));
-        vinQueue.current.push(vin);
+        // Build date range: start of month - 15 days, end of month + 15 days
+        let from = '', to = '';
+        if (vinDateMap[vin]) {
+          const minD = new Date(vinDateMap[vin].min);
+          const maxD = new Date(vinDateMap[vin].max);
+          minD.setDate(minD.getDate() - 15);
+          maxD.setDate(maxD.getDate() + 15);
+          const pad = n => String(n).padStart(2, '0');
+          from = `${minD.getFullYear()}-${pad(minD.getMonth()+1)}-${pad(minD.getDate())}`;
+          to   = `${maxD.getFullYear()}-${pad(maxD.getMonth()+1)}-${pad(maxD.getDate())}`;
+        }
+        vinQueue.current.push({ vin, from, to });
       });
       processVinQueue();
     } catch (e) {
@@ -125,13 +152,16 @@ function DetailPage({ settlement, onBack }) {
 
   useEffect(() => { if (!loaded.current) { loaded.current = true; load(); } }, [load]);
 
-  // Filter + search
+  // Filter + search (includes perintah from cross-ref)
   const filteredItems = items.filter(item => {
     if (typeFilter !== 'all' && item._type !== typeFilter) return false;
     if (search) {
       const q = search.toLowerCase();
       const vin = item.vin || item.vinCode || item.chassisNo || '';
-      const hay = [item.code || '', vin, item.customerName || '', item.productCategoryCode || ''].join(' ').toLowerCase();
+      const vd = vinData[vin] || { wos: [] };
+      const matchWO = vd.wos.find(w => (w.no_chassis || '').toLowerCase() === vin.toLowerCase()) || vd.wos[0];
+      const perintah = matchWO?.perintah || '';
+      const hay = [item.code || '', vin, item.customerName || '', item.productCategoryCode || '', perintah].join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
