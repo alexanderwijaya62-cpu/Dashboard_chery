@@ -23,6 +23,7 @@ import {
   Volume2,
   Trash2,
   Car,
+  BarChart2,
 } from 'lucide-react';
 
 /**
@@ -75,7 +76,9 @@ export const NAV_CONFIG = {
   ],
   display: [],
   warranty: [
-    { id: 'warranty', icon: ShieldCheck, label: 'Warranty Hub', page: 'warranty', ariaLabel: 'Warranty Hub' },
+    { id: 'warranty-dashboard', icon: BarChart2,   label: 'Dashboard',   page: 'warranty',        ariaLabel: 'Warranty Dashboard' },
+    { id: 'warranty-wo',        icon: ShieldCheck, label: 'Work Order',  page: 'warranty-wo',     ariaLabel: 'Warranty Work Order' },
+    { id: 'warranty-search',    icon: Search,      label: 'Search',      page: 'warranty-search', ariaLabel: 'Warranty Search' },
   ],
 };
 

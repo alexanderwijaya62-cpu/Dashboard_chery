@@ -3,7 +3,7 @@ import {
   ShieldCheck, BarChart2, Search, RefreshCw, AlertCircle,
   TrendingUp, Clock, CheckCircle2, FileText, Wrench,
   Filter, X, ChevronLeft, ChevronRight, Car, User,
-  ChevronDown, ChevronUp, Menu
+  ChevronDown, ChevronUp
 } from 'lucide-react';
 import {
   getStatusStyle, getKategoriStyle, STATUS_COLORS,
@@ -19,26 +19,19 @@ function InfoRow({ label, value }) {
   );
 }
 
-const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Dashboard',   icon: BarChart2  },
-  { id: 'wo',        label: 'Work Order',  icon: ShieldCheck },
-  { id: 'search',    label: 'Search',      icon: Search      },
-];
-
 // ─── Dashboard ────────────────────────────────────────────────
-function DashboardTab({ onSwitchTab }) {
+export function WarrantyDashboardPage({ onNavigate }) {
   const [data, setData] = useState([]);
   const [totalRecords, setTotalRecords] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
-  const loadedAll = useRef(false);
 
-  // Load first 50 fast, then load more in background
   const fetchInitial = useCallback(async () => {
-    setIsLoading(true); setError(null); loadedAll.current = false;
+    setIsLoading(true); setError(null);
     try {
+      // Load 50 first for fast display
       const params = new URLSearchParams({ endpoint:'work-order', draw:1, start:0, length:50, search:'', status:'', from:'', to:'' });
       const json = await fetchWarrantyAPI(params);
       setData(json.data || []);
@@ -46,7 +39,7 @@ function DashboardTab({ onSwitchTab }) {
       setLastUpdated(new Date());
       setIsLoading(false);
 
-      // Load more in background if there are more records
+      // Load more in background
       if ((json.recordsTotal || 0) > 50) {
         setIsLoadingMore(true);
         try {
@@ -54,8 +47,7 @@ function DashboardTab({ onSwitchTab }) {
           const json2 = await fetchWarrantyAPI(params2);
           setData(json2.data || []);
           setTotalRecords(json2.recordsTotal || 0);
-          loadedAll.current = true;
-        } catch (e) { /* silently fail, keep initial data */ }
+        } catch (e) { /* keep initial data */ }
         finally { setIsLoadingMore(false); }
       }
     } catch (err) {
@@ -94,11 +86,8 @@ function DashboardTab({ onSwitchTab }) {
   return (
     <div className="flex-1 overflow-y-auto p-5 space-y-5">
       {error && <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3"><AlertCircle size={15} className="text-red-500 shrink-0"/><p className="text-sm text-red-700 flex-1">{error}</p><button onClick={fetchInitial} className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg">Coba Lagi</button></div>}
-
-      {/* Loading more indicator */}
       {isLoadingMore && <div className="flex items-center gap-2 text-xs text-zinc-400 bg-zinc-100 rounded-xl px-4 py-2"><div className="w-3 h-3 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin"></div>Memuat data lengkap di background...</div>}
 
-      {/* Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {statCards.map(c => { const Icon=c.icon; return (
           <div key={c.label} className={`${c.color} rounded-2xl p-4 flex items-center justify-between shadow-sm`}>
@@ -108,7 +97,6 @@ function DashboardTab({ onSwitchTab }) {
         );})}
       </div>
 
-      {/* Status Breakdown */}
       <div className="bg-white rounded-2xl border border-zinc-200 p-4 shadow-sm">
         <h2 className="text-xs font-black text-zinc-900 uppercase tracking-wider mb-3">Distribusi Status</h2>
         <div className="space-y-2.5">
@@ -146,7 +134,7 @@ function DashboardTab({ onSwitchTab }) {
       <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between">
           <h2 className="text-xs font-black text-zinc-900 uppercase tracking-wider">WO Terbaru</h2>
-          <button onClick={() => onSwitchTab('wo')} className="text-xs font-bold text-zinc-500 hover:text-zinc-900 transition-colors">Lihat Semua →</button>
+          {onNavigate && <button onClick={() => onNavigate('warranty-wo')} className="text-xs font-bold text-zinc-500 hover:text-zinc-900 transition-colors">Lihat Semua →</button>}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -170,8 +158,8 @@ function DashboardTab({ onSwitchTab }) {
   );
 }
 
-// ─── Work Order ───────────────────────────────────────────────
-function WorkOrderTab() {
+// ─── Work Order Page ──────────────────────────────────────────
+export function WarrantyWorkOrderPage() {
   const [data, setData] = useState([]);
   const [totalRecords, setTotalRecords] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -205,7 +193,7 @@ function WorkOrderTab() {
   const clearFilters = () => { setSearch(''); setSearchInput(''); setStatusFilter(''); setKategoriFilter(''); setFromDate(''); setToDate(''); setPage(0); };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="w-full h-full flex flex-col overflow-hidden">
       <div className="bg-white border-b border-zinc-200 px-4 py-3 flex flex-wrap items-center gap-2 shrink-0">
         <form onSubmit={e=>{e.preventDefault();setSearch(searchInput);setPage(0);}} className="flex items-center gap-2">
           <div className="relative"><Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"/><input type="text" value={searchInput} onChange={e=>setSearchInput(e.target.value)} placeholder="No. WO, plat, chassis, nama..." className="pl-8 pr-3 py-2 text-sm border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 w-52 text-zinc-900"/></div>
@@ -308,8 +296,8 @@ function WorkOrderTab() {
   );
 }
 
-// ─── Search ───────────────────────────────────────────────────
-function SearchTab() {
+// ─── Search Page ──────────────────────────────────────────────
+export function WarrantySearchPage() {
   const [query, setQuery] = useState('');
   const [searchType, setSearchType] = useState('all');
   const [results, setResults] = useState([]);
@@ -336,7 +324,7 @@ function SearchTab() {
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="w-full h-full flex flex-col overflow-hidden">
       <div className="bg-white border-b border-zinc-200 px-4 py-4 shrink-0">
         <form onSubmit={handleSearch} className="flex flex-col md:flex-row gap-3">
           <select value={searchType} onChange={e=>setSearchType(e.target.value)} className="px-3 py-2.5 text-sm border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900 font-medium md:w-44 shrink-0">
@@ -404,100 +392,9 @@ function SearchTab() {
   );
 }
 
-// ─── Main Hub with Left Sidebar ──────────────────────────────
-export default function WarrantyHub({ activeTab: activeTabProp }) {
-  const [activeTab, setActiveTab] = useState(activeTabProp || 'dashboard');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  useEffect(() => {
-    if (activeTabProp && activeTabProp !== activeTab) setActiveTab(activeTabProp);
-  }, [activeTabProp]);
-
-  const currentNav = NAV_ITEMS.find(n => n.id === activeTab) || NAV_ITEMS[0];
-
-  return (
-    <div className="w-full h-full flex overflow-hidden bg-zinc-50 font-sans">
-
-      {/* ── Desktop Left Sidebar ── */}
-      <aside className="hidden md:flex flex-col w-52 bg-white border-r border-zinc-200 shrink-0">
-        {/* Header */}
-        <div className="px-4 py-4 border-b border-zinc-100">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-zinc-900 rounded-xl flex items-center justify-center shrink-0">
-              <ShieldCheck size={16} className="text-white"/>
-            </div>
-            <div>
-              <p className="text-sm font-black text-zinc-900 leading-tight">Warranty</p>
-              <p className="text-[10px] text-zinc-400 uppercase tracking-wider">Management</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Nav Items */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          {NAV_ITEMS.map(item => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                  isActive ? 'bg-zinc-900 text-white shadow-sm' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
-                }`}
-              >
-                <Icon size={17}/>
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-      </aside>
-
-      {/* ── Mobile: Top bar + overlay sidebar ── */}
-      <div className="md:hidden fixed top-14 left-0 right-0 z-40 bg-white border-b border-zinc-200 px-4 h-12 flex items-center gap-3 shrink-0">
-        <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg text-zinc-700 hover:bg-zinc-100 transition-colors">
-          <Menu size={20}/>
-        </button>
-        <div className="flex items-center gap-2">
-          {React.createElement(currentNav.icon, { size: 16, className: 'text-zinc-500' })}
-          <span className="text-sm font-bold text-zinc-900">{currentNav.label}</span>
-        </div>
-      </div>
-
-      {/* Mobile overlay */}
-      {sidebarOpen && (
-        <div className="md:hidden fixed inset-0 z-[300] bg-black/40" onClick={() => setSidebarOpen(false)}>
-          <aside className="w-56 h-full bg-white shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="px-4 py-4 border-b border-zinc-100 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 bg-zinc-900 rounded-xl flex items-center justify-center"><ShieldCheck size={16} className="text-white"/></div>
-                <p className="text-sm font-black text-zinc-900">Warranty</p>
-              </div>
-              <button onClick={() => setSidebarOpen(false)} className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-400"><X size={18}/></button>
-            </div>
-            <nav className="flex-1 px-3 py-4 space-y-1">
-              {NAV_ITEMS.map(item => {
-                const Icon = item.icon;
-                const isActive = activeTab === item.id;
-                return (
-                  <button key={item.id} onClick={() => { setActiveTab(item.id); setSidebarOpen(false); }}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${isActive?'bg-zinc-900 text-white shadow-sm':'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}`}>
-                    <Icon size={17}/><span>{item.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          </aside>
-        </div>
-      )}
-
-      {/* ── Main Content ── */}
-      <div className="flex-1 flex flex-col overflow-hidden md:pt-0 pt-12">
-        {activeTab === 'dashboard' && <DashboardTab onSwitchTab={setActiveTab} />}
-        {activeTab === 'wo'        && <WorkOrderTab />}
-        {activeTab === 'search'    && <SearchTab />}
-      </div>
-    </div>
-  );
+// Default export for backward compat
+export default function WarrantyHub({ activeTab }) {
+  if (activeTab === 'wo') return <WarrantyWorkOrderPage />;
+  if (activeTab === 'search') return <WarrantySearchPage />;
+  return <WarrantyDashboardPage />;
 }
