@@ -81,7 +81,16 @@ function DetailPage({ settlement, onBack }) {
     try {
       const json = await apiFetch({ endpoint: 'proforma-detail', id: settlement.id });
       const payload = json.payload || json;
-      const list = payload.content || payload.items || payload.claimSettlementItems || [];
+      // DMS detail has separate arrays for maintain (BY) and warranty (BX) orders
+      const maintainOrders = payload.maintainOrders || [];
+      const warrantyOrders = payload.warrantyOrders || [];
+      const adjustmentOrders = payload.expenseAdjustmentOrders || [];
+      // Combine all items with type tag
+      const list = [
+        ...maintainOrders.map(o => ({ ...o, _type: 'maintain' })),
+        ...warrantyOrders.map(o => ({ ...o, _type: 'warranty' })),
+        ...adjustmentOrders.map(o => ({ ...o, _type: 'adjustment' })),
+      ];
       setItems(list);
 
       // Cross-ref VINs in background
@@ -166,8 +175,30 @@ function DetailPage({ settlement, onBack }) {
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{items.length} item claim</p>
+            <div className="flex items-center gap-4 text-xs text-zinc-400 font-bold uppercase tracking-wider">
+              <span>{items.filter(i => i._type === 'maintain').length} Free Service (BY)</span>
+              <span>·</span>
+              <span>{items.filter(i => i._type === 'warranty').length} Warranty (BX)</span>
+              {items.filter(i => i._type === 'adjustment').length > 0 && <>
+                <span>·</span>
+                <span>{items.filter(i => i._type === 'adjustment').length} Adjustment</span>
+              </>}
+            </div>
             {items.map((item, idx) => {
+              const itemCode = item.code || item.claimCode || '-';
+              const kat      = getKategori(itemCode);
+
+              // Adjustment orders have different structure
+              if (item._type === 'adjustment') {
+                return (
+                  <div key={idx} className="bg-zinc-50 rounded-xl border border-zinc-200 px-4 py-3 flex flex-wrap items-center gap-3">
+                    <span className="font-bold text-zinc-700 text-xs">{itemCode}</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border bg-amber-50 text-amber-700 border-amber-200">Adjustment</span>
+                    <span className={`text-xs font-bold ml-auto ${Number(item.totalFee) < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatRupiah(item.totalFee)}</span>
+                  </div>
+                );
+              }
+
               const vin    = item.vin || item.vinCode || item.chassisNo || '';
               const vd     = vinData[vin] || { wos: [], loading: false };
               const matchWO = vd.wos.find(w => (w.no_chassis || '').toLowerCase() === vin.toLowerCase()) || vd.wos[0];
@@ -175,8 +206,6 @@ function DetailPage({ settlement, onBack }) {
               const isFree   = isFreeService(perintah);
               const ifsWO    = vd.wos.find(w => (w.kategori || '').toUpperCase() === 'IFS');
               const ikcWO    = vd.wos.find(w => (w.kategori || '').toUpperCase() === 'IKC');
-              const itemCode = item.code || item.claimCode || '-';
-              const kat      = getKategori(itemCode);
 
               return (
                 <div key={idx} className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
