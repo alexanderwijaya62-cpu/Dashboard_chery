@@ -159,6 +159,148 @@ async function login(username, password, enterpriseCode) {
     }
 }
 
+// ============================================================
+// WARRANTY HANDLER — login to 103.160.12.43 and fetch WO data
+// ============================================================
+let warrantyCookie = null;
+let warrantyCookieExpiry = 0;
+
+async function warrantyLogin() {
+    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const USER = process.env.WARRANTY_USER || 'nisa';
+    const PASS = process.env.WARRANTY_PASS || 'qwerty12345';
+    const TOKEN = process.env.WARRANTY_TOKEN || '6aad5b';
+    const DEALER = process.env.WARRANTY_KODE_DEALER || 'MOS';
+    const DEPT = process.env.WARRANTY_DEPT || 'S';
+
+    const baseHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,*/*',
+    };
+
+    // Step 1: GET login page for CSRF
+    const loginPage = await fetchWithHttps(`${BASE}/aftersales/login`, { headers: baseHeaders });
+    const loginHtml = await loginPage.text();
+    let jar = {};
+    for (const c of loginPage.headers.getSetCookie()) {
+        const [pair] = c.split(';');
+        const idx = pair.indexOf('=');
+        if (idx > 0) jar[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+    }
+
+    const csrfMatch = loginHtml.match(/name="_token"\s+value="([^"]+)"/);
+    const csrf = csrfMatch ? csrfMatch[1] : '';
+    if (!csrf) throw new Error('Cannot extract CSRF from warranty login page');
+
+    // Step 2: POST login
+    const loginBody = new URLSearchParams({ _token: csrf, username: USER, password: PASS }).toString();
+    const loginRes = await fetchWithHttps(`${BASE}/aftersales/login`, {
+        method: 'POST',
+        headers: { ...baseHeaders, 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(loginBody), 'Cookie': Object.entries(jar).map(([k,v])=>`${k}=${v}`).join('; '), 'Referer': `${BASE}/aftersales/login`, 'Origin': BASE },
+        body: loginBody,
+    });
+    for (const c of loginRes.headers.getSetCookie()) {
+        const [pair] = c.split(';');
+        const idx = pair.indexOf('=');
+        if (idx > 0) jar[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+    }
+
+    // Step 3: GET token page
+    const cookieStr = () => Object.entries(jar).map(([k,v])=>`${k}=${v}`).join('; ');
+    const tokenPage = await fetchWithHttps(`${BASE}/aftersales/token`, { headers: { ...baseHeaders, 'Cookie': cookieStr(), 'Referer': `${BASE}/aftersales/` } });
+    const tokenHtml = await tokenPage.text();
+    for (const c of tokenPage.headers.getSetCookie()) {
+        const [pair] = c.split(';');
+        const idx = pair.indexOf('=');
+        if (idx > 0) jar[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+    }
+
+    const tokenCsrfMatch = tokenHtml.match(/name="_token"\s+value="([^"]+)"/);
+    const tokenCsrf = tokenCsrfMatch ? tokenCsrfMatch[1] : csrf;
+
+    // Step 4: POST token selection
+    const tokenBody = new URLSearchParams({ _token: tokenCsrf, kode_dealer: DEALER, token: TOKEN, dept_hidden: DEPT }).toString();
+    const tokenRes = await fetchWithHttps(`${BASE}/aftersales/token`, {
+        method: 'POST',
+        headers: { ...baseHeaders, 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(tokenBody), 'Cookie': cookieStr(), 'Referer': `${BASE}/aftersales/token`, 'Origin': BASE },
+        body: tokenBody,
+    });
+    for (const c of tokenRes.headers.getSetCookie()) {
+        const [pair] = c.split(';');
+        const idx = pair.indexOf('=');
+        if (idx > 0) jar[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+    }
+
+    warrantyCookie = cookieStr();
+    warrantyCookieExpiry = Date.now() + 90 * 60 * 1000;
+    console.log('[Warranty] ✅ Login OK');
+    return warrantyCookie;
+}
+
+async function handleWarranty(req, res) {
+    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const draw = req.query.draw || 1;
+    const start = req.query.start || 0;
+    const length = req.query.length || 25;
+    const search = req.query.search || '';
+    const status = req.query.status || '';
+    const from = req.query.from || '';
+    const to = req.query.to || '';
+
+    const targetUrl = `${BASE}/aftersales/work-order/data?draw=${draw}&start=${start}&length=${length}` +
+        `&columns[0][data]=action&columns[0][name]=action&columns[0][searchable]=false&columns[0][orderable]=false&columns[0][search][value]=&columns[0][search][regex]=false` +
+        `&columns[1][data]=no_wo&columns[1][name]=no_wo&columns[1][searchable]=true&columns[1][orderable]=true&columns[1][search][value]=&columns[1][search][regex]=false` +
+        `&columns[2][data]=no_wo_dms&columns[2][name]=no_wo_dms&columns[2][searchable]=true&columns[2][orderable]=true&columns[2][search][value]=&columns[2][search][regex]=false` +
+        `&columns[3][data]=status&columns[3][name]=status&columns[3][searchable]=true&columns[3][orderable]=true&columns[3][search][value]=&columns[3][search][regex]=false` +
+        `&columns[4][data]=nama_pelanggan&columns[4][name]=nama_pelanggan&columns[4][searchable]=true&columns[4][orderable]=true&columns[4][search][value]=&columns[4][search][regex]=false` +
+        `&columns[5][data]=no_polisi&columns[5][name]=no_polisi&columns[5][searchable]=true&columns[5][orderable]=true&columns[5][search][value]=&columns[5][search][regex]=false` +
+        `&columns[6][data]=no_chassis&columns[6][name]=no_chassis&columns[6][searchable]=true&columns[6][orderable]=true&columns[6][search][value]=&columns[6][search][regex]=false` +
+        `&columns[7][data]=nama_kendaraan&columns[7][name]=nama_kendaraan&columns[7][searchable]=true&columns[7][orderable]=true&columns[7][search][value]=&columns[7][search][regex]=false` +
+        `&columns[8][data]=waktu_masuk&columns[8][name]=waktu_masuk&columns[8][searchable]=true&columns[8][orderable]=true&columns[8][search][value]=&columns[8][search][regex]=false` +
+        `&columns[9][data]=waktu_simpan_estimasi&columns[9][name]=waktu_simpan_estimasi&columns[9][searchable]=true&columns[9][orderable]=true&columns[9][search][value]=&columns[9][search][regex]=false` +
+        `&columns[10][data]=waktu_setujui_estimasi&columns[10][name]=waktu_setujui_estimasi&columns[10][searchable]=true&columns[10][orderable]=true&columns[10][search][value]=&columns[10][search][regex]=false` +
+        `&columns[11][data]=waktu_mulai&columns[11][name]=waktu_mulai&columns[11][searchable]=true&columns[11][orderable]=true&columns[11][search][value]=&columns[11][search][regex]=false` +
+        `&columns[12][data]=waktu_checker&columns[12][name]=waktu_checker&columns[12][searchable]=true&columns[12][orderable]=true&columns[12][search][value]=&columns[12][search][regex]=false` +
+        `&columns[13][data]=waktu_selesai&columns[13][name]=waktu_selesai&columns[13][searchable]=true&columns[13][orderable]=true&columns[13][search][value]=&columns[13][search][regex]=false` +
+        `&columns[14][data]=nama_pembawa&columns[14][name]=nama_pembawa&columns[14][searchable]=true&columns[14][orderable]=true&columns[14][search][value]=&columns[14][search][regex]=false` +
+        `&columns[15][data]=id_karyawan&columns[15][name]=&columns[15][searchable]=true&columns[15][orderable]=true&columns[15][search][value]=&columns[15][search][regex]=false` +
+        `&columns[16][data]=nama_mekanik1&columns[16][name]=&columns[16][searchable]=true&columns[16][orderable]=true&columns[16][search][value]=&columns[16][search][regex]=false` +
+        `&columns[17][data]=nama_leader1&columns[17][name]=&columns[17][searchable]=true&columns[17][orderable]=true&columns[17][search][value]=&columns[17][search][regex]=false` +
+        `&columns[18][data]=last_update&columns[18][name]=last_update&columns[18][searchable]=true&columns[18][orderable]=true&columns[18][search][value]=&columns[18][search][regex]=false` +
+        `&order[0][column]=18&order[0][dir]=desc` +
+        `&search[value]=${encodeURIComponent(search)}&search[regex]=false` +
+        `&status=${encodeURIComponent(status)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&_=${Date.now()}`;
+
+    let attempts = 0;
+    while (attempts < 2) {
+        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+            warrantyCookie = await warrantyLogin();
+        }
+        const response = await fetchWithHttps(targetUrl, {
+            headers: {
+                'Cookie': warrantyCookie,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': `${BASE}/aftersales/work-order`,
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        });
+        const body = await response.text();
+        const isHtml = body.trimStart().startsWith('<');
+        if (response.status === 302 || response.status === 401 || isHtml) {
+            warrantyCookie = null;
+            attempts++;
+            continue;
+        }
+        try {
+            return res.status(200).json(JSON.parse(body));
+        } catch {
+            return res.status(500).json({ error: 'Non-JSON response', snippet: body.slice(0, 200) });
+        }
+    }
+    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+}
+
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -194,6 +336,13 @@ export default async function handler(req, res) {
             console.error("[Jagoan Proxy] Error:", err.message);
             return res.status(500).json({ success: false, messages: err.message });
         }
+    }
+
+    // ============================================================
+    // WARRANTY ENDPOINTS — proxied to 103.160.12.43/aftersales
+    // ============================================================
+    if (endpoint === 'warranty-wo') {
+        return handleWarranty(req, res);
     }
 
     try {

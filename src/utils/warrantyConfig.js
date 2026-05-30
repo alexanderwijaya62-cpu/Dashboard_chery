@@ -41,7 +41,10 @@ export function formatKm(val) {
 }
 
 export async function fetchWarrantyAPI(params) {
-  const res = await fetch(`/api/warranty?${params}`);
+  // Redirect warranty calls to chery_dms endpoint (merged to stay within Vercel function limit)
+  const newParams = new URLSearchParams(params.toString());
+  newParams.set('endpoint', 'warranty-wo');
+  const res = await fetch(`/api/chery_dms?${newParams}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json();
   if (json.error) throw new Error(json.error);
