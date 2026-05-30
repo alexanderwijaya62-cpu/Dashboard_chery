@@ -32,6 +32,7 @@ import PublicNavBar from './components/PublicNavBar';
 import WarrantyPanel from './components/WarrantyPanel';
 import WarrantyDashboard from './components/WarrantyDashboard';
 import WarrantySearch from './components/WarrantySearch';
+import WarrantyHub from './components/WarrantyHub';
 import { getNavItems } from './utils/navConfig';
 
 // Helper sanitasi untuk mencegah "Injection" atau karakter berbahaya
@@ -1641,9 +1642,9 @@ const App = () => {
       {currentPage === 'stock-comparison' && (
         <StockComparison user={user} setCurrentPage={setCurrentPage} />
       )}
-      {currentPage === 'warranty' && <WarrantyDashboard user={user} onNavigate={setCurrentPage} />}
-      {currentPage === 'warranty-wo' && <WarrantyPanel user={user} />}
-      {currentPage === 'warranty-search' && <WarrantySearch user={user} />}
+      {currentPage === 'warranty' && <WarrantyHub activeTab="dashboard" />}
+      {currentPage === 'warranty-wo' && <WarrantyHub activeTab="wo" />}
+      {currentPage === 'warranty-search' && <WarrantyHub activeTab="search" />}
       {currentPage === 'register' && (
         <RegisterPage 
           setCurrentPage={setCurrentPage} 
