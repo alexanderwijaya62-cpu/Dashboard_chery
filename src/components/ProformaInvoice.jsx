@@ -87,10 +87,23 @@ function DetailPage({ settlement, onBack }) {
 
   const processVinQueue = useCallback(() => {
     while (vinRunning.current < VIN_BATCH_SIZE && vinQueue.current.length > 0) {
-      const { vin, from, to } = vinQueue.current.shift();
+      const { vin, from, to, settlementYYMM } = vinQueue.current.shift();
       vinRunning.current++;
-      apiFetch({ endpoint: 'warranty-search-vin', vin, length: 10, from, to })
-        .then(r => setVinData(prev => ({ ...prev, [vin]: { wos: r.data || [], loading: false } })))
+      apiFetch({ endpoint: 'warranty-search-vin', vin, length: 25, from, to })
+        .then(r => {
+          let wos = r.data || [];
+          // Filter WOs by no_wo containing the settlement year+month code (e.g. "2604" for Apr 2026)
+          // Also accept the month before and after for edge cases
+          if (settlementYYMM && wos.length > 0) {
+            const relevant = wos.filter(w => {
+              const noWo = (w.no_wo || '').toUpperCase();
+              return noWo.includes(settlementYYMM);
+            });
+            // Only use filtered if we found matches, otherwise keep all
+            if (relevant.length > 0) wos = relevant;
+          }
+          setVinData(prev => ({ ...prev, [vin]: { wos, loading: false } }));
+        })
         .catch(() => setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: false } })))
         .finally(() => { vinRunning.current--; processVinQueue(); });
     }
@@ -129,18 +142,22 @@ function DetailPage({ settlement, onBack }) {
       const uniqueVins = [...new Set(list.map(it => it.vin || it.vinCode || it.chassisNo).filter(Boolean))];
       uniqueVins.forEach(vin => {
         setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: true } }));
-        // Build date range: start of month - 15 days, end of month + 15 days
-        let from = '', to = '';
+        let from = '', to = '', settlementYYMM = '';
         if (vinDateMap[vin]) {
           const minD = new Date(vinDateMap[vin].min);
           const maxD = new Date(vinDateMap[vin].max);
-          minD.setDate(minD.getDate() - 15);
-          maxD.setDate(maxD.getDate() + 15);
+          // settlementYYMM: e.g. "2604" for April 2026 — matches no_wo like "IFS-2604xxx"
+          const yy = String(minD.getFullYear()).slice(2);
+          const mm = String(minD.getMonth() + 1).padStart(2, '0');
+          settlementYYMM = `${yy}${mm}`;
+          // Date range: ±30 days around repairTime
+          minD.setDate(minD.getDate() - 30);
+          maxD.setDate(maxD.getDate() + 30);
           const pad = n => String(n).padStart(2, '0');
           from = `${minD.getFullYear()}-${pad(minD.getMonth()+1)}-${pad(minD.getDate())}`;
           to   = `${maxD.getFullYear()}-${pad(maxD.getMonth()+1)}-${pad(maxD.getDate())}`;
         }
-        vinQueue.current.push({ vin, from, to });
+        vinQueue.current.push({ vin, from, to, settlementYYMM });
       });
       processVinQueue();
     } catch (e) {
