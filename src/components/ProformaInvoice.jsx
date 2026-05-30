@@ -92,15 +92,12 @@ function DetailPage({ settlement, onBack }) {
       apiFetch({ endpoint: 'warranty-search-vin', vin, length: 25, from, to })
         .then(r => {
           let wos = r.data || [];
-          // Filter WOs by no_wo containing the settlement year+month code (e.g. "2604" for Apr 2026)
-          // Also accept the month before and after for edge cases
-          if (settlementYYMM && wos.length > 0) {
-            const relevant = wos.filter(w => {
-              const noWo = (w.no_wo || '').toUpperCase();
-              return noWo.includes(settlementYYMM);
-            });
-            // Only use filtered if we found matches, otherwise keep all
-            if (relevant.length > 0) wos = relevant;
+          // Strict filter: only keep WOs whose no_wo contains the settlement YYMM code
+          // e.g. settlementYYMM="2604" matches "IFS-2604xxx", "IKC-2604xxx"
+          if (settlementYYMM) {
+            const filtered = wos.filter(w => (w.no_wo || '').includes(settlementYYMM));
+            // Use filtered result — if empty, show nothing (don't fallback to old WOs)
+            wos = filtered;
           }
           setVinData(prev => ({ ...prev, [vin]: { wos, loading: false } }));
         })
@@ -140,23 +137,42 @@ function DetailPage({ settlement, onBack }) {
       });
 
       const uniqueVins = [...new Set(list.map(it => it.vin || it.vinCode || it.chassisNo).filter(Boolean))];
+
+      // Use settlement.settlementMonth as the primary date reference
+      // e.g. "2026-04-15T00:00:00+07:00" → YYMM = "2604"
+      let primaryYYMM = '';
+      const settlementDate = settlement.settlementMonth || settlement.createTime || '';
+      if (settlementDate) {
+        const sd = new Date(settlementDate);
+        if (!isNaN(sd)) {
+          const yy = String(sd.getFullYear()).slice(2);
+          const mm = String(sd.getMonth() + 1).padStart(2, '0');
+          primaryYYMM = `${yy}${mm}`;
+        }
+      }
+
       uniqueVins.forEach(vin => {
         setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: true } }));
-        let from = '', to = '', settlementYYMM = '';
+        let from = '', to = '', settlementYYMM = primaryYYMM;
+
         if (vinDateMap[vin]) {
           const minD = new Date(vinDateMap[vin].min);
           const maxD = new Date(vinDateMap[vin].max);
-          // settlementYYMM: e.g. "2604" for April 2026 — matches no_wo like "IFS-2604xxx"
-          const yy = String(minD.getFullYear()).slice(2);
-          const mm = String(minD.getMonth() + 1).padStart(2, '0');
-          settlementYYMM = `${yy}${mm}`;
-          // Date range: ±30 days around repairTime
           minD.setDate(minD.getDate() - 30);
           maxD.setDate(maxD.getDate() + 30);
           const pad = n => String(n).padStart(2, '0');
           from = `${minD.getFullYear()}-${pad(minD.getMonth()+1)}-${pad(minD.getDate())}`;
           to   = `${maxD.getFullYear()}-${pad(maxD.getMonth()+1)}-${pad(maxD.getDate())}`;
+        } else if (settlementDate) {
+          // Fallback: use settlement month ±45 days
+          const sd = new Date(settlementDate);
+          const minD = new Date(sd); minD.setDate(minD.getDate() - 45);
+          const maxD = new Date(sd); maxD.setDate(maxD.getDate() + 45);
+          const pad = n => String(n).padStart(2, '0');
+          from = `${minD.getFullYear()}-${pad(minD.getMonth()+1)}-${pad(minD.getDate())}`;
+          to   = `${maxD.getFullYear()}-${pad(maxD.getMonth()+1)}-${pad(maxD.getDate())}`;
         }
+
         vinQueue.current.push({ vin, from, to, settlementYYMM });
       });
       processVinQueue();
