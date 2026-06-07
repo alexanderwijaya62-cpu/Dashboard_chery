@@ -5,9 +5,16 @@
       "destination": "/index.html"
     }
   ],
-  "functions": {
-    "api/*.js": {
-      "maxDuration": 10
+    "functions": {
+    "api/chery_dms.js": { "maxDuration": 10 },
+    "api/chery_epc.js": { "maxDuration": 10 },
+    "api/warranty.js": { "maxDuration": 10 },
+    "api/gas.js": { "maxDuration": 10 },
+    "api/gas_sparepart.js": { "maxDuration": 10 },
+    "api/gas_booking.js": { "maxDuration": 10 },
+    "api/gas_cro.js": { "maxDuration": 10 },
+    "api/gas_laporanwo.js": { "maxDuration": 10 },
+    "api/gas_revenue.js": { "maxDuration": 10 },
+    "api/gas_users.js": { "maxDuration": 10 }
     }
-  }
 }
