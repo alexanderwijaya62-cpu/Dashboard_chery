@@ -1,10 +1,6 @@
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
 import https from 'https';
 import urllib from 'url';
 
-const COOKIE_FILE = path.join(os.tmpdir(), 'chery_dms_cookie.txt');
 let cachedCookie = null;
 let currentLoginPromise = null;
 
@@ -60,27 +56,11 @@ function fetchWithHttps(urlStr, options = {}) {
 }
 
 function getStoredCookie() {
-    try {
-        if (fs.existsSync(COOKIE_FILE)) {
-            const stats = fs.statSync(COOKIE_FILE);
-            // Cookie valid for 2 hours
-            const isFresh = (Date.now() - stats.mtimeMs) < (2 * 60 * 60 * 1000);
-            if (isFresh) {
-                return fs.readFileSync(COOKIE_FILE, 'utf8');
-            }
-        }
-    } catch (e) {
-        console.error("Error reading cookie file:", e.message);
-    }
-    return null;
+    return cachedCookie;
 }
 
 function saveCookie(cookie) {
-    try {
-        fs.writeFileSync(COOKIE_FILE, cookie, 'utf8');
-    } catch (e) {
-        console.error("Error saving cookie file:", e.message);
-    }
+    cachedCookie = cookie;
 }
 
 async function login(username, password, enterpriseCode) {
@@ -301,6 +281,439 @@ async function handleWarranty(req, res) {
     return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
 }
 
+async function getWarrantyCsrfToken(url) {
+    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const pageResp = await fetchWithHttps(url, {
+        headers: {
+            'Cookie': warrantyCookie,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': `${BASE}/aftersales/booking`,
+            'Accept': 'text/html,*/*',
+        },
+    });
+    const pageHtml = await pageResp.text();
+    const tokenMatch = pageHtml.match(/name="_token"\s+value="([^"]+)"/);
+    return tokenMatch ? tokenMatch[1] : null;
+}
+
+async function handleVehicleSelect(req, res) {
+    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const term = req.query.term || '';
+    const q = req.query.q || '';
+    const type = req.query._type || 'query';
+    const targetUrl = `${BASE}/aftersales/kendaraan/select?term=${encodeURIComponent(term)}&_type=${encodeURIComponent(type)}&q=${encodeURIComponent(q)}`;
+
+    let attempts = 0;
+    while (attempts < 2) {
+        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+            warrantyCookie = await warrantyLogin();
+        }
+        const response = await fetchWithHttps(targetUrl, {
+            headers: {
+                'Cookie': warrantyCookie,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': `${BASE}/aftersales/booking`,
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        });
+        const body = await response.text();
+        const isHtml = body.trimStart().startsWith('<');
+        if (response.status === 302 || response.status === 401 || isHtml) {
+            warrantyCookie = null;
+            attempts++;
+            continue;
+        }
+        try {
+            return res.status(200).json(JSON.parse(body));
+        } catch {
+            return res.status(500).json({ error: 'Non-JSON response from vehicle select', snippet: body.slice(0, 200) });
+        }
+    }
+    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+}
+
+async function handleBookingCreate(req, res) {
+    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    let attempts = 0;
+    while (attempts < 2) {
+        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+            warrantyCookie = await warrantyLogin();
+        }
+
+        const csrf = await getWarrantyCsrfToken(`${BASE}/aftersales/booking`);
+        if (!csrf) {
+            warrantyCookie = null;
+            attempts++;
+            continue;
+        }
+
+        const createUrl = `${BASE}/aftersales/booking`;
+        const formData = new URLSearchParams();
+        formData.set('_token', csrf);
+        
+        const fields = [
+            'uniqid', 'id_kendaraan', 'no_polisi', 'model_kendaraan', 'nama_kendaraan',
+            'tipe_kendaraan', 'no_chassis', 'group_kendaraan', 'no_pelanggan', 'id_pelanggan',
+            'tipe_pelanggan', 'nama_pelanggan', 'no_telp_pelanggan', 'alamat_pelanggan',
+            'atas_nama_booking', 'no_telp_booking', 'janji_datang', 'keluhan',
+            'booking_via', 'booking_via_personal', 'km'
+        ];
+        for (const f of fields) {
+            const val = req.body[f];
+            if (val !== undefined && val !== null) formData.set(f, val);
+        }
+
+        const response = await fetchWithHttps(createUrl, {
+            method: 'POST',
+            headers: {
+                'Cookie': warrantyCookie,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': `${BASE}/aftersales/booking`,
+                'Origin': BASE,
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': Buffer.byteLength(formData.toString()),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+            body: formData.toString(),
+        });
+
+        const respBody = await response.text();
+        if (response.status === 302 || response.status === 303 || response.status === 200) {
+            return res.status(200).json({ success: true, message: 'Booking created successfully' });
+        }
+        
+        return res.status(response.status).json({ success: false, message: `Server returned ${response.status}`, snippet: respBody.slice(0, 300) });
+    }
+    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+}
+
+async function handleBookingReschedule(req, res) {
+    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const id = req.query.id || '';
+    if (!id) return res.status(400).json({ error: 'Missing booking ID' });
+
+    let attempts = 0;
+    while (attempts < 2) {
+        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+            warrantyCookie = await warrantyLogin();
+        }
+
+        const csrf = await getWarrantyCsrfToken(`${BASE}/aftersales/booking`);
+        if (!csrf) {
+            warrantyCookie = null;
+            attempts++;
+            continue;
+        }
+
+        const rescheduleUrl = `${BASE}/aftersales/booking/reschedule/${id}`;
+        const formData = new URLSearchParams();
+        formData.set('_token', csrf);
+        formData.set('_method', 'patch');
+        formData.set('janji_datang', req.body.janji_datang);
+        formData.set('alasan_reschedule', req.body.alasan_reschedule || '');
+
+        const response = await fetchWithHttps(rescheduleUrl, {
+            method: 'POST',
+            headers: {
+                'Cookie': warrantyCookie,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': `${BASE}/aftersales/booking`,
+                'Origin': BASE,
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': Buffer.byteLength(formData.toString()),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+            body: formData.toString(),
+        });
+
+        const respBody = await response.text();
+        if (response.status === 302 || response.status === 303 || response.status === 200) {
+            return res.status(200).json({ success: true, message: 'Booking rescheduled successfully' });
+        }
+        
+        return res.status(response.status).json({ success: false, message: `Server returned ${response.status}`, snippet: respBody.slice(0, 300) });
+    }
+    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+}
+
+async function handleBookingEdit(req, res) {
+    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const id = req.query.id || '';
+    if (!id) return res.status(400).json({ error: 'Missing booking ID' });
+
+    let attempts = 0;
+    while (attempts < 2) {
+        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+            warrantyCookie = await warrantyLogin();
+        }
+
+        const csrf = await getWarrantyCsrfToken(`${BASE}/aftersales/booking`);
+        if (!csrf) {
+            warrantyCookie = null;
+            attempts++;
+            continue;
+        }
+
+        const editUrl = `${BASE}/aftersales/booking/${id}`;
+        const formData = new URLSearchParams();
+        formData.set('_token', csrf);
+        formData.set('_method', 'patch');
+        
+        const fields = [
+            'id_kendaraan', 'no_polisi', 'nama_kendaraan', 'no_chassis',
+            'atas_nama_booking', 'no_telp_booking', 'keluhan', 'booking_via',
+            'booking_via_personal', 'km'
+        ];
+        for (const f of fields) {
+            const val = req.body[f];
+            if (val !== undefined && val !== null) formData.set(f, val);
+        }
+
+        const response = await fetchWithHttps(editUrl, {
+            method: 'POST',
+            headers: {
+                'Cookie': warrantyCookie,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': `${BASE}/aftersales/booking`,
+                'Origin': BASE,
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': Buffer.byteLength(formData.toString()),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+            body: formData.toString(),
+        });
+
+        const respBody = await response.text();
+        if (response.status === 302 || response.status === 303 || response.status === 200) {
+            return res.status(200).json({ success: true, message: 'Booking edited successfully' });
+        }
+        
+        return res.status(response.status).json({ success: false, message: `Server returned ${response.status}`, snippet: respBody.slice(0, 300) });
+    }
+    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+}
+
+async function handleBookingData(req, res) {
+    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const draw = req.query.draw || 1;
+    const start = req.query.start || 0;
+    const length = req.query.length || 25;
+    const search = req.query.search || '';
+    const status = req.query.status || '';
+    const datefrom = req.query.datefrom || '';
+    const dateto = req.query.dateto || '';
+
+    const targetUrl = `${BASE}/aftersales/booking/data?draw=${draw}&start=${start}&length=${length}` +
+        `&columns[0][data]=no_booking&columns[0][searchable]=true&columns[0][orderable]=true` +
+        `&columns[1][data]=status_booking&columns[1][searchable]=true&columns[1][orderable]=true` +
+        `&columns[2][data]=nama_pelanggan&columns[2][searchable]=true&columns[2][orderable]=true` +
+        `&columns[3][data]=no_polisi&columns[3][searchable]=true&columns[3][orderable]=true` +
+        `&columns[4][data]=nama_kendaraan&columns[4][searchable]=true&columns[4][orderable]=true` +
+        `&columns[5][data]=janji_datang&columns[5][searchable]=true&columns[5][orderable]=true` +
+        `&columns[6][data]=km&columns[6][searchable]=true&columns[6][orderable]=true` +
+        `&columns[7][data]=booking_via&columns[7][searchable]=true&columns[7][orderable]=true` +
+        `&columns[8][data]=dibuat_oleh&columns[8][searchable]=true&columns[8][orderable]=true` +
+        `&order[0][column]=0&order[0][dir]=desc` +
+        `&search[value]=${encodeURIComponent(search)}&search[regex]=false` +
+        `&status=${encodeURIComponent(status)}&from=${encodeURIComponent(datefrom)}&to=${encodeURIComponent(dateto)}&_=${Date.now()}`;
+
+    let attempts = 0;
+    while (attempts < 2) {
+        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+            warrantyCookie = await warrantyLogin();
+        }
+        const response = await fetchWithHttps(targetUrl, {
+            headers: {
+                'Cookie': warrantyCookie,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': `${BASE}/aftersales/booking`,
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        });
+        const body = await response.text();
+        const isHtml = body.trimStart().startsWith('<');
+        if (response.status === 302 || response.status === 401 || isHtml) {
+            warrantyCookie = null;
+            attempts++;
+            continue;
+        }
+        try {
+            return res.status(200).json(JSON.parse(body));
+        } catch {
+            return res.status(500).json({ error: 'Non-JSON response from booking data', snippet: body.slice(0, 200) });
+        }
+    }
+    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+}
+
+async function handleBookingEditForm(req, res) {
+    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const id = req.query.id || '';
+    if (!id) return res.status(400).json({ error: 'Missing booking ID' });
+
+    const targetUrl = `${BASE}/aftersales/booking/${id}/add-kendaraan`;
+    let attempts = 0;
+    while (attempts < 2) {
+        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+            warrantyCookie = await warrantyLogin();
+        }
+        const response = await fetchWithHttps(targetUrl, {
+            headers: {
+                'Cookie': warrantyCookie,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': `${BASE}/aftersales/booking`,
+                'Accept': 'text/html,application/xhtml+xml,*/*',
+            },
+        });
+        const body = await response.text();
+
+        if (response.status === 302 || response.status === 401 || body.includes('/aftersales/login')) {
+            warrantyCookie = null;
+            attempts++;
+            continue;
+        }
+
+        try {
+            const tokenMatch = body.match(/name="_token"\s+value="([^"]+)"/);
+            const token = tokenMatch ? tokenMatch[1] : '';
+
+            const getVal = (name) => {
+                const r = new RegExp(`name="${name}"[^>]*value="([^"]*)"`);
+                const m = r.exec(body);
+                return m ? m[1] : '';
+            };
+            const values = {
+                no_polisi: getVal('no_polisi'),
+                no_chassis: getVal('no_chassis'),
+                no_engine: getVal('no_engine'),
+                id_tipe: getVal('id_tipe'),
+                kode_warna: getVal('kode_warna'),
+                nik: getVal('nik'),
+                no_telp: getVal('no_telp'),
+                nama_pelanggan: getVal('nama_pelanggan'),
+                kota: getVal('kota'),
+                alamat: getVal('alamat'),
+            };
+
+            const extractOptions = (selectName) => {
+                const opts = [];
+                const selMatch = body.match(new RegExp(`<select[^>]*name="${selectName}"[^>]*>([\\s\\S]*?)<\\/select>`, 'i'));
+                if (selMatch) {
+                    const optRegex = /<option\s+value="([^"]*)"([^>]*)>([\s\S]*?)<\/option>/g;
+                    let m;
+                    while ((m = optRegex.exec(selMatch[1])) !== null) {
+                        opts.push({
+                            value: m[1],
+                            label: m[3].trim().replace(/<[^>]*>/g, ''),
+                            selected: m[2].includes('selected')
+                        });
+                    }
+                }
+                return opts;
+            };
+
+            return res.status(200).json({
+                success: true,
+                token,
+                values,
+                tipeOptions: extractOptions('id_tipe'),
+                warnaOptions: extractOptions('kode_warna'),
+            });
+        } catch (err) {
+            return res.status(500).json({ error: 'Failed to parse booking edit form', message: err.message });
+        }
+    }
+    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+}
+
+async function handleBookingUpdate(req, res) {
+    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const id = req.query.id || '';
+    if (!id) return res.status(400).json({ error: 'Missing booking ID' });
+
+    let attempts = 0;
+    while (attempts < 2) {
+        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+            warrantyCookie = await warrantyLogin();
+        }
+
+        const editPageUrl = `${BASE}/aftersales/booking/${id}/add-kendaraan`;
+        const editResp = await fetchWithHttps(editPageUrl, {
+            headers: {
+                'Cookie': warrantyCookie,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': `${BASE}/aftersales/booking`,
+                'Accept': 'text/html,*/*',
+            },
+        });
+        const editHtml = await editResp.text();
+
+        if (editResp.status === 302 || editResp.status === 401 || editHtml.includes('/aftersales/login')) {
+            warrantyCookie = null;
+            attempts++;
+            continue;
+        }
+
+        const tokenMatch = editHtml.match(/name="_token"\s+value="([^"]+)"/);
+        const csrf = tokenMatch ? tokenMatch[1] : '';
+        if (!csrf) {
+            return res.status(500).json({ error: 'Cannot extract CSRF token from edit page' });
+        }
+
+        const updateUrl = `${BASE}/aftersales/booking/update-kendaraan/${id}`;
+        const formData = new URLSearchParams();
+        formData.set('_token', csrf);
+        formData.set('_method', 'patch');
+        const fields = ['no_polisi','no_chassis','no_engine','id_tipe','kode_warna','nik','no_telp','nama_pelanggan','kota','alamat'];
+        for (const f of fields) {
+            const val = req.body[f];
+            if (val !== undefined && val !== null) formData.set(f, val);
+        }
+
+        const updateResp = await fetchWithHttps(updateUrl, {
+            method: 'POST',
+            headers: {
+                'Cookie': warrantyCookie,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': `${BASE}/aftersales/booking/${id}/add-kendaraan`,
+                'Origin': BASE,
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': Buffer.byteLength(formData.toString()),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+            body: formData.toString(),
+        });
+
+        const respBody = await updateResp.text();
+        const isHtml = respBody.trimStart().startsWith('<');
+        if (updateResp.status === 302 || updateResp.status === 303) {
+            return res.status(200).json({ success: true, message: 'Booking updated successfully' });
+        }
+        if (isHtml && respBody.includes('alert-success')) {
+            return res.status(200).json({ success: true, message: 'Booking updated successfully' });
+        }
+        if (isHtml && respBody.includes('alert-danger')) {
+            const errMatch = respBody.match(/alert-danger[^>]*>([\s\S]*?)<\/div>/);
+            const errMsg = errMatch ? errMatch[1].replace(/<[^>]*>/g, '').trim() : 'Validation error';
+            return res.status(400).json({ success: false, message: errMsg });
+        }
+        if (!isHtml) {
+            try {
+                const json = JSON.parse(respBody);
+                return res.status(updateResp.ok ? 200 : 400).json(json);
+            } catch { }
+        }
+
+        return res.status(updateResp.ok ? 200 : 400).json({
+            success: updateResp.ok,
+            message: updateResp.ok ? 'Booking updated' : `Server returned ${updateResp.status}`
+        });
+    }
+    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+}
+
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -412,6 +825,34 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
     }
 
+    if (endpoint === 'vehicle-select') {
+        return handleVehicleSelect(req, res);
+    }
+
+    if (endpoint === 'booking-create') {
+        return handleBookingCreate(req, res);
+    }
+
+    if (endpoint === 'booking-reschedule') {
+        return handleBookingReschedule(req, res);
+    }
+
+    if (endpoint === 'booking-edit') {
+        return handleBookingEdit(req, res);
+    }
+
+    if (endpoint === 'booking-data') {
+        return handleBookingData(req, res);
+    }
+
+    if (endpoint === 'booking-edit-form') {
+        return handleBookingEditForm(req, res);
+    }
+
+    if (endpoint === 'booking-update') {
+        return handleBookingUpdate(req, res);
+    }
+
     try {
         const username = process.env.DMS_USER || 'Alex';
         const password = process.env.DMS_PASS || 'Alex123!';
@@ -510,7 +951,6 @@ export default async function handler(req, res) {
             if (response.status === 401 || response.status === 403) {
                 console.log("⚠️ Session expired, retrying login...");
                 cachedCookie = null;
-                try { if (fs.existsSync(COOKIE_FILE)) fs.unlinkSync(COOKIE_FILE); } catch(e) {}
                 attempts++;
                 continue;
             }
