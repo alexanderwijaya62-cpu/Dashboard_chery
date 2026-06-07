@@ -103,7 +103,12 @@ async function fetchFollowRedirects(urlStr, options = {}, cookieJar = {}, maxRed
       currentUrl = nextUrl;
       // After redirect, use GET (standard browser behavior for 302/303)
       if (res.status !== 307) {
-        currentOptions = { method: 'GET', headers: currentOptions.headers };
+        const newHeaders = { ...currentOptions.headers };
+        delete newHeaders['Content-Length'];
+        delete newHeaders['content-length'];
+        delete newHeaders['Content-Type'];
+        delete newHeaders['content-type'];
+        currentOptions = { method: 'GET', headers: newHeaders };
         delete currentOptions.body;
       }
       redirectCount++;
