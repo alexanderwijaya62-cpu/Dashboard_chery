@@ -7,6 +7,16 @@
     { "src": "package.json", "use": "@vercel/static-build", "config": { "framework": "vite" } }
   ],
   "rewrites": [
+    { "source": "/api/chery_dms", "destination": "/api/chery_dms.js" },
+    { "source": "/api/chery_epc", "destination": "/api/chery_epc.js" },
+    { "source": "/api/warranty", "destination": "/api/warranty.js" },
+    { "source": "/api/gas", "destination": "/api/gas.js" },
+    { "source": "/api/gas_booking", "destination": "/api/gas_booking.js" },
+    { "source": "/api/gas_cro", "destination": "/api/gas_cro.js" },
+    { "source": "/api/gas_laporanwo", "destination": "/api/gas_laporanwo.js" },
+    { "source": "/api/gas_revenue", "destination": "/api/gas_revenue.js" },
+    { "source": "/api/gas_sparepart", "destination": "/api/gas_sparepart.js" },
+    { "source": "/api/gas_users", "destination": "/api/gas_users.js" },
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
