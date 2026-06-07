@@ -1,20 +1,21 @@
 {
+  "builds": [
+    { "src": "api/chery_dms.js", "use": "@vercel/node" },
+    { "src": "api/chery_epc.js", "use": "@vercel/node" },
+    { "src": "api/warranty.js", "use": "@vercel/node" },
+    { "src": "api/gas*.js", "use": "@vercel/node" },
+    { "src": "package.json", "use": "@vercel/static-build", "config": { "framework": "vite" } }
+  ],
   "rewrites": [
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ],
-    "functions": {
+  "functions": {
     "api/chery_dms.js": { "maxDuration": 10 },
     "api/chery_epc.js": { "maxDuration": 10 },
     "api/warranty.js": { "maxDuration": 10 },
-    "api/gas.js": { "maxDuration": 10 },
-    "api/gas_sparepart.js": { "maxDuration": 10 },
-    "api/gas_booking.js": { "maxDuration": 10 },
-    "api/gas_cro.js": { "maxDuration": 10 },
-    "api/gas_laporanwo.js": { "maxDuration": 10 },
-    "api/gas_revenue.js": { "maxDuration": 10 },
-    "api/gas_users.js": { "maxDuration": 10 }
-    }
+    "api/gas*.js": { "maxDuration": 10 }
+  }
 }
