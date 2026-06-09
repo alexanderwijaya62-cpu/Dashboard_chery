@@ -825,7 +825,7 @@ function DetailPage({ settlement, onBack }) {
                         )}
                         {/* Perintah category from After Sales */}
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold border ${isFree ? 'bg-green-50 text-green-700 border-green-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                          {isFree ? 'Γ£ô Free Service' : 'Γ£ô Warranty'}
+                          {isFree ? 'Free Service' : 'Warranty'}
                         </span>
                         {/* IFS/IKC WO type badges */}
                         {ifsWO && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200">IFS</span>}
