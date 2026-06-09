@@ -9,7 +9,8 @@ const httpsAgent = new https.Agent({
     keepAlive: true,
     maxSockets: 64,
     maxFreeSockets: 16,
-    timeout: 30000
+    timeout: 30000,
+    rejectUnauthorized: false
 });
 
 function fetchWithHttps(urlStr, options = {}) {
@@ -40,7 +41,8 @@ function fetchWithHttps(urlStr, options = {}) {
                         }
                     },
                     text: async () => buffer.toString('utf8'),
-                    json: async () => JSON.parse(buffer.toString('utf8'))
+                    json: async () => JSON.parse(buffer.toString('utf8')),
+                    buffer: async () => buffer
                 };
                 resolve(responseObj);
             });
@@ -144,12 +146,14 @@ async function login(username, password, enterpriseCode) {
 // ============================================================
 let warrantyCookie = null;
 let warrantyCookieExpiry = 0;
+let croCookie = null;
+let croCookieExpiry = 0;
 
-async function warrantyLogin() {
+async function warrantyGenericLogin(isCro = false) {
     const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
-    const USER = process.env.WARRANTY_USER || 'nisa';
-    const PASS = process.env.WARRANTY_PASS || 'qwerty12345';
-    const TOKEN = process.env.WARRANTY_TOKEN || '6aad5b';
+    const USER = isCro ? (process.env.CRO_USER || 'rendika') : (process.env.WARRANTY_USER || 'nisa');
+    const PASS = isCro ? (process.env.CRO_PASS || 'rendika123') : (process.env.WARRANTY_PASS || 'qwerty12345');
+    const TOKEN = isCro ? (process.env.CRO_TOKEN || 'c0e565') : (process.env.WARRANTY_TOKEN || '6aad5b');
     const DEALER = process.env.WARRANTY_KODE_DEALER || 'MOS';
     const DEPT = process.env.WARRANTY_DEPT || 'S';
 
@@ -161,6 +165,9 @@ async function warrantyLogin() {
     // Step 1: GET login page for CSRF
     const loginPage = await fetchWithHttps(`${BASE}/aftersales/login`, { headers: baseHeaders });
     const loginHtml = await loginPage.text();
+    if (loginPage.status === 302 || loginHtml.includes('login') === false && loginHtml.includes('_token') === false) {
+        throw new Error(`[${isCro?'CRO':'Warranty'}] Login page status ${loginPage.status} — bukan form login: ${loginHtml.slice(0,200)}`);
+    }
     let jar = {};
     for (const c of loginPage.headers.getSetCookie()) {
         const [pair] = c.split(';');
@@ -170,7 +177,7 @@ async function warrantyLogin() {
 
     const csrfMatch = loginHtml.match(/name="_token"\s+value="([^"]+)"/);
     const csrf = csrfMatch ? csrfMatch[1] : '';
-    if (!csrf) throw new Error('Cannot extract CSRF from warranty login page');
+    if (!csrf) throw new Error(`[${isCro?'CRO':'Warranty'}] Cannot extract CSRF from login page — snippet: ${loginHtml.slice(0,200)}`);
 
     // Step 2: POST login
     const loginBody = new URLSearchParams({ _token: csrf, username: USER, password: PASS }).toString();
@@ -179,16 +186,37 @@ async function warrantyLogin() {
         headers: { ...baseHeaders, 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(loginBody), 'Cookie': Object.entries(jar).map(([k,v])=>`${k}=${v}`).join('; '), 'Referer': `${BASE}/aftersales/login`, 'Origin': BASE },
         body: loginBody,
     });
+    if (loginRes.status >= 400) {
+        const body = await loginRes.text();
+        throw new Error(`[${isCro?'CRO':'Warranty'}] Login POST returned ${loginRes.status}: ${(body||'<empty>').slice(0,200)}`);
+    }
     for (const c of loginRes.headers.getSetCookie()) {
         const [pair] = c.split(';');
         const idx = pair.indexOf('=');
         if (idx > 0) jar[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
     }
 
-    // Step 3: GET token page
+    // Step 3: GET token page (CRO accounts may skip this — redirects to /aftersales)
     const cookieStr = () => Object.entries(jar).map(([k,v])=>`${k}=${v}`).join('; ');
     const tokenPage = await fetchWithHttps(`${BASE}/aftersales/token`, { headers: { ...baseHeaders, 'Cookie': cookieStr(), 'Referer': `${BASE}/aftersales/` } });
+    if (tokenPage.status === 302) {
+        // CRO account — token step skipped, cookies from login are enough
+        const finalCookie = cookieStr();
+        if (isCro) {
+            croCookie = finalCookie;
+            croCookieExpiry = Date.now() + 90 * 60 * 1000;
+            console.log('[CRO] ✅ Login OK (no token step)');
+        } else {
+            warrantyCookie = finalCookie;
+            warrantyCookieExpiry = Date.now() + 90 * 60 * 1000;
+            console.log('[Warranty] ✅ Login OK (no token step)');
+        }
+        return finalCookie;
+    }
     const tokenHtml = await tokenPage.text();
+    if (tokenPage.status >= 400) {
+        throw new Error(`[${isCro?'CRO':'Warranty'}] Token page GET returned ${tokenPage.status}: ${(tokenHtml||'<empty>').slice(0,200)}`);
+    }
     for (const c of tokenPage.headers.getSetCookie()) {
         const [pair] = c.split(';');
         const idx = pair.indexOf('=');
@@ -205,16 +233,37 @@ async function warrantyLogin() {
         headers: { ...baseHeaders, 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(tokenBody), 'Cookie': cookieStr(), 'Referer': `${BASE}/aftersales/token`, 'Origin': BASE },
         body: tokenBody,
     });
+    if (tokenRes.status >= 400) {
+        const body = await tokenRes.text();
+        throw new Error(`[${isCro?'CRO':'Warranty'}] Token POST returned ${tokenRes.status}: ${(body||'<empty>').slice(0,200)}`);
+    }
     for (const c of tokenRes.headers.getSetCookie()) {
         const [pair] = c.split(';');
         const idx = pair.indexOf('=');
         if (idx > 0) jar[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
     }
 
-    warrantyCookie = cookieStr();
-    warrantyCookieExpiry = Date.now() + 90 * 60 * 1000;
-    console.log('[Warranty] ✅ Login OK');
-    return warrantyCookie;
+    const finalCookie = cookieStr();
+    if (!finalCookie) throw new Error(`[${isCro?'CRO':'Warranty'}] No cookies after login`);
+
+    if (isCro) {
+        croCookie = finalCookie;
+        croCookieExpiry = Date.now() + 90 * 60 * 1000;
+        console.log('[CRO] ✅ Login OK');
+    } else {
+        warrantyCookie = finalCookie;
+        warrantyCookieExpiry = Date.now() + 90 * 60 * 1000;
+        console.log('[Warranty] ✅ Login OK');
+    }
+    return finalCookie;
+}
+
+async function warrantyLogin() {
+    return warrantyGenericLogin(false);
+}
+
+async function croLogin() {
+    return warrantyGenericLogin(true);
 }
 
 async function handleWarranty(req, res) {
@@ -281,11 +330,89 @@ async function handleWarranty(req, res) {
     return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
 }
 
-async function getWarrantyCsrfToken(url) {
+async function handleWarrantyEstimasiDetail(req, res) {
+    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const id = req.query.id || '';
+    if (!id) return res.status(400).json({ error: 'Missing estimasi/WO ID' });
+
+    const targetUrl = `${BASE}/aftersales/estimasi/detail/${id}`;
+    let attempts = 0;
+    while (attempts < 2) {
+        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+            warrantyCookie = await warrantyLogin();
+        }
+        const response = await fetchWithHttps(targetUrl, {
+            headers: {
+                'Cookie': warrantyCookie,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': `${BASE}/aftersales/work-order`,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+        });
+        const body = await response.text();
+        const isHtml = body.trimStart().startsWith('<');
+        if (response.status === 302 || response.status === 401 || !isHtml || body.includes('/aftersales/login')) {
+            warrantyCookie = null;
+            attempts++;
+            continue;
+        }
+
+        try {
+            const parts = [];
+            const tbodyMatch = body.match(/<tbody[^>]*id="tbody_part"[\s\S]*?<\/tbody>/i);
+            if (tbodyMatch) {
+                const tbodyHtml = tbodyMatch[0];
+                const trRegex = /<tr[^>]*class="[^"]*partRow[^"]*"[\s\S]*?<\/tr>/gi;
+                let trMatch;
+                while ((trMatch = trRegex.exec(tbodyHtml)) !== null) {
+                    const trHtml = trMatch[0];
+                    
+                    const qtyMatch = trHtml.match(/name="detail_part\[\d+\]\[qty\]"[^>]*value="([^"]+)"/i) ||
+                                     trHtml.match(/class="[^"]*qty[^"]*"[^>]*value="([^"]+)"/i) ||
+                                     trHtml.match(/<td>\s*(\d+)\s*<\/td>/i);
+                    const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
+
+                    const tds = [];
+                    const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+                    let tdMatch;
+                    while ((tdMatch = tdRegex.exec(trHtml)) !== null) {
+                        tds.push(tdMatch[1].replace(/<[^>]*>/g, '').trim());
+                    }
+                    
+                    const kodeMatch = trHtml.match(/name="detail_part\[\d+\]\[kode_part\]"[^>]*value="([^"]+)"/i) ||
+                                      trHtml.match(/name="detail_part\[\d+\]\[code\]"[^>]*value="([^"]+)"/i);
+                    const kode_part = kodeMatch ? kodeMatch[1].trim() : (tds[2] || tds[1] || '');
+
+                    const namaMatch = trHtml.match(/name="detail_part\[\d+\]\[nama_part\]"[^>]*value="([^"]+)"/i) ||
+                                      trHtml.match(/name="detail_part\[\d+\]\[name\]"[^>]*value="([^"]+)"/i);
+                    const nama_part = namaMatch ? namaMatch[1].trim() : (tds[3] || tds[2] || '');
+
+                    const statusCell = tds[tds.length - 1] || '';
+                    const badgeMatch = trHtml.match(/<span[^>]*class="[^"]*kt-badge[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
+                    const status_permintaan = badgeMatch ? badgeMatch[1].replace(/<[^>]*>/g, '').trim() : statusCell;
+
+                    parts.push({
+                        kode_part,
+                        nama_part,
+                        jumlah: qty,
+                        status_permintaan: status_permintaan || 'Aktif',
+                        status: status_permintaan || 'Aktif'
+                    });
+                }
+            }
+            return res.status(200).json({ parts });
+        } catch (err) {
+            return res.status(500).json({ error: 'Failed to parse parts from HTML', message: err.message });
+        }
+    }
+    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+}
+
+async function getCsrfToken(url, cookie) {
     const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
     const pageResp = await fetchWithHttps(url, {
         headers: {
-            'Cookie': warrantyCookie,
+            'Cookie': cookie,
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Referer': `${BASE}/aftersales/booking`,
             'Accept': 'text/html,*/*',
@@ -305,12 +432,12 @@ async function handleVehicleSelect(req, res) {
 
     let attempts = 0;
     while (attempts < 2) {
-        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
-            warrantyCookie = await warrantyLogin();
+        if (!croCookie || Date.now() > croCookieExpiry) {
+            croCookie = await croLogin();
         }
         const response = await fetchWithHttps(targetUrl, {
             headers: {
-                'Cookie': warrantyCookie,
+                'Cookie': croCookie,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': `${BASE}/aftersales/booking`,
                 'Accept': 'application/json, text/javascript, */*; q=0.01',
@@ -320,7 +447,7 @@ async function handleVehicleSelect(req, res) {
         const body = await response.text();
         const isHtml = body.trimStart().startsWith('<');
         if (response.status === 302 || response.status === 401 || isHtml) {
-            warrantyCookie = null;
+            croCookie = null;
             attempts++;
             continue;
         }
@@ -330,20 +457,20 @@ async function handleVehicleSelect(req, res) {
             return res.status(500).json({ error: 'Non-JSON response from vehicle select', snippet: body.slice(0, 200) });
         }
     }
-    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+    return res.status(500).json({ error: 'CRO login failed after 2 attempts' });
 }
 
 async function handleBookingCreate(req, res) {
     const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
     let attempts = 0;
     while (attempts < 2) {
-        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
-            warrantyCookie = await warrantyLogin();
+        if (!croCookie || Date.now() > croCookieExpiry) {
+            croCookie = await croLogin();
         }
 
-        const csrf = await getWarrantyCsrfToken(`${BASE}/aftersales/booking`);
+        const csrf = await getCsrfToken(`${BASE}/aftersales/booking`, croCookie);
         if (!csrf) {
-            warrantyCookie = null;
+            croCookie = null;
             attempts++;
             continue;
         }
@@ -367,7 +494,7 @@ async function handleBookingCreate(req, res) {
         const response = await fetchWithHttps(createUrl, {
             method: 'POST',
             headers: {
-                'Cookie': warrantyCookie,
+                'Cookie': croCookie,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': `${BASE}/aftersales/booking`,
                 'Origin': BASE,
@@ -385,7 +512,7 @@ async function handleBookingCreate(req, res) {
         
         return res.status(response.status).json({ success: false, message: `Server returned ${response.status}`, snippet: respBody.slice(0, 300) });
     }
-    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+    return res.status(500).json({ error: 'CRO login failed after 2 attempts' });
 }
 
 async function handleBookingReschedule(req, res) {
@@ -395,13 +522,13 @@ async function handleBookingReschedule(req, res) {
 
     let attempts = 0;
     while (attempts < 2) {
-        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
-            warrantyCookie = await warrantyLogin();
+        if (!croCookie || Date.now() > croCookieExpiry) {
+            croCookie = await croLogin();
         }
 
-        const csrf = await getWarrantyCsrfToken(`${BASE}/aftersales/booking`);
+        const csrf = await getCsrfToken(`${BASE}/aftersales/booking`, croCookie);
         if (!csrf) {
-            warrantyCookie = null;
+            croCookie = null;
             attempts++;
             continue;
         }
@@ -416,7 +543,7 @@ async function handleBookingReschedule(req, res) {
         const response = await fetchWithHttps(rescheduleUrl, {
             method: 'POST',
             headers: {
-                'Cookie': warrantyCookie,
+                'Cookie': croCookie,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': `${BASE}/aftersales/booking`,
                 'Origin': BASE,
@@ -434,7 +561,56 @@ async function handleBookingReschedule(req, res) {
         
         return res.status(response.status).json({ success: false, message: `Server returned ${response.status}`, snippet: respBody.slice(0, 300) });
     }
-    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+    return res.status(500).json({ error: 'CRO login failed after 2 attempts' });
+}
+
+async function handleBookingCancel(req, res) {
+    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const id = req.query.id || '';
+    if (!id) return res.status(400).json({ error: 'Missing booking ID' });
+
+    let attempts = 0;
+    while (attempts < 2) {
+        if (!croCookie || Date.now() > croCookieExpiry) {
+            croCookie = await croLogin();
+        }
+
+        const csrf = await getCsrfToken(`${BASE}/aftersales/booking`, croCookie);
+        if (!csrf) {
+            croCookie = null;
+            attempts++;
+            continue;
+        }
+
+        const cancelUrl = `${BASE}/aftersales/booking/cancel/${id}`;
+        const formData = new URLSearchParams();
+        formData.set('_token', csrf);
+        formData.set('_method', 'patch');
+        formData.set('alasan_pembatalan', req.body.alasan_pembatalan || '');
+        formData.set('dibatalkan_oleh', req.body.dibatalkan_oleh || '');
+
+        const response = await fetchWithHttps(cancelUrl, {
+            method: 'POST',
+            headers: {
+                'Cookie': croCookie,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': `${BASE}/aftersales/booking`,
+                'Origin': BASE,
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': Buffer.byteLength(formData.toString()),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+            body: formData.toString(),
+        });
+
+        const respBody = await response.text();
+        if (response.status === 302 || response.status === 303 || response.status === 200) {
+            return res.status(200).json({ success: true, message: 'Booking cancelled successfully' });
+        }
+
+        return res.status(response.status).json({ success: false, message: `Server returned ${response.status}`, snippet: respBody.slice(0, 300) });
+    }
+    return res.status(500).json({ error: 'CRO login failed after 2 attempts' });
 }
 
 async function handleBookingEdit(req, res) {
@@ -444,13 +620,13 @@ async function handleBookingEdit(req, res) {
 
     let attempts = 0;
     while (attempts < 2) {
-        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
-            warrantyCookie = await warrantyLogin();
+        if (!croCookie || Date.now() > croCookieExpiry) {
+            croCookie = await croLogin();
         }
 
-        const csrf = await getWarrantyCsrfToken(`${BASE}/aftersales/booking`);
+        const csrf = await getCsrfToken(`${BASE}/aftersales/booking`, croCookie);
         if (!csrf) {
-            warrantyCookie = null;
+            croCookie = null;
             attempts++;
             continue;
         }
@@ -473,7 +649,7 @@ async function handleBookingEdit(req, res) {
         const response = await fetchWithHttps(editUrl, {
             method: 'POST',
             headers: {
-                'Cookie': warrantyCookie,
+                'Cookie': croCookie,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': `${BASE}/aftersales/booking`,
                 'Origin': BASE,
@@ -491,7 +667,7 @@ async function handleBookingEdit(req, res) {
         
         return res.status(response.status).json({ success: false, message: `Server returned ${response.status}`, snippet: respBody.slice(0, 300) });
     }
-    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+    return res.status(500).json({ error: 'CRO login failed after 2 attempts' });
 }
 
 async function handleBookingData(req, res) {
@@ -520,12 +696,12 @@ async function handleBookingData(req, res) {
 
     let attempts = 0;
     while (attempts < 2) {
-        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
-            warrantyCookie = await warrantyLogin();
+        if (!croCookie || Date.now() > croCookieExpiry) {
+            croCookie = await croLogin();
         }
         const response = await fetchWithHttps(targetUrl, {
             headers: {
-                'Cookie': warrantyCookie,
+                'Cookie': croCookie,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': `${BASE}/aftersales/booking`,
                 'Accept': 'application/json, text/javascript, */*; q=0.01',
@@ -535,7 +711,7 @@ async function handleBookingData(req, res) {
         const body = await response.text();
         const isHtml = body.trimStart().startsWith('<');
         if (response.status === 302 || response.status === 401 || isHtml) {
-            warrantyCookie = null;
+            croCookie = null;
             attempts++;
             continue;
         }
@@ -545,7 +721,7 @@ async function handleBookingData(req, res) {
             return res.status(500).json({ error: 'Non-JSON response from booking data', snippet: body.slice(0, 200) });
         }
     }
-    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+    return res.status(500).json({ error: 'CRO login failed after 2 attempts' });
 }
 
 async function handleBookingEditForm(req, res) {
@@ -556,12 +732,12 @@ async function handleBookingEditForm(req, res) {
     const targetUrl = `${BASE}/aftersales/booking/${id}/add-kendaraan`;
     let attempts = 0;
     while (attempts < 2) {
-        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
-            warrantyCookie = await warrantyLogin();
+        if (!croCookie || Date.now() > croCookieExpiry) {
+            croCookie = await croLogin();
         }
         const response = await fetchWithHttps(targetUrl, {
             headers: {
-                'Cookie': warrantyCookie,
+                'Cookie': croCookie,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': `${BASE}/aftersales/booking`,
                 'Accept': 'text/html,application/xhtml+xml,*/*',
@@ -570,7 +746,7 @@ async function handleBookingEditForm(req, res) {
         const body = await response.text();
 
         if (response.status === 302 || response.status === 401 || body.includes('/aftersales/login')) {
-            warrantyCookie = null;
+            croCookie = null;
             attempts++;
             continue;
         }
@@ -625,7 +801,7 @@ async function handleBookingEditForm(req, res) {
             return res.status(500).json({ error: 'Failed to parse booking edit form', message: err.message });
         }
     }
-    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+    return res.status(500).json({ error: 'CRO login failed after 2 attempts' });
 }
 
 async function handleBookingUpdate(req, res) {
@@ -635,14 +811,14 @@ async function handleBookingUpdate(req, res) {
 
     let attempts = 0;
     while (attempts < 2) {
-        if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
-            warrantyCookie = await warrantyLogin();
+        if (!croCookie || Date.now() > croCookieExpiry) {
+            croCookie = await croLogin();
         }
 
         const editPageUrl = `${BASE}/aftersales/booking/${id}/add-kendaraan`;
         const editResp = await fetchWithHttps(editPageUrl, {
             headers: {
-                'Cookie': warrantyCookie,
+                'Cookie': croCookie,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': `${BASE}/aftersales/booking`,
                 'Accept': 'text/html,*/*',
@@ -651,7 +827,7 @@ async function handleBookingUpdate(req, res) {
         const editHtml = await editResp.text();
 
         if (editResp.status === 302 || editResp.status === 401 || editHtml.includes('/aftersales/login')) {
-            warrantyCookie = null;
+            croCookie = null;
             attempts++;
             continue;
         }
@@ -675,7 +851,7 @@ async function handleBookingUpdate(req, res) {
         const updateResp = await fetchWithHttps(updateUrl, {
             method: 'POST',
             headers: {
-                'Cookie': warrantyCookie,
+                'Cookie': croCookie,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': `${BASE}/aftersales/booking/${id}/add-kendaraan`,
                 'Origin': BASE,
@@ -711,7 +887,7 @@ async function handleBookingUpdate(req, res) {
             message: updateResp.ok ? 'Booking updated' : `Server returned ${updateResp.status}`
         });
     }
-    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+    return res.status(500).json({ error: 'CRO login failed after 2 attempts' });
 }
 
 export default async function handler(req, res) {
@@ -756,6 +932,10 @@ export default async function handler(req, res) {
     // ============================================================
     if (endpoint === 'warranty-wo') {
         return handleWarranty(req, res);
+    }
+
+    if (endpoint === 'warranty-estimasi-detail') {
+        return handleWarrantyEstimasiDetail(req, res);
     }
 
     // ============================================================
@@ -825,32 +1005,20 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
     }
 
-    if (endpoint === 'vehicle-select') {
-        return handleVehicleSelect(req, res);
-    }
-
-    if (endpoint === 'booking-create') {
-        return handleBookingCreate(req, res);
-    }
-
-    if (endpoint === 'booking-reschedule') {
-        return handleBookingReschedule(req, res);
-    }
-
-    if (endpoint === 'booking-edit') {
-        return handleBookingEdit(req, res);
-    }
-
-    if (endpoint === 'booking-data') {
-        return handleBookingData(req, res);
-    }
-
-    if (endpoint === 'booking-edit-form') {
-        return handleBookingEditForm(req, res);
-    }
-
-    if (endpoint === 'booking-update') {
-        return handleBookingUpdate(req, res);
+    if (endpoint === 'vehicle-select' || endpoint.startsWith('booking-')) {
+        try {
+            if (endpoint === 'vehicle-select') return await handleVehicleSelect(req, res);
+            if (endpoint === 'booking-create') return await handleBookingCreate(req, res);
+            if (endpoint === 'booking-reschedule') return await handleBookingReschedule(req, res);
+            if (endpoint === 'booking-edit') return await handleBookingEdit(req, res);
+            if (endpoint === 'booking-cancel') return await handleBookingCancel(req, res);
+            if (endpoint === 'booking-data') return await handleBookingData(req, res);
+            if (endpoint === 'booking-edit-form') return await handleBookingEditForm(req, res);
+            if (endpoint === 'booking-update') return await handleBookingUpdate(req, res);
+        } catch (error) {
+            console.error('[Booking Error]', error.message);
+            return res.status(500).json({ error: error.message, stack: error.stack?.split('\n').slice(0,3).join(' ') });
+        }
     }
 
     try {
@@ -890,6 +1058,48 @@ export default async function handler(req, res) {
 
             let targetUrl = '';
             
+            if (endpoint === 'download_file') {
+                const fileId = req.query.id || '';
+                const urls = [
+                    `https://dms.chery.co.id/api/v1/files/download/${fileId}`,
+                    `https://dms.chery.co.id/afterSales/api/v1/files/download/${fileId}`,
+                    `https://dms.chery.co.id/api/v1/files/${fileId}`
+                ];
+                let fileResp = null;
+                const fetchOptions = {
+                    method: method,
+                    headers: {
+                        'Cookie': cachedCookie,
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+                        'Referer': 'https://dms.chery.co.id/',
+                        'Origin': 'https://dms.chery.co.id',
+                        'Accept': '*/*',
+                        'Connection': 'keep-alive'
+                    }
+                };
+                for (const url of urls) {
+                    const r = await fetchWithHttps(url, fetchOptions);
+                    if (r.ok) {
+                        fileResp = r;
+                        break;
+                    }
+                }
+                if (fileResp) {
+                    const contentType = fileResp.headers.get('content-type') || 'image/jpeg';
+                    res.setHeader('Content-Type', contentType);
+                    const buf = await fileResp.buffer();
+                    return res.status(200).send(buf);
+                }
+                const firstTry = await fetchWithHttps(urls[0], fetchOptions);
+                if (firstTry.status === 401 || firstTry.status === 403) {
+                    console.log("⚠️ Session expired during file download, retrying login...");
+                    cachedCookie = null;
+                    attempts++;
+                    continue;
+                }
+                return res.status(404).json({ error: "File not found or unauthorized on any DMS endpoint" });
+            }
+
             if (endpoint === 'claims_query') {
                 targetUrl = `https://dms.chery.co.id/afterSales/api/v1/claims/query/forCurrentUser?pageIndex=${pageIndex}&pageSize=${pageSize}`;
             } else if (endpoint === 'claim_detail') {

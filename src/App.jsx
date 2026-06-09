@@ -19,6 +19,7 @@ import ManagerPanel from './components/ManagerPanel';
 import PublicBooking from './components/PublicBooking';
 import CroBookingPanel from './components/CroBookingPanel';
 import BookingManager from './components/BookingManager';
+import BookingApprovalQueue from './components/BookingApprovalQueue';
 import OwnerPanel from './components/OwnerPanel';
 import StockComparison from './components/StockComparison';
 import { USERS } from './data/users';
@@ -169,49 +170,9 @@ const App = () => {
 
     const updateGeoData = async () => {
       try {
-        let ip = '-';
-        let location = 'Unknown';
-        let ipCoords = '';
-
-        // Fungsi fetch Geo dari berbagai provider
-        const getGeo = async () => {
-          // Provider 1: db-ip.com (Sangat stabil & CORS Friendly)
-          try {
-            const res = await fetch('https://api.db-ip.com/v2/free/self');
-            const data = await res.json();
-            if (data.latitude) return {
-              ip: data.ipAddress,
-              loc: `${data.city || ''}, ${data.stateProv || ''}`,
-              coords: `${data.latitude}, ${data.longitude}`
-            };
-          } catch (e) { }
-
-          // Provider 2: ipapi.co (Fallback)
-          try {
-            const res = await fetch('https://ipapi.co/json/');
-            const data = await res.json();
-            if (data.latitude) return {
-              ip: data.ip,
-              loc: `${data.city || ''}, ${data.region || ''}`,
-              coords: `${data.latitude}, ${data.longitude}`
-            };
-          } catch (e) { }
-
-          return null;
-        };
-
-        const geo = await getGeo();
-        if (geo) {
-          ip = geo.ip;
-          location = geo.loc;
-          ipCoords = geo.coords;
-        }
-
-        // Simpan data (Pasti Terisi & Tanpa Prompt Popup)
-        const combinedLoc = `${location} (${ipCoords || '0,0'})`;
         await supabase.from('users').update({
-          lastIP: ip,
-          lastLocation: combinedLoc
+          lastIP: '-',
+          lastLocation: '-'
         }).eq('username', user.username);
 
       } catch (e) {
@@ -328,7 +289,7 @@ const App = () => {
           const allowedPages = {
             admin: ['admin', 'admin-booking', 'promo', 'display', 'booking-public'],
             manager: ['manager', 'manager-financial', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'display', 'booking-public'],
-            cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-holidays', 'display', 'booking-public'],
+            cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-booking-approval', 'cro-holidays', 'display', 'booking-public'],
             sparepart: ['sparepart', 'sparepart-view', 'sparepart-quotation', 'sparepart-profit', 'quotation', 'display', 'booking-public', 'stock-comparison'],
             owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'display', 'booking-public', 'stock-comparison'],
             warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-proforma'],
@@ -1603,6 +1564,9 @@ const App = () => {
       )}
       {currentPage === 'cro-booking' && (
         <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="booking" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+      )}
+      {currentPage === 'cro-booking-approval' && (
+        <BookingApprovalQueue user={user} setCurrentPage={setCurrentPage} />
       )}
       {currentPage === 'cro-holidays' && (
         <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="holidays" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />

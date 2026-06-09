@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import {
   FileText, RefreshCw, AlertCircle, Search, Filter, X,
   Calendar, DollarSign, CheckCircle2, XCircle, Loader2,
@@ -68,9 +69,83 @@ const apiFetch = async (params) => {
   return json;
 };
 
-// ─── Detail Page ──────────────────────────────────────────────
-const ITEMS_PER_PAGE = 50;
+// Global Memory Cache for Proforma Invoices
+const GLOBAL_PROFORMA_CACHE = {
+  list: null,      // Format: { [cacheKey]: { rows, total } }
+  details: {},     // Format: { [settlementId]: array_items }
+  vinCrossRef: {}  // Format: { [vin]: { wos: [], loading: false } }
+};
+
+const buildAttachmentPreviewUrl = (attachments) => {
+  if (!attachments || !Array.isArray(attachments) || attachments.length === 0) return '';
+  const parts = [];
+  attachments.forEach((att, idx) => {
+    const fileId = att.fileId || att.id || '';
+    const fileName = att.fileName || att.name || '';
+    if (fileId && fileName) {
+      parts.push(`i[${idx}]=${encodeURIComponent(fileId)}:${encodeURIComponent(fileName)}`);
+    }
+  });
+  return `https://dms.chery.co.id/imagePreview/?${parts.join('&')}`;
+};
+
+const buildSingleContainerUrl = (clickedAtt, allAttachments) => {
+  if (!clickedAtt) return '';
+  const fileId = clickedAtt.fileId || clickedAtt.id || '';
+  const fileName = clickedAtt.fileName || clickedAtt.name || '';
+  if (!fileId) return '';
+  
+  const parts = [`i[0]=${encodeURIComponent(fileId)}:${encodeURIComponent(fileName)}`];
+  let idx = 1;
+  allAttachments.forEach(att => {
+    const fId = att.fileId || att.id || '';
+    const fName = att.fileName || att.name || '';
+    if (fId && fId !== fileId) {
+      parts.push(`i[${idx}]=${encodeURIComponent(fId)}:${encodeURIComponent(fName)}`);
+      idx++;
+    }
+  });
+  return `https://dms.chery.co.id/imagePreview/?${parts.join('&')}`;
+};
+
+// ΓöÇΓöÇΓöÇ Detail Page ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 const VIN_BATCH_SIZE = 5;
+
+const findBestMatchingWO = (wos, itemCode, vin, itemMileage, isFree) => {
+  if (!wos || !Array.isArray(wos) || wos.length === 0) return null;
+  const targetKategori = isFree ? 'IFS' : 'IKC';
+  const catWos = wos.filter(w => (w.kategori || '').toUpperCase() === targetKategori);
+  if (catWos.length === 0) return null;
+
+  // 1. Try exact match on WO DMS code
+  let match = catWos.find(w => (w.no_wo_dms || '').toLowerCase() === itemCode.toLowerCase());
+  if (match) return match;
+
+  // 2. Try exact match on mileage / KM
+  if (itemMileage != null && itemMileage !== '') {
+    const targetKm = Number(itemMileage);
+    match = catWos.find(w => Number(w.stand_km || 0) === targetKm);
+    if (match) return match;
+  }
+
+  // 3. Try closest mileage / KM within 2000 km difference
+  if (itemMileage != null && itemMileage !== '') {
+    const targetKm = Number(itemMileage);
+    let closest = null;
+    let minDiff = Infinity;
+    catWos.forEach(w => {
+      const diff = Math.abs(Number(w.stand_km || 0) - targetKm);
+      if (diff < minDiff && diff <= 2000) {
+        minDiff = diff;
+        closest = w;
+      }
+    });
+    if (closest) return closest;
+  }
+
+  // 4. Fallback: return first
+  return catWos[0];
+};
 
 function DetailPage({ settlement, onBack }) {
   const [items, setItems]         = useState([]);
@@ -78,145 +153,443 @@ function DetailPage({ settlement, onBack }) {
   const [error, setError]         = useState(null);
   const [vinData, setVinData]     = useState({});
   const [itemPage, setItemPage]   = useState(0);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [search, setSearch]       = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [typeFilter, setTypeFilter]   = useState('all'); // all | maintain | warranty | adjustment
+  const [zoomedImage, setZoomedImage] = useState(null);
+  const [contractDetails, setContractDetails] = useState({});
+  const [repairContracts, setRepairContracts] = useState({});
+  const [loadedImages, setLoadedImages] = useState({});
+  const [loadingItems, setLoadingItems] = useState({});
+  const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  const [partsCache, setPartsCache] = useState({});
+
+  const handleLoadParts = useCallback(async (idWo) => {
+    if (!idWo) return;
+    
+    let alreadyLoadingOrLoaded = false;
+    setPartsCache(prev => {
+      if (prev[idWo]) {
+        alreadyLoadingOrLoaded = true;
+        return prev;
+      }
+      return { ...prev, [idWo]: { loading: true, error: null, data: [] } };
+    });
+    
+    if (alreadyLoadingOrLoaded) return;
+    
+    try {
+      const json = await apiFetch({ endpoint: 'warranty-estimasi-detail', id: idWo });
+      setPartsCache(prev => ({
+        ...prev,
+        [idWo]: { loading: false, error: null, data: json.parts || [] }
+      }));
+    } catch (err) {
+      setPartsCache(prev => ({
+        ...prev,
+        [idWo]: { loading: false, error: err.message, data: [] }
+      }));
+    }
+  }, []);
+
   const loaded = useRef(false);
   const vinQueue = useRef([]);
   const vinRunning = useRef(0);
 
+  const handleExportExcel = async () => {
+    if (exporting || items.length === 0) return;
+    setExporting(true);
+    setExportProgress(0);
+
+    try {
+      // 1. Fetch any missing VINs directly to avoid relying on async load queue
+      const uniqueVins = [...new Set(items.map(it => it.vin || it.vinCode || it.chassisNo).filter(Boolean))];
+      const vinsToFetch = uniqueVins.filter(vin => !GLOBAL_PROFORMA_CACHE.vinCrossRef[vin]);
+      
+      if (vinsToFetch.length > 0) {
+        vinsToFetch.forEach(vin => {
+          GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: [], loading: true };
+        });
+
+        await Promise.all(
+          vinsToFetch.map(async (vin) => {
+            try {
+              const r = await apiFetch({ endpoint: 'warranty-search-vin', vin, length: 100, from: '', to: '' });
+              GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: r.data || [], loading: false };
+            } catch (e) {
+              GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: [], loading: false };
+            }
+          })
+        );
+        
+        // Sync to component state
+        setVinData(prev => {
+          const next = { ...prev };
+          uniqueVins.forEach(vin => {
+            if (GLOBAL_PROFORMA_CACHE.vinCrossRef[vin]) {
+              next[vin] = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin];
+            }
+          });
+          return next;
+        });
+      }
+
+      // 2. Wait for any remaining active VIN loading with a max timeout of 5s
+      const startTime = Date.now();
+      let allVinsLoaded = false;
+      while (!allVinsLoaded && (Date.now() - startTime < 5000)) {
+        const stillLoading = uniqueVins.some(vin => {
+          const vd = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin];
+          return vd && vd.loading;
+        });
+        if (!stillLoading) {
+          allVinsLoaded = true;
+        } else {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+
+      // 3. Fetch missing claim details in batches
+      const toFetch = items.filter(item => item._type !== 'adjustment' && !contractDetails[item.id || item.claimId]);
+      
+      let fetchedCount = 0;
+      const currentContractDetails = { ...contractDetails };
+      const currentRepairContracts = { ...repairContracts };
+
+      if (toFetch.length > 0) {
+        const batchSize = 5;
+        for (let i = 0; i < toFetch.length; i += batchSize) {
+          const batch = toFetch.slice(i, i + batchSize);
+          await Promise.all(
+            batch.map(async (item) => {
+              const itemId = item.id || item.claimId;
+              try {
+                const claimRes = await apiFetch({ endpoint: 'claim_detail', claimId: itemId });
+                const claimPayload = claimRes.payload || claimRes;
+                if (claimPayload) {
+                  currentContractDetails[itemId] = claimPayload;
+                  
+                  const rcId = claimPayload.repairContractId;
+                  if (rcId && !currentRepairContracts[rcId]) {
+                    try {
+                      const rcRes = await apiFetch({ endpoint: 'repair-contract-detail', id: rcId });
+                      const rcPayload = rcRes.payload || rcRes;
+                      if (rcPayload) {
+                        currentRepairContracts[rcId] = rcPayload;
+                      }
+                    } catch (e) {
+                      console.error("Export: failed to fetch repair contract", rcId, e);
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error("Export: failed to fetch claim detail", itemId, e);
+              }
+            })
+          );
+          fetchedCount += batch.length;
+          setExportProgress(Math.round((fetchedCount / toFetch.length) * 100));
+        }
+      }
+
+      setExportProgress(100);
+      setContractDetails(currentContractDetails);
+      setRepairContracts(currentRepairContracts);
+
+      const freeServiceRows = [];
+      const warrantyRows = [];
+
+      items.forEach((item) => {
+        if (item._type === 'adjustment') return;
+
+        const itemCode = item.code || item.claimCode || '-';
+        const vin = item.vin || item.vinCode || item.chassisNo || '';
+        const vd = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] || vinData[vin] || { wos: [] };
+        
+        let matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
+
+        const detail = currentContractDetails[item.id || item.claimId] || {};
+        const contract = currentRepairContracts[detail.repairContractId || item.repairContractId] || {};
+        const dmsDescription = contract.description || detail.faultDescription || detail.checkMeasureResult || detail.description || item.description || '';
+        
+        const isFree = itemCode.startsWith('BY');
+
+        const rowData = {
+          'Nomor Proforma Invoice': itemCode,
+          'No WO Internal': matchWO ? matchWO.no_wo : '',
+          'Nama': detail.customerName || item.customerName || '',
+          'VIN': vin,
+          'Pekerjaan DMS': dmsDescription,
+          'Pekerjaan Internal': matchWO ? matchWO.perintah : '',
+          'Tipe Mobil': detail.productCategoryCode || item.productCategoryCode || '',
+          'Nomor Mesin': detail.engineCode || item.engineCode || ''
+        };
+
+        if (isFree) {
+          freeServiceRows.push(rowData);
+        } else {
+          warrantyRows.push(rowData);
+        }
+      });
+
+      const wb = XLSX.utils.book_new();
+
+      const wsFree = XLSX.utils.json_to_sheet(freeServiceRows);
+      XLSX.utils.book_append_sheet(wb, wsFree, "Free Service");
+
+      const wsWarranty = XLSX.utils.json_to_sheet(warrantyRows);
+      XLSX.utils.book_append_sheet(wb, wsWarranty, "Warranty");
+
+      const fileName = `Export_Proforma_${settlement.code || 'Invoice'}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+
+    } catch (e) {
+      console.error("Export Excel failed:", e);
+      alert("Gagal mengekspor ke Excel: " + e.message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const processVinQueue = useCallback(() => {
     while (vinRunning.current < VIN_BATCH_SIZE && vinQueue.current.length > 0) {
-      const { vin, from, to, settlementYYMM } = vinQueue.current.shift();
+      const { vin } = vinQueue.current.shift();
       vinRunning.current++;
-      apiFetch({ endpoint: 'warranty-search-vin', vin, length: 25, from, to })
+      apiFetch({ endpoint: 'warranty-search-vin', vin, length: 100, from: '', to: '' })
         .then(r => {
-          let wos = r.data || [];
-          // Filter by waktu_masuk matching the settlement year+month (YYYY-MM)
-          // settlementYYMM is "YYMM" e.g. "2604" → full year-month "2026-04"
-          if (settlementYYMM && wos.length > 0) {
-            const fullYM = `20${settlementYYMM.slice(0,2)}-${settlementYYMM.slice(2)}`; // "2026-04"
-            const filtered = wos.filter(w => {
-              const wm = (w.waktu_masuk || '').slice(0, 7); // "2026-04"
-              return wm === fullYM;
-            });
-            if (filtered.length > 0) wos = filtered;
-            // If still empty, try ±1 month
-            else {
-              const [fy, fm] = fullYM.split('-').map(Number);
-              const prevM = fm === 1 ? `${fy-1}-12` : `${fy}-${String(fm-1).padStart(2,'0')}`;
-              const nextM = fm === 12 ? `${fy+1}-01` : `${fy}-${String(fm+1).padStart(2,'0')}`;
-              const nearby = wos.filter(w => {
-                const wm = (w.waktu_masuk || '').slice(0, 7);
-                return wm === prevM || wm === nextM;
-              });
-              if (nearby.length > 0) wos = nearby;
-              else wos = []; // nothing relevant found
-            }
-          }
+          const wos = r.data || [];
+          // Simpan ke cache
+          GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos, loading: false };
           setVinData(prev => ({ ...prev, [vin]: { wos, loading: false } }));
         })
-        .catch(() => setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: false } })))
+        .catch(() => {
+          GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: [], loading: false };
+          setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: false } }));
+        })
         .finally(() => { vinRunning.current--; processVinQueue(); });
     }
   }, []);
 
+  const handleRefresh = () => {
+    delete GLOBAL_PROFORMA_CACHE.details[settlement.id];
+    items.forEach(it => {
+      const vin = it.vin || it.vinCode || it.chassisNo;
+      if (vin) {
+        delete GLOBAL_PROFORMA_CACHE.vinCrossRef[vin];
+      }
+    });
+    setVinData({});
+    loaded.current = false;
+    load();
+  };
+
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const json = await apiFetch({ endpoint: 'proforma-detail', id: settlement.id });
-      const payload = json.payload || json;
-      const maintainOrders = payload.maintainOrders || [];
-      const warrantyOrders = payload.warrantyOrders || [];
-      const adjustmentOrders = payload.expenseAdjustmentOrders || [];
-      const list = [
-        ...maintainOrders.map(o => ({ ...o, _type: 'maintain' })),
-        ...warrantyOrders.map(o => ({ ...o, _type: 'warranty' })),
-        ...adjustmentOrders.map(o => ({ ...o, _type: 'adjustment' })),
-      ];
-      setItems(list);
-
-      // Build VIN → date range map from repairTime
-      // Group by VIN, take earliest and latest repairTime as range (±15 days buffer)
-      const vinDateMap = {};
-      list.forEach(it => {
-        const vin = it.vin || it.vinCode || it.chassisNo;
-        if (!vin || !it.repairTime) return;
-        const d = new Date(it.repairTime);
-        if (isNaN(d)) return;
-        if (!vinDateMap[vin]) vinDateMap[vin] = { min: d, max: d };
-        else {
-          if (d < vinDateMap[vin].min) vinDateMap[vin].min = d;
-          if (d > vinDateMap[vin].max) vinDateMap[vin].max = d;
-        }
-      });
-
-      const uniqueVins = [...new Set(list.map(it => it.vin || it.vinCode || it.chassisNo).filter(Boolean))];
-
-      // Use settlement.settlementMonth as the primary date reference
-      // e.g. "2026-04-15T00:00:00+07:00" → YYMM = "2604"
-      let primaryYYMM = '';
-      const settlementDate = settlement.settlementMonth || settlement.createTime || '';
-      if (settlementDate) {
-        const sd = new Date(settlementDate);
-        if (!isNaN(sd)) {
-          const yy = String(sd.getFullYear()).slice(2);
-          const mm = String(sd.getMonth() + 1).padStart(2, '0');
-          primaryYYMM = `${yy}${mm}`;
-        }
+      let list = [];
+      if (GLOBAL_PROFORMA_CACHE.details[settlement.id]) {
+        list = GLOBAL_PROFORMA_CACHE.details[settlement.id];
+        setItems(list);
+      } else {
+        const json = await apiFetch({ endpoint: 'proforma-detail', id: settlement.id });
+        const payload = json.payload || json;
+        const maintainOrders = payload.maintainOrders || [];
+        const warrantyOrders = payload.warrantyOrders || [];
+        const adjustmentOrders = payload.expenseAdjustmentOrders || [];
+        list = [
+          ...maintainOrders.map(o => ({ ...o, _type: 'maintain' })),
+          ...warrantyOrders.map(o => ({ ...o, _type: 'warranty' })),
+          ...adjustmentOrders.map(o => ({ ...o, _type: 'adjustment' })),
+        ];
+        GLOBAL_PROFORMA_CACHE.details[settlement.id] = list;
+        setItems(list);
       }
-
-      uniqueVins.forEach(vin => {
-        setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: true } }));
-        let from = '', to = '', settlementYYMM = primaryYYMM;
-
-        if (vinDateMap[vin]) {
-          const minD = new Date(vinDateMap[vin].min);
-          const maxD = new Date(vinDateMap[vin].max);
-          minD.setDate(minD.getDate() - 30);
-          maxD.setDate(maxD.getDate() + 30);
-          const pad = n => String(n).padStart(2, '0');
-          from = `${minD.getFullYear()}-${pad(minD.getMonth()+1)}-${pad(minD.getDate())}`;
-          to   = `${maxD.getFullYear()}-${pad(maxD.getMonth()+1)}-${pad(maxD.getDate())}`;
-        } else if (settlementDate) {
-          // Fallback: use settlement month ±45 days
-          const sd = new Date(settlementDate);
-          const minD = new Date(sd); minD.setDate(minD.getDate() - 45);
-          const maxD = new Date(sd); maxD.setDate(maxD.getDate() + 45);
-          const pad = n => String(n).padStart(2, '0');
-          from = `${minD.getFullYear()}-${pad(minD.getMonth()+1)}-${pad(minD.getDate())}`;
-          to   = `${maxD.getFullYear()}-${pad(maxD.getMonth()+1)}-${pad(maxD.getDate())}`;
-        }
-
-        vinQueue.current.push({ vin, from, to, settlementYYMM });
-      });
-      processVinQueue();
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [settlement.id, processVinQueue]);
+  }, [settlement.id]);
 
   useEffect(() => { if (!loaded.current) { loaded.current = true; load(); } }, [load]);
 
-  // Filter + search (includes perintah from cross-ref)
-  const filteredItems = items.filter(item => {
-    if (typeFilter !== 'all' && item._type !== typeFilter) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      const vin = item.vin || item.vinCode || item.chassisNo || '';
-      const vd = vinData[vin] || { wos: [] };
-      const matchWO = vd.wos.find(w => (w.no_chassis || '').toLowerCase() === vin.toLowerCase()) || vd.wos[0];
-      const perintah = matchWO?.perintah || '';
-      const hay = [item.code || '', vin, item.customerName || '', item.productCategoryCode || '', perintah].join(' ').toLowerCase();
-      if (!hay.includes(q)) return false;
-    }
-    return true;
-  });
 
-  const totalItemPages = Math.ceil(filteredItems.length / ITEMS_PER_PAGE);
-  const pagedItems = filteredItems.slice(itemPage * ITEMS_PER_PAGE, (itemPage + 1) * ITEMS_PER_PAGE);
+  const toggleAttachments = useCallback(async (item) => {
+    const itemId = item.id || item.claimId;
+    if (!itemId) return;
+
+    const listKey = `list_${itemId}`;
+    
+    // If it's already shown, just toggle visibility
+    if (loadedImages[listKey]) {
+      setLoadedImages(prev => ({ ...prev, [listKey]: false }));
+      return;
+    }
+
+    // If detail is already fetched, just show it
+    if (contractDetails[itemId]) {
+      setLoadedImages(prev => ({ ...prev, [listKey]: true }));
+      return;
+    }
+
+    // Otherwise, fetch it on-demand
+    setLoadingItems(prev => ({ ...prev, [itemId]: true }));
+    try {
+      const claimRes = await apiFetch({ endpoint: 'claim_detail', claimId: itemId });
+      const claimPayload = claimRes.payload || claimRes;
+      if (claimPayload) {
+        setContractDetails(prev => ({ ...prev, [itemId]: claimPayload }));
+
+        const rcId = claimPayload.repairContractId;
+        if (rcId) {
+          try {
+            const rcRes = await apiFetch({ endpoint: 'repair-contract-detail', id: rcId });
+            const rcPayload = rcRes.payload || rcRes;
+            if (rcPayload) {
+              setRepairContracts(prev => ({ ...prev, [rcId]: rcPayload }));
+            }
+          } catch (rcErr) {
+            console.error("Failed to fetch repair contract detail:", rcId, rcErr);
+          }
+        }
+      }
+      setLoadedImages(prev => ({ ...prev, [listKey]: true }));
+    } catch (err) {
+      console.error("Failed to fetch claim detail:", itemId, err);
+      alert("Gagal memuat detail klaim dari DMS. Pastikan server DMS dapat diakses dan Anda sudah login.");
+    } finally {
+      setLoadingItems(prev => ({ ...prev, [itemId]: false }));
+    }
+  }, [loadedImages, contractDetails]);
+
+  // Memoized VIN Lookup Map for O(1) cross-reference matching
+  const vinLookupMap = useMemo(() => {
+    const map = new Map();
+    Object.entries(vinData).forEach(([vin, data]) => {
+      map.set(vin.toLowerCase(), data);
+    });
+    return map;
+  }, [vinData]);
+
+  // Filter + search (includes perintah from cross-ref optimized with O(1) Map)
+  const filteredItems = useMemo(() => {
+    return items.filter(item => {
+      const itemCode = item.code || item.claimCode || '';
+      
+      // Category segregation logic (DMS code prefix + internal kategori IFS/IKC)
+      let matchesType = true;
+      if (typeFilter !== 'all') {
+        if (typeFilter === 'maintain') {
+          if (itemCode.startsWith('BY')) {
+            matchesType = true;
+          } else if (itemCode.startsWith('BX')) {
+            matchesType = false;
+          } else {
+            const _v = (item.vin || item.vinCode || item.chassisNo || '').toLowerCase();
+            const _vd = vinLookupMap.get(_v);
+            if (_vd && _vd.wos) {
+              const matched = _vd.wos.find(w => (w.no_wo_dms || '').toLowerCase() === itemCode.toLowerCase()) || 
+                              _vd.wos.find(w => (w.kategori || '').toUpperCase() === 'IFS');
+              matchesType = matched && (matched.kategori || '').toUpperCase() === 'IFS';
+            } else {
+              matchesType = (item._type === 'maintain');
+            }
+          }
+        } else if (typeFilter === 'warranty') {
+          if (itemCode.startsWith('BX')) {
+            matchesType = true;
+          } else if (itemCode.startsWith('BY')) {
+            matchesType = false;
+          } else {
+            const _v = (item.vin || item.vinCode || item.chassisNo || '').toLowerCase();
+            const _vd = vinLookupMap.get(_v);
+            if (_vd && _vd.wos) {
+              const matched = _vd.wos.find(w => (w.no_wo_dms || '').toLowerCase() === itemCode.toLowerCase()) || 
+                              _vd.wos.find(w => (w.kategori || '').toUpperCase() === 'IKC');
+              matchesType = matched && (matched.kategori || '').toUpperCase() === 'IKC';
+            } else {
+              matchesType = (item._type === 'warranty');
+            }
+          }
+        } else if (typeFilter === 'adjustment') {
+          matchesType = (item._type === 'adjustment');
+        }
+      }
+      if (!matchesType) return false;
+
+      if (search) {
+        const q = search.toLowerCase();
+        const vin = (item.vin || item.vinCode || item.chassisNo || '').toLowerCase();
+        
+        // O(1) lookup
+        const vd = vinLookupMap.get(vin) || { wos: [] };
+        let matchWO = vd.wos.find(w => (w.no_wo_dms || '').toLowerCase() === itemCode.toLowerCase());
+        if (!matchWO) {
+          if (itemCode.startsWith('BY')) {
+            matchWO = vd.wos.find(w => (w.kategori || '').toUpperCase() === 'IFS');
+          } else if (itemCode.startsWith('BX')) {
+            matchWO = vd.wos.find(w => (w.kategori || '').toUpperCase() === 'IKC');
+          }
+        }
+        if (!matchWO) {
+          matchWO = vd.wos.find(w => (w.no_chassis || '').toLowerCase() === vin) || vd.wos[0];
+        }
+        const perintah = matchWO?.perintah || '';
+        
+        const hay = [itemCode, vin, item.customerName || '', item.productCategoryCode || '', perintah].join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [items, typeFilter, search, vinLookupMap]);
+
+  const totalItemPages = Math.ceil(filteredItems.length / itemsPerPage);
+  const pagedItems = filteredItems.slice(itemPage * itemsPerPage, (itemPage + 1) * itemsPerPage);
+
+  // Load VIN cross-references on demand for visible page items
+  useEffect(() => {
+    if (pagedItems.length === 0) return;
+
+    let queueChanged = false;
+    pagedItems.forEach(it => {
+      const vin = it.vin || it.vinCode || it.chassisNo;
+      if (!vin) return;
+
+      if (!GLOBAL_PROFORMA_CACHE.vinCrossRef[vin]) {
+        GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: [], loading: true };
+        setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: true } }));
+        vinQueue.current.push({ vin });
+        queueChanged = true;
+      } else {
+        // Sync cache to component state if needed
+        setVinData(prev => {
+          if (prev[vin]) return prev;
+          return { ...prev, [vin]: GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] };
+        });
+      }
+    });
+
+    if (queueChanged) {
+      processVinQueue();
+    }
+  }, [pagedItems, processVinQueue]);
+
+  // Auto-load spare parts details on demand for matched WOs on current page
+  useEffect(() => {
+    pagedItems.forEach(item => {
+      const itemCode = item.code || item.claimCode || '';
+      const vin = item.vin || item.vinCode || item.chassisNo || '';
+      const vd = vinData[vin];
+      if (vd && vd.wos) {
+        const matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
+        if (matchWO && matchWO.id_wo) {
+          handleLoadParts(matchWO.id_wo);
+        }
+      }
+    });
+  }, [pagedItems, vinData, handleLoadParts]);
 
   const handleSearch = (e) => { e.preventDefault(); setSearch(searchInput); setItemPage(0); };
   const clearSearch = () => { setSearch(''); setSearchInput(''); setItemPage(0); };
@@ -247,6 +620,33 @@ function DetailPage({ settlement, onBack }) {
           </div>
         </div>
         <span className={`ml-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${st.bg} ${st.text} ${st.border}`}>{st.label}</span>
+        
+        <button
+          onClick={handleRefresh}
+          disabled={loading}
+          className="ml-auto flex items-center gap-2 px-4 py-2 border border-zinc-200 text-zinc-700 hover:bg-zinc-50 rounded-xl text-xs font-bold transition-colors disabled:opacity-50 shrink-0"
+        >
+          <RefreshCw size={13} className={loading ? "animate-spin" : ""}/>
+          Refresh Detail
+        </button>
+
+        <button
+          onClick={handleExportExcel}
+          disabled={exporting || items.length === 0}
+          className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-xl text-xs font-bold transition-colors disabled:cursor-not-allowed shadow-sm shrink-0"
+        >
+          {exporting ? (
+            <>
+              <Loader2 size={14} className="animate-spin"/>
+              Mengekspor... {exportProgress}%
+            </>
+          ) : (
+            <>
+              <FileText size={14}/>
+              Ekspor Excel
+            </>
+          )}
+        </button>
       </div>
 
       {/* Summary cards */}
@@ -302,17 +702,26 @@ function DetailPage({ settlement, onBack }) {
               <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setItemPage(0); }}
                 className="px-2.5 py-1.5 text-xs border border-zinc-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900 font-medium">
                 <option value="all">Semua Tipe</option>
-                <option value="maintain">Free Service (BY)</option>
-                <option value="warranty">Warranty (BX)</option>
+                <option value="maintain">Free Service (BY / IFS)</option>
+                <option value="warranty">Warranty (BX / IKC)</option>
                 <option value="adjustment">Adjustment</option>
               </select>
 
+              <select value={itemsPerPage} onChange={e => { setItemsPerPage(Number(e.target.value)); setItemPage(0); }}
+                className="px-2.5 py-1.5 text-xs border border-zinc-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900 font-medium">
+                <option value={10}>10 item / hal</option>
+                <option value={20}>20 item / hal</option>
+                <option value={30}>30 item / hal</option>
+                <option value={50}>50 item / hal</option>
+                <option value={100}>100 item / hal</option>
+              </select>
+
               <div className="flex items-center gap-3 ml-auto text-xs text-zinc-400 font-bold uppercase tracking-wider">
-                <span>{items.filter(i => i._type === 'maintain').length} BY</span>
-                <span>·</span>
-                <span>{items.filter(i => i._type === 'warranty').length} BX</span>
+                <span>{items.filter(i => i._type === 'maintain' || (i.code || i.claimCode || '').startsWith('BY')).length} BY/IFS</span>
+                <span>┬╖</span>
+                <span>{items.filter(i => i._type === 'warranty' || (i.code || i.claimCode || '').startsWith('BX')).length} BX/IKC</span>
                 {items.filter(i => i._type === 'adjustment').length > 0 && <>
-                  <span>·</span>
+                  <span>┬╖</span>
                   <span>{items.filter(i => i._type === 'adjustment').length} Adj</span>
                 </>}
                 {(search || typeFilter !== 'all') && (
@@ -324,10 +733,10 @@ function DetailPage({ settlement, onBack }) {
             {/* Pagination top */}
             {totalItemPages > 1 && (
               <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-400">{itemPage * ITEMS_PER_PAGE + 1}–{Math.min((itemPage+1)*ITEMS_PER_PAGE, filteredItems.length)} dari {filteredItems.length}</span>
+                <span className="text-xs text-zinc-400">{itemPage * itemsPerPage + 1}ΓÇô{Math.min((itemPage+1)*itemsPerPage, filteredItems.length)} dari {filteredItems.length}</span>
                 <div className="flex items-center gap-2">
                   <button onClick={() => setItemPage(p => Math.max(0, p-1))} disabled={itemPage === 0}
-                    className="px-2.5 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
+                    className="px-2.5 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">ΓåÉ Prev</button>
                   <span className="text-xs text-zinc-500 font-medium">{itemPage+1} / {totalItemPages}</span>
                   <button onClick={() => setItemPage(p => Math.min(totalItemPages-1, p+1))} disabled={itemPage >= totalItemPages-1}
                     className="px-2.5 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
@@ -359,11 +768,20 @@ function DetailPage({ settlement, onBack }) {
 
               const vin    = item.vin || item.vinCode || item.chassisNo || '';
               const vd     = vinData[vin] || { wos: [], loading: false };
-              const matchWO = vd.wos.find(w => (w.no_chassis || '').toLowerCase() === vin.toLowerCase()) || vd.wos[0];
+              
+              // Match WO specifically for this item using itemCode / claimCode
+              let matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
+
               const perintah = matchWO?.perintah || '';
-              const isFree   = isFreeService(perintah);
-              const ifsWO    = vd.wos.find(w => (w.kategori || '').toUpperCase() === 'IFS');
-              const ikcWO    = vd.wos.find(w => (w.kategori || '').toUpperCase() === 'IKC');
+              const isFree   = matchWO ? (matchWO.kategori || '').toUpperCase() === 'IFS' : isFreeService(perintah);
+              const ifsWO    = matchWO && (matchWO.kategori || '').toUpperCase() === 'IFS' ? matchWO : null;
+              const ikcWO    = matchWO && (matchWO.kategori || '').toUpperCase() === 'IKC' ? matchWO : null;
+              const claimId = item.id || item.claimId;
+              const detail = contractDetails[claimId] || {};
+              const contractId = detail.repairContractId || item.repairContractId;
+              const contract = repairContracts[contractId] || {};
+              const dmsDescription = contract.description || detail.faultDescription || detail.checkMeasureResult || detail.description || item.description || '';
+              const dmsAttachments = detail.attachments || contract.attachments || item.attachments || [];
 
               return (
                 <div key={idx} className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
@@ -385,9 +803,29 @@ function DetailPage({ settlement, onBack }) {
                       </span>
                     ) : perintah ? (
                       <div className="ml-auto flex items-center gap-2">
+                        {/* Auto-loading Sparepart Status Badge */}
+                        {matchWO && (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border border-zinc-200 bg-zinc-50 text-zinc-700">
+                            {partsCache[matchWO.id_wo] ? (
+                              partsCache[matchWO.id_wo].loading ? (
+                                <>
+                                  <Loader2 size={10} className="animate-spin" /> Memuat...
+                                </>
+                              ) : partsCache[matchWO.id_wo].error ? (
+                                'Gagal'
+                              ) : (
+                                `Part: ${partsCache[matchWO.id_wo].data.filter(p => ['Disetujui', 'Aktif', 'Dipenuhi', 'VALIDATED'].includes(p.status_permintaan) || ['Disetujui', 'Aktif', 'Dipenuhi', 'VALIDATED'].includes(p.status)).length} Disetujui / ${partsCache[matchWO.id_wo].data.length} Total`
+                              )
+                            ) : (
+                              <>
+                                <Loader2 size={10} className="animate-spin" /> Mengantre...
+                              </>
+                            )}
+                          </span>
+                        )}
                         {/* Perintah category from After Sales */}
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold border ${isFree ? 'bg-green-50 text-green-700 border-green-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                          {isFree ? '✓ Free Service' : '✓ Warranty'}
+                          {isFree ? 'Γ£ô Free Service' : 'Γ£ô Warranty'}
                         </span>
                         {/* IFS/IKC WO type badges */}
                         {ifsWO && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200">IFS</span>}
@@ -418,33 +856,210 @@ function DetailPage({ settlement, onBack }) {
                     </div>
                   </div>
 
-                  {/* Perintah & WO cross-ref */}
-                  {(perintah || ifsWO || ikcWO) && (
+                   {/* Perintah & WO cross-ref & DMS Description */}
+                  {(dmsDescription || perintah || ifsWO || ikcWO) && (
                     <div className="px-5 pb-4 space-y-2">
+                      {dmsDescription && (
+                        <div className="bg-zinc-50 rounded-xl px-4 py-3 border border-zinc-100">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1 flex items-center gap-1"><FileText size={10}/> Deskripsi Pekerjaan DMS</p>
+                          <p className="text-xs font-semibold text-zinc-800 whitespace-pre-line">{dmsDescription}</p>
+                        </div>
+                      )}
                       {perintah && (
                         <div className="bg-zinc-50 rounded-xl px-4 py-3 border border-zinc-100">
                           <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1 flex items-center gap-1"><Wrench size={10}/> Perintah Pengerjaan</p>
                           <p className="text-xs text-zinc-700 whitespace-pre-line">{perintah}</p>
                         </div>
                       )}
+
+                      {/* Spare Parts Detail */}
+                      {matchWO && partsCache[matchWO.id_wo] && partsCache[matchWO.id_wo].data && partsCache[matchWO.id_wo].data.length > 0 && (
+                        <div className="bg-zinc-50 rounded-xl px-4 py-3 border border-zinc-100">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1 flex items-center gap-1"><Wrench size={10}/> Detail Sparepart</p>
+                          <div className="space-y-1 mt-1.5 text-[11px]">
+                            {partsCache[matchWO.id_wo].data.map((part, pIdx) => {
+                              const isValidated = ['Disetujui', 'Aktif', 'Dipenuhi', 'VALIDATED'].includes(part.status_permintaan) || ['Disetujui', 'Aktif', 'Dipenuhi', 'VALIDATED'].includes(part.status);
+                              const displayStatus = part.status_permintaan || part.status || '-';
+                              return (
+                                <div key={pIdx} className="flex justify-between items-center py-1 border-b border-zinc-100 last:border-0">
+                                  <span className="text-zinc-700 font-mono">{part.kode_part} - <span className="font-sans font-medium">{part.nama_part}</span> (x{part.jumlah})</span>
+                                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border ${
+                                    isValidated 
+                                      ? 'bg-green-50 text-green-700 border-green-200' 
+                                      : 'bg-zinc-100 text-zinc-500 border-zinc-200'
+                                  }`}>
+                                    {displayStatus}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                       {(ifsWO || ikcWO) && (
                         <div className="flex flex-wrap gap-2">
                           {ifsWO && (
                             <div className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-xl px-3 py-2">
-                              <span className="text-[10px] font-black text-sky-600 uppercase tracking-wider">IFS WO</span>
                               <span className="font-mono text-xs font-bold text-sky-800">{ifsWO.no_wo}</span>
                               <span className="text-[10px] text-sky-500">{ifsWO.nama_kendaraan || ''}</span>
                             </div>
                           )}
                           {ikcWO && (
                             <div className="flex items-center gap-2 bg-violet-50 border border-violet-200 rounded-xl px-3 py-2">
-                              <span className="text-[10px] font-black text-violet-600 uppercase tracking-wider">IKC WO</span>
                               <span className="font-mono text-xs font-bold text-violet-800">{ikcWO.no_wo}</span>
                               <span className="text-[10px] text-violet-500">{ikcWO.nama_kendaraan || ''}</span>
                             </div>
                           )}
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {/* Attachments Section */}
+                  {item._type !== 'adjustment' && (
+                    <div className="px-5 pb-4">
+                      <button
+                        onClick={() => toggleAttachments(item)}
+                        disabled={loadingItems[claimId]}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
+                      >
+                        {loadingItems[claimId] ? (
+                          <>
+                            <Loader2 size={14} className="animate-spin"/>
+                            Memuat Lampiran...
+                          </>
+                        ) : (
+                          <>
+                            <FileText size={14}/>
+                            {loadedImages[`list_${claimId}`] ? 'Sembunyikan Lampiran DMS' : 'Tampilkan Lampiran DMS'}
+                            {dmsAttachments && dmsAttachments.length > 0 && ` (${dmsAttachments.length})`}
+                          </>
+                        )}
+                      </button>
+
+                      {/* Attachment List (Expanded on Demand) */}
+                      {loadedImages[`list_${claimId}`] && dmsAttachments && dmsAttachments.length > 0 && (() => {
+                        const images = dmsAttachments.filter(att => /\.(jpg|jpeg|png|webp|gif)$/i.test(att.fileName || att.name || ''));
+                        const nonImages = dmsAttachments.filter(att => !/\.(jpg|jpeg|png|webp|gif)$/i.test(att.fileName || att.name || ''));
+
+                        return (
+                          <div className="mt-4 border-t border-zinc-100 pt-4 space-y-4">
+                            {/* Images Grid */}
+                            {images.length > 0 && (
+                              <div>
+                                <div className="flex items-center justify-between mb-2">
+                                  <h4 className="text-xs font-black text-zinc-700 flex items-center gap-1.5">
+                                    <ShieldCheck size={13} className="text-blue-500"/> Lampiran Gambar ({images.length})
+                                  </h4>
+                                  <a
+                                    href={buildAttachmentPreviewUrl(images)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors shadow-sm"
+                                  >
+                                    Buka Semua di DMS
+                                  </a>
+                                </div>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                                  {images.map((att, aIdx) => {
+                                    const fileId = att.fileId || att.id || '';
+                                    const fileName = att.fileName || att.name || '';
+                                    const downloadUrl = `/api/chery_dms?endpoint=download_file&id=${fileId}`;
+                                    
+                                    return (
+                                      <div key={aIdx} className="relative group aspect-square bg-zinc-100 rounded-xl overflow-hidden border border-zinc-200 shadow-sm flex flex-col justify-between">
+                                        {/* Image */}
+                                        <div 
+                                          className="relative flex-1 overflow-hidden cursor-zoom-in"
+                                          onClick={() => setZoomedImage({ url: downloadUrl, name: fileName })}
+                                        >
+                                          <img
+                                            src={downloadUrl}
+                                            alt={fileName}
+                                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                            onError={(e) => {
+                                              e.target.style.display = 'none';
+                                              const parent = e.target.parentElement;
+                                              if (parent) {
+                                                parent.innerHTML = `
+                                                  <div class="absolute inset-0 flex flex-col items-center justify-center p-2 text-center bg-red-50 text-red-500">
+                                                    <span class="text-[10px] font-bold">Gagal memuat gambar</span>
+                                                  </div>
+                                                `;
+                                              }
+                                            }}
+                                          />
+                                          {/* Hover overlay for zoom */}
+                                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white text-[10px] font-black uppercase tracking-wider">
+                                            Perbesar
+                                          </div>
+                                        </div>
+
+                                        {/* Filename banner at bottom */}
+                                        <div className="bg-black/75 px-2 py-1 text-[10px] text-white text-center font-bold truncate z-10" title={fileName}>
+                                          {fileName}
+                                        </div>
+
+                                        {/* Link DMS button absolute on top right */}
+                                        <a
+                                          href={buildSingleContainerUrl(att, images)}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="absolute top-1.5 right-1.5 px-2 py-0.5 bg-black/60 hover:bg-black/80 text-white rounded text-[8px] font-black uppercase z-20 transition-colors"
+                                        >
+                                          Link DMS
+                                        </a>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Non-images list */}
+                            {nonImages.length > 0 && (
+                              <div>
+                                <h4 className="text-xs font-black text-zinc-700 mb-2 flex items-center gap-1.5">
+                                  <FileText size={13} className="text-zinc-500"/> Lampiran Dokumen ({nonImages.length})
+                                </h4>
+                                <div className="space-y-1.5">
+                                  {nonImages.map((att, aIdx) => {
+                                    const fileId = att.fileId || att.id || '';
+                                    const fileName = att.fileName || att.name || '';
+                                    const downloadUrl = `/api/chery_dms?endpoint=download_file&id=${fileId}`;
+
+                                    return (
+                                      <div key={aIdx} className="flex items-center justify-between border border-zinc-200 rounded-xl bg-white p-2.5 shadow-sm text-xs">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <FileText size={14} className="text-zinc-400 shrink-0"/>
+                                          <span className="font-semibold text-zinc-700 truncate" title={fileName}>{fileName}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          <a
+                                            href={downloadUrl}
+                                            download={fileName}
+                                            className="px-2.5 py-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-lg text-[10px] font-bold transition-colors"
+                                          >
+                                            Unduh
+                                          </a>
+                                          <a
+                                            href={buildSingleContainerUrl(att, dmsAttachments)}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[10px] font-bold transition-colors"
+                                          >
+                                            Link DMS
+                                          </a>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -463,6 +1078,27 @@ function DetailPage({ settlement, onBack }) {
           </div>
         )}
       </div>
+
+      {/* Zoom Modal */}
+      {zoomedImage && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-fade-in" onClick={() => setZoomedImage(null)}>
+          <div className="relative w-full max-w-4xl bg-white rounded-2xl overflow-hidden p-3 flex flex-col shadow-2xl animate-scale-in" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
+              <span className="text-xs font-bold text-zinc-700 truncate">{zoomedImage.name}</span>
+              <button onClick={() => setZoomedImage(null)} className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-500 hover:text-zinc-700 transition-colors">
+                <X size={16}/>
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto bg-zinc-950 rounded-xl mt-2 flex items-center justify-center relative min-h-[500px] p-2">
+              <img
+                src={zoomedImage.url}
+                alt={zoomedImage.name}
+                className="max-w-full max-h-[75vh] object-contain rounded-lg shadow-lg"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -478,27 +1114,46 @@ export default function ProformaInvoice() {
   const [data, setData]           = useState([]);
   const [totalRecords, setTotalRecords] = useState(0);
   const [page, setPage]           = useState(0);
-  const pageSize = 20;
+  const [pageSize, setPageSize]   = useState(20);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError]         = useState(null);
   const [showFilter, setShowFilter] = useState(false);
   const [selected, setSelected]   = useState(null); // selected settlement for detail view
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (force = false) => {
     setIsLoading(true); setError(null);
     try {
       const beginISO = fromDate ? new Date(fromDate + 'T00:00:00').toISOString() : '';
       const endISO   = toDate   ? new Date(toDate   + 'T23:59:59').toISOString() : '';
+      
+      const cacheKey = `${page}_${pageSize}_${beginISO}_${endISO}`;
+      if (!force && GLOBAL_PROFORMA_CACHE.list && GLOBAL_PROFORMA_CACHE.list[cacheKey]) {
+        const cached = GLOBAL_PROFORMA_CACHE.list[cacheKey];
+        setData(cached.rows);
+        setTotalRecords(cached.total);
+        setIsLoading(false);
+        return;
+      }
+
       const json = await apiFetch({ endpoint: 'proforma-list', pageIndex: page, pageSize, beginCreateTime: beginISO, endCreateTime: endISO });
       const payload = json.payload || json;
       const rows = payload.content || payload.data || payload.items || [];
+      
+      if (!GLOBAL_PROFORMA_CACHE.list) {
+        GLOBAL_PROFORMA_CACHE.list = {};
+      }
+      GLOBAL_PROFORMA_CACHE.list[cacheKey] = {
+        rows,
+        total: payload.totalElements || payload.total || rows.length
+      };
+
       setData(rows);
       setTotalRecords(payload.totalElements || payload.total || rows.length);
     } catch (e) { setError(e.message); }
     finally { setIsLoading(false); }
-  }, [fromDate, toDate, page]);
+  }, [fromDate, toDate, page, pageSize]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { fetchData(false); }, [fetchData]);
 
   // If a settlement is selected, show detail page
   if (selected) {
@@ -560,7 +1215,7 @@ export default function ProformaInvoice() {
             <Filter size={12}/> Filter {hasFilters && <span className="w-1.5 h-1.5 bg-red-400 rounded-full"/>}
           </button>
 
-          <button onClick={fetchData} disabled={isLoading}
+          <button onClick={() => fetchData(true)} disabled={isLoading}
             className="p-1.5 rounded-lg border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors ml-auto">
             <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''}/>
           </button>
@@ -574,8 +1229,8 @@ export default function ProformaInvoice() {
               <select value={kategoriFilter} onChange={e=>{setKategoriFilter(e.target.value);setPage(0);}}
                 className="px-2.5 py-1.5 text-xs border border-zinc-200 rounded-lg bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900">
                 <option value="all">Semua</option>
-                <option value="free-service">Free Service (BY)</option>
-                <option value="warranty">Warranty (BX)</option>
+                <option value="free-service">Free Service (BY / IFS)</option>
+                <option value="warranty">Warranty (BX / IKC)</option>
               </select>
             </div>
             {hasFilters && (
@@ -606,11 +1261,24 @@ export default function ProformaInvoice() {
         );})}
       </div>
 
+      {/* Category breakdown */}
+      <div className="px-5 py-2 flex items-center gap-3 text-xs text-zinc-400 font-bold uppercase tracking-wider shrink-0">
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border bg-green-50 text-green-700 border-green-200">
+          {filtered.filter(r => (r.code || '').startsWith('BY')).length} BY / IFS
+        </span>
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border bg-blue-50 text-blue-700 border-blue-200">
+          {filtered.filter(r => (r.code || '').startsWith('BX')).length} BX / IKC
+        </span>
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border bg-zinc-100 text-zinc-600 border-zinc-200">
+          {filtered.filter(r => !(r.code || '').startsWith('BY') && !(r.code || '').startsWith('BX')).length} Lainnya
+        </span>
+      </div>
+
       {error && (
         <div className="mx-5 mb-3 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 shrink-0">
           <AlertCircle size={14} className="text-red-500 shrink-0"/>
           <p className="text-sm text-red-700 flex-1">{error}</p>
-          <button onClick={fetchData} className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg">Coba Lagi</button>
+          <button onClick={() => fetchData(true)} className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg">Coba Lagi</button>
         </div>
       )}
 
@@ -632,7 +1300,7 @@ export default function ProformaInvoice() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-zinc-50 border-b border-zinc-200">
-                    {['Code','Settlement Month','Status','Labor Fee','Material Fee','Total Fee','Refused Fee',''].map(h => (
+                    {['Code','Kategori','Settlement Month','Status','Labor Fee','Material Fee','Total Fee','Refused Fee',''].map(h => (
                       <th key={h} className="text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -649,6 +1317,21 @@ export default function ProformaInvoice() {
                       >
                         <td className="px-4 py-3 whitespace-nowrap">
                           <span className="font-black text-zinc-900 text-sm group-hover:text-zinc-700">{code}</span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {code.startsWith('BY') ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border bg-green-50 text-green-700 border-green-200">
+                              BY / IFS
+                            </span>
+                          ) : code.startsWith('BX') ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border bg-blue-50 text-blue-700 border-blue-200">
+                              BX / IKC
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold border bg-zinc-100 text-zinc-600 border-zinc-200">
+                              -
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-zinc-600 whitespace-nowrap text-xs">{formatDate(month)}</td>
                         <td className="px-4 py-3 whitespace-nowrap">
@@ -674,9 +1357,27 @@ export default function ProformaInvoice() {
         )}
       </div>
 
-      {totalPages > 1 && (
-        <div className="bg-white border-t border-zinc-200 px-5 py-3 flex items-center justify-between shrink-0">
-          <p className="text-xs text-zinc-500">{page*pageSize+1}–{Math.min((page+1)*pageSize,totalRecords)} dari {totalRecords}</p>
+      <div className="bg-white border-t border-zinc-200 px-5 py-3 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-400">Tampilkan:</span>
+          <select
+            value={pageSize}
+            onChange={e => {
+              setPageSize(Number(e.target.value));
+              setPage(0);
+            }}
+            className="px-2 py-1 text-xs border border-zinc-200 rounded bg-white text-zinc-700 font-semibold focus:outline-none focus:ring-1 focus:ring-zinc-900"
+          >
+            {[10, 20, 30, 50].map(sz => (
+              <option key={sz} value={sz}>{sz}</option>
+            ))}
+          </select>
+          <span className="text-xs text-zinc-500">
+            {totalRecords > 0 ? `${page * pageSize + 1}–${Math.min((page + 1) * pageSize, totalRecords)} dari ${totalRecords}` : '0 data'}
+          </span>
+        </div>
+        
+        {totalPages > 1 && (
           <div className="flex items-center gap-2">
             <button onClick={()=>setPage(p=>Math.max(0,p-1))} disabled={page===0||isLoading}
               className="px-3 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
@@ -684,8 +1385,8 @@ export default function ProformaInvoice() {
             <button onClick={()=>setPage(p=>Math.min(totalPages-1,p+1))} disabled={page>=totalPages-1||isLoading}
               className="px-3 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
