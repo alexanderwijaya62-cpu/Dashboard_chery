@@ -118,7 +118,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
     const normalizeBK = useCallback((bk) => (bk || '').replace(/\s+/g, '').toUpperCase(), []);
 
     const cleanupPastBookings = useCallback(async () => {
-        // No longer delete past bookings â€” they are kept for audit trail
+        // No longer delete past bookings — they are kept for audit trail
     }, []);
 
     const fetchBookings = useCallback(async () => {
@@ -288,7 +288,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
             jam: 0, menit: 30, detik: 0, mechanicName: ''
         });
         if (booking.isLate) {
-            Toastify({ text: "âš ï¸ Booking Terlambat > 30 menit. Diubah menjadi REGULER.", background: "orange" }).showToast();
+            Toastify({ text: "⚠️ Booking Terlambat > 30 menit. Diubah menjadi REGULER.", background: "orange" }).showToast();
         }
     };
 
@@ -338,20 +338,6 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                         </div>
                     </div>
 
-                    <nav className="flex items-center gap-1 bg-zinc-100 p-1.5 rounded-2xl border border-zinc-200 ml-0 md:ml-4">
-                        <button 
-                            onClick={() => setActiveTab('dashboard')}
-                            className={`px-3 md:px-6 py-2 min-h-[44px] md:min-h-0 rounded-xl text-sm md:text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'dashboard' ? 'bg-white shadow-md text-black' : 'text-black hover:bg-zinc-200'}`}
-                        >
-                            Operations
-                        </button>
-                        <button 
-                            onClick={() => setActiveTab('booking')}
-                            className={`px-3 md:px-6 py-2 min-h-[44px] md:min-h-0 rounded-xl text-sm md:text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'booking' ? 'bg-white shadow-md text-black' : 'text-black hover:bg-zinc-200'}`}
-                        >
-                            Booking
-                        </button>
-                    </nav>
                 </div>
 
                 <div className="flex items-center gap-6">
@@ -407,7 +393,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                     <div className="flex flex-col pl-1 ml-10">
                                                         <p className="text-[10px] font-black text-black uppercase leading-none">{b.namaCustomer}</p>
                                                         <p className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest mt-1">
-                                                            {b.bookingVia ? `Via: ${b.bookingVia} â€¢ ` : ''}{b.tipeMobil}
+                                                            {b.bookingVia ? `Via: ${b.bookingVia} ` : ''}{b.tipeMobil}
                                                         </p>
                                                     </div>
                                                 )}
@@ -1400,7 +1386,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     <div className="bg-black p-2.5 rounded-xl text-white shadow-lg"><FileText size={24} /></div>
                                     <div>
                                         <h3 className="text-xl font-black uppercase tracking-tight leading-none">{currentItem.bk}</h3>
-                                        <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-1.5">{currentItem.tipe} â€¢ Tasks & Checklist</p>
+                                        <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-1.5">{currentItem.tipe}  Tasks & Checklist</p>
                                     </div>
                                 </div>
                                 <button onClick={() => setShowChecklistModal(null)} className="p-2 bg-white text-zinc-400 hover:text-black rounded-lg border border-zinc-200 shadow-sm transition-all"><X size={20} /></button>

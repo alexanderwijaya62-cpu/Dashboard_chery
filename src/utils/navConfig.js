@@ -33,7 +33,6 @@ import {
 export const NAV_CONFIG = {
   admin: [
     { id: 'admin-dashboard', icon: LayoutDashboard, label: 'Operations', page: 'admin', ariaLabel: 'Admin Operations' },
-    { id: 'admin-booking', icon: Calendar, label: 'Booking', page: 'admin-booking', ariaLabel: 'Booking Management' },
     { id: 'admin-wo', icon: ShieldCheck, label: 'Work Order', page: 'admin-wo', ariaLabel: 'Work Order' },
     { id: 'sa-booking', icon: Calendar, label: 'SA Booking', page: 'sa-booking', ariaLabel: 'SA Booking' },
   ],
@@ -42,8 +41,6 @@ export const NAV_CONFIG = {
     { id: 'cro-sudah', icon: FileText, label: 'Sudah Follow Up', page: 'cro-sudah', ariaLabel: 'Sudah Follow Up' },
     { id: 'cro-freeservice', icon: Calendar, label: 'Free Service', page: 'cro-freeservice', ariaLabel: 'Free Service' },
     { id: 'cro-laporan', icon: BarChart, label: 'Laporan Bulanan', page: 'cro-laporan', ariaLabel: 'Laporan Bulanan' },
-    { id: 'cro-booking', icon: Calendar, label: 'Booking Management', page: 'cro-booking', ariaLabel: 'Booking Management' },
-    { id: 'cro-booking-approval', icon: ShieldCheck, label: 'Konfirmasi Booking', page: 'cro-booking-approval', ariaLabel: 'Konfirmasi Booking' },
     { id: 'cro-holidays', icon: Settings, label: 'Libur Dealer', page: 'cro-holidays', ariaLabel: 'Libur Dealer' },
     { id: 'sa-booking', icon: Calendar, label: 'SA Booking', page: 'sa-booking', ariaLabel: 'SA Booking' },
   ],

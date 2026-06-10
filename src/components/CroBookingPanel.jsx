@@ -325,7 +325,7 @@ export default function CroBookingPanel({ user }) {
                                             <div className="space-y-2">
                                                 <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Jam Kedatangan</h4>
                                                 <div className="grid grid-cols-3 gap-2">
-                                                    {Array.from({ length: 12 }, (_, i) => {
+                                                    {Array.from({ length: 4 }, (_, i) => {
                                                         const h = 8 + Math.floor(i / 2);
                                                         const m = i % 2 === 0 ? '00' : '30';
                                                         const slot = `${h}.${m}`;
