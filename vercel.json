@@ -1,7 +1,6 @@
 {
   "builds": [
     { "src": "api/chery_dms.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },
-    { "src": "api/proxy_dms.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },
     { "src": "api/chery_epc.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },
     { "src": "api/warranty.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },
     { "src": "api/login.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },
@@ -11,7 +10,6 @@
   ],
   "rewrites": [
     { "source": "/api/chery_dms", "destination": "/api/chery_dms.js" },
-    { "source": "/api/proxy_dms", "destination": "/api/proxy_dms.js" },
     { "source": "/api/chery_epc", "destination": "/api/chery_epc.js" },
     { "source": "/api/warranty", "destination": "/api/warranty.js" },
     { "source": "/api/login", "destination": "/api/login.js" },
