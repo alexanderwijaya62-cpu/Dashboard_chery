@@ -1,5 +1,6 @@
 import https from 'https';
 import urllib from 'url';
+import fs from 'fs';
 
 let cachedCookie = null;
 let currentLoginPromise = null;
@@ -273,6 +274,7 @@ async function handleWarranty(req, res) {
     const length = req.query.length || 25;
     const search = req.query.search || '';
     const status = req.query.status || '';
+    const kategori = req.query.kategori || '';
     const from = req.query.from || '';
     const to = req.query.to || '';
 
@@ -298,7 +300,7 @@ async function handleWarranty(req, res) {
         `&columns[18][data]=last_update&columns[18][name]=last_update&columns[18][searchable]=true&columns[18][orderable]=true&columns[18][search][value]=&columns[18][search][regex]=false` +
         `&order[0][column]=18&order[0][dir]=desc` +
         `&search[value]=${encodeURIComponent(search)}&search[regex]=false` +
-        `&status=${encodeURIComponent(status)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&_=${Date.now()}`;
+        `&status=${encodeURIComponent(status)}&kategori=${encodeURIComponent(kategori)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&_=${Date.now()}`;
 
     let attempts = 0;
     while (attempts < 2) {
@@ -351,7 +353,11 @@ async function handleWarrantyEstimasiDetail(req, res) {
         });
         const body = await response.text();
         const isHtml = body.trimStart().startsWith('<');
-        if (response.status === 302 || response.status === 401 || !isHtml || body.includes('/aftersales/login')) {
+
+        const isLoginPage = body.includes('/aftersales/login') ||
+                            (body.includes('name="username"') && body.includes('name="password"'));
+
+        if (response.status === 302 || response.status === 401 || !isHtml || isLoginPage) {
             warrantyCookie = null;
             attempts++;
             continue;
@@ -398,6 +404,31 @@ async function handleWarrantyEstimasiDetail(req, res) {
                         status_permintaan: status_permintaan || 'Aktif',
                         status: status_permintaan || 'Aktif'
                     });
+                }
+            } else {
+                // Fallback: try to parse any table with rows as generic sparepart table
+                const anyTable = body.match(/<table[\s\S]*?<\/table>/i);
+                if (anyTable) {
+                    const trRegex = /<tr[^>]*>[\s\S]*?<\/tr>/gi;
+                    let trMatch;
+                    while ((trMatch = trRegex.exec(anyTable[0])) !== null) {
+                        const trHtml = trMatch[0];
+                        const tds = [];
+                        const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+                        let tdMatch;
+                        while ((tdMatch = tdRegex.exec(trHtml)) !== null) {
+                            tds.push(tdMatch[1].replace(/<[^>]*>/g, '').trim());
+                        }
+                        if (tds.length >= 3 && /[A-Z0-9]{3,}/i.test(tds[1] || '')) {
+                            parts.push({
+                                kode_part: tds[1] || '',
+                                nama_part: tds[2] || '',
+                                jumlah: parseInt(tds[3] || '1', 10) || 1,
+                                status_permintaan: tds[tds.length - 1] || 'Aktif',
+                                status: tds[tds.length - 1] || 'Aktif'
+                            });
+                        }
+                    }
                 }
             }
             return res.status(200).json({ parts });

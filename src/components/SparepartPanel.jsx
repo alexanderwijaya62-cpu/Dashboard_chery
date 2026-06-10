@@ -64,6 +64,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible, se
     const [pendingBatch, setPendingBatch] = useState([]);
     const [batchIndex, setBatchIndex] = useState(-1);
     const fileInputRef = useRef(null);
+    const dmsTimeoutRef = useRef(null);
 
     const handleFileUpload = (e) => {
         const file = e.target.files[0];
@@ -719,9 +720,11 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible, se
                                                 onChange={(e) => {
                                                     setSearchDms(e.target.value);
                                                     const val = e.target.value;
+                                                    if (dmsTimeoutRef.current) {
+                                                        clearTimeout(dmsTimeoutRef.current);
+                                                    }
                                                     if (val.length >= 3) {
-                                                        const tid = setTimeout(() => fetchFromDms(val), 500);
-                                                        return () => clearTimeout(tid);
+                                                        dmsTimeoutRef.current = setTimeout(() => fetchFromDms(val), 500);
                                                     }
                                                 }}
                                             />

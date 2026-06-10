@@ -5,12 +5,6 @@ import { supabase } from '../utils/supabaseClient';
 import orientalLogo from '../assets/oriental.jpeg';
 import cheryLogo from '../assets/chery.png';
 
-const TIPE_MOBIL = [
-    "Tiggo 5x", "Tiggo Cross", "Tiggo Cross Csh", "Tiggo 7", "Tiggo 8 Pro",
-    "Tiggo 8", "Tiggo 8 Csh", "Tiggo 9 Csh", "J6", "Omoda 5", "Omoda EV",
-    "Omoda 5 GT", "Chery C5", "Chery C5 Csh", "J5", "J7", "J8"
-];
-
 const generateSlots = (count) => {
     const slots = [];
     let currentHour = 8;
@@ -27,8 +21,6 @@ const generateSlots = (count) => {
     }
     return slots;
 };
-
-const KEPERLUAN = ["Free Service 1", "Free Service 2", "Free Service 3", "General Repair", "Perawatan Berkala", "Claim Warranty"];
 
 const isSameDate = (dateA, dateB) => {
     const normalize = (d) => {
@@ -72,7 +64,7 @@ export default function PublicBooking({ user }) {
     const [currentMonth, setCurrentMonth] = useState(new Date());
 
     const [formData, setFormData] = useState({
-        jam: '', tipeMobil: '', noPlat: '', namaCustomer: '', keperluanService: '', vin: '', noTelp: ''
+        jam: '', noPlat: '', namaCustomer: '', noTelp: ''
     });
     const [userIP, setUserIP] = useState('');
     const [showWarningModal, setShowWarningModal] = useState(false);
@@ -216,7 +208,7 @@ export default function PublicBooking({ user }) {
         e.preventDefault();
         if (isLoading) return; // Mencegah klik ganda simultan
 
-        if (!formData.jam || !formData.tipeMobil || !formData.noPlat || !formData.namaCustomer || !formData.keperluanService || !formData.noTelp) {
+        if (!formData.jam || !formData.noPlat || !formData.namaCustomer || !formData.noTelp) {
             Toastify({ text: "Harap isi semua field wajib!", background: "red" }).showToast();
             return;
         }
@@ -302,28 +294,22 @@ export default function PublicBooking({ user }) {
             const newId = Date.now();
             const { error } = await supabase.from('booking').insert({
                 id: newId,
-                noUrut: nextNoUrut, // Gunakan nomor urut menyambung
+                noUrut: nextNoUrut,
                 tanggal: selectedDate,
-                jam: formData.jam, // Simpan sebagai String agar tetap '08.30'
-                tipeMobil: formData.tipeMobil,
+                jam: formData.jam,
                 noPlat: formData.noPlat.toUpperCase().replace(/\s+/g, ''),
                 namaCustomer: formData.namaCustomer,
-                keperluanService: formData.keperluanService,
-                vin: formData.vin || '-',
                 bookingVia: user ? `Booking via: ${user.name}` : 'Web-Public',
                 noTelp: formData.noTelp,
                 ip_address: userIP,
-                status: 'accepted' // Langsung diterima krn sudah realtime & tervalidasi
+                status: 'waiting_approval'
             });
 
             if (error) throw error;
 
             Toastify({ text: '✅ Booking berhasil dikirim!', style: { background: 'green' } }).showToast();
-            let phone = '628116017300';
-            const textWA = `Halo Chery, saya mau booking service:\n\nNama: ${formData.namaCustomer}\nTanggal: ${selectedDate}\nJam: ${formData.jam}\nTipe Mobil: ${formData.tipeMobil} (${formData.noPlat})\nKeperluan: ${formData.keperluanService}\nTelp: ${formData.noTelp}\n\nMohon konfirmasi booking saya. Terima kasih.`;
-            window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(textWA)}`, '_blank');
             setIsBookingMode(false);
-            setFormData({ jam: '', tipeMobil: '', noPlat: '', namaCustomer: '', keperluanService: '', vin: '', noTelp: '' });
+            setFormData({ jam: '', noPlat: '', namaCustomer: '', noTelp: '' });
             fetchBookings();
         } catch (err) {
             console.error('Booking error:', err);
@@ -556,63 +542,28 @@ export default function PublicBooking({ user }) {
                             </div>
 
                             <form onSubmit={handleSubmit} className="flex-1 flex flex-col">
-                                <div className="p-6 md:p-8 space-y-8 md:space-y-10">
-                                    {/* Data Customer */}
+                                <div className="p-6 md:p-8 space-y-6 md:space-y-8">
                                     <section className="space-y-4 md:space-y-5">
-                                        <h3 className="text-[9px] md:text-[10px] font-black uppercase text-white tracking-widest bg-white/5 p-3 md:p-4 rounded-xl border border-white/5">👤 Info Pelanggan</h3>
-                                        <div className="space-y-4 md:space-y-0 md:grid md:grid-cols-2 gap-4 md:gap-6">
+                                        <h3 className="text-[9px] md:text-[10px] font-black uppercase text-white tracking-widest bg-white/5 p-3 md:p-4 rounded-xl border border-white/5 flex items-center gap-2"><User size={14} /> Info Pelanggan</h3>
+                                        <div className="space-y-4">
                                             <div className="space-y-2 md:space-y-3">
                                                 <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                                                    Nama Pemilik <span className="text-black text-lg leading-none">*</span>
+                                                    Nama <span className="text-black text-lg leading-none">*</span>
                                                 </label>
                                                 <input required type="text" value={formData.namaCustomer} onChange={e => setFormData({ ...formData, namaCustomer: e.target.value })}
-                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase placeholder:text-zinc-600" placeholder="Contoh: Darma Sutejo" />
+                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase placeholder:text-zinc-600" placeholder="Nama lengkap" />
                                             </div>
                                             <div className="space-y-2 md:space-y-3">
                                                 <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                                                    No WhatsApp (Aktif) <span className="text-black text-lg leading-none">*</span>
+                                                    No HP <span className="text-black text-lg leading-none">*</span>
                                                 </label>
                                                 <input required type="tel" value={formData.noTelp} onChange={e => setFormData({ ...formData, noTelp: e.target.value })}
                                                     className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all placeholder:text-zinc-600" placeholder="081267XXXXX" />
                                             </div>
-                                        </div>
-                                    </section>
-
-                                    {/* Detail Kendaraan */}
-                                    <section className="space-y-4 md:space-y-5">
-                                        <h3 className="text-[9px] md:text-[10px] font-black uppercase text-white tracking-widest bg-white/5 p-3 md:p-4 rounded-xl border border-white/5">🚗 Info Unit</h3>
-                                        <div className="space-y-4 md:space-y-0 md:grid md:grid-cols-2 gap-4 md:gap-6">
                                             <div className="space-y-2 md:space-y-3">
-                                                <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Model Chery</label>
-                                                <select required value={formData.tipeMobil} onChange={e => setFormData({ ...formData, tipeMobil: e.target.value })}
-                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase appearance-none cursor-pointer">
-                                                    <option value="" disabled className="text-zinc-500 bg-zinc-900">Pilih Model</option>
-                                                    {TIPE_MOBIL.map(t => <option key={t} value={t} className="bg-zinc-900 text-white">{t}</option>)}
-                                                </select>
-                                            </div>
-                                            <div className="space-y-2 md:space-y-3">
-                                                <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Nomor Polisi</label>
+                                                <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Nomor Polisi (BK)</label>
                                                 <input required type="text" value={formData.noPlat} onChange={e => setFormData({ ...formData, noPlat: e.target.value.toUpperCase().replace(/\s+/g, '') })}
-                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase placeholder:text-zinc-600" placeholder="BK1XXXMA" />
-                                            </div>
-                                        </div>
-                                    </section>
-
-                                    {/* Kebutuhan */}
-                                    <section className="space-y-4 md:space-y-5">
-                                        <div className="space-y-4 md:space-y-0 md:grid md:grid-cols-2 gap-4 md:gap-6">
-                                            <div className="space-y-2 md:space-y-3">
-                                                <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Kebutuhan Service</label>
-                                                <select required value={formData.keperluanService} onChange={e => setFormData({ ...formData, keperluanService: e.target.value })}
-                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase appearance-none cursor-pointer">
-                                                    <option value="" disabled className="text-zinc-500 bg-zinc-900">Pilih Layanan</option>
-                                                    {KEPERLUAN.map(t => <option key={t} value={t} className="bg-zinc-900 text-white">{t}</option>)}
-                                                </select>
-                                            </div>
-                                            <div className="space-y-2 md:space-y-3">
-                                                <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">No Rangka (Vin) - Opsional</label>
-                                                <input type="text" value={formData.vin} onChange={e => setFormData({ ...formData, vin: e.target.value.toUpperCase() })}
-                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase placeholder:text-zinc-600" placeholder="Opsional..." />
+                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase placeholder:text-zinc-600" placeholder="BK 1234 AB" />
                                             </div>
                                         </div>
                                     </section>

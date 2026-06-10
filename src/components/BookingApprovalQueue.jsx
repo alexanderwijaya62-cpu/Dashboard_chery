@@ -234,7 +234,8 @@ export default function BookingApprovalQueue({ user, setCurrentPage }) {
     return (
       (b.namaCustomer || '').toLowerCase().includes(query) ||
       (b.noPlat || '').toLowerCase().includes(query) ||
-      (b.tipeMobil || '').toLowerCase().includes(query)
+      (b.tipeMobil || '').toLowerCase().includes(query) ||
+      String(b.noUrut || b.id || '').toLowerCase().includes(query)
     );
   });
 
@@ -299,7 +300,7 @@ export default function BookingApprovalQueue({ user, setCurrentPage }) {
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
             <input 
               type="text" 
-              placeholder="Cari Plat, Nama, Unit..."
+              placeholder="Cari No. Booking, Plat, Nama..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="pl-9 pr-4 py-2 text-xs border border-zinc-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-black w-full md:w-56 text-zinc-900 shadow-sm"

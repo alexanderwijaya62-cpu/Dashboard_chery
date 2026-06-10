@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   ShieldCheck, BarChart2, Search, RefreshCw, AlertCircle,
   TrendingUp, Clock, CheckCircle2, FileText, Wrench,
@@ -9,6 +9,8 @@ import {
   getStatusStyle, getKategoriStyle, STATUS_COLORS,
   formatDate, formatKm, fetchWarrantyAPI
 } from '../utils/warrantyConfig';
+
+const GLOBAL_WARRANTY_CACHE = { dashboard: null, workorder: {}, search: null, partsStatus: {} };
 
 function InfoRow({ label, value }) {
   return (
@@ -21,32 +23,39 @@ function InfoRow({ label, value }) {
 
 // ─── Dashboard ────────────────────────────────────────────────
 export function WarrantyDashboardPage({ onNavigate }) {
-  const [data, setData] = useState([]);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const [data, setData] = useState(() => GLOBAL_WARRANTY_CACHE.dashboard?.data || []);
+  const [totalRecords, setTotalRecords] = useState(() => GLOBAL_WARRANTY_CACHE.dashboard?.totalRecords || 0);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState(null);
-  const [lastUpdated, setLastUpdated] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(() => GLOBAL_WARRANTY_CACHE.dashboard?.lastUpdated || null);
 
-  const fetchInitial = useCallback(async () => {
+  const fetchInitial = useCallback(async (forceRefresh) => {
+    if (!forceRefresh && GLOBAL_WARRANTY_CACHE.dashboard) return;
     setIsLoading(true); setError(null);
     try {
       // Load 50 first for fast display
       const params = new URLSearchParams({ endpoint:'work-order', draw:1, start:0, length:50, search:'', status:'', from:'', to:'' });
       const json = await fetchWarrantyAPI(params);
-      setData(json.data || []);
-      setTotalRecords(json.recordsTotal || 0);
+      const newData = json.data || [];
+      const newTotal = json.recordsTotal || 0;
+      setData(newData);
+      setTotalRecords(newTotal);
       setLastUpdated(new Date());
+      GLOBAL_WARRANTY_CACHE.dashboard = { data: newData, totalRecords: newTotal, lastUpdated: new Date() };
       setIsLoading(false);
 
       // Load more in background
-      if ((json.recordsTotal || 0) > 50) {
+      if (newTotal > 50) {
         setIsLoadingMore(true);
         try {
           const params2 = new URLSearchParams({ endpoint:'work-order', draw:2, start:0, length:500, search:'', status:'', from:'', to:'' });
           const json2 = await fetchWarrantyAPI(params2);
-          setData(json2.data || []);
+          const fullData = json2.data || [];
+          setData(fullData);
           setTotalRecords(json2.recordsTotal || 0);
+          GLOBAL_WARRANTY_CACHE.dashboard.data = fullData;
+          GLOBAL_WARRANTY_CACHE.dashboard.totalRecords = json2.recordsTotal || 0;
         } catch (e) { /* keep initial data */ }
         finally { setIsLoadingMore(false); }
       }
@@ -85,7 +94,7 @@ export function WarrantyDashboardPage({ onNavigate }) {
 
   return (
     <div className="flex-1 overflow-y-auto p-5 space-y-5">
-      {error && <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3"><AlertCircle size={15} className="text-red-500 shrink-0"/><p className="text-sm text-red-700 flex-1">{error}</p><button onClick={fetchInitial} className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg">Coba Lagi</button></div>}
+      {error && <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3"><AlertCircle size={15} className="text-red-500 shrink-0"/><p className="text-sm text-red-700 flex-1">{error}</p><button onClick={() => fetchInitial(true)} className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg">Coba Lagi</button></div>}
       {isLoadingMore && <div className="flex items-center gap-2 text-xs text-zinc-400 bg-zinc-100 rounded-xl px-4 py-2"><div className="w-3 h-3 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin"></div>Memuat data lengkap di background...</div>}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -160,8 +169,8 @@ export function WarrantyDashboardPage({ onNavigate }) {
 
 // ─── Work Order Page ──────────────────────────────────────────
 export function WarrantyWorkOrderPage() {
-  const [data, setData] = useState([]);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const [data, setData] = useState(() => GLOBAL_WARRANTY_CACHE.workorder[`0_____`]?.data || []);
+  const [totalRecords, setTotalRecords] = useState(() => GLOBAL_WARRANTY_CACHE.workorder[`0_____`]?.totalRecords || 0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [expandedRow, setExpandedRow] = useState(null);
@@ -174,23 +183,80 @@ export function WarrantyWorkOrderPage() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [showFilter, setShowFilter] = useState(false);
+  const [sparepartFilter, setSparepartFilter] = useState(() => GLOBAL_WARRANTY_CACHE.lastSparepartFilter || 'all');
+  const [partsStatus, setPartsStatus] = useState(() => ({...GLOBAL_WARRANTY_CACHE.partsStatus}));
+  const [loadingParts, setLoadingParts] = useState(false);
 
-  const fetchData = useCallback(async () => {
+  const getWOCacheKey = () => `${page}_${search}_${statusFilter}_${kategoriFilter}_${fromDate}_${toDate}`;
+
+  const fetchData = useCallback(async (forceRefresh) => {
+    const wk = getWOCacheKey();
+    if (!forceRefresh && GLOBAL_WARRANTY_CACHE.workorder[wk]) return;
     setIsLoading(true); setError(null);
     try {
       const params = new URLSearchParams({ endpoint:'work-order', draw:page+1, start:page*pageSize, length:pageSize, search, status:statusFilter, kategori:kategoriFilter, from:fromDate, to:toDate });
       const json = await fetchWarrantyAPI(params);
-      setData(json.data || []);
-      setTotalRecords(json.recordsFiltered || json.recordsTotal || 0);
+      const newData = json.data || [];
+      const newTotal = json.recordsFiltered || json.recordsTotal || 0;
+      setData(newData);
+      setTotalRecords(newTotal);
+      GLOBAL_WARRANTY_CACHE.workorder[wk] = { data: newData, totalRecords: newTotal };
     } catch (err) { setError(err.message); }
     finally { setIsLoading(false); }
   }, [page, search, statusFilter, kategoriFilter, fromDate, toDate]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const loadPartsStatus = useCallback(async (woList) => {
+    const toLoad = woList.filter(wo => wo.no_wo && !GLOBAL_WARRANTY_CACHE.partsStatus[wo.no_wo]);
+    if (toLoad.length === 0) return;
+    setLoadingParts(true);
+    toLoad.forEach(wo => { GLOBAL_WARRANTY_CACHE.partsStatus[wo.no_wo] = { loading: true }; });
+    setPartsStatus({...GLOBAL_WARRANTY_CACHE.partsStatus});
+    const batchSize = 5;
+    for (let i = 0; i < toLoad.length; i += batchSize) {
+      const batch = toLoad.slice(i, i + batchSize);
+      await Promise.allSettled(batch.map(async (wo) => {
+        try {
+          const res = await fetch(`/api/chery_dms?endpoint=warranty-estimasi-detail&id=${wo.no_wo}`);
+          const json = await res.json();
+          if (json.error) throw new Error(json.error);
+          const parts = json.parts || [];
+          let status;
+          if (parts.length === 0) {
+            status = 'perlu_diisi';
+          } else {
+            const allFulfilled = parts.every(p =>
+              ['Disetujui', 'Aktif', 'Dipenuhi', 'VALIDATED'].includes(p.status_permintaan || p.status)
+            );
+            status = allFulfilled ? 'dipenuhi' : 'belum_dipenuhi';
+          }
+          GLOBAL_WARRANTY_CACHE.partsStatus[wo.no_wo] = { loading: false, status, parts };
+        } catch {
+          GLOBAL_WARRANTY_CACHE.partsStatus[wo.no_wo] = { loading: false, status: 'perlu_diisi', parts: [] };
+        }
+      }));
+    }
+    setPartsStatus({...GLOBAL_WARRANTY_CACHE.partsStatus});
+    setLoadingParts(false);
+  }, []);
+
+  useEffect(() => {
+    GLOBAL_WARRANTY_CACHE.lastSparepartFilter = sparepartFilter;
+    if (sparepartFilter !== 'all' && data.length > 0) {
+      loadPartsStatus(data);
+    }
+  }, [sparepartFilter, data, loadPartsStatus]);
+
   const totalPages = Math.ceil(totalRecords / pageSize);
-  const hasActiveFilters = search || statusFilter || kategoriFilter || fromDate || toDate;
-  const clearFilters = () => { setSearch(''); setSearchInput(''); setStatusFilter(''); setKategoriFilter(''); setFromDate(''); setToDate(''); setPage(0); };
+  const hasActiveFilters = search || statusFilter || kategoriFilter || fromDate || toDate || sparepartFilter !== 'all';
+  const clearFilters = () => { setSearch(''); setSearchInput(''); setStatusFilter(''); setKategoriFilter(''); setFromDate(''); setToDate(''); setSparepartFilter('all'); setPage(0); };
+  const displayData = (sparepartFilter === 'all' || loadingParts)
+    ? data
+    : data.filter(wo => {
+        const ps = partsStatus[wo.no_wo];
+        return ps && !ps.loading && ps.status === sparepartFilter;
+      });
 
   return (
     <div className="w-full h-full flex flex-col overflow-hidden">
@@ -200,7 +266,7 @@ export function WarrantyWorkOrderPage() {
           <button type="submit" className="px-3 py-2 bg-zinc-900 text-white text-sm font-semibold rounded-xl hover:bg-zinc-700 transition-colors">Cari</button>
         </form>
         <button onClick={()=>setShowFilter(!showFilter)} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-colors ${showFilter||hasActiveFilters?'bg-zinc-900 text-white border-zinc-900':'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'}`}><Filter size={13}/> Filter {hasActiveFilters&&<span className="w-1.5 h-1.5 bg-red-400 rounded-full"></span>}</button>
-        <button onClick={fetchData} disabled={isLoading} className="p-2 rounded-xl border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors ml-auto"><RefreshCw size={14} className={isLoading?'animate-spin':''}/></button>
+        <button onClick={() => fetchData(true)} disabled={isLoading} className="p-2 rounded-xl border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors ml-auto"><RefreshCw size={14} className={isLoading?'animate-spin':''}/></button>
         <span className="text-xs text-zinc-400">{isLoading?'Memuat...':`${totalRecords.toLocaleString()} WO`}</span>
       </div>
 
@@ -214,17 +280,26 @@ export function WarrantyWorkOrderPage() {
             <select value={kategoriFilter} onChange={e=>{setKategoriFilter(e.target.value);setPage(0);}} className="px-3 py-2 text-sm border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900">
               <option value="">Semua</option><option value="IFS">IFS</option><option value="IKC">IKC</option><option value="EUR">EUR</option>
             </select></div>
+          <div><label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Sparepart</label>
+            <select value={sparepartFilter} onChange={e=>{setSparepartFilter(e.target.value);}} className="px-3 py-2 text-sm border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900">
+              <option value="all">Semua</option><option value="dipenuhi">Dipenuhi</option><option value="belum_dipenuhi">Belum Dipenuhi</option><option value="perlu_diisi">Perlu Diisi</option>
+            </select></div>
           <div><label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Dari</label><input type="date" value={fromDate} onChange={e=>{setFromDate(e.target.value);setPage(0);}} className="px-3 py-2 text-sm border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900"/></div>
           <div><label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Sampai</label><input type="date" value={toDate} onChange={e=>{setToDate(e.target.value);setPage(0);}} className="px-3 py-2 text-sm border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900"/></div>
           {hasActiveFilters && <button onClick={clearFilters} className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 rounded-xl border border-red-200 transition-colors"><X size={13}/> Reset</button>}
         </div>
       )}
 
-      {error && <div className="mx-4 mt-3 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 shrink-0"><AlertCircle size={14} className="text-red-500 shrink-0"/><p className="text-sm text-red-700 flex-1">{error}</p><button onClick={fetchData} className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg">Coba Lagi</button></div>}
+      {error && <div className="mx-4 mt-3 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 shrink-0"><AlertCircle size={14} className="text-red-500 shrink-0"/><p className="text-sm text-red-700 flex-1">{error}</p><button onClick={() => fetchData(true)} className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg">Coba Lagi</button></div>}
+      {loadingParts && sparepartFilter !== 'all' && (
+        <div className="mx-4 mt-3 flex items-center gap-2 text-xs text-zinc-400 bg-zinc-100 rounded-xl px-4 py-2"><div className="w-3 h-3 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin"></div>Memuat status sparepart...</div>
+      )}
 
       <div className="flex-1 overflow-auto px-4 py-3">
         {isLoading && data.length===0 ? (
           <div className="flex flex-col items-center justify-center h-48 gap-4"><div className="w-10 h-10 border-4 border-zinc-900 border-t-transparent rounded-full animate-spin"></div><p className="text-sm text-zinc-400">Memuat data...</p></div>
+        ) : sparepartFilter !== 'all' && displayData.length === 0 && !loadingParts ? (
+          <div className="flex flex-col items-center justify-center h-48 gap-3"><Filter size={36} className="text-zinc-300"/><p className="text-sm font-bold text-zinc-400">Tidak ada WO dengan status sparepart yang dipilih</p></div>
         ) : data.length===0 && !isLoading ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3"><ShieldCheck size={36} className="text-zinc-300"/><p className="text-sm font-bold text-zinc-400">Tidak ada data</p></div>
         ) : (
@@ -233,17 +308,25 @@ export function WarrantyWorkOrderPage() {
               <table className="w-full text-sm">
                 <thead><tr className="bg-zinc-50 border-b border-zinc-200">
                   <th className="w-8"></th>
-                  {['No. WO','Kat.','Status','Pelanggan','No. Polisi','Kendaraan','KM','Mekanik','Masuk','Update'].map(h=><th key={h} className="text-left px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">{h}</th>)}
+                  {['No. WO','Kat.','Sparepart','Status','Pelanggan','No. Polisi','Kendaraan','KM','Mekanik','Masuk','Update'].map(h=><th key={h} className="text-left px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">{h}</th>)}
                 </tr></thead>
                 <tbody className="divide-y divide-zinc-100">
-                  {data.map((row,i)=>{
+                  {displayData.map((row,i)=>{
                     const s=getStatusStyle(row.status); const k=getKategoriStyle(row.kategori); const isExp=expandedRow===i;
+                    const ps = partsStatus[row.no_wo];
                     return (
                       <React.Fragment key={i}>
                         <tr className={`hover:bg-zinc-50 transition-colors cursor-pointer ${isExp?'bg-zinc-50':''}`} onClick={()=>setExpandedRow(isExp?null:i)}>
                           <td className="pl-3 pr-1 py-2.5 text-zinc-400">{isExp?<ChevronUp size={12}/>:<ChevronDown size={12}/>}</td>
                           <td className="px-3 py-2.5 font-bold text-zinc-900 whitespace-nowrap text-xs">{row.no_wo||'-'}</td>
                           <td className="px-3 py-2.5 whitespace-nowrap"><span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold border ${k.bg} ${k.text} ${k.border}`}>{k.label}</span></td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">{(ps && !ps.loading) ? (
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold border ${ps.status === 'dipenuhi' ? 'bg-green-50 text-green-700 border-green-200' : ps.status === 'belum_dipenuhi' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                              {ps.status === 'dipenuhi' ? 'Dipenuhi' : ps.status === 'belum_dipenuhi' ? 'Belum Dipenuhi' : 'Perlu Diisi'}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-zinc-300">-</span>
+                          )}</td>
                           <td className="px-3 py-2.5 whitespace-nowrap"><span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${s.bg} ${s.text} ${s.border}`}>{s.label}</span></td>
                           <td className="px-3 py-2.5 text-zinc-700 whitespace-nowrap text-xs max-w-[120px] truncate">{row.nama_pelanggan||'-'}</td>
                           <td className="px-3 py-2.5 font-mono text-zinc-700 whitespace-nowrap text-xs">{row.no_polisi||'-'}</td>
@@ -255,7 +338,7 @@ export function WarrantyWorkOrderPage() {
                         </tr>
                         {isExp && (
                           <tr className="bg-zinc-50 border-b border-zinc-200">
-                            <td colSpan={11} className="px-5 py-4">
+                            <td colSpan={12} className="px-5 py-4">
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                                 <div><p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1"><Car size={10}/> Kendaraan</p>
                                   {[['Chassis',row.no_chassis],['Engine',row.no_engine],['Tahun',row.tahun_produksi],['KM',formatKm(row.stand_km)],['WO DMS',row.no_wo_dms]].map(([l,v])=><div key={l} className="flex gap-2 py-0.5"><span className="text-zinc-400 w-20 shrink-0 text-xs">{l}</span><span className="text-zinc-700 text-xs font-mono">{v||'-'}</span></div>)}
@@ -298,13 +381,13 @@ export function WarrantyWorkOrderPage() {
 
 // ─── Search Page ──────────────────────────────────────────────
 export function WarrantySearchPage() {
-  const [query, setQuery] = useState('');
-  const [searchType, setSearchType] = useState('all');
-  const [results, setResults] = useState([]);
+  const [query, setQuery] = useState(() => GLOBAL_WARRANTY_CACHE.search?.query || '');
+  const [searchType, setSearchType] = useState(() => GLOBAL_WARRANTY_CACHE.search?.searchType || 'all');
+  const [results, setResults] = useState(() => GLOBAL_WARRANTY_CACHE.search?.results || []);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [selectedWO, setSelectedWO] = useState(null);
+  const [hasSearched, setHasSearched] = useState(() => !!GLOBAL_WARRANTY_CACHE.search?.hasSearched);
+  const [selectedWO, setSelectedWO] = useState(() => GLOBAL_WARRANTY_CACHE.search?.selectedWO || null);
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -319,6 +402,7 @@ export function WarrantySearchPage() {
         data = data.filter(row => (row[searchType]||'').toLowerCase().includes(q));
       }
       setResults(data);
+      GLOBAL_WARRANTY_CACHE.search = { query: query.trim(), searchType, results: data, hasSearched: true, selectedWO: null };
     } catch (err) { setError(err.message); }
     finally { setIsLoading(false); }
   };
@@ -333,7 +417,7 @@ export function WarrantySearchPage() {
           <div className="relative flex-1">
             <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400"/>
             <input type="text" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Cari No. WO, plat, chassis, nama..." className="w-full pl-10 pr-10 py-2.5 text-sm border border-zinc-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900" autoFocus/>
-            {query && <button type="button" onClick={()=>{setQuery('');setResults([]);setHasSearched(false);setSelectedWO(null);}} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700"><X size={15}/></button>}
+            {query && <button type="button" onClick={()=>{setQuery('');setResults([]);setHasSearched(false);setSelectedWO(null);GLOBAL_WARRANTY_CACHE.search=null;}} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700"><X size={15}/></button>}
           </div>
           <button type="submit" disabled={isLoading||!query.trim()} className="px-6 py-2.5 bg-zinc-900 text-white text-sm font-bold rounded-xl hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0">{isLoading?'Mencari...':'Cari'}</button>
         </form>

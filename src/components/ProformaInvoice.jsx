@@ -8,15 +8,15 @@ import {
 
 // ─── Constants ────────────────────────────────────────────────
 const STATUS_MAP = {
-  1: { label: 'Draft',        bg: 'bg-zinc-100',   text: 'text-zinc-600',    border: 'border-zinc-200' },
-  2: { label: 'Submitted',    bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200' },
-  3: { label: 'Under Review', bg: 'bg-yellow-50',  text: 'text-yellow-700',  border: 'border-yellow-200' },
-  4: { label: 'Approved',     bg: 'bg-green-50',   text: 'text-green-700',   border: 'border-green-200' },
-  5: { label: 'Rejected',     bg: 'bg-red-50',     text: 'text-red-700',     border: 'border-red-200' },
-  6: { label: 'Paid',         bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
-  7: { label: 'Cancelled',    bg: 'bg-zinc-100',   text: 'text-zinc-500',    border: 'border-zinc-200' },
-  8: { label: 'Pending',      bg: 'bg-orange-50',  text: 'text-orange-700',  border: 'border-orange-200' },
-  9: { label: 'Settled',      bg: 'bg-teal-50',    text: 'text-teal-700',    border: 'border-teal-200' },
+  1: { label: 'Draft', bg: 'bg-zinc-100', text: 'text-zinc-600', border: 'border-zinc-200' },
+  2: { label: 'Submitted', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
+  3: { label: 'Under Review', bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200' },
+  4: { label: 'Approved', bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
+  5: { label: 'Rejected', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
+  6: { label: 'Paid', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
+  7: { label: 'Cancelled', bg: 'bg-zinc-100', text: 'text-zinc-500', border: 'border-zinc-200' },
+  8: { label: 'Pending', bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
+  9: { label: 'Settled', bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200' },
 };
 
 const FREE_SERVICE_KEYWORDS = [
@@ -42,7 +42,7 @@ const formatDate = val => {
 const getKategori = code => {
   if (!code) return { label: 'Lainnya', bg: 'bg-zinc-100', text: 'text-zinc-600', border: 'border-zinc-200' };
   if (code.startsWith('BY')) return { label: 'Free Service', bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' };
-  if (code.startsWith('BX')) return { label: 'Warranty',     bg: 'bg-blue-50',  text: 'text-blue-700',  border: 'border-blue-200' };
+  if (code.startsWith('BX')) return { label: 'Warranty', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' };
   return { label: 'Lainnya', bg: 'bg-zinc-100', text: 'text-zinc-600', border: 'border-zinc-200' };
 };
 
@@ -53,10 +53,10 @@ const isFreeService = p => p && FREE_SERVICE_KEYWORDS.some(kw => p.toLowerCase()
 const getDefaultRange = () => {
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
-  const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   return {
     from: fmt(new Date(now.getFullYear(), now.getMonth(), 1)),
-    to:   fmt(new Date(now.getFullYear(), now.getMonth()+1, 0)),
+    to: fmt(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
   };
 };
 
@@ -73,7 +73,8 @@ const apiFetch = async (params) => {
 const GLOBAL_PROFORMA_CACHE = {
   list: null,      // Format: { [cacheKey]: { rows, total } }
   details: {},     // Format: { [settlementId]: array_items }
-  vinCrossRef: {}  // Format: { [vin]: { wos: [], loading: false } }
+  vinCrossRef: {}, // Format: { [vin]: { wos: [], loading: false } }
+  parts: {}        // Format: { [idWo]: { loading: boolean, error: null, data: [] } }
 };
 
 const buildAttachmentPreviewUrl = (attachments) => {
@@ -94,7 +95,7 @@ const buildSingleContainerUrl = (clickedAtt, allAttachments) => {
   const fileId = clickedAtt.fileId || clickedAtt.id || '';
   const fileName = clickedAtt.fileName || clickedAtt.name || '';
   if (!fileId) return '';
-  
+
   const parts = [`i[0]=${encodeURIComponent(fileId)}:${encodeURIComponent(fileName)}`];
   let idx = 1;
   allAttachments.forEach(att => {
@@ -109,8 +110,6 @@ const buildSingleContainerUrl = (clickedAtt, allAttachments) => {
 };
 
 // ΓöÇΓöÇΓöÇ Detail Page ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-const VIN_BATCH_SIZE = 5;
-
 const findBestMatchingWO = (wos, itemCode, vin, itemMileage, isFree) => {
   if (!wos || !Array.isArray(wos) || wos.length === 0) return null;
   const targetKategori = isFree ? 'IFS' : 'IKC';
@@ -148,15 +147,15 @@ const findBestMatchingWO = (wos, itemCode, vin, itemMileage, isFree) => {
 };
 
 function DetailPage({ settlement, onBack }) {
-  const [items, setItems]         = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState(null);
-  const [vinData, setVinData]     = useState({});
-  const [itemPage, setItemPage]   = useState(0);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [vinData, setVinData] = useState({});
+  const [itemPage, setItemPage] = useState(0);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [search, setSearch]       = useState('');
+  const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
-  const [typeFilter, setTypeFilter]   = useState('all'); // all | maintain | warranty | adjustment
+  const [typeFilter, setTypeFilter] = useState('all'); // all | maintain | warranty | adjustment
   const [zoomedImage, setZoomedImage] = useState(null);
   const [contractDetails, setContractDetails] = useState({});
   const [repairContracts, setRepairContracts] = useState({});
@@ -164,29 +163,36 @@ function DetailPage({ settlement, onBack }) {
   const [loadingItems, setLoadingItems] = useState({});
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
-  const [partsCache, setPartsCache] = useState({});
+  const [partsCache, setPartsCache] = useState(() => GLOBAL_PROFORMA_CACHE.parts || {});
 
   const handleLoadParts = useCallback(async (idWo) => {
     if (!idWo) return;
-    
-    let alreadyLoadingOrLoaded = false;
-    setPartsCache(prev => {
-      if (prev[idWo]) {
-        alreadyLoadingOrLoaded = true;
-        return prev;
-      }
-      return { ...prev, [idWo]: { loading: true, error: null, data: [] } };
-    });
-    
-    if (alreadyLoadingOrLoaded) return;
-    
+
+    console.log('[DEBUG] handleLoadParts called for idWo:', idWo);
+    if (GLOBAL_PROFORMA_CACHE.parts[idWo]) {
+      console.log('[DEBUG] handleLoadParts returned early (already in cache):', idWo, GLOBAL_PROFORMA_CACHE.parts[idWo]);
+      return;
+    }
+
+    console.log('[DEBUG] handleLoadParts executing fetch for idWo:', idWo);
+    GLOBAL_PROFORMA_CACHE.parts[idWo] = { loading: true, error: null, data: [] };
+    setPartsCache(prev => ({
+      ...prev,
+      [idWo]: { loading: true, error: null, data: [] }
+    }));
+
     try {
       const json = await apiFetch({ endpoint: 'warranty-estimasi-detail', id: idWo });
+      const partsData = json.parts || [];
+      console.log('[DEBUG] handleLoadParts fetch success for idWo:', idWo, 'parts count:', partsData.length);
+      GLOBAL_PROFORMA_CACHE.parts[idWo] = { loading: false, error: null, data: partsData };
       setPartsCache(prev => ({
         ...prev,
-        [idWo]: { loading: false, error: null, data: json.parts || [] }
+        [idWo]: { loading: false, error: null, data: partsData }
       }));
     } catch (err) {
+      console.error('[DEBUG] handleLoadParts fetch error for idWo:', idWo, err.message);
+      GLOBAL_PROFORMA_CACHE.parts[idWo] = { loading: false, error: err.message, data: [] };
       setPartsCache(prev => ({
         ...prev,
         [idWo]: { loading: false, error: err.message, data: [] }
@@ -195,8 +201,6 @@ function DetailPage({ settlement, onBack }) {
   }, []);
 
   const loaded = useRef(false);
-  const vinQueue = useRef([]);
-  const vinRunning = useRef(0);
 
   const handleExportExcel = async () => {
     if (exporting || items.length === 0) return;
@@ -207,7 +211,7 @@ function DetailPage({ settlement, onBack }) {
       // 1. Fetch any missing VINs directly to avoid relying on async load queue
       const uniqueVins = [...new Set(items.map(it => it.vin || it.vinCode || it.chassisNo).filter(Boolean))];
       const vinsToFetch = uniqueVins.filter(vin => !GLOBAL_PROFORMA_CACHE.vinCrossRef[vin]);
-      
+
       if (vinsToFetch.length > 0) {
         vinsToFetch.forEach(vin => {
           GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: [], loading: true };
@@ -223,7 +227,7 @@ function DetailPage({ settlement, onBack }) {
             }
           })
         );
-        
+
         // Sync to component state
         setVinData(prev => {
           const next = { ...prev };
@@ -253,7 +257,7 @@ function DetailPage({ settlement, onBack }) {
 
       // 3. Fetch missing claim details in batches
       const toFetch = items.filter(item => item._type !== 'adjustment' && !contractDetails[item.id || item.claimId]);
-      
+
       let fetchedCount = 0;
       const currentContractDetails = { ...contractDetails };
       const currentRepairContracts = { ...repairContracts };
@@ -270,7 +274,7 @@ function DetailPage({ settlement, onBack }) {
                 const claimPayload = claimRes.payload || claimRes;
                 if (claimPayload) {
                   currentContractDetails[itemId] = claimPayload;
-                  
+
                   const rcId = claimPayload.repairContractId;
                   if (rcId && !currentRepairContracts[rcId]) {
                     try {
@@ -307,13 +311,13 @@ function DetailPage({ settlement, onBack }) {
         const itemCode = item.code || item.claimCode || '-';
         const vin = item.vin || item.vinCode || item.chassisNo || '';
         const vd = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] || vinData[vin] || { wos: [] };
-        
+
         let matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
 
         const detail = currentContractDetails[item.id || item.claimId] || {};
         const contract = currentRepairContracts[detail.repairContractId || item.repairContractId] || {};
         const dmsDescription = contract.description || detail.faultDescription || detail.checkMeasureResult || detail.description || item.description || '';
-        
+
         const isFree = itemCode.startsWith('BY');
 
         const rowData = {
@@ -353,25 +357,6 @@ function DetailPage({ settlement, onBack }) {
     }
   };
 
-  const processVinQueue = useCallback(() => {
-    while (vinRunning.current < VIN_BATCH_SIZE && vinQueue.current.length > 0) {
-      const { vin } = vinQueue.current.shift();
-      vinRunning.current++;
-      apiFetch({ endpoint: 'warranty-search-vin', vin, length: 100, from: '', to: '' })
-        .then(r => {
-          const wos = r.data || [];
-          // Simpan ke cache
-          GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos, loading: false };
-          setVinData(prev => ({ ...prev, [vin]: { wos, loading: false } }));
-        })
-        .catch(() => {
-          GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: [], loading: false };
-          setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: false } }));
-        })
-        .finally(() => { vinRunning.current--; processVinQueue(); });
-    }
-  }, []);
-
   const handleRefresh = () => {
     delete GLOBAL_PROFORMA_CACHE.details[settlement.id];
     items.forEach(it => {
@@ -380,8 +365,12 @@ function DetailPage({ settlement, onBack }) {
         delete GLOBAL_PROFORMA_CACHE.vinCrossRef[vin];
       }
     });
+    GLOBAL_PROFORMA_CACHE.parts = {};
+    setPartsCache({});
     setVinData({});
     loaded.current = false;
+    queuedVins.current = new Set();
+    partsLoadingQueued.current = new Set();
     load();
   };
 
@@ -421,7 +410,7 @@ function DetailPage({ settlement, onBack }) {
     if (!itemId) return;
 
     const listKey = `list_${itemId}`;
-    
+
     // If it's already shown, just toggle visibility
     if (loadedImages[listKey]) {
       setLoadedImages(prev => ({ ...prev, [listKey]: false }));
@@ -477,7 +466,7 @@ function DetailPage({ settlement, onBack }) {
   const filteredItems = useMemo(() => {
     return items.filter(item => {
       const itemCode = item.code || item.claimCode || '';
-      
+
       // Category segregation logic (DMS code prefix + internal kategori IFS/IKC)
       let matchesType = true;
       if (typeFilter !== 'all') {
@@ -490,8 +479,8 @@ function DetailPage({ settlement, onBack }) {
             const _v = (item.vin || item.vinCode || item.chassisNo || '').toLowerCase();
             const _vd = vinLookupMap.get(_v);
             if (_vd && _vd.wos) {
-              const matched = _vd.wos.find(w => (w.no_wo_dms || '').toLowerCase() === itemCode.toLowerCase()) || 
-                              _vd.wos.find(w => (w.kategori || '').toUpperCase() === 'IFS');
+              const matched = _vd.wos.find(w => (w.no_wo_dms || '').toLowerCase() === itemCode.toLowerCase()) ||
+                _vd.wos.find(w => (w.kategori || '').toUpperCase() === 'IFS');
               matchesType = matched && (matched.kategori || '').toUpperCase() === 'IFS';
             } else {
               matchesType = (item._type === 'maintain');
@@ -506,8 +495,8 @@ function DetailPage({ settlement, onBack }) {
             const _v = (item.vin || item.vinCode || item.chassisNo || '').toLowerCase();
             const _vd = vinLookupMap.get(_v);
             if (_vd && _vd.wos) {
-              const matched = _vd.wos.find(w => (w.no_wo_dms || '').toLowerCase() === itemCode.toLowerCase()) || 
-                              _vd.wos.find(w => (w.kategori || '').toUpperCase() === 'IKC');
+              const matched = _vd.wos.find(w => (w.no_wo_dms || '').toLowerCase() === itemCode.toLowerCase()) ||
+                _vd.wos.find(w => (w.kategori || '').toUpperCase() === 'IKC');
               matchesType = matched && (matched.kategori || '').toUpperCase() === 'IKC';
             } else {
               matchesType = (item._type === 'warranty');
@@ -522,7 +511,7 @@ function DetailPage({ settlement, onBack }) {
       if (search) {
         const q = search.toLowerCase();
         const vin = (item.vin || item.vinCode || item.chassisNo || '').toLowerCase();
-        
+
         // O(1) lookup
         const vd = vinLookupMap.get(vin) || { wos: [] };
         let matchWO = vd.wos.find(w => (w.no_wo_dms || '').toLowerCase() === itemCode.toLowerCase());
@@ -537,7 +526,7 @@ function DetailPage({ settlement, onBack }) {
           matchWO = vd.wos.find(w => (w.no_chassis || '').toLowerCase() === vin) || vd.wos[0];
         }
         const perintah = matchWO?.perintah || '';
-        
+
         const hay = [itemCode, vin, item.customerName || '', item.productCategoryCode || '', perintah].join(' ').toLowerCase();
         if (!hay.includes(q)) return false;
       }
@@ -546,73 +535,121 @@ function DetailPage({ settlement, onBack }) {
   }, [items, typeFilter, search, vinLookupMap]);
 
   const totalItemPages = Math.ceil(filteredItems.length / itemsPerPage);
-  const pagedItems = filteredItems.slice(itemPage * itemsPerPage, (itemPage + 1) * itemsPerPage);
+  const pagedItems = useMemo(() => {
+    return filteredItems.slice(itemPage * itemsPerPage, (itemPage + 1) * itemsPerPage);
+  }, [filteredItems, itemPage, itemsPerPage]);
 
-  // Load VIN cross-references on demand for visible page items
+  // ─── Refs to prevent redundant work ──────────────────────────
+  const queuedVins = useRef(new Set());
+  const partsLoadingQueued = useRef(new Set());
+
+  // ─── Combined effect: load VINs + auto-load spare parts ──────
   useEffect(() => {
+    console.log('[DEBUG] Combined effect triggered, pagedItems:', pagedItems.length, 'vinData:', Object.keys(vinData).length);
     if (pagedItems.length === 0) return;
 
-    let queueChanged = false;
+    // Step 1: Collect new VINs + sync VINs from global cache to local state
+    const newVins = [];
+    const syncVins = [];
     pagedItems.forEach(it => {
       const vin = it.vin || it.vinCode || it.chassisNo;
       if (!vin) return;
-
       if (!GLOBAL_PROFORMA_CACHE.vinCrossRef[vin]) {
-        GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: [], loading: true };
-        setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: true } }));
-        vinQueue.current.push({ vin });
-        queueChanged = true;
-      } else {
-        // Sync cache to component state if needed
-        setVinData(prev => {
-          if (prev[vin]) return prev;
-          return { ...prev, [vin]: GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] };
-        });
+        if (!queuedVins.current.has(vin)) {
+          queuedVins.current.add(vin);
+          newVins.push(vin);
+        }
+      } else if (!vinData[vin]) {
+        syncVins.push(vin);
       }
     });
-
-    if (queueChanged) {
-      processVinQueue();
+    if (syncVins.length > 0) {
+      setVinData(prev => {
+        const next = { ...prev };
+        syncVins.forEach(vin => {
+          next[vin] = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin];
+        });
+        return next;
+      });
     }
-  }, [pagedItems, processVinQueue]);
 
-  // Auto-load spare parts details on demand for matched WOs on current page
-  useEffect(() => {
+    // Step 2: Collect new WOs for parts loading (only for VINs already resolved)
+    const newWOs = [];
     pagedItems.forEach(item => {
       const itemCode = item.code || item.claimCode || '';
       const vin = item.vin || item.vinCode || item.chassisNo || '';
-      const vd = vinData[vin];
+      const vd = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin];
       if (vd && vd.wos) {
         const matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
-        if (matchWO && matchWO.id_wo) {
-          handleLoadParts(matchWO.id_wo);
+        if (matchWO && matchWO.id_wo && !partsLoadingQueued.current.has(matchWO.id_wo)) {
+          partsLoadingQueued.current.add(matchWO.id_wo);
+          newWOs.push(matchWO.id_wo);
         }
       }
     });
+
+    if (newVins.length === 0 && newWOs.length === 0) return;
+
+    // Step 3: Load VINs in batches, then batch-update state
+    if (newVins.length > 0) {
+      let cancelled = false;
+      (async () => {
+        const batchSize = 5;
+        for (let i = 0; i < newVins.length; i += batchSize) {
+          const batch = newVins.slice(i, i + batchSize);
+          await Promise.allSettled(
+            batch.map(async vin => {
+              try {
+                const r = await apiFetch({ endpoint: 'warranty-search-vin', vin, length: 100, from: '', to: '' });
+                if (!cancelled) GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: r.data || [], loading: false };
+              } catch {
+                if (!cancelled) GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: [], loading: false };
+              }
+            })
+          );
+        }
+        if (!cancelled) {
+          setVinData(prev => {
+            const next = { ...prev };
+            newVins.forEach(vin => {
+              next[vin] = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin];
+            });
+            return next;
+          });
+        }
+      })();
+      return () => {
+        cancelled = true;
+        newVins.forEach(vin => queuedVins.current.delete(vin));
+      };
+    }
+
+    // Step 4: Load parts for matched WOs (only if no new VINs were found)
+    newWOs.forEach(idWo => handleLoadParts(idWo));
   }, [pagedItems, vinData, handleLoadParts]);
 
   const handleSearch = (e) => { e.preventDefault(); setSearch(searchInput); setItemPage(0); };
   const clearSearch = () => { setSearch(''); setSearchInput(''); setItemPage(0); };
 
-  const code     = settlement.code || '-';
-  const st       = getStatus(settlement.status);
+  const code = settlement.code || '-';
+  const st = getStatus(settlement.status);
   const totalFee = settlement.totalFee ?? 0;
   const laborFee = settlement.laborFee ?? 0;
-  const matFee   = settlement.materialFee ?? 0;
-  const mgmtFee  = settlement.mgmtFee ?? 0;
-  const adjFee   = settlement.adjustmentFee ?? 0;
-  const refFee   = settlement.totalRefusePayFee ?? 0;
+  const matFee = settlement.materialFee ?? 0;
+  const mgmtFee = settlement.mgmtFee ?? 0;
+  const adjFee = settlement.adjustmentFee ?? 0;
+  const refFee = settlement.totalRefusePayFee ?? 0;
 
   return (
     <div className="flex flex-col h-full bg-zinc-50 overflow-hidden">
       {/* Header */}
       <div className="bg-white border-b border-zinc-200 px-5 py-4 flex items-center gap-4 shrink-0">
         <button onClick={onBack} className="flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-200 text-zinc-700 hover:bg-zinc-50 transition-colors text-sm font-semibold">
-          <ArrowLeft size={16}/> Kembali
+          <ArrowLeft size={16} /> Kembali
         </button>
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-zinc-900 rounded-xl flex items-center justify-center shrink-0">
-            <FileText size={17} className="text-white"/>
+            <FileText size={17} className="text-white" />
           </div>
           <div>
             <h1 className="text-base font-black text-zinc-900 leading-tight">{code}</h1>
@@ -620,13 +657,13 @@ function DetailPage({ settlement, onBack }) {
           </div>
         </div>
         <span className={`ml-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${st.bg} ${st.text} ${st.border}`}>{st.label}</span>
-        
+
         <button
           onClick={handleRefresh}
           disabled={loading}
           className="ml-auto flex items-center gap-2 px-4 py-2 border border-zinc-200 text-zinc-700 hover:bg-zinc-50 rounded-xl text-xs font-bold transition-colors disabled:opacity-50 shrink-0"
         >
-          <RefreshCw size={13} className={loading ? "animate-spin" : ""}/>
+          <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
           Refresh Detail
         </button>
 
@@ -637,12 +674,12 @@ function DetailPage({ settlement, onBack }) {
         >
           {exporting ? (
             <>
-              <Loader2 size={14} className="animate-spin"/>
+              <Loader2 size={14} className="animate-spin" />
               Mengekspor... {exportProgress}%
             </>
           ) : (
             <>
-              <FileText size={14}/>
+              <FileText size={14} />
               Ekspor Excel
             </>
           )}
@@ -652,12 +689,12 @@ function DetailPage({ settlement, onBack }) {
       {/* Summary cards */}
       <div className="px-5 py-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 shrink-0">
         {[
-          { label: 'Total Fee',    value: formatRupiah(totalFee), color: 'bg-zinc-900' },
-          { label: 'Labor Fee',    value: formatRupiah(laborFee), color: 'bg-blue-600' },
-          { label: 'Material Fee', value: formatRupiah(matFee),   color: 'bg-indigo-600' },
-          { label: 'Mgmt Fee',     value: formatRupiah(mgmtFee),  color: 'bg-violet-600' },
-          { label: 'Adjustment',   value: formatRupiah(adjFee),   color: 'bg-amber-600' },
-          { label: 'Refused Fee',  value: formatRupiah(refFee),   color: 'bg-red-600' },
+          { label: 'Total Fee', value: formatRupiah(totalFee), color: 'bg-zinc-900' },
+          { label: 'Labor Fee', value: formatRupiah(laborFee), color: 'bg-blue-600' },
+          { label: 'Material Fee', value: formatRupiah(matFee), color: 'bg-indigo-600' },
+          { label: 'Mgmt Fee', value: formatRupiah(mgmtFee), color: 'bg-violet-600' },
+          { label: 'Adjustment', value: formatRupiah(adjFee), color: 'bg-amber-600' },
+          { label: 'Refused Fee', value: formatRupiah(refFee), color: 'bg-red-600' },
         ].map(c => (
           <div key={c.label} className={`${c.color} rounded-2xl p-3.5 shadow-sm`}>
             <p className="text-[10px] font-bold uppercase tracking-wider text-white opacity-70">{c.label}</p>
@@ -670,18 +707,18 @@ function DetailPage({ settlement, onBack }) {
       <div className="flex-1 overflow-y-auto px-5 pb-5">
         {loading ? (
           <div className="flex flex-col items-center justify-center h-48 gap-4">
-            <div className="w-10 h-10 border-4 border-zinc-900 border-t-transparent rounded-full animate-spin"/>
+            <div className="w-10 h-10 border-4 border-zinc-900 border-t-transparent rounded-full animate-spin" />
             <p className="text-sm text-zinc-400">Memuat item claim...</p>
           </div>
         ) : error ? (
           <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3">
-            <AlertCircle size={15} className="text-red-500 shrink-0"/>
+            <AlertCircle size={15} className="text-red-500 shrink-0" />
             <p className="text-sm text-red-700 flex-1">{error}</p>
             <button onClick={load} className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg">Coba Lagi</button>
           </div>
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
-            <FileText size={36} className="text-zinc-300"/>
+            <FileText size={36} className="text-zinc-300" />
             <p className="text-sm font-bold text-zinc-400">Tidak ada item claim</p>
           </div>
         ) : (
@@ -690,13 +727,13 @@ function DetailPage({ settlement, onBack }) {
             <div className="flex flex-wrap items-center gap-2 py-2">
               <form onSubmit={handleSearch} className="flex items-center gap-1.5">
                 <div className="relative">
-                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400"/>
+                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
                   <input type="text" value={searchInput} onChange={e => setSearchInput(e.target.value)}
                     placeholder="Cari kode, VIN, nama..."
-                    className="pl-7 pr-3 py-1.5 text-xs border border-zinc-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 w-48 text-zinc-900"/>
+                    className="pl-7 pr-3 py-1.5 text-xs border border-zinc-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 w-48 text-zinc-900" />
                 </div>
                 <button type="submit" className="px-2.5 py-1.5 bg-zinc-900 text-white text-xs font-bold rounded-lg hover:bg-zinc-700 transition-colors">Cari</button>
-                {search && <button type="button" onClick={clearSearch} className="p-1.5 text-zinc-400 hover:text-zinc-700"><X size={14}/></button>}
+                {search && <button type="button" onClick={clearSearch} className="p-1.5 text-zinc-400 hover:text-zinc-700"><X size={14} /></button>}
               </form>
 
               <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setItemPage(0); }}
@@ -718,10 +755,8 @@ function DetailPage({ settlement, onBack }) {
 
               <div className="flex items-center gap-3 ml-auto text-xs text-zinc-400 font-bold uppercase tracking-wider">
                 <span>{items.filter(i => i._type === 'maintain' || (i.code || i.claimCode || '').startsWith('BY')).length} BY/IFS</span>
-                <span>┬╖</span>
                 <span>{items.filter(i => i._type === 'warranty' || (i.code || i.claimCode || '').startsWith('BX')).length} BX/IKC</span>
                 {items.filter(i => i._type === 'adjustment').length > 0 && <>
-                  <span>┬╖</span>
                   <span>{items.filter(i => i._type === 'adjustment').length} Adj</span>
                 </>}
                 {(search || typeFilter !== 'all') && (
@@ -733,12 +768,12 @@ function DetailPage({ settlement, onBack }) {
             {/* Pagination top */}
             {totalItemPages > 1 && (
               <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-400">{itemPage * itemsPerPage + 1}ΓÇô{Math.min((itemPage+1)*itemsPerPage, filteredItems.length)} dari {filteredItems.length}</span>
+                <span className="text-xs text-zinc-400">{itemPage * itemsPerPage + 1}ΓÇô{Math.min((itemPage + 1) * itemsPerPage, filteredItems.length)} dari {filteredItems.length}</span>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setItemPage(p => Math.max(0, p-1))} disabled={itemPage === 0}
+                  <button onClick={() => setItemPage(p => Math.max(0, p - 1))} disabled={itemPage === 0}
                     className="px-2.5 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">ΓåÉ Prev</button>
-                  <span className="text-xs text-zinc-500 font-medium">{itemPage+1} / {totalItemPages}</span>
-                  <button onClick={() => setItemPage(p => Math.min(totalItemPages-1, p+1))} disabled={itemPage >= totalItemPages-1}
+                  <span className="text-xs text-zinc-500 font-medium">{itemPage + 1} / {totalItemPages}</span>
+                  <button onClick={() => setItemPage(p => Math.min(totalItemPages - 1, p + 1))} disabled={itemPage >= totalItemPages - 1}
                     className="px-2.5 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
                 </div>
               </div>
@@ -746,14 +781,14 @@ function DetailPage({ settlement, onBack }) {
 
             {filteredItems.length === 0 && (
               <div className="flex flex-col items-center justify-center h-32 gap-3">
-                <Search size={28} className="text-zinc-300"/>
+                <Search size={28} className="text-zinc-300" />
                 <p className="text-sm font-bold text-zinc-400">Tidak ada hasil</p>
               </div>
             )}
 
             {pagedItems.map((item, idx) => {
               const itemCode = item.code || item.claimCode || '-';
-              const kat      = getKategori(itemCode);
+              const kat = getKategori(itemCode);
 
               // Adjustment orders have different structure
               if (item._type === 'adjustment') {
@@ -766,16 +801,16 @@ function DetailPage({ settlement, onBack }) {
                 );
               }
 
-              const vin    = item.vin || item.vinCode || item.chassisNo || '';
-              const vd     = vinData[vin] || { wos: [], loading: false };
-              
+              const vin = item.vin || item.vinCode || item.chassisNo || '';
+              const vd = vinData[vin] || { wos: [], loading: false };
+
               // Match WO specifically for this item using itemCode / claimCode
               let matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
 
               const perintah = matchWO?.perintah || '';
-              const isFree   = matchWO ? (matchWO.kategori || '').toUpperCase() === 'IFS' : isFreeService(perintah);
-              const ifsWO    = matchWO && (matchWO.kategori || '').toUpperCase() === 'IFS' ? matchWO : null;
-              const ikcWO    = matchWO && (matchWO.kategori || '').toUpperCase() === 'IKC' ? matchWO : null;
+              const isFree = matchWO ? (matchWO.kategori || '').toUpperCase() === 'IFS' : isFreeService(perintah);
+              const ifsWO = matchWO && (matchWO.kategori || '').toUpperCase() === 'IFS' ? matchWO : null;
+              const ikcWO = matchWO && (matchWO.kategori || '').toUpperCase() === 'IKC' ? matchWO : null;
               const claimId = item.id || item.claimId;
               const detail = contractDetails[claimId] || {};
               const contractId = detail.repairContractId || item.repairContractId;
@@ -793,13 +828,13 @@ function DetailPage({ settlement, onBack }) {
                     {vin && <span className="font-mono text-xs text-zinc-500 bg-zinc-100 px-2.5 py-1 rounded-lg">{vin}</span>}
                     {item.isRefusePay && (
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-red-50 text-red-700 border border-red-200">
-                        <XCircle size={10}/> Refused
+                        <XCircle size={10} /> Refused
                       </span>
                     )}
                     {/* After Sales cross-ref badges */}
                     {vd.loading ? (
                       <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 ml-auto">
-                        <Loader2 size={10} className="animate-spin"/> cross-ref...
+                        <Loader2 size={10} className="animate-spin" /> cross-ref...
                       </span>
                     ) : perintah ? (
                       <div className="ml-auto flex items-center gap-2">
@@ -856,18 +891,18 @@ function DetailPage({ settlement, onBack }) {
                     </div>
                   </div>
 
-                   {/* Perintah & WO cross-ref & DMS Description */}
+                  {/* Perintah & WO cross-ref & DMS Description */}
                   {(dmsDescription || perintah || ifsWO || ikcWO) && (
                     <div className="px-5 pb-4 space-y-2">
                       {dmsDescription && (
                         <div className="bg-zinc-50 rounded-xl px-4 py-3 border border-zinc-100">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1 flex items-center gap-1"><FileText size={10}/> Deskripsi Pekerjaan DMS</p>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1 flex items-center gap-1"><FileText size={10} /> Deskripsi Pekerjaan DMS</p>
                           <p className="text-xs font-semibold text-zinc-800 whitespace-pre-line">{dmsDescription}</p>
                         </div>
                       )}
                       {perintah && (
                         <div className="bg-zinc-50 rounded-xl px-4 py-3 border border-zinc-100">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1 flex items-center gap-1"><Wrench size={10}/> Perintah Pengerjaan</p>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1 flex items-center gap-1"><Wrench size={10} /> Perintah Pengerjaan</p>
                           <p className="text-xs text-zinc-700 whitespace-pre-line">{perintah}</p>
                         </div>
                       )}
@@ -875,7 +910,7 @@ function DetailPage({ settlement, onBack }) {
                       {/* Spare Parts Detail */}
                       {matchWO && partsCache[matchWO.id_wo] && partsCache[matchWO.id_wo].data && partsCache[matchWO.id_wo].data.length > 0 && (
                         <div className="bg-zinc-50 rounded-xl px-4 py-3 border border-zinc-100">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1 flex items-center gap-1"><Wrench size={10}/> Detail Sparepart</p>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1 flex items-center gap-1"><Wrench size={10} /> Detail Sparepart</p>
                           <div className="space-y-1 mt-1.5 text-[11px]">
                             {partsCache[matchWO.id_wo].data.map((part, pIdx) => {
                               const isValidated = ['Disetujui', 'Aktif', 'Dipenuhi', 'VALIDATED'].includes(part.status_permintaan) || ['Disetujui', 'Aktif', 'Dipenuhi', 'VALIDATED'].includes(part.status);
@@ -883,11 +918,10 @@ function DetailPage({ settlement, onBack }) {
                               return (
                                 <div key={pIdx} className="flex justify-between items-center py-1 border-b border-zinc-100 last:border-0">
                                   <span className="text-zinc-700 font-mono">{part.kode_part} - <span className="font-sans font-medium">{part.nama_part}</span> (x{part.jumlah})</span>
-                                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border ${
-                                    isValidated 
-                                      ? 'bg-green-50 text-green-700 border-green-200' 
+                                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border ${isValidated
+                                      ? 'bg-green-50 text-green-700 border-green-200'
                                       : 'bg-zinc-100 text-zinc-500 border-zinc-200'
-                                  }`}>
+                                    }`}>
                                     {displayStatus}
                                   </span>
                                 </div>
@@ -925,12 +959,12 @@ function DetailPage({ settlement, onBack }) {
                       >
                         {loadingItems[claimId] ? (
                           <>
-                            <Loader2 size={14} className="animate-spin"/>
+                            <Loader2 size={14} className="animate-spin" />
                             Memuat Lampiran...
                           </>
                         ) : (
                           <>
-                            <FileText size={14}/>
+                            <FileText size={14} />
                             {loadedImages[`list_${claimId}`] ? 'Sembunyikan Lampiran DMS' : 'Tampilkan Lampiran DMS'}
                             {dmsAttachments && dmsAttachments.length > 0 && ` (${dmsAttachments.length})`}
                           </>
@@ -949,7 +983,7 @@ function DetailPage({ settlement, onBack }) {
                               <div>
                                 <div className="flex items-center justify-between mb-2">
                                   <h4 className="text-xs font-black text-zinc-700 flex items-center gap-1.5">
-                                    <ShieldCheck size={13} className="text-blue-500"/> Lampiran Gambar ({images.length})
+                                    <ShieldCheck size={13} className="text-blue-500" /> Lampiran Gambar ({images.length})
                                   </h4>
                                   <a
                                     href={buildAttachmentPreviewUrl(images)}
@@ -965,11 +999,11 @@ function DetailPage({ settlement, onBack }) {
                                     const fileId = att.fileId || att.id || '';
                                     const fileName = att.fileName || att.name || '';
                                     const downloadUrl = `/api/chery_dms?endpoint=download_file&id=${fileId}`;
-                                    
+
                                     return (
                                       <div key={aIdx} className="relative group aspect-square bg-zinc-100 rounded-xl overflow-hidden border border-zinc-200 shadow-sm flex flex-col justify-between">
                                         {/* Image */}
-                                        <div 
+                                        <div
                                           className="relative flex-1 overflow-hidden cursor-zoom-in"
                                           onClick={() => setZoomedImage({ url: downloadUrl, name: fileName })}
                                         >
@@ -1020,7 +1054,7 @@ function DetailPage({ settlement, onBack }) {
                             {nonImages.length > 0 && (
                               <div>
                                 <h4 className="text-xs font-black text-zinc-700 mb-2 flex items-center gap-1.5">
-                                  <FileText size={13} className="text-zinc-500"/> Lampiran Dokumen ({nonImages.length})
+                                  <FileText size={13} className="text-zinc-500" /> Lampiran Dokumen ({nonImages.length})
                                 </h4>
                                 <div className="space-y-1.5">
                                   {nonImages.map((att, aIdx) => {
@@ -1031,7 +1065,7 @@ function DetailPage({ settlement, onBack }) {
                                     return (
                                       <div key={aIdx} className="flex items-center justify-between border border-zinc-200 rounded-xl bg-white p-2.5 shadow-sm text-xs">
                                         <div className="flex items-center gap-2 min-w-0">
-                                          <FileText size={14} className="text-zinc-400 shrink-0"/>
+                                          <FileText size={14} className="text-zinc-400 shrink-0" />
                                           <span className="font-semibold text-zinc-700 truncate" title={fileName}>{fileName}</span>
                                         </div>
                                         <div className="flex items-center gap-1.5 shrink-0">
@@ -1068,10 +1102,10 @@ function DetailPage({ settlement, onBack }) {
             {/* Bottom pagination */}
             {totalItemPages > 1 && (
               <div className="flex items-center justify-center gap-3 pt-2">
-                <button onClick={() => { setItemPage(p => Math.max(0, p-1)); }} disabled={itemPage === 0}
+                <button onClick={() => { setItemPage(p => Math.max(0, p - 1)); }} disabled={itemPage === 0}
                   className="px-4 py-2 rounded-xl border border-zinc-200 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
-                <span className="text-sm text-zinc-500">Halaman {itemPage+1} dari {totalItemPages} · {filteredItems.length} total item</span>
-                <button onClick={() => { setItemPage(p => Math.min(totalItemPages-1, p+1)); }} disabled={itemPage >= totalItemPages-1}
+                <span className="text-sm text-zinc-500">Halaman {itemPage + 1} dari {totalItemPages} · {filteredItems.length} total item</span>
+                <button onClick={() => { setItemPage(p => Math.min(totalItemPages - 1, p + 1)); }} disabled={itemPage >= totalItemPages - 1}
                   className="px-4 py-2 rounded-xl border border-zinc-200 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
               </div>
             )}
@@ -1086,7 +1120,7 @@ function DetailPage({ settlement, onBack }) {
             <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
               <span className="text-xs font-bold text-zinc-700 truncate">{zoomedImage.name}</span>
               <button onClick={() => setZoomedImage(null)} className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-500 hover:text-zinc-700 transition-colors">
-                <X size={16}/>
+                <X size={16} />
               </button>
             </div>
             <div className="flex-1 overflow-auto bg-zinc-950 rounded-xl mt-2 flex items-center justify-center relative min-h-[500px] p-2">
@@ -1106,26 +1140,26 @@ function DetailPage({ settlement, onBack }) {
 // ─── List Page ────────────────────────────────────────────────
 export default function ProformaInvoice() {
   const def = getDefaultRange();
-  const [fromDate, setFromDate]   = useState(def.from);
-  const [toDate, setToDate]       = useState(def.to);
+  const [fromDate, setFromDate] = useState(def.from);
+  const [toDate, setToDate] = useState(def.to);
   const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch]       = useState('');
+  const [search, setSearch] = useState('');
   const [kategoriFilter, setKategoriFilter] = useState('all');
-  const [data, setData]           = useState([]);
+  const [data, setData] = useState([]);
   const [totalRecords, setTotalRecords] = useState(0);
-  const [page, setPage]           = useState(0);
-  const [pageSize, setPageSize]   = useState(20);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError]         = useState(null);
+  const [error, setError] = useState(null);
   const [showFilter, setShowFilter] = useState(false);
-  const [selected, setSelected]   = useState(null); // selected settlement for detail view
+  const [selected, setSelected] = useState(null); // selected settlement for detail view
 
   const fetchData = useCallback(async (force = false) => {
     setIsLoading(true); setError(null);
     try {
       const beginISO = fromDate ? new Date(fromDate + 'T00:00:00').toISOString() : '';
-      const endISO   = toDate   ? new Date(toDate   + 'T23:59:59').toISOString() : '';
-      
+      const endISO = toDate ? new Date(toDate + 'T23:59:59').toISOString() : '';
+
       const cacheKey = `${page}_${pageSize}_${beginISO}_${endISO}`;
       if (!force && GLOBAL_PROFORMA_CACHE.list && GLOBAL_PROFORMA_CACHE.list[cacheKey]) {
         const cached = GLOBAL_PROFORMA_CACHE.list[cacheKey];
@@ -1138,7 +1172,7 @@ export default function ProformaInvoice() {
       const json = await apiFetch({ endpoint: 'proforma-list', pageIndex: page, pageSize, beginCreateTime: beginISO, endCreateTime: endISO });
       const payload = json.payload || json;
       const rows = payload.content || payload.data || payload.items || [];
-      
+
       if (!GLOBAL_PROFORMA_CACHE.list) {
         GLOBAL_PROFORMA_CACHE.list = {};
       }
@@ -1163,7 +1197,7 @@ export default function ProformaInvoice() {
   const filtered = data.filter(row => {
     const code = row.code || '';
     if (kategoriFilter === 'free-service' && !code.startsWith('BY')) return false;
-    if (kategoriFilter === 'warranty'     && !code.startsWith('BX')) return false;
+    if (kategoriFilter === 'warranty' && !code.startsWith('BX')) return false;
     if (search) {
       const q = search.toLowerCase();
       if (![code, row.vin || '', row.customerName || '', row.dealerName || ''].join(' ').toLowerCase().includes(q)) return false;
@@ -1173,7 +1207,7 @@ export default function ProformaInvoice() {
 
   const totalPages = Math.ceil(totalRecords / pageSize);
   const hasFilters = search || kategoriFilter !== 'all';
-  const totalFeeSum   = filtered.reduce((s, r) => s + Number(r.totalFee || 0), 0);
+  const totalFeeSum = filtered.reduce((s, r) => s + Number(r.totalFee || 0), 0);
   const refusedFeeSum = filtered.reduce((s, r) => s + Number(r.totalRefusePayFee || 0), 0);
 
   return (
@@ -1183,7 +1217,7 @@ export default function ProformaInvoice() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 mr-2">
             <div className="w-8 h-8 bg-zinc-900 rounded-xl flex items-center justify-center shrink-0">
-              <FileText size={16} className="text-white"/>
+              <FileText size={16} className="text-white" />
             </div>
             <div>
               <h1 className="text-sm font-black text-zinc-900 leading-tight">Proforma Invoice</h1>
@@ -1192,32 +1226,32 @@ export default function ProformaInvoice() {
           </div>
 
           <div className="flex items-center gap-1.5">
-            <Calendar size={13} className="text-zinc-400 shrink-0"/>
-            <input type="date" value={fromDate} onChange={e=>{setFromDate(e.target.value);setPage(0);}}
-              className="px-2 py-1.5 text-xs border border-zinc-200 rounded-lg bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900"/>
+            <Calendar size={13} className="text-zinc-400 shrink-0" />
+            <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(0); }}
+              className="px-2 py-1.5 text-xs border border-zinc-200 rounded-lg bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900" />
             <span className="text-zinc-400 text-xs">–</span>
-            <input type="date" value={toDate} onChange={e=>{setToDate(e.target.value);setPage(0);}}
-              className="px-2 py-1.5 text-xs border border-zinc-200 rounded-lg bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900"/>
+            <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(0); }}
+              className="px-2 py-1.5 text-xs border border-zinc-200 rounded-lg bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900" />
           </div>
 
-          <form onSubmit={e=>{e.preventDefault();setSearch(searchInput);setPage(0);}} className="flex items-center gap-1.5">
+          <form onSubmit={e => { e.preventDefault(); setSearch(searchInput); setPage(0); }} className="flex items-center gap-1.5">
             <div className="relative">
-              <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400"/>
-              <input type="text" value={searchInput} onChange={e=>setSearchInput(e.target.value)}
+              <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+              <input type="text" value={searchInput} onChange={e => setSearchInput(e.target.value)}
                 placeholder="Code, VIN, nama..."
-                className="pl-7 pr-3 py-1.5 text-xs border border-zinc-200 rounded-lg bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 w-44 text-zinc-900"/>
+                className="pl-7 pr-3 py-1.5 text-xs border border-zinc-200 rounded-lg bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 w-44 text-zinc-900" />
             </div>
             <button type="submit" className="px-2.5 py-1.5 bg-zinc-900 text-white text-xs font-bold rounded-lg hover:bg-zinc-700 transition-colors">Cari</button>
           </form>
 
-          <button onClick={()=>setShowFilter(!showFilter)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${showFilter||hasFilters?'bg-zinc-900 text-white border-zinc-900':'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'}`}>
-            <Filter size={12}/> Filter {hasFilters && <span className="w-1.5 h-1.5 bg-red-400 rounded-full"/>}
+          <button onClick={() => setShowFilter(!showFilter)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${showFilter || hasFilters ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'}`}>
+            <Filter size={12} /> Filter {hasFilters && <span className="w-1.5 h-1.5 bg-red-400 rounded-full" />}
           </button>
 
           <button onClick={() => fetchData(true)} disabled={isLoading}
             className="p-1.5 rounded-lg border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors ml-auto">
-            <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''}/>
+            <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
           </button>
           <span className="text-xs text-zinc-400">{isLoading ? 'Memuat...' : `${totalRecords} settlement`}</span>
         </div>
@@ -1226,7 +1260,7 @@ export default function ProformaInvoice() {
           <div className="flex flex-wrap items-end gap-3 mt-3 pt-3 border-t border-zinc-100">
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Kategori</label>
-              <select value={kategoriFilter} onChange={e=>{setKategoriFilter(e.target.value);setPage(0);}}
+              <select value={kategoriFilter} onChange={e => { setKategoriFilter(e.target.value); setPage(0); }}
                 className="px-2.5 py-1.5 text-xs border border-zinc-200 rounded-lg bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900">
                 <option value="all">Semua</option>
                 <option value="free-service">Free Service (BY / IFS)</option>
@@ -1234,9 +1268,9 @@ export default function ProformaInvoice() {
               </select>
             </div>
             {hasFilters && (
-              <button onClick={()=>{setSearch('');setSearchInput('');setKategoriFilter('all');}}
+              <button onClick={() => { setSearch(''); setSearchInput(''); setKategoriFilter('all'); }}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg border border-red-200 transition-colors">
-                <X size={12}/> Reset
+                <X size={12} /> Reset
               </button>
             )}
           </div>
@@ -1246,19 +1280,21 @@ export default function ProformaInvoice() {
       {/* Summary cards */}
       <div className="px-5 py-3 grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
         {[
-          { label: 'Total Settlement', value: filtered.length,          color: 'bg-zinc-900', icon: FileText },
-          { label: 'Total Fee',        value: formatRupiah(totalFeeSum), color: 'bg-blue-600', icon: DollarSign },
-          { label: 'Refused Fee',      value: formatRupiah(refusedFeeSum), color: 'bg-red-600', icon: XCircle },
-          { label: 'Settled',          value: filtered.filter(r=>r.status===9).length, color: 'bg-green-600', icon: CheckCircle2 },
-        ].map(c => { const Icon = c.icon; return (
-          <div key={c.label} className={`${c.color} rounded-2xl p-3.5 flex items-center justify-between shadow-sm`}>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-white opacity-70">{c.label}</p>
-              <p className="text-lg font-black mt-0.5 text-white leading-tight">{c.value}</p>
+          { label: 'Total Settlement', value: filtered.length, color: 'bg-zinc-900', icon: FileText },
+          { label: 'Total Fee', value: formatRupiah(totalFeeSum), color: 'bg-blue-600', icon: DollarSign },
+          { label: 'Refused Fee', value: formatRupiah(refusedFeeSum), color: 'bg-red-600', icon: XCircle },
+          { label: 'Settled', value: filtered.filter(r => r.status === 9).length, color: 'bg-green-600', icon: CheckCircle2 },
+        ].map(c => {
+          const Icon = c.icon; return (
+            <div key={c.label} className={`${c.color} rounded-2xl p-3.5 flex items-center justify-between shadow-sm`}>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-white opacity-70">{c.label}</p>
+                <p className="text-lg font-black mt-0.5 text-white leading-tight">{c.value}</p>
+              </div>
+              <Icon size={24} className="text-white opacity-25" />
             </div>
-            <Icon size={24} className="text-white opacity-25"/>
-          </div>
-        );})}
+          );
+        })}
       </div>
 
       {/* Category breakdown */}
@@ -1276,7 +1312,7 @@ export default function ProformaInvoice() {
 
       {error && (
         <div className="mx-5 mb-3 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 shrink-0">
-          <AlertCircle size={14} className="text-red-500 shrink-0"/>
+          <AlertCircle size={14} className="text-red-500 shrink-0" />
           <p className="text-sm text-red-700 flex-1">{error}</p>
           <button onClick={() => fetchData(true)} className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg">Coba Lagi</button>
         </div>
@@ -1286,12 +1322,12 @@ export default function ProformaInvoice() {
       <div className="flex-1 overflow-auto px-5 pb-4">
         {isLoading && data.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 gap-4">
-            <div className="w-10 h-10 border-4 border-zinc-900 border-t-transparent rounded-full animate-spin"/>
+            <div className="w-10 h-10 border-4 border-zinc-900 border-t-transparent rounded-full animate-spin" />
             <p className="text-sm text-zinc-400">Memuat data...</p>
           </div>
         ) : filtered.length === 0 && !isLoading ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
-            <FileText size={36} className="text-zinc-300"/>
+            <FileText size={36} className="text-zinc-300" />
             <p className="text-sm font-bold text-zinc-400">Tidak ada data proforma</p>
           </div>
         ) : (
@@ -1300,15 +1336,15 @@ export default function ProformaInvoice() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-zinc-50 border-b border-zinc-200">
-                    {['Code','Kategori','Settlement Month','Status','Labor Fee','Material Fee','Total Fee','Refused Fee',''].map(h => (
+                    {['Code', 'Kategori', 'Settlement Month', 'Status', 'Labor Fee', 'Material Fee', 'Total Fee', 'Refused Fee', ''].map(h => (
                       <th key={h} className="text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
                   {filtered.map((row, i) => {
-                    const code  = row.code || '-';
-                    const st    = getStatus(row.status);
+                    const code = row.code || '-';
+                    const st = getStatus(row.status);
                     const month = row.settlementMonth || row.createTime || '';
                     return (
                       <tr key={i}
@@ -1344,7 +1380,7 @@ export default function ProformaInvoice() {
                         <td className="px-4 py-3 whitespace-nowrap">
                           <div className="flex items-center gap-1 text-zinc-400 group-hover:text-zinc-700 transition-colors">
                             <span className="text-xs font-semibold">Lihat Detail</span>
-                            <ChevronRight size={14}/>
+                            <ChevronRight size={14} />
                           </div>
                         </td>
                       </tr>
@@ -1376,13 +1412,13 @@ export default function ProformaInvoice() {
             {totalRecords > 0 ? `${page * pageSize + 1}–${Math.min((page + 1) * pageSize, totalRecords)} dari ${totalRecords}` : '0 data'}
           </span>
         </div>
-        
+
         {totalPages > 1 && (
           <div className="flex items-center gap-2">
-            <button onClick={()=>setPage(p=>Math.max(0,p-1))} disabled={page===0||isLoading}
+            <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0 || isLoading}
               className="px-3 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
-            <span className="text-xs font-semibold text-zinc-700 px-2">{page+1} / {totalPages}</span>
-            <button onClick={()=>setPage(p=>Math.min(totalPages-1,p+1))} disabled={page>=totalPages-1||isLoading}
+            <span className="text-xs font-semibold text-zinc-700 px-2">{page + 1} / {totalPages}</span>
+            <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1 || isLoading}
               className="px-3 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
           </div>
         )}

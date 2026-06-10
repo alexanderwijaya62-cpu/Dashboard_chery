@@ -20,6 +20,7 @@ import PublicBooking from './components/PublicBooking';
 import CroBookingPanel from './components/CroBookingPanel';
 import BookingManager from './components/BookingManager';
 import BookingApprovalQueue from './components/BookingApprovalQueue';
+import SABookingPanel from './components/SABookingPanel';
 import OwnerPanel from './components/OwnerPanel';
 import StockComparison from './components/StockComparison';
 import { USERS } from './data/users';
@@ -33,7 +34,7 @@ import PublicNavBar from './components/PublicNavBar';
 import WarrantyPanel from './components/WarrantyPanel';
 import WarrantyDashboard from './components/WarrantyDashboard';
 import WarrantySearch from './components/WarrantySearch';
-import WarrantyHub from './components/WarrantyHub';
+import WarrantyHub, { WarrantyWorkOrderPage } from './components/WarrantyHub';
 import ProformaInvoice from './components/ProformaInvoice';
 import { getNavItems } from './utils/navConfig';
 
@@ -287,9 +288,9 @@ const App = () => {
     if (path === '/staff' || path === '/' || path === '/display') {
         if (['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty'].includes(role)) {
           const allowedPages = {
-            admin: ['admin', 'admin-booking', 'promo', 'display', 'booking-public'],
+            admin: ['admin', 'admin-booking', 'admin-wo', 'promo', 'display', 'booking-public', 'sa-booking'],
             manager: ['manager', 'manager-financial', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'display', 'booking-public'],
-            cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-booking-approval', 'cro-holidays', 'display', 'booking-public'],
+            cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-booking-approval', 'cro-holidays', 'display', 'booking-public', 'sa-booking'],
             sparepart: ['sparepart', 'sparepart-view', 'sparepart-quotation', 'sparepart-profit', 'quotation', 'display', 'booking-public', 'stock-comparison'],
             owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'display', 'booking-public', 'stock-comparison'],
             warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-proforma'],
@@ -1527,7 +1528,8 @@ const App = () => {
       )}
       {currentPage === 'login' && <LoginPage loginForm={loginForm} setLoginForm={setLoginForm} handleLogin={handleLogin} errorMessage={errorMessage} setCurrentPage={setCurrentPage} />}
       {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} activeTab="dashboard" />}
-      {currentPage === 'admin-booking' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} activeTab="booking" />}
+      {currentPage === 'admin-booking' && <CroBookingPanel user={user} />}
+      {currentPage === 'admin-wo' && <WarrantyWorkOrderPage />}
       {currentPage === 'mechanic' && (
         <MechanicPanel
           user={user}
@@ -1572,6 +1574,7 @@ const App = () => {
         <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="holidays" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
       )}
       {currentPage === 'booking-public' && <PublicBooking user={user} />}
+      {currentPage === 'sa-booking' && <SABookingPanel />}
       {currentPage === 'promo' && <PromosiSparepart />}
       {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="performance" />}
       {currentPage === 'manager-financial' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="financial" />}
