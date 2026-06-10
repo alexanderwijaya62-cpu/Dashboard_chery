@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { AlertCircle, Calendar, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Edit, FileText, Filter, Phone, RefreshCw, Search, Trash2, Truck, X, XCircle } from 'lucide-react';
+import { AlertCircle, Calendar, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Edit, FileText, Filter, Phone, RefreshCw, Search, Trash2, Truck, X, XCircle, Database, Settings } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
+import BookingSettings from './BookingSettings';
 
 const STATUS_STYLES = {
   'Baru': { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200' },
@@ -60,6 +61,9 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
   const [editModal, setEditModal] = useState(null);
   const [cancelModal, setCancelModal] = useState(null);
 
+  const [supabaseData, setSupabaseData] = useState([]);
+  const [showSettings, setShowSettings] = useState(false);
+
   const hasActiveFilters = statusFilter || dateFrom || dateTo;
 
   const fetchData = useCallback(async () => {
@@ -97,7 +101,43 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('booking')
+          .select('*')
+          .or('bookingVia.ilike.%Manual%,bookingVia.ilike.%Local Approved%')
+          .order('createdAt', { ascending: false });
+        setSupabaseData(data || []);
+      } catch (e) {
+        console.error('Gagal fetch manual bookings:', e);
+      }
+    })();
+  }, [refreshTrigger]);
+
   const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+
+  const normalizedSupabase = useMemo(() => {
+    return supabaseData.map(b => ({
+      _source: 'local',
+      _id: b.id,
+      no_booking: `SB-${b.id}`,
+      status_booking: b.status === 'waiting confirm' ? 'Baru' : b.status === 'accepted' ? 'Aktif' : b.status === 'completed' ? 'Selesai' : b.status === 'cancelled' ? 'Batal' : b.status || '-',
+      nama_pelanggan: b.namaCustomer || '-',
+      no_polisi: b.noPlat || '-',
+      nama_kendaraan: b.tipeMobil || '-',
+      janji_datang: b.tanggal ? `${b.tanggal} ${(b.jam || '').replace('.', ':') || '00:00'}:00` : '-',
+      booking_via: b.bookingVia || '-',
+      dibuat_oleh: b.bookingVia || '-',
+      no_chassis: b.vin || '-',
+      km: b.km || '-',
+      atas_nama_booking: b.namaCustomer || '-',
+      no_telp_booking: b.noTelp || '-',
+      keluhan: b.keperluanService || '-',
+      created_at: b.createdAt || b.tanggal,
+    }));
+  }, [supabaseData]);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -211,6 +251,7 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
           <Filter size={13} /> Filter {hasActiveFilters && <span className="w-1.5 h-1.5 bg-red-400 rounded-full" />}
         </button>
 
+        <button onClick={() => setShowSettings(true)} className="p-2 rounded-xl border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors" title="Pengaturan Slot Booking"><Settings size={14} /></button>
         <button onClick={fetchData} disabled={isLoading} className="p-2 rounded-xl border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors ml-auto">
           <RefreshCw size={14} className={`${isLoading ? 'animate-spin' : ''}`} />
         </button>
@@ -301,13 +342,13 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
                   {data.map((row, i) => {
-                    const isExp = expandedRow === i;
+                    const isExp = expandedRow === `dms_${i}`;
                     const s = getStatusStyle(row.status_booking);
                     return (
-                      <React.Fragment key={row.id_booking || i}>
+                      <React.Fragment key={`dms_${row.id_booking || i}`}>
                         <tr
                           className={`hover:bg-zinc-50 transition-colors cursor-pointer ${isExp ? 'bg-zinc-50' : ''}`}
-                          onClick={() => setExpandedRow(isExp ? null : i)}
+                          onClick={() => setExpandedRow(isExp ? null : `dms_${i}`)}
                         >
                           <td className="pl-3 pr-1 py-2.5 text-zinc-400">
                             {isExp ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
@@ -418,6 +459,87 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
                       </React.Fragment>
                     );
                   })}
+
+                  {/* MANUAL BOOKINGS FROM SUPABASE */}
+                  {normalizedSupabase.length > 0 && (
+                    <>
+                      <tr className="bg-amber-50/50">
+                        <td colSpan={10} className="px-3 py-3">
+                          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-amber-700">
+                            <Database size={14} /> Manual Bookings ({normalizedSupabase.length})
+                          </div>
+                        </td>
+                      </tr>
+                      {normalizedSupabase.map((row, i) => {
+                        const isExp = expandedRow === `local_${i}`;
+                        const s = getStatusStyle(row.status_booking);
+                        return (
+                          <React.Fragment key={`local_${row._id || i}`}>
+                            <tr
+                              className={`hover:bg-amber-50/50 transition-colors cursor-pointer ${isExp ? 'bg-amber-50/50' : ''}`}
+                              onClick={() => setExpandedRow(isExp ? null : `local_${i}`)}
+                            >
+                              <td className="pl-3 pr-1 py-2.5 text-zinc-400">
+                                {isExp ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                              </td>
+                              <td className="px-3 py-2.5 font-bold text-zinc-900 whitespace-nowrap text-xs">
+                                <span className="inline-flex items-center gap-1">
+                                  {row.no_booking}
+                                  <span className="text-[8px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">Local</span>
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${s.bg} ${s.text} ${s.border}`}>
+                                  {row.status_booking || '-'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5 text-zinc-700 whitespace-nowrap text-xs max-w-[120px] truncate">{row.nama_pelanggan || '-'}</td>
+                              <td className="px-3 py-2.5 font-mono text-zinc-700 whitespace-nowrap text-xs">{row.no_polisi || '-'}</td>
+                              <td className="px-3 py-2.5 text-zinc-600 whitespace-nowrap text-xs max-w-[140px] truncate">{row.nama_kendaraan || '-'}</td>
+                              <td className="px-3 py-2.5 text-zinc-500 whitespace-nowrap text-xs">{formatDateShort(row.janji_datang)}</td>
+                              <td className="px-3 py-2.5 text-zinc-500 whitespace-nowrap text-xs">{row.booking_via || '-'}</td>
+                              <td className="px-3 py-2.5 text-zinc-400 whitespace-nowrap text-xs">{row.dibuat_oleh || '-'}</td>
+                              <td className="px-3 py-2.5 text-center text-[9px] text-zinc-400 font-bold">—</td>
+                            </tr>
+                            {isExp && (
+                              <tr className="bg-amber-50/30 border-b border-zinc-200">
+                                <td colSpan={10} className="px-5 py-4">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                    <div>
+                                      <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
+                                        <Truck size={10} /> Kendaraan
+                                      </p>
+                                      <div className="space-y-1">
+                                        {[['No Polisi', row.no_polisi], ['Model', row.nama_kendaraan], ['Atas Nama', row.atas_nama_booking], ['No. Telp', row.no_telp_booking]].map(([label, val]) => (
+                                          <div key={label} className="flex justify-between text-xs">
+                                            <span className="text-zinc-400 font-medium">{label}</span>
+                                            <span className="text-zinc-800 font-semibold">{val}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
+                                        <FileText size={10} /> Detail
+                                      </p>
+                                      <div className="space-y-1">
+                                        {[['Via', row.booking_via], ['Keluhan', row.keluhan], ['Created', formatDate(row.created_at)]].map(([label, val]) => (
+                                          <div key={label} className="flex justify-between text-xs">
+                                            <span className="text-zinc-400 font-medium">{label}</span>
+                                            <span className="text-zinc-800 font-semibold max-w-[180px] truncate">{val}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -474,6 +596,20 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
           onClose={() => setCancelModal(null)}
           onSubmit={handleCancel}
         />
+      )}
+
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/40 z-[999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-zinc-200 overflow-hidden max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between shrink-0">
+              <h3 className="font-black text-sm uppercase tracking-wider">Pengaturan Slot Booking</h3>
+              <button onClick={() => setShowSettings(false)} className="p-1.5 hover:bg-zinc-100 rounded-lg transition-colors"><X size={16} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <BookingSettings />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

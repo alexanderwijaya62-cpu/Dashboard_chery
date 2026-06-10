@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { User, Car, FileText, Save, AlertCircle } from 'lucide-react';
-import { supabase } from '../utils/supabaseClient';
 
 const CustomerProfile = ({ user, setUser }) => {
   const [formData, setFormData] = useState({

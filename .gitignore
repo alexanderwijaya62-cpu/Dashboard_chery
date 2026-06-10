@@ -24,4 +24,14 @@ dist-ssr
 *.sw?
 
 .vercel
+.env
 .env*.local
+*_cookie*
+*cookie*.txt
+*cookie*.json
+tmp_*
+env_new.txt
+users.js
+src/data/users.js
+scratch_test.js
+fetch_gas.cjs

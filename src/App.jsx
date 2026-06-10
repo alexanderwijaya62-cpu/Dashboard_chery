@@ -5,6 +5,7 @@ import "toastify-js/src/toastify.css";
 
 import { API_KEY, GAS_URL, GAS_USERS_URL, IS_MAINTENANCE } from './utils/config';
 import { supabase } from './utils/supabaseClient';
+import { db } from './utils/dbClient';
 
 // Import Komponen Terpisah
 import DisplayBoard from './components/DisplayBoard';
@@ -21,9 +22,9 @@ import CroBookingPanel from './components/CroBookingPanel';
 import BookingManager from './components/BookingManager';
 import BookingApprovalQueue from './components/BookingApprovalQueue';
 import SABookingPanel from './components/SABookingPanel';
+import BookingSettings from './components/BookingSettings';
 import OwnerPanel from './components/OwnerPanel';
 import StockComparison from './components/StockComparison';
-import { USERS } from './data/users';
 import RegisterPage from './components/RegisterPage';
 import CustomerProfile from './components/CustomerProfile';
 import CustomerPanel from './components/CustomerPanel';
@@ -144,7 +145,7 @@ const App = () => {
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [isLoadingProcess, setIsLoadingProcess] = useState(false);
   const [rawHistory, setRawHistory] = useState([]);
-  const [usersData, setUsersData] = useState(USERS);
+  const [usersData, setUsersData] = useState([]);
   const [breakSettings, setBreakSettings] = useState(() => {
     const saved = localStorage.getItem('chery_break_settings');
     return saved ? JSON.parse(saved) : {
@@ -171,10 +172,10 @@ const App = () => {
 
     const updateGeoData = async () => {
       try {
-        await supabase.from('users').update({
+        await db.update('users', {
           lastIP: '-',
           lastLocation: '-'
-        }).eq('username', user.username);
+        }, { eq: { username: user.username } });
 
       } catch (e) {
         console.error("Silent Geo Error:", e);
@@ -290,7 +291,7 @@ const App = () => {
           const allowedPages = {
             admin: ['admin', 'admin-booking', 'admin-wo', 'promo', 'display', 'booking-public', 'sa-booking'],
             manager: ['manager', 'manager-financial', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'display', 'booking-public'],
-            cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-booking-approval', 'cro-holidays', 'display', 'booking-public', 'sa-booking'],
+            cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-booking-approval', 'cro-holidays', 'display', 'booking-public', 'sa-booking', 'booking-settings'],
             sparepart: ['sparepart', 'sparepart-view', 'sparepart-quotation', 'sparepart-profit', 'quotation', 'display', 'booking-public', 'stock-comparison'],
             owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'display', 'booking-public', 'stock-comparison'],
             warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-proforma'],
@@ -591,12 +592,12 @@ const App = () => {
   React.useEffect(() => {
     const fetchCustomSound = async () => {
       try {
-        const { data, error } = await supabase.from('settings').select('*').eq('key', 'notification_sound_url').maybeSingle();
+        const { data, error } = await db.select('settings', { eq: { key: 'notification_sound_url' }, maybeSingle: true });
         if (!error && data && data.value) {
           customSoundUrlRef.current = data.value;
         }
 
-        const { data: soundStatus } = await supabase.from('settings').select('*').eq('key', 'notification_sound_enabled').maybeSingle();
+        const { data: soundStatus } = await db.select('settings', { eq: { key: 'notification_sound_enabled' }, maybeSingle: true });
         if (soundStatus) setIsSoundEnabled(soundStatus.value === 'true');
       } catch (e) {
         // Silently skip if table missing or other error
@@ -795,11 +796,11 @@ const App = () => {
                 sisaDetik = Math.max(0, Math.floor((targetTime - Date.now()) / 1000));
               }
 
-              await supabase.from('antrian').update({
+              await db.update('antrian', {
                 status: targetStatus,
                 estimasiDefault: sisaDetik,
                 targetTime: 0
-              }).eq('id', item.id);
+              }, { eq: { id: item.id } });
             }
           } catch (e) {
             console.error("AutoStatus Error:", e);
@@ -817,10 +818,10 @@ const App = () => {
             for (const item of toWakeUp) {
               const sisaDetik = parseInt(item.estimasiDefault) || 0;
               const targetTime = Date.now() + (sisaDetik * 1000);
-              await supabase.from('antrian').update({
+              await db.update('antrian', {
                 status: 'working',
                 targetTime: targetTime
-              }).eq('id', item.id);
+              }, { eq: { id: item.id } });
             }
           } catch (e) {
             console.error("WakeUp Error:", e);
@@ -901,64 +902,53 @@ const App = () => {
     try {
       const cleanUsername = sanitizeInput(loginForm.username);
       const cleanPassword = sanitizeInput(loginForm.password);
-      const newSessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
 
-      const { data, error } = await supabase
-        .from('users')
-        .select('id, username, name, role, plat_bk, vin')
-        .eq('username', cleanUsername)
-        .eq('password', cleanPassword)
-        .single();
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: cleanUsername, password: cleanPassword })
+      });
+      const json = await res.json();
 
-      if (data) {
+      if (res.ok && json.username) {
         const { device, browser } = getDeviceInfo();
-        const loginTime = new Date().toLocaleString('id-ID');
 
         const userData = { 
-          name: data.name, 
-          username: data.username, 
-          role: data.role,
-          plat_bk: data.plat_bk,
-          vin: data.vin
+          name: json.name, 
+          username: json.username, 
+          role: json.role,
+          plat_bk: json.plat_bk,
+          vin: json.vin
         };
         const today = new Date().toDateString();
 
         localStorage.setItem('chery_last_login_date', today);
         setLastLoginDate(today);
-        setSessionId(newSessionId);
+        setSessionId(json.sessionId);
         setUser(userData);
         setLoginForm({ username: '', password: '' });
 
-        await supabase.from('users').update({
-          sessionId: newSessionId,
-          lastDevice: device,
-          lastBrowser: browser,
-          lastLogin: loginTime,
-          isOnline: true
-        }).eq('username', data.username);
+        const targetPage = json.role?.toLowerCase() === 'mekanik' ? 'mechanic' :
+          json.role?.toLowerCase() === 'sparepart' ? 'sparepart' :
+            json.role?.toLowerCase() === 'cro' ? 'cro' :
+              json.role?.toLowerCase() === 'manager' ? 'manager' :
+                json.role?.toLowerCase() === 'owner' ? 'owner' : 
+                  json.role?.toLowerCase() === 'customer' ? 'customer' :
+                    json.role?.toLowerCase() === 'display' ? 'display' :
+                    json.role?.toLowerCase() === 'warranty' ? 'warranty' : 'admin';
 
-        const targetPage = data.role?.toLowerCase() === 'mekanik' ? 'mechanic' :
-          data.role?.toLowerCase() === 'sparepart' ? 'sparepart' :
-            data.role?.toLowerCase() === 'cro' ? 'cro' :
-              data.role?.toLowerCase() === 'manager' ? 'manager' :
-                data.role?.toLowerCase() === 'owner' ? 'owner' : 
-                  data.role?.toLowerCase() === 'customer' ? 'customer' :
-                    data.role?.toLowerCase() === 'display' ? 'display' :
-                    data.role?.toLowerCase() === 'warranty' ? 'warranty' : 'admin';
-
-        const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner'].includes(data.role?.toLowerCase()) ? '/staff' : 
-                          (data.role?.toLowerCase() === 'customer' ? '/customer' : 
-                            (data.role?.toLowerCase() === 'display' ? '/display' :
-                              (data.role?.toLowerCase() === 'warranty' ? '/staff' : '/karyawan')));
+        const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner'].includes(json.role?.toLowerCase()) ? '/staff' : 
+                          (json.role?.toLowerCase() === 'customer' ? '/customer' : 
+                            (json.role?.toLowerCase() === 'display' ? '/display' :
+                              (json.role?.toLowerCase() === 'warranty' ? '/staff' : '/karyawan')));
         window.history.pushState({}, '', targetUrl);
 
         setCurrentPage(targetPage);
         setErrorMessage('');
 
-        // Trigger an immediate check after login (useEffect will handle geo)
         setTimeout(() => window.location.reload(), 100);
       } else {
-        setErrorMessage('Username atau Password salah!');
+        setErrorMessage(json.error || 'Username atau Password salah!');
         setTimeout(() => setErrorMessage(''), 3000);
       }
     } catch (error) {
@@ -970,38 +960,20 @@ const App = () => {
   };
 
   const handleChangePassword = async (oldPassword, newPassword) => {
-    const currentUser = usersData.find(u => u.username === user.username);
-
-    if (currentUser?.password !== oldPassword) {
-      return { success: false, message: "Password lama salah!" };
-    }
-
     try {
-      // Mengirim request penggantian password ke Supabase
-      const { data: userData, error: fetchError } = await supabase
-        .from('users')
-        .select('password') // Hapus ID karena mungkin tidak ada primary key bigint di schema user Anda
-        .eq('username', user.username)
-        .single();
-
-      if (fetchError || !userData) {
-        return { success: false, message: "Gagal menemukan data user!" };
-      }
-
-      if (userData.password !== oldPassword) {
-        return { success: false, message: "Password lama salah!" };
-      }
-
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ password: newPassword })
-        .eq('username', user.username);
-
-      if (updateError) {
-        return { success: false, message: updateError.message || "Gagal mengubah password" };
-      }
-
-      return { success: true, message: "Password berhasil diubah!" };
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          username: user?.username, 
+          password: oldPassword,
+          action: 'change-password',
+          oldPassword,
+          newPassword
+        })
+      });
+      const json = await res.json();
+      return json;
     } catch (error) {
       console.error(error);
       return { success: false, message: "Gagal terhubung ke server database!" };
@@ -1066,22 +1038,20 @@ const App = () => {
     try {
       if (isEditing) {
         // Try updating antrian first
-        const { error, count } = await supabase.from('antrian').update(updates).eq('id', formData.id).select();
+        const { error, data: updatedRows } = await db.update('antrian', updates, { eq: { id: formData.id } });
 
-        // If not in antrian or update failed, try history (mostly for Owner editing completed units)
-        if (!error && (!count || count.length === 0)) {
-          // History table may not have all columns (e.g. checklist), so only send safe fields
+        if (!error && (!updatedRows || updatedRows.length === 0)) {
           const historyUpdates = { ...updates };
           delete historyUpdates.checklist;
           delete historyUpdates.targetTime;
           delete historyUpdates.menginap_reason;
-          const { error: hError } = await supabase.from('history').update(historyUpdates).eq('id', formData.id);
+          const { error: hError } = await db.update('history', historyUpdates, { eq: { id: formData.id } });
           if (hError) throw hError;
         } else if (error) {
           throw error;
         }
       } else {
-        const { error } = await supabase.from('antrian').insert(updates);
+        const { error } = await db.insert('antrian', updates);
         if (error) throw error;
       }
 
@@ -1100,8 +1070,8 @@ const App = () => {
     if (isLoadingProcess) return;
     setIsLoadingProcess(true);
     try {
-      await supabase.from('antrian').delete().eq('id', id);
-      await supabase.from('history').delete().eq('id', id);
+      await db.delete('antrian', { eq: { id } });
+      await db.delete('history', { eq: { id } });
     } catch (err) {
       console.error(err);
     } finally {
@@ -1114,7 +1084,7 @@ const App = () => {
       if (isLoadingProcess) return;
       setIsLoadingProcess(true);
       try {
-        await supabase.from('antrian').delete().neq('id', 0);
+        await db.delete('antrian', { neq: { id: 0 } });
       } catch (err) {
         console.error(err);
       } finally {
@@ -1137,11 +1107,11 @@ const App = () => {
     const targetTime = Date.now() + (estimasiDefaultInt * 1000);
 
     try {
-      await supabase.from('antrian').update({
+      await db.update('antrian', {
         status: 'working',
-        targetTime: targetTime, // Disesuaikan
-        mechanicName: user.name // Disesuaikan
-      }).eq('id', item.id);
+        targetTime: targetTime,
+        mechanicName: user.name
+      }, { eq: { id: item.id } });
     } catch (err) {
       console.error(err);
     } finally {
@@ -1169,12 +1139,11 @@ const App = () => {
 
       if (reason) updateData.menginap_reason = reason;
 
-      const { error } = await supabase.from('antrian').update(updateData).eq('id', item.id);
+      const { error } = await db.update('antrian', updateData, { eq: { id: item.id } });
       if (error) {
         if (error.code === 'PGRST204') {
-          // Jika kolom tidak ada, coba update tanpa kolom tersebut sebagai fallback
           delete updateData.menginap_reason;
-          await supabase.from('antrian').update(updateData).eq('id', item.id);
+          await db.update('antrian', updateData, { eq: { id: item.id } });
           Toastify({
             text: "⚠️ Fitur Alasan Menginap belum aktif di Database. Silakan tambah kolom 'menginap_reason' di Supabase.",
             style: { background: '#f59e0b' }
@@ -1198,9 +1167,9 @@ const App = () => {
       // Optimistic Update: Update local state immediately so user sees the change instantly
       setQueue(prev => prev.map(q => q.id === id ? { ...q, checklist: newChecklist } : q));
 
-      const { error } = await supabase.from('antrian').update({
+      const { error } = await db.update('antrian', {
         checklist: newChecklist
-      }).eq('id', id);
+      }, { eq: { id } });
 
       if (error) {
         // Revert if error? For now just log
@@ -1238,10 +1207,10 @@ const App = () => {
     setIsLoadingProcess(true);
 
     try {
-      await supabase.from('antrian').update({
+      await db.update('antrian', {
         status: 'waiting',
         targetTime: 0
-      }).eq('id', item.id);
+      }, { eq: { id: item.id } });
     } catch (err) {
       console.error(err);
     } finally {
@@ -1328,7 +1297,7 @@ const App = () => {
         Bulan: bulanStr,
       };
 
-      const { error: insertError } = await supabase.from('history').insert(historyData);
+      const { error: insertError } = await db.insert('history', historyData);
 
       if (insertError) {
         // Jika error "Conflict" (ID sudah ada), hapus saja dari antrian & anggap sukses
@@ -1344,7 +1313,7 @@ const App = () => {
             restHistory.keluhan = (restHistory.keluhan ? restHistory.keluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + checklistSummary;
           }
 
-          const { error: retryError } = await supabase.from('history').insert(restHistory);
+          const { error: retryError } = await db.insert('history', restHistory);
           if (retryError && retryError.code !== '23505') {
             console.error("Retry Error:", retryError);
             throw new Error(`Database Error (History Retry): ${retryError.message}`);
@@ -1356,7 +1325,7 @@ const App = () => {
       }
 
       // 2. Delete from antrian
-      const { error: deleteError } = await supabase.from('antrian').delete().eq('id', item.id);
+      const { error: deleteError } = await db.delete('antrian', { eq: { id: item.id } });
       if (deleteError) {
         console.error("Antrian Delete Error:", deleteError);
         throw new Error(`Database Error (Antrian): ${deleteError.message}`);
@@ -1378,7 +1347,7 @@ const App = () => {
           respon: '',
           lampiran: '[]'
         };
-        await supabase.from('cro').insert(croData);
+        await db.insert('cro', croData);
       } catch (e) {
         console.error("CRO Sync Error (Non-Fatal):", e);
       }
@@ -1575,6 +1544,7 @@ const App = () => {
       )}
       {currentPage === 'booking-public' && <PublicBooking user={user} />}
       {currentPage === 'sa-booking' && <SABookingPanel />}
+      {currentPage === 'booking-settings' && <BookingSettings />}
       {currentPage === 'promo' && <PromosiSparepart />}
       {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="performance" />}
       {currentPage === 'manager-financial' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="financial" />}

@@ -1,4 +1,8 @@
-export const API_KEY = import.meta.env.VITE_API_KEY || "chery-secret-key-2024";
+const API_KEY = import.meta.env.VITE_API_KEY;
+if (!API_KEY) {
+  throw new Error("VITE_API_KEY must be set in environment variables");
+}
+export { API_KEY };
 export const GAS_URL = "/api/gas";
 export const GAS_USERS_URL = "/api/gas_users";
 export const GAS_SPAREPART_URL = "/api/gas_sparepart";

@@ -2,21 +2,22 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Calendar as CalendarIcon, Clock, Send, User, ChevronLeft, ChevronRight, Phone, CheckCircle2, AlertCircle, MapPin, ShieldCheck, Bookmark, X } from 'lucide-react';
 import Toastify from 'toastify-js';
 import { supabase } from '../utils/supabaseClient';
+import { db } from '../utils/dbClient';
 import orientalLogo from '../assets/oriental.jpeg';
 import cheryLogo from '../assets/chery.png';
 
-const generateSlots = (count) => {
+const generateSlots = (count, gapMinutes = 30, startHour = 8, startMin = 30) => {
     const slots = [];
-    let currentHour = 8;
-    let currentMin = 30;
+    let currentHour = startHour;
+    let currentMin = startMin;
     for (let i = 0; i < count; i++) {
         const h = String(currentHour).padStart(2, '0');
         const m = String(currentMin).padStart(2, '0');
         slots.push(`${h}.${m}`);
-        currentMin += 30;
-        if (currentMin >= 60) {
+        currentMin += gapMinutes;
+        while (currentMin >= 60) {
             currentHour += 1;
-            currentMin = 0;
+            currentMin -= 60;
         }
     }
     return slots;
@@ -64,7 +65,7 @@ export default function PublicBooking({ user }) {
     const [currentMonth, setCurrentMonth] = useState(new Date());
 
     const [formData, setFormData] = useState({
-        jam: '', noPlat: '', namaCustomer: '', noTelp: ''
+        jam: '', noPlat: '', namaCustomer: '', noTelp: '', keluhan: ''
     });
     const [userIP, setUserIP] = useState('');
     const [showWarningModal, setShowWarningModal] = useState(false);
@@ -88,10 +89,7 @@ export default function PublicBooking({ user }) {
             yesterday.setDate(yesterday.getDate() - 1);
             const dateStr = yesterday.toISOString().split('T')[0];
 
-            const { data, error } = await supabase
-                .from('booking')
-                .select('*')
-                .or(`tanggal.gte.${dateStr},id.eq.999999`);
+            const { data, error } = await db.select('booking', { or: `tanggal.gte.${dateStr},id.eq.999999` });
             if (error) throw error;
             if (Array.isArray(data)) setBookings(data);
         } catch (e) { console.error('Gagal fetch booking:', e); }
@@ -99,7 +97,7 @@ export default function PublicBooking({ user }) {
 
     const fetchHolidays = async () => {
         try {
-            const { data, error } = await supabase.from('libur').select('*');
+            const { data, error } = await db.select('libur');
             if (error) throw error;
             if (Array.isArray(data)) setHolidays(data);
         } catch (e) { console.error('Gagal fetch libur:', e); }
@@ -134,36 +132,39 @@ export default function PublicBooking({ user }) {
         if (isClosed(dateStr)) return 'closed';
         const configSlot = bookings.find(b => b.id === 999999);
         const maxSlots = configSlot ? (parseInt(configSlot.namaCustomer || configSlot.nama_customer) || 4) : 4;
-        const dynamicJam = generateSlots(maxSlots);
+        const gapMinutes = configSlot ? (parseInt(configSlot.tipeMobil) || 30) : 30;
+        const startTime = configSlot?.vin ? (() => { const p = configSlot.vin.split(':'); return { h: parseInt(p[0]) || 8, m: parseInt(p[1]) || 30 }; })() : { h: 8, m: 30 };
+        const slotCapacity = configSlot?.vin ? (() => { const p = configSlot.vin.split(':'); return p.length >= 3 ? parseInt(p[2]) || 1 : 1; })() : 1;
+        const dynamicJam = generateSlots(maxSlots, gapMinutes, startTime.h, startTime.m);
         
         const isToday = isSameDate(dateStr, new Date());
         const now = new Date();
         
         const dayBookings = bookings.filter(b => b.id !== 999999 && isSameDate(b.tanggal, dateStr) && (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed'));
         
-        // Hitung slot yang dianggap "occupied" (sudah dibooking ATAU sudah lewat waktunya jika hari ini)
-        let occupiedCount = dayBookings.length;
+        let fullSlotsCount = 0;
+        let hasAnyBooking = false;
         
-        if (isToday) {
-            // Untuk hari ini, kita cek slot mana yang sudah lewat tapi BELUM ada di dayBookings
-            const bookedSlots = new Set(dayBookings.map(b => {
-                const bJam = String(b.jam).includes('.') ? String(b.jam) : `${b.jam}.00`;
-                return parseFloat(bJam).toFixed(2);
-            }));
+        dynamicJam.forEach(jam => {
+            const bookingsAtThisTime = dayBookings.filter(b => normalizeJam(b.jam) === normalizeJam(jam));
+            let effectiveCount = bookingsAtThisTime.length;
             
-            dynamicJam.forEach(jam => {
+            if (isToday) {
                 const [h, m] = jam.split('.');
                 const slotDate = new Date();
                 slotDate.setHours(parseInt(h), parseInt(m), 0, 0);
                 
-                if (slotDate < now && !bookedSlots.has(parseFloat(jam).toFixed(2))) {
-                    occupiedCount++;
+                if (slotDate < now && effectiveCount < slotCapacity) {
+                    effectiveCount = slotCapacity;
                 }
-            });
-        }
+            }
+            
+            if (effectiveCount > 0) hasAnyBooking = true;
+            if (effectiveCount >= slotCapacity) fullSlotsCount++;
+        });
         
-        if (occupiedCount >= (dynamicJam.length)) return 'full';
-        if (occupiedCount > 0) return 'partial';
+        if (fullSlotsCount >= (dynamicJam.length)) return 'full';
+        if (hasAnyBooking) return 'partial';
         return 'empty';
     }, [bookings, holidays]);
 
@@ -171,7 +172,10 @@ export default function PublicBooking({ user }) {
     // PASTIKAN minimal ada 1 slot (default 4) agar daftar jam tidak kosong
     const rawCount = configSlot ? (configSlot.namaCustomer || configSlot.nama_customer || configSlot.addedBy) : 4;
     const maxSlotsCount = Math.max(1, parseInt(rawCount) || 4);
-    const JAM_PILIHAN = useMemo(() => generateSlots(maxSlotsCount), [maxSlotsCount]);
+    const gapConfig = configSlot ? (parseInt(configSlot.tipeMobil) || 30) : 30;
+    const startConfig = configSlot?.vin ? (() => { const p = configSlot.vin.split(':'); return { h: parseInt(p[0]) || 8, m: parseInt(p[1]) || 30 }; })() : { h: 8, m: 30 };
+    const slotCapacity = configSlot?.vin ? (() => { const p = configSlot.vin.split(':'); return p.length >= 3 ? parseInt(p[2]) || 1 : 1; })() : 1;
+    const JAM_PILIHAN = useMemo(() => generateSlots(maxSlotsCount, gapConfig, startConfig.h, startConfig.m), [maxSlotsCount, gapConfig, startConfig.h, startConfig.m]);
 
     const getIsPastTime = useCallback((slotJam) => {
         if (!isSameDate(selectedDate, new Date())) return false;
@@ -263,11 +267,7 @@ export default function PublicBooking({ user }) {
 
         const targetJam = normalizeJam(formData.jam);
 
-        const { data: allBookings } = await supabase
-            .from('booking')
-            .select('jam, status')
-            .eq('tanggal', selectedDate)
-            .in('status', ['waiting confirm', 'accepted', 'completed']);
+        const { data: allBookings } = await db.select('booking', { select: 'jam, status', eq: { tanggal: selectedDate }, in: { status: ['waiting confirm', 'accepted', 'completed'] } });
 
         const isConflict = allBookings?.filter(b => normalizeJam(b.jam) === targetJam).length >= 1;
 
@@ -280,19 +280,14 @@ export default function PublicBooking({ user }) {
         }
 
         // 3. AMBIL NOMOR URUT TERKINI (Sequential)
-        const { data: latestBooking } = await supabase
-            .from('booking')
-            .select('noUrut')
-            .order('noUrut', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+        const { data: latestBooking } = await db.select('booking', { select: 'noUrut', order: { column: 'noUrut', ascending: false }, limit: 1, maybeSingle: true });
 
         const currentMax = Number(latestBooking?.noUrut || 0);
         const nextNoUrut = currentMax + 1;
 
         try {
             const newId = Date.now();
-            const { error } = await supabase.from('booking').insert({
+            const { error } = await db.insert('booking', {
                 id: newId,
                 noUrut: nextNoUrut,
                 tanggal: selectedDate,
@@ -301,6 +296,7 @@ export default function PublicBooking({ user }) {
                 namaCustomer: formData.namaCustomer,
                 bookingVia: user ? `Booking via: ${user.name}` : 'Web-Public',
                 noTelp: formData.noTelp,
+                keperluanService: formData.keluhan,
                 ip_address: userIP,
                 status: 'waiting_approval'
             });
@@ -309,7 +305,7 @@ export default function PublicBooking({ user }) {
 
             Toastify({ text: '✅ Booking berhasil dikirim!', style: { background: 'green' } }).showToast();
             setIsBookingMode(false);
-            setFormData({ jam: '', noPlat: '', namaCustomer: '', noTelp: '' });
+            setFormData({ jam: '', noPlat: '', namaCustomer: '', noTelp: '', keluhan: '' });
             fetchBookings();
         } catch (err) {
             console.error('Booking error:', err);
@@ -476,9 +472,8 @@ export default function PublicBooking({ user }) {
                                          <p className="text-[6.5px] md:text-[8px] font-black text-emerald-500 uppercase tracking-widest mb-1 leading-none">Sisa Slot</p>
                                          <p className="text-sm md:text-base font-black text-emerald-400 leading-none">
                                             {(() => {
-                                                const occupiedCount = (bookingsForDate || []).length;
-                                                // Kapasitas total = Jumlah Baris Jam * 1 unit
-                                                const totalCapacity = (JAM_PILIHAN.length || 0);
+                                                 const occupiedCount = (bookingsForDate || []).length;
+                                                 const totalCapacity = (JAM_PILIHAN.length || 0) * slotCapacity;
                                                 return Math.max(0, totalCapacity - occupiedCount);
                                             })()}
                                          </p>
@@ -493,7 +488,7 @@ export default function PublicBooking({ user }) {
                                             return normalizeJam(b.jam) === normalizeJam(jam);
                                         });
 
-                                        const isOccupied = bookingsAtThisTime.length >= 1;
+                                        const isOccupied = bookingsAtThisTime.length >= slotCapacity;
                                         const isPastTime = getIsPastTime(jam);
                                         const isDisabled = isOccupied || isPastTime;
 
@@ -507,7 +502,7 @@ export default function PublicBooking({ user }) {
                                                     </div>
                                                     <div className="flex flex-col justify-center">
                                                         <p className={`text-[8.5px] md:text-[10px] font-black uppercase tracking-widest mb-1 text-white opacity-80`}>
-                                                            {isOccupied ? 'Slot Terisi Penuh' : isPastTime ? 'Waktu Terlewati' : `Sisa Slot: ${Math.max(0, 1 - bookingsAtThisTime.length)} Unit`}
+                                                            {isOccupied ? `Slot Penuh (${bookingsAtThisTime.length}/${slotCapacity})` : isPastTime ? 'Waktu Terlewati' : `Sisa Slot: ${Math.max(0, slotCapacity - bookingsAtThisTime.length)} Unit`}
                                                         </p>
                                                         <h4 className={`text-sm md:text-base font-black tracking-tight text-white`}>
                                                             {isOccupied ? 'FULL BOOKED' : isPastTime ? 'CLOSED' : 'Klik Reservasi'}
@@ -564,6 +559,11 @@ export default function PublicBooking({ user }) {
                                                 <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Nomor Polisi (BK)</label>
                                                 <input required type="text" value={formData.noPlat} onChange={e => setFormData({ ...formData, noPlat: e.target.value.toUpperCase().replace(/\s+/g, '') })}
                                                     className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase placeholder:text-zinc-600" placeholder="BK 1234 AB" />
+                                            </div>
+                                            <div className="space-y-2 md:space-y-3">
+                                                <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Keluhan / Catatan</label>
+                                                <textarea value={formData.keluhan} onChange={e => setFormData({ ...formData, keluhan: e.target.value })}
+                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all placeholder:text-zinc-600 min-h-[80px]" placeholder="Deskripsi keluhan (opsional)" />
                                             </div>
                                         </div>
                                     </section>

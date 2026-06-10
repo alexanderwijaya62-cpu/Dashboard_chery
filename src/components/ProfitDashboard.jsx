@@ -11,7 +11,6 @@ import {
   Download,
   Filter
 } from 'lucide-react';
-import { supabase } from '../utils/supabaseClient';
 import { CHERY_DMS_URL, API_KEY } from '../utils/config';
 import * as XLSX from 'xlsx';
 import Toastify from 'toastify-js';

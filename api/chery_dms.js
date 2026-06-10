@@ -11,7 +11,7 @@ const httpsAgent = new https.Agent({
     maxSockets: 64,
     maxFreeSockets: 16,
     timeout: 30000,
-    rejectUnauthorized: false
+    rejectUnauthorized: true
 });
 
 function fetchWithHttps(urlStr, options = {}) {
@@ -151,12 +151,12 @@ let croCookie = null;
 let croCookieExpiry = 0;
 
 async function warrantyGenericLogin(isCro = false) {
-    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
-    const USER = isCro ? (process.env.CRO_USER || 'rendika') : (process.env.WARRANTY_USER || 'nisa');
-    const PASS = isCro ? (process.env.CRO_PASS || 'rendika123') : (process.env.WARRANTY_PASS || 'qwerty12345');
-    const TOKEN = isCro ? (process.env.CRO_TOKEN || 'c0e565') : (process.env.WARRANTY_TOKEN || '6aad5b');
-    const DEALER = process.env.WARRANTY_KODE_DEALER || 'MOS';
-    const DEPT = process.env.WARRANTY_DEPT || 'S';
+    const BASE = process.env.WARRANTY_BASE_URL;
+    const USER = isCro ? (process.env.CRO_USER) : (process.env.WARRANTY_USER);
+    const PASS = isCro ? (process.env.CRO_PASS) : (process.env.WARRANTY_PASS);
+    const TOKEN = isCro ? (process.env.CRO_TOKEN) : (process.env.WARRANTY_TOKEN);
+    const DEALER = process.env.WARRANTY_KODE_DEALER;
+    const DEPT = process.env.WARRANTY_DEPT;
 
     const baseHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -268,7 +268,7 @@ async function croLogin() {
 }
 
 async function handleWarranty(req, res) {
-    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const BASE = process.env.WARRANTY_BASE_URL;
     const draw = req.query.draw || 1;
     const start = req.query.start || 0;
     const length = req.query.length || 25;
@@ -333,7 +333,7 @@ async function handleWarranty(req, res) {
 }
 
 async function handleWarrantyEstimasiDetail(req, res) {
-    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const BASE = process.env.WARRANTY_BASE_URL;
     const id = req.query.id || '';
     if (!id) return res.status(400).json({ error: 'Missing estimasi/WO ID' });
 
@@ -440,7 +440,7 @@ async function handleWarrantyEstimasiDetail(req, res) {
 }
 
 async function getCsrfToken(url, cookie) {
-    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const BASE = process.env.WARRANTY_BASE_URL;
     const pageResp = await fetchWithHttps(url, {
         headers: {
             'Cookie': cookie,
@@ -455,7 +455,7 @@ async function getCsrfToken(url, cookie) {
 }
 
 async function handleVehicleSelect(req, res) {
-    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const BASE = process.env.WARRANTY_BASE_URL;
     const term = req.query.term || '';
     const q = req.query.q || '';
     const type = req.query._type || 'query';
@@ -492,7 +492,7 @@ async function handleVehicleSelect(req, res) {
 }
 
 async function handleBookingCreate(req, res) {
-    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const BASE = process.env.WARRANTY_BASE_URL;
     let attempts = 0;
     while (attempts < 2) {
         if (!croCookie || Date.now() > croCookieExpiry) {
@@ -547,7 +547,7 @@ async function handleBookingCreate(req, res) {
 }
 
 async function handleBookingReschedule(req, res) {
-    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const BASE = process.env.WARRANTY_BASE_URL;
     const id = req.query.id || '';
     if (!id) return res.status(400).json({ error: 'Missing booking ID' });
 
@@ -596,7 +596,7 @@ async function handleBookingReschedule(req, res) {
 }
 
 async function handleBookingCancel(req, res) {
-    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const BASE = process.env.WARRANTY_BASE_URL;
     const id = req.query.id || '';
     if (!id) return res.status(400).json({ error: 'Missing booking ID' });
 
@@ -645,7 +645,7 @@ async function handleBookingCancel(req, res) {
 }
 
 async function handleBookingEdit(req, res) {
-    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const BASE = process.env.WARRANTY_BASE_URL;
     const id = req.query.id || '';
     if (!id) return res.status(400).json({ error: 'Missing booking ID' });
 
@@ -702,7 +702,7 @@ async function handleBookingEdit(req, res) {
 }
 
 async function handleBookingData(req, res) {
-    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const BASE = process.env.WARRANTY_BASE_URL;
     const draw = req.query.draw || 1;
     const start = req.query.start || 0;
     const length = req.query.length || 25;
@@ -756,7 +756,7 @@ async function handleBookingData(req, res) {
 }
 
 async function handleBookingEditForm(req, res) {
-    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const BASE = process.env.WARRANTY_BASE_URL;
     const id = req.query.id || '';
     if (!id) return res.status(400).json({ error: 'Missing booking ID' });
 
@@ -836,7 +836,7 @@ async function handleBookingEditForm(req, res) {
 }
 
 async function handleBookingUpdate(req, res) {
-    const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+    const BASE = process.env.WARRANTY_BASE_URL;
     const id = req.query.id || '';
     if (!id) return res.status(400).json({ error: 'Missing booking ID' });
 
@@ -922,7 +922,7 @@ async function handleBookingUpdate(req, res) {
 }
 
 export default async function handler(req, res) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Origin', 'https://cherymedan.web.id');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
 
@@ -973,7 +973,7 @@ export default async function handler(req, res) {
     // WARRANTY SEARCH BY VIN — proxied to 103.160.12.43/aftersales
     // ============================================================
     if (endpoint === 'warranty-search-vin') {
-        const BASE = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
+        const BASE = process.env.WARRANTY_BASE_URL;
         const vin = req.query.vin || '';
         const draw = req.query.draw || 1;
         const start = req.query.start || 0;
@@ -1048,14 +1048,14 @@ export default async function handler(req, res) {
             if (endpoint === 'booking-update') return await handleBookingUpdate(req, res);
         } catch (error) {
             console.error('[Booking Error]', error.message);
-            return res.status(500).json({ error: error.message, stack: error.stack?.split('\n').slice(0,3).join(' ') });
+            return res.status(500).json({ error: error.message });
         }
     }
 
     try {
-        const username = process.env.DMS_USER || 'Alex';
-        const password = process.env.DMS_PASS || 'Alex123!';
-        const enterpriseCode = process.env.DMS_ENTERPRISE_CODE || '10007901';
+        const username = process.env.DMS_USER;
+        const password = process.env.DMS_PASS;
+        const enterpriseCode = process.env.DMS_ENTERPRISE_CODE;
 
         if (!username || !password) {
             return res.status(500).json({ error: "DMS_USER and DMS_PASS environment variables not configured" });

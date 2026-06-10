@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import { supabase } from '../utils/supabaseClient';
+import { db } from '../utils/dbClient';
 import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL, API_KEY } from '../utils/config';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -982,7 +983,7 @@ export default function OwnerPanel({
 
   const fetchDeletedBookings = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from('booking').select('*').eq('status', 'deleted').order('tanggal', { ascending: false });
+      const { data, error } = await db.select('booking', { eq: { status: 'deleted' }, order: { column: 'tanggal', ascending: false } });
       if (error) throw error;
       setDeletedBookings(data || []);
     } catch (e) {
@@ -997,10 +998,10 @@ export default function OwnerPanel({
   // Fetch notification sound URL and status from settings
   const fetchNotifSettings = useCallback(async () => {
     try {
-      const { data: urlData } = await supabase.from('settings').select('*').eq('key', 'notification_sound_url').maybeSingle();
+      const { data: urlData } = await db.select('settings', { eq: { key: 'notification_sound_url' }, maybeSingle: true });
       if (urlData) setNotifSoundUrl(urlData.value);
 
-      const { data: statusData } = await supabase.from('settings').select('*').eq('key', 'notification_sound_enabled').maybeSingle();
+      const { data: statusData } = await db.select('settings', { eq: { key: 'notification_sound_enabled' }, maybeSingle: true });
       if (statusData) setIsSoundEnabled(statusData.value === 'true');
     } catch (e) { 
       // Silently ignore table errors
@@ -1044,7 +1045,7 @@ export default function OwnerPanel({
       const publicUrl = urlData.publicUrl;
 
       // Save URL to settings table
-      await supabase.from('settings').upsert({ key: 'notification_sound_url', value: publicUrl }, { onConflict: 'key' });
+      await db.upsert('settings', { key: 'notification_sound_url', value: publicUrl }, { onConflict: 'key' });
 
       setNotifSoundUrl(publicUrl);
       Toastify({ text: '✅ Suara notifikasi berhasil diupload!', style: { background: '#10b981' } }).showToast();
@@ -1076,7 +1077,7 @@ export default function OwnerPanel({
     const newState = !isSoundEnabled;
     setIsSoundEnabled(newState);
     try {
-      await supabase.from('settings').upsert({ key: 'notification_sound_enabled', value: newState.toString() }, { onConflict: 'key' });
+      await db.upsert('settings', { key: 'notification_sound_enabled', value: newState.toString() }, { onConflict: 'key' });
       Toastify({ text: `🔊 Notifikasi Suara ${newState ? 'AKTIF' : 'NONAKTIF'}`, style: { background: newState ? '#10b981' : '#ef4444' } }).showToast();
     } catch (err) {
       console.error(err);
@@ -1114,7 +1115,7 @@ export default function OwnerPanel({
 
   useEffect(() => {
     const fetchMechanics = async () => {
-        const { data } = await supabase.from('users').select('name').eq('role', 'mekanik');
+        const { data } = await db.select('users', { select: 'name', eq: { role: 'mekanik' } });
         if (data) setMechanics(data);
     };
     fetchMechanics();
@@ -1170,7 +1171,7 @@ export default function OwnerPanel({
 
   const handleDeleteUser = async (targetUser) => {
     try {
-      await supabase.from('users').delete().eq('username', targetUser.username);
+      await db.delete('users', { eq: { username: targetUser.username } });
       Toastify({ text: `🗑️ User ${targetUser.name} telah dihapus.`, style: { background: '#6b7280' } }).showToast();
       fetchUsers();
     } catch (e) {
@@ -2906,7 +2907,7 @@ export default function OwnerPanel({
                         </div>
                         <button onClick={async () => {
                            if(window.confirm('Hapus suara kustom?')) {
-                             await supabase.from('settings').delete().eq('key', 'notification_sound_url');
+                              await db.delete('settings', { eq: { key: 'notification_sound_url' } });
                              setNotifSoundUrl('');
                              Toastify({ text: 'Kembali ke default', style: { background: '#18181b' } }).showToast();
                            }
@@ -2945,7 +2946,7 @@ export default function OwnerPanel({
                       className="w-full bg-zinc-100 border border-zinc-200 rounded-md px-4 py-3 text-xs text-zinc-900 outline-none focus:border-zinc-2000 transition-all mb-4"
                       onKeyDown={async (e) => {
                          if (e.key === 'Enter' && e.target.value) {
-                            await supabase.from('settings').upsert({ key: 'notification_sound_url', value: e.target.value }, { onConflict: 'key' });
+                             await db.upsert('settings', { key: 'notification_sound_url', value: e.target.value }, { onConflict: 'key' });
                             setNotifSoundUrl(e.target.value);
                             Toastify({ text: '✅ URL Saved!', style: { background: '#10b981' } }).showToast();
                             e.target.value = '';
@@ -2993,7 +2994,7 @@ export default function OwnerPanel({
                       <div className="flex shrink-0">
                         <button onClick={async () => {
                           if(!window.confirm('Kembalikan data ini ke Antrian Booking CRO?')) return;
-                          await supabase.from('booking').update({ status: 'waiting confirm', bookingVia: b.bookingVia.replace(/Dihapus_Oleh: .*? - /, '') }).eq('id', b.id);
+                          await db.update('booking', { status: 'waiting confirm', bookingVia: b.bookingVia.replace(/Dihapus_Oleh: .*? - /, '') }, { eq: { id: b.id } });
                           fetchDeletedBookings();
                           Toastify({ text: "✅ Data berhasil di-Restore!", style: { background: "#18181b" } }).showToast();
                         }}

@@ -4,6 +4,7 @@ import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import TimeInput from './TimeInput';
 import { supabase } from '../utils/supabaseClient';
+import { db } from '../utils/dbClient';
 import PublicBooking from './PublicBooking';
 
 const CAR_MODELS = [
@@ -13,18 +14,18 @@ const CAR_MODELS = [
     "J6 IWD", "J6 RWD", "J6T", "J5", "J7 SHS", "J7 ICE", "J8 SHS"
 ];
 
-const generateSlots = (count) => {
+const generateSlots = (count, gapMinutes = 30, startHour = 8, startMin = 30) => {
     const slots = [];
-    let currentHour = 8;
-    let currentMin = 30;
+    let currentHour = startHour;
+    let currentMin = startMin;
     for (let i = 0; i < count; i++) {
         const h = String(currentHour).padStart(2, '0');
         const m = String(currentMin).padStart(2, '0');
         slots.push(`${h}.${m}`);
-        currentMin += 30;
-        if (currentMin >= 60) {
+        currentMin += gapMinutes;
+        while (currentMin >= 60) {
             currentHour += 1;
-            currentMin = 0;
+            currentMin -= 60;
         }
     }
     return slots;
@@ -66,10 +67,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
     useEffect(() => {
         const fetchMechanics = async () => {
             try {
-                const { data, error } = await supabase
-                    .from('users')
-                    .select('name')
-                    .eq('role', 'mekanik');
+                const { data, error } = await db.select('users', { select: 'name', eq: { role: 'mekanik' } });
                 if (error) throw error;
                 if (data) setMechanics(data);
             } catch (e) {
@@ -128,10 +126,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
             thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
             const dateStr = thirtyDaysAgo.toISOString().split('T')[0];
 
-            const { data, error } = await supabase
-                .from('booking')
-                .select('id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, status, bookingVia, vin, noTelp, noUrut')
-                .or(`tanggal.gte.${dateStr},id.eq.999999`);
+            const { data, error } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, status, bookingVia, vin, noTelp, noUrut', or: `tanggal.gte.${dateStr},id.eq.999999` });
             if (error) throw error;
             if (Array.isArray(data)) setRawBookings(data);
         } catch (e) {
@@ -156,7 +151,10 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
     // Get config slot count for showing all slots
     const configSlotAdmin = rawBookings.find(b => b.id === 999999);
     const maxSlotsAdmin = configSlotAdmin ? parseInt(configSlotAdmin.namaCustomer) || 8 : 8;
-    const allSlots = useMemo(() => generateSlots(maxSlotsAdmin), [maxSlotsAdmin]);
+    const gapAdmin = configSlotAdmin ? parseInt(configSlotAdmin.tipeMobil) || 30 : 30;
+    const startAdmin = configSlotAdmin?.vin ? (() => { const p = configSlotAdmin.vin.split(':'); return { h: parseInt(p[0]) || 8, m: parseInt(p[1]) || 30 }; })() : { h: 8, m: 30 };
+    const slotCapacityAdmin = configSlotAdmin?.vin ? (() => { const p = configSlotAdmin.vin.split(':'); return p.length >= 3 ? parseInt(p[2]) || 1 : 1; })() : 1;
+    const allSlots = useMemo(() => generateSlots(maxSlotsAdmin, gapAdmin, startAdmin.h, startAdmin.m), [maxSlotsAdmin, gapAdmin, startAdmin.h, startAdmin.m]);
 
     // Refresh if day changes (midnight)
     useEffect(() => {
@@ -239,9 +237,12 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
             
             if (bookingsAtSlot.length > 0) {
                 bookingsAtSlot.forEach(b => slotList.push(b));
-            } else {
+            }
+            // Show empty placeholder for each remaining capacity
+            const emptyCount = Math.max(0, slotCapacityAdmin - bookingsAtSlot.length);
+            for (let e = 0; e < emptyCount; e++) {
                 slotList.push({
-                    id: `empty-${slot}`,
+                    id: `empty-${slot}-${e}`,
                     jam: slot,
                     tanggal: todayStr,
                     isEmpty: true,
@@ -269,7 +270,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
         const checkLate = async () => {
             const lates = todayBookings.filter(b => !b.isEmpty && b.isLate && !b.isArrived && b.status !== 'dipindahkan_reguler');
             for (const b of lates) {
-                await supabase.from('booking').update({ status: 'dipindahkan_reguler' }).eq('id', b.id);
+                await db.update('booking', { status: 'dipindahkan_reguler' }, { eq: { id: b.id } });
             }
             if (lates.length > 0) fetchBookings();
         };
@@ -1025,7 +1026,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                     <button 
                                                         onClick={async () => {
                                                             if(window.confirm("Hapus booking ini permanen?")) {
-                                                                await supabase.from('booking').delete().eq('id', b.id);
+                                                                await db.delete('booking', { eq: { id: b.id } });
                                                                 fetchBookings();
                                                                 Toastify({ text: "Booking deleted!", background: "red" }).showToast();
                                                             }
@@ -1070,7 +1071,10 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                             {(() => {
                                                 const config = rawBookings.find(b => b.id === 999999);
                                                 const slotCount = config ? parseInt(config.namaCustomer) || 4 : 4;
-                                                const allSlots = generateSlots(slotCount);
+                                                const gapInline = config ? parseInt(config.tipeMobil) || 30 : 30;
+                                                const startInline = config?.vin ? (() => { const p = config.vin.split(':'); return { h: parseInt(p[0]) || 8, m: parseInt(p[1]) || 30 }; })() : { h: 8, m: 30 };
+                                                const capInline = config?.vin ? (() => { const p = config.vin.split(':'); return p.length >= 3 ? parseInt(p[2]) || 1 : 1; })() : 1;
+                                                const allSlots = generateSlots(slotCount, gapInline, startInline.h, startInline.m);
                                                 
                                                 return allSlots.map(s => {
                                                     const bookingsAtSlot = rawBookings.filter(b => {
@@ -1079,7 +1083,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                         const isActive = b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed';
                                                         return b.id !== 999999 && isDateSame && isJamSame && isActive;
                                                     });
-                                                    const isFull = bookingsAtSlot.length >= 1; 
+                                                    const isFull = bookingsAtSlot.length >= capInline; 
                                                     const isSelected = createBookingForm.jam === s;
                                                     return (
                                                         <button key={s} type="button" disabled={isFull && !isSelected} onClick={() => setCreateBookingForm({...createBookingForm, jam: s})}
@@ -1088,7 +1092,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                                   isFull ? 'bg-zinc-100 border-zinc-200 text-zinc-400 cursor-not-allowed opacity-100 shadow-inner' : 
                                                                   'bg-white border-zinc-100 text-black hover:border-black'}`}>
                                                             <span>{s}</span>
-                                                            <span className="text-[6px] opacity-70">{bookingsAtSlot.length}/1</span>
+                                                            <span className="text-[6px] opacity-70">{bookingsAtSlot.length}/{capInline}</span>
                                                         </button>
                                                     );
                                                 });
@@ -1136,7 +1140,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     <button 
                                         onClick={async () => {
                                             if(!createBookingForm.noPlat || !createBookingForm.tipeMobil) return Toastify({text: "Plat dan Tipe Wajib Diisi", background: "red"}).showToast();
-                                            const { error: insertError } = await supabase.from('booking').insert([{
+                                            const { error: insertError } = await db.insert('booking', [{
                                                 id: Date.now(),
                                                 ...createBookingForm,
                                                 noPlat: createBookingForm.noPlat.toUpperCase().replace(/\s+/g, ''),
@@ -1190,7 +1194,10 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                             {(() => {
                                                 const config = rawBookings.find(b => b.id === 999999);
                                                 const slotCount = config ? parseInt(config.namaCustomer) || 4 : 4;
-                                                const allSlots = generateSlots(slotCount);
+                                                const gapInline = config ? parseInt(config.tipeMobil) || 30 : 30;
+                                                const startInline = config?.vin ? (() => { const p = config.vin.split(':'); return { h: parseInt(p[0]) || 8, m: parseInt(p[1]) || 30 }; })() : { h: 8, m: 30 };
+                                                const capInline = config?.vin ? (() => { const p = config.vin.split(':'); return p.length >= 3 ? parseInt(p[2]) || 1 : 1; })() : 1;
+                                                const allSlots = generateSlots(slotCount, gapInline, startInline.h, startInline.m);
                                                 
                                                 return allSlots.map(s => {
                                                     const bookingsAtThisTime = rawBookings.filter(b => 
@@ -1200,7 +1207,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                         b.jam === s &&
                                                         (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed')
                                                     );
-                                                    const isFull = bookingsAtThisTime.length >= 1;
+                                                    const isFull = bookingsAtThisTime.length >= capInline;
                                                     const isSelected = editingBooking.jam === s;
 
                                                     return (
@@ -1216,7 +1223,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                         >
                                                             <span>{s}</span>
                                                             <span className={`text-[6px] font-black ${isSelected ? 'text-white/60' : isFull ? 'text-zinc-400' : 'text-zinc-300'}`}>
-                                                                {isSelected ? 'CURRENT' : isFull ? 'OCCUPIED' : 'AVAIL'}
+                                                                {isSelected ? 'CURRENT' : isFull ? 'FULL' : `${bookingsAtThisTime.length}/${capInline}`}
                                                             </span>
                                                             {isFull && !isSelected && <div className="absolute inset-0 bg-white/10 backdrop-grayscale-[0.5]"></div>}
                                                         </button>
@@ -1298,15 +1305,12 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                 ? editingBooking.keperluanService.split(' | Sudah di edit')[0] + auditStamp
                                                 : editingBooking.keperluanService + auditStamp;
                                             
-                                            const { error } = await supabase
-                                                .from('booking')
-                                                .update({
+                                            const { error } = await db.update('booking', {
                                                     ...editingBooking,
                                                     noPlat: editingBooking.noPlat.toUpperCase().replace(/\s+/g, ''),
                                                     keperluanService: finalNote,
                                                     bookingVia: `${editingBooking.bookingVia} (Edited by ${user?.name || 'Admin'})`
-                                                })
-                                                .eq('id', editingBooking.id);
+                                                }, { eq: { id: editingBooking.id } });
                                             
                                             if (error) {
                                                 Toastify({ text: "Gagal update!", background: "red" }).showToast();

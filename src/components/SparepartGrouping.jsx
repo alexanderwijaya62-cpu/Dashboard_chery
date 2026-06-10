@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Package, Layers, ArrowLeft, ChevronRight, Hash, Tag, Info } from 'lucide-react';
-import { supabase } from '../utils/supabaseClient';
 import Toastify from 'toastify-js';
 
 const SparepartGrouping = ({ onBack }) => {

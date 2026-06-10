@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, Trash2, Plus, Info, Settings, ShieldCheck, Clock, Save } from 'lucide-react';
 import TimeInput from './TimeInput';
 import Toastify from 'toastify-js';
-import { supabase } from '../utils/supabaseClient';
+import { db } from '../utils/dbClient';
 
 export default function HolidaySettings({ user, breakSettings, setBreakSettings }) {
     const [holidays, setHolidays] = useState([]);
@@ -13,10 +13,7 @@ export default function HolidaySettings({ user, breakSettings, setBreakSettings 
     const fetchHolidays = async () => {
         setIsLoading(true);
         try {
-            const { data, error } = await supabase
-                .from('libur')
-                .select('*')
-                .order('date', { ascending: true });
+            const { data, error } = await db.select('libur', { order: { column: 'date', ascending: true } });
             if (error) throw error;
             setHolidays(data || []);
         } catch (e) {
@@ -36,11 +33,7 @@ export default function HolidaySettings({ user, breakSettings, setBreakSettings 
         if (!newDate) return;
         setIsLoading(true);
         try {
-            const { data: existing } = await supabase
-                .from('libur')
-                .select('id')
-                .eq('date', newDate)
-                .maybeSingle();
+            const { data: existing } = await db.select('libur', { select: 'id', eq: { date: newDate }, maybeSingle: true });
 
             if (existing) {
                 Toastify({
@@ -51,9 +44,7 @@ export default function HolidaySettings({ user, breakSettings, setBreakSettings 
                 return;
             }
 
-            const { error } = await supabase
-                .from('libur')
-                .insert({ date: newDate, note: note || 'Libur Dealer' });
+            const { error } = await db.insert('libur', { date: newDate, note: note || 'Libur Dealer' });
 
             if (error) throw error;
 
@@ -73,7 +64,7 @@ export default function HolidaySettings({ user, breakSettings, setBreakSettings 
         if (!window.confirm('Hapus hari libur ini?')) return;
         setIsLoading(true);
         try {
-            const { error } = await supabase.from('libur').delete().eq('id', id);
+            const { error } = await db.delete('libur', { eq: { id: id } });
             if (error) throw error;
             Toastify({ text: '🗑️ Tanggal libur dihapus!', style: { background: '#3b82f6' } }).showToast();
             fetchHolidays();

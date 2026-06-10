@@ -4,6 +4,7 @@ import Toastify from 'toastify-js';
 import * as XLSX from 'xlsx';
 
 import { supabase } from '../utils/supabaseClient';
+import { db } from '../utils/dbClient';
 import CroBookingPanel from './CroBookingPanel';
 import HolidaySettings from './HolidaySettings';
 
@@ -84,7 +85,7 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
             if (!isBackground) showLoading("Mengambil data dari server...");
 
             // Cek pengaturan bandwidth: Apakah gambar harus dimuat?
-            const { data: settingsData } = await supabase.from('settings').select('*').eq('key', 'cro_images_enabled').maybeSingle();
+            const { data: settingsData } = await db.select('settings', { eq: { key: 'cro_images_enabled' }, maybeSingle: true });
             const showImages = settingsData ? settingsData.value === 'true' : true;
             setIsImagesEnabled(showImages);
 
@@ -93,11 +94,7 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
                 ? '*' 
                 : 'id, workOrderNo, nama, telepon, vin, plat, serviceAdvisor, kilometer, tipeMobil, deskripsi, tanggalDatang, tahunBeli, partLama, partBaru, status, respon, tanggalFollowUp';
 
-            const { data: supaData, error } = await supabase
-                .from('cro')
-                .select(selectCols)
-                .order('id', { ascending: false })
-                .limit(2000);
+            const { data: supaData, error } = await db.select('cro', { select: selectCols, order: { column: 'id', ascending: false }, limit: 2000 });
 
             if (error) throw error;
 
@@ -388,7 +385,7 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
                     return s.substring(0, 18) || "0";
                 };
 
-                const { data: existingRecords } = await supabase.from('cro').select('workOrderNo');
+                const { data: existingRecords } = await db.select('cro', { select: 'workOrderNo' });
                 const existingSet = new Set((existingRecords || []).map(r => String(r.workOrderNo || '').trim()));
 
                 const toInsert = [];
@@ -455,9 +452,7 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
                 if (fileInputRef.current) fileInputRef.current.value = "";
 
                 if (toInsert.length > 0) {
-                    const { error } = await supabase
-                        .from('cro')
-                        .insert(toInsert);
+                    const { error } = await db.insert('cro', toInsert);
 
                     if (error) throw error;
                     setCurrentTab('belum');
@@ -700,12 +695,12 @@ Terima kasih banyak atas dukungan dan kepercayaannya Bapak/Ibu. Sehat selalu!`;
             const followupDate = formatTanggal(now);
 
             for (const id of idsToUpdate) {
-                const { error } = await supabase.from('cro').update({
+                const { error } = await db.update('cro', {
                     status: 'Sudah',
                     respon: responCustomer,
-                    tanggalFollowUp: followupDate, // Disesuaikan
-                    lampiran: JSON.stringify(currentAttachedImages) // Schema Anda adalah text, jadi harus stringify
-                }).eq('id', id);
+                    tanggalFollowUp: followupDate,
+                    lampiran: JSON.stringify(currentAttachedImages)
+                }, { eq: { id: id } });
                 if (error) throw error;
             }
 

@@ -25,7 +25,6 @@ import {
   RefreshCw,
   Key
 } from 'lucide-react';
-import { supabase } from '../utils/supabaseClient';
 import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL, API_KEY } from '../utils/config';
 
 // --- Components ---

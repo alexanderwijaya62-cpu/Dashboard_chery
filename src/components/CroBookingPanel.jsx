@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Info, Search, Send, Plus, ShieldCheck, Truck, X } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Calendar, ChevronLeft, ChevronRight, Info, Search, Send, Plus, ShieldCheck, Truck, X, Edit3 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import DmsBookingListView from './DmsBookingListView';
+import { db } from '../utils/dbClient';
 
 const TIPE_MOBIL = [
     "Tiggo 5x", "Tiggo Cross", "Tiggo Cross Csh", "Tiggo 7", "Tiggo 8 Pro",
@@ -12,6 +13,23 @@ const TIPE_MOBIL = [
 
 const KEPERLUAN = ["Free Service 1", "Free Service 2", "Free Service 3", "General Repair", "Perawatan Berkala", "Claim Warranty"];
 
+const generateSlots = (count, gapMinutes = 30, startHour = 8, startMin = 0) => {
+  const slots = [];
+  let currentHour = startHour;
+  let currentMin = startMin;
+  for (let i = 0; i < count; i++) {
+    const h = String(currentHour).padStart(2, '0');
+    const m = String(currentMin).padStart(2, '0');
+    slots.push(`${h}.${m}`);
+    currentMin += gapMinutes;
+    while (currentMin >= 60) {
+      currentHour += 1;
+      currentMin -= 60;
+    }
+  }
+  return slots;
+};
+
 const daysInMonth = (month, year) => new Date(year, month + 1, 0).getDate();
 const startDayOfMonth = (month, year) => new Date(year, month, 1).getDay();
 
@@ -20,11 +38,55 @@ export default function CroBookingPanel({ user }) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [step, setStep] = useState('search'); // 'search' | 'form'
 
+    // Slot config from Supabase
+    const [slotConfig, setSlotConfig] = useState({ count: 4, gap: 30, startH: 8, startM: 0, slotCapacity: 1 });
+    const [bookings, setBookings] = useState([]);
+    useEffect(() => {
+        (async () => {
+            try {
+                const { data } = await db.select('booking', { select: 'namaCustomer, tipeMobil, vin', eq: { id: 999999 }, maybeSingle: true });
+                if (data) {
+                    const c = parseInt(data.namaCustomer);
+                    const g = parseInt(data.tipeMobil);
+                    let sh = 8, sm = 0, sc = 1;
+                    if (data.vin) {
+                        const p = data.vin.split(':');
+                        const ph = parseInt(p[0]);
+                        const pm = parseInt(p[1]);
+                        const pc = parseInt(p[2]);
+                        if (!isNaN(ph)) sh = ph;
+                        if (!isNaN(pm)) sm = pm;
+                        if (!isNaN(pc) && pc > 0) sc = pc;
+                    }
+                    setSlotConfig({
+                        count: !isNaN(c) && c > 0 ? c : 4,
+                        gap: !isNaN(g) && g > 0 ? g : 30,
+                        startH: sh,
+                        startM: sm,
+                        slotCapacity: sc,
+                    });
+                }
+            } catch (_) {}
+        })();
+    }, []);
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 1);
+                const { data } = await db.select('booking', { select: 'id, tanggal, jam, status', or: `tanggal.gte.${yesterday.toISOString().split('T')[0]},id.eq.999999` });
+                if (Array.isArray(data)) setBookings(data);
+            } catch (_) {}
+        })();
+    }, [refreshTrigger]);
+
     // Vehicle search state
     const [plateSearch, setPlateSearch] = useState('');
     const [isSearching, setIsSearching] = useState(false);
     const [foundVehicle, setFoundVehicle] = useState(null);
     const [searchError, setSearchError] = useState('');
+    const [isManual, setIsManual] = useState(false);
 
     // Form State
     const [formData, setFormData] = useState({
@@ -33,7 +95,9 @@ export default function CroBookingPanel({ user }) {
         atasNama: '',
         noTelp: '',
         keluhan: '',
-        km: ''
+        km: '',
+        noPolisi: '',
+        modelKendaraan: '',
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -104,6 +168,7 @@ export default function CroBookingPanel({ user }) {
     };
 
     const handleUseVehicle = () => {
+        setIsManual(false);
         setStep('form');
     };
 
@@ -113,13 +178,16 @@ export default function CroBookingPanel({ user }) {
         setPlateSearch('');
         setFoundVehicle(null);
         setSearchError('');
+        setIsManual(false);
         setFormData({
             tanggal: new Date().toISOString().split('T')[0],
             jam: '',
             atasNama: '',
             noTelp: '',
             keluhan: '',
-            km: ''
+            km: '',
+            noPolisi: '',
+            modelKendaraan: '',
         });
         setCurrentCalMonth(new Date());
     };
@@ -134,6 +202,24 @@ export default function CroBookingPanel({ user }) {
 
         setIsSubmitting(true);
         try {
+            if (isManual) {
+                const { error } = await db.insert('booking', {
+                    tanggal: formData.tanggal,
+                    jam: formData.jam,
+                    noPlat: formData.noPolisi,
+                    namaCustomer: formData.atasNama,
+                    noTelp: formData.noTelp,
+                    tipeMobil: formData.modelKendaraan || '-',
+                    keperluanService: formData.keluhan || '-',
+                    status: 'waiting confirm',
+                    bookingVia: 'CRO Booking (Manual)',
+                    createdAt: new Date().toISOString(),
+                });
+                if (error) throw error;
+                Toastify({ text: "Booking BERHASIL ditambahkan ke sistem!", background: "green" }).showToast();
+                resetModal();
+                return;
+            }
             const targetJam = formData.jam.replace('.', ':') + ':00';
             const janjiDatang = `${formData.tanggal} ${targetJam}`;
 
@@ -247,12 +333,28 @@ export default function CroBookingPanel({ user }) {
                                             </div>
                                         )}
 
-                                        <button type="submit" disabled={isSearching || !plateSearch.trim()}
-                                            className="w-full bg-zinc-900 hover:bg-black text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-zinc-200 transition-all flex items-center justify-center gap-3 disabled:opacity-40"
-                                        >
-                                            {isSearching ? 'Mencari...' : 'Cari Kendaraan'}
-                                            <Search size={16} />
-                                        </button>
+                                        {searchError && (
+                                            <div className="relative flex items-center gap-3 py-2">
+                                                <div className="flex-1 h-px bg-zinc-200"></div>
+                                                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400">Atau</span>
+                                                <div className="flex-1 h-px bg-zinc-200"></div>
+                                            </div>
+                                        )}
+
+                                        {searchError ? (
+                                            <button type="button" onClick={() => { setIsManual(true); setFormData(prev => ({ ...prev, noPolisi: plateSearch.toUpperCase() })); setStep('form'); }}
+                                                className="w-full bg-zinc-100 hover:bg-zinc-200 text-zinc-800 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-3"
+                                            >
+                                                <Edit3 size={16} /> Isi Data Manual
+                                            </button>
+                                        ) : (
+                                            <button type="submit" disabled={isSearching || !plateSearch.trim()}
+                                                className="w-full bg-zinc-900 hover:bg-black text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-zinc-200 transition-all flex items-center justify-center gap-3 disabled:opacity-40"
+                                            >
+                                                {isSearching ? 'Mencari...' : 'Cari Kendaraan'}
+                                                <Search size={16} />
+                                            </button>
+                                        )}
                                     </form>
 
                                     {foundVehicle && (
@@ -325,19 +427,25 @@ export default function CroBookingPanel({ user }) {
                                             <div className="space-y-2">
                                                 <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Jam Kedatangan</h4>
                                                 <div className="grid grid-cols-3 gap-2">
-                                                    {Array.from({ length: 4 }, (_, i) => {
-                                                        const h = 8 + Math.floor(i / 2);
-                                                        const m = i % 2 === 0 ? '00' : '30';
-                                                        const slot = `${h}.${m}`;
+                                                    {generateSlots(slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM).map((slot) => {
+                                                        const [h, m] = slot.split('.');
                                                         const isPastTime = formData.tanggal === new Date().toISOString().split('T')[0] && parseFloat(slot) < (new Date().getHours() + new Date().getMinutes() / 60);
+                                                        const count = bookings.filter(b =>
+                                                            b.id !== 999999 &&
+                                                            b.tanggal === formData.tanggal &&
+                                                            String(b.jam).replace(':', '.') === slot &&
+                                                            (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed')
+                                                        ).length;
+                                                        const isFull = count >= slotConfig.slotCapacity;
                                                         return (
-                                                            <button key={slot} type="button" disabled={isPastTime}
+                                                            <button key={slot} type="button" disabled={isPastTime || (isFull && formData.jam !== slot)}
                                                                 onClick={() => setFormData({ ...formData, jam: slot })}
                                                                 className={`py-2.5 px-2 rounded-xl border-2 font-black text-[9px] uppercase tracking-widest transition-all ${formData.jam === slot ? 'bg-black border-black text-white shadow-lg' :
-                                                                    isPastTime ? 'bg-zinc-50 border-transparent text-zinc-200 cursor-not-allowed' : 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
+                                                                    isPastTime || isFull ? 'bg-zinc-50 border-transparent text-zinc-200 cursor-not-allowed' : 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
                                                                 }`}
                                                             >
-                                                                {h.toString().padStart(2, '0')}:{m} WIB
+                                                                {h}:{m} WIB
+                                                                <span className="text-[6px] opacity-70 block">{count}/{slotConfig.slotCapacity}</span>
                                                             </button>
                                                         );
                                                     })}
@@ -347,19 +455,35 @@ export default function CroBookingPanel({ user }) {
 
                                         {/* Column 2: Vehicle info + fields */}
                                         <div className="space-y-6 flex flex-col h-full lg:border-r border-zinc-100 lg:pr-6">
-                                            <div className="p-4 bg-zinc-50 border border-zinc-100 rounded-2xl">
-                                                <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-500 tracking-wider mb-2">
-                                                    <ShieldCheck size={12} className="text-emerald-600" /> Data Kendaraan
+                                            {isManual ? (
+                                                <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                                                    <div className="flex items-center gap-2 text-[9px] font-black uppercase text-amber-700 tracking-wider mb-3">
+                                                        <Edit3 size={12} /> Data Manual
+                                                    </div>
+                                                    <div className="space-y-3">
+                                                        <input required type="text" placeholder="No Polisi"
+                                                            className="w-full bg-white border border-amber-200 rounded-xl p-3 text-xs font-bold text-zinc-900 focus:border-amber-500 outline-none transition-all"
+                                                            value={formData.noPolisi} onChange={e => setFormData({ ...formData, noPolisi: e.target.value.toUpperCase() })} />
+                                                        <input type="text" placeholder="Model Kendaraan (opsional)"
+                                                            className="w-full bg-white border border-amber-200 rounded-xl p-3 text-xs font-bold text-zinc-900 focus:border-amber-500 outline-none transition-all"
+                                                            value={formData.modelKendaraan} onChange={e => setFormData({ ...formData, modelKendaraan: e.target.value })} />
+                                                    </div>
                                                 </div>
-                                                <div className="grid grid-cols-2 gap-1 text-[11px]">
-                                                    <span className="text-zinc-400">No Polisi:</span>
-                                                    <span className="font-black text-zinc-900">{foundVehicle?.no_polisi}</span>
-                                                    <span className="text-zinc-400">Model:</span>
-                                                    <span className="font-black text-zinc-900">{foundVehicle?.nama_kendaraan || foundVehicle?.model_kendaraan}</span>
-                                                    <span className="text-zinc-400">Pemilik:</span>
-                                                    <span className="font-black text-zinc-900">{foundVehicle?.nama_pelanggan}</span>
+                                            ) : (
+                                                <div className="p-4 bg-zinc-50 border border-zinc-100 rounded-2xl">
+                                                    <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-500 tracking-wider mb-2">
+                                                        <ShieldCheck size={12} className="text-emerald-600" /> Data Kendaraan
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-1 text-[11px]">
+                                                        <span className="text-zinc-400">No Polisi:</span>
+                                                        <span className="font-black text-zinc-900">{foundVehicle?.no_polisi}</span>
+                                                        <span className="text-zinc-400">Model:</span>
+                                                        <span className="font-black text-zinc-900">{foundVehicle?.nama_kendaraan || foundVehicle?.model_kendaraan}</span>
+                                                        <span className="text-zinc-400">Pemilik:</span>
+                                                        <span className="font-black text-zinc-900">{foundVehicle?.nama_pelanggan}</span>
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            )}
 
                                             <form id="bookingForm" onSubmit={handleFormSubmit} className="space-y-4">
                                                 <div className="space-y-2">
@@ -399,7 +523,7 @@ export default function CroBookingPanel({ user }) {
                                                     </div>
                                                     <div className="flex justify-between text-xs">
                                                         <span className="text-zinc-400 font-bold">Kendaraan</span>
-                                                        <span className="font-black text-zinc-900">{foundVehicle?.no_polisi}</span>
+                                                        <span className="font-black text-zinc-900">{isManual ? formData.noPolisi : foundVehicle?.no_polisi}</span>
                                                     </div>
                                                     <div className="flex justify-between text-xs">
                                                         <span className="text-zinc-400 font-bold">Atas Nama</span>
@@ -410,7 +534,7 @@ export default function CroBookingPanel({ user }) {
                                                     <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-400 tracking-widest mb-1.5">
                                                         <Info size={12} className="text-black" /> Informasi
                                                     </div>
-                                                    <p className="text-[10px] font-bold text-zinc-600 leading-relaxed">Booking akan dikirim ke DMS. Pastikan data sudah sesuai.</p>
+                                                    <p className="text-[10px] font-bold text-zinc-600 leading-relaxed">{isManual ? 'Booking akan disimpan ke sistem internal. Data kendaraan bisa dilengkapi nanti.' : 'Booking akan dikirim ke DMS. Pastikan data sudah sesuai.'}</p>
                                                 </div>
                                             </div>
 

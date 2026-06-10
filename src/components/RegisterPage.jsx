@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Phone, ArrowRight, UserPlus, AlertCircle, Eye, EyeOff, Lock } from 'lucide-react';
-import { supabase } from '../utils/supabaseClient';
+import { db } from '../utils/dbClient';
 import cheryLogo from '../assets/cherylogo.png';
 import orientalLogo from '../assets/oriental.jpeg';
 
@@ -24,11 +24,7 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
     setIsLoading(true);
     try {
       // Check if user already exists
-      const { data: existingUser } = await supabase
-        .from('users')
-        .select('username')
-        .eq('username', phone)
-        .maybeSingle();
+      const { data: existingUser } = await db.select('users', { select: 'username', eq: { username: phone }, maybeSingle: true });
 
       if (existingUser) {
         alert("Nomor ini sudah terdaftar. Silakan login.");
@@ -37,19 +33,19 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
       }
 
       // Create user with status 'pending'
-      const { error } = await supabase.from('users').insert({
+      const { error } = await db.insert('users', {
         username: phone,
         password: password, 
         name: phone,
         role: 'customer',
-        status: 'pending' // Account needs owner confirmation
+        status: 'pending'
       });
 
       if (error) throw error;
 
       // Notify Owner (using broadcast or a dedicated table)
       try {
-        await supabase.from('notifications').insert({
+        await db.insert('notifications', {
           type: 'new_registration',
           message: `Pelanggan baru mendaftar: ${phone}`,
           target_role: 'owner',

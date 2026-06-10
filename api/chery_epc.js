@@ -8,9 +8,9 @@ import https from 'https';
 async function handleLogin(req, res) {
     if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
-    const username = process.env.DMS_USER || 'Alex';
-    const password = process.env.DMS_PASS || 'Alex123$';
-    const enterpriseCode = process.env.DMS_ENTERPRISE_CODE || '10007901';
+    const username = process.env.DMS_USER;
+    const password = process.env.DMS_PASS;
+    const enterpriseCode = process.env.DMS_ENTERPRISE_CODE;
 
     try {
         const request = (url, options = {}, body = null) => {
@@ -68,7 +68,7 @@ async function handleLogin(req, res) {
 }
 
 export default async function handler(req, res) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Origin', 'https://cherymedan.web.id');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, token');
 

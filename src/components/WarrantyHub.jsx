@@ -251,7 +251,7 @@ export function WarrantyWorkOrderPage() {
   const totalPages = Math.ceil(totalRecords / pageSize);
   const hasActiveFilters = search || statusFilter || kategoriFilter || fromDate || toDate || sparepartFilter !== 'all';
   const clearFilters = () => { setSearch(''); setSearchInput(''); setStatusFilter(''); setKategoriFilter(''); setFromDate(''); setToDate(''); setSparepartFilter('all'); setPage(0); };
-  const displayData = (sparepartFilter === 'all' || loadingParts)
+  const displayData = (sparepartFilter === 'all')
     ? data
     : data.filter(wo => {
         const ps = partsStatus[wo.no_wo];
@@ -281,7 +281,7 @@ export function WarrantyWorkOrderPage() {
               <option value="">Semua</option><option value="IFS">IFS</option><option value="IKC">IKC</option><option value="EUR">EUR</option>
             </select></div>
           <div><label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Sparepart</label>
-            <select value={sparepartFilter} onChange={e=>{setSparepartFilter(e.target.value);}} className="px-3 py-2 text-sm border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900">
+            <select value={sparepartFilter} onChange={e=>{setSparepartFilter(e.target.value);setPage(0);if(e.target.value!=='all'&&data.length>0)setLoadingParts(true);}} className="px-3 py-2 text-sm border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900">
               <option value="all">Semua</option><option value="dipenuhi">Dipenuhi</option><option value="belum_dipenuhi">Belum Dipenuhi</option><option value="perlu_diisi">Perlu Diisi</option>
             </select></div>
           <div><label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Dari</label><input type="date" value={fromDate} onChange={e=>{setFromDate(e.target.value);setPage(0);}} className="px-3 py-2 text-sm border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900"/></div>
@@ -300,6 +300,8 @@ export function WarrantyWorkOrderPage() {
           <div className="flex flex-col items-center justify-center h-48 gap-4"><div className="w-10 h-10 border-4 border-zinc-900 border-t-transparent rounded-full animate-spin"></div><p className="text-sm text-zinc-400">Memuat data...</p></div>
         ) : sparepartFilter !== 'all' && displayData.length === 0 && !loadingParts ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3"><Filter size={36} className="text-zinc-300"/><p className="text-sm font-bold text-zinc-400">Tidak ada WO dengan status sparepart yang dipilih</p></div>
+        ) : sparepartFilter !== 'all' && loadingParts && displayData.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48 gap-3"><div className="w-8 h-8 border-4 border-zinc-900 border-t-transparent rounded-full animate-spin"></div><p className="text-sm font-bold text-zinc-400">Memuat status sparepart...</p></div>
         ) : data.length===0 && !isLoading ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3"><ShieldCheck size={36} className="text-zinc-300"/><p className="text-sm font-bold text-zinc-400">Tidak ada data</p></div>
         ) : (

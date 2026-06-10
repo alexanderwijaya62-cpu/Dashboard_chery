@@ -6,6 +6,7 @@ import Toastify from 'toastify-js';
 import * as XLSX from 'xlsx';
 
 import { supabase } from '../utils/supabaseClient';
+import { db } from '../utils/dbClient';
 import { CHERY_DMS_URL, API_KEY } from '../utils/config';
 
 const normalize = (s) => String(s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
@@ -174,7 +175,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible, se
                 });
 
                 // Filter out orders that already exist in the database (Skip Duplicates)
-                const { data: existingRecords } = await supabase.from('sparepart').select('"Handling order number"');
+                const { data: existingRecords } = await db.select('sparepart', { select: '"Handling order number"' });
                 const existingSet = new Set((existingRecords || []).map(r => normalize(r['Handling order number'])));
 
                 const finalOrders = Object.values(ordersMap).filter(o => !existingSet.has(normalize(o.orderNumber)));
@@ -231,9 +232,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible, se
 
     const fetchOrders = async () => {
         try {
-            const { data, error } = await supabase
-                .from('sparepart')
-                .select('"Handling order number", founder, items, status, "submission time", "processing time", "order notes"');
+            const { data, error } = await db.select('sparepart', { select: '"Handling order number", founder, items, status, "submission time", "processing time", "order notes"' });
 
             if (error) throw error;
 
@@ -469,9 +468,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible, se
                 'status': 'pending',
             };
 
-            const { error } = await supabase
-                .from('sparepart')
-                .insert([payload]);
+            const { error } = await db.insert('sparepart', [payload]);
 
             if (error) throw error;
 
@@ -514,14 +511,11 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible, se
         setIsLoading(true);
 
         try {
-            const { error } = await supabase
-                .from('sparepart')
-                .update({
+            const { error } = await db.update('sparepart', {
                     status: newStatus,
                     arrivedTime: new Date().toISOString(),
                     items: newItemsJson
-                })
-                .eq('Handling order number', order.id);
+                }, { eq: { 'Handling order number': order.id } });
 
             if (error) throw error;
 
@@ -556,14 +550,11 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible, se
     const handleSaveChanges = async (order) => {
         setIsLoading(true);
         try {
-            const { error } = await supabase
-                .from('sparepart')
-                .update({
+            const { error } = await db.update('sparepart', {
                     status: order.status,
                     arrivedTime: new Date().toISOString(),
                     items: order.items
-                })
-                .eq('Handling order number', order.id);
+                }, { eq: { 'Handling order number': order.id } });
 
             if (error) throw error;
 

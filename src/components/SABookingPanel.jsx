@@ -1,27 +1,26 @@
-import React, { useState, useMemo } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Info, Search, Send, Plus, ShieldCheck, Truck, X } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { Calendar, ChevronLeft, ChevronRight, Info, Search, Send, Plus, ShieldCheck, Truck, X, Edit3 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
+import { supabase } from '../utils/supabaseClient';
+import { db } from '../utils/dbClient';
 
-const generateSlots = (count) => {
+const generateSlots = (count, gapMinutes = 30, startHour = 8, startMin = 30) => {
   const slots = [];
-  let currentHour = 8;
-  let currentMin = 30;
+  let currentHour = startHour;
+  let currentMin = startMin;
   for (let i = 0; i < count; i++) {
     const h = String(currentHour).padStart(2, '0');
     const m = String(currentMin).padStart(2, '0');
     slots.push(`${h}.${m}`);
-    currentMin += 30;
-    if (currentMin >= 60) {
+    currentMin += gapMinutes;
+    while (currentMin >= 60) {
       currentHour += 1;
-      currentMin = 0;
+      currentMin -= 60;
     }
   }
   return slots;
 };
-
-const SLOT_COUNT = 4;
-const JAM_PILIHAN = generateSlots(SLOT_COUNT);
 
 const daysInMonth = (month, year) => new Date(year, month + 1, 0).getDate();
 const startDayOfMonth = (month, year) => new Date(year, month, 1).getDay();
@@ -33,6 +32,7 @@ export default function SABookingPanel() {
   const [isSearching, setIsSearching] = useState(false);
   const [foundVehicle, setFoundVehicle] = useState(null);
   const [searchError, setSearchError] = useState('');
+  const [isManual, setIsManual] = useState(false);
 
   const [formData, setFormData] = useState({
     tanggal: new Date().toISOString().split('T')[0],
@@ -40,10 +40,14 @@ export default function SABookingPanel() {
     atasNama: '',
     noTelp: '',
     keluhan: '',
+    noPolisi: '',
+    modelKendaraan: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [currentCalMonth, setCurrentCalMonth] = useState(new Date());
+  const [slotConfig, setSlotConfig] = useState({ count: 4, gap: 30, startH: 8, startM: 30, capacity: 1 });
+  const [bookings, setBookings] = useState([]);
 
   const calendarGrid = useMemo(() => {
     const month = currentCalMonth.getMonth();
@@ -64,6 +68,49 @@ export default function SABookingPanel() {
     }
     return days;
   }, [currentCalMonth]);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await db.select('booking', { select: 'namaCustomer, tipeMobil, vin', eq: { id: 999999 }, maybeSingle: true });
+      if (data) {
+        const c = parseInt(data.namaCustomer);
+        const g = parseInt(data.tipeMobil);
+        if (!isNaN(c) && c > 0) setSlotConfig(prev => ({ ...prev, count: c }));
+        if (!isNaN(g) && g > 0) setSlotConfig(prev => ({ ...prev, gap: g }));
+        if (data.vin) {
+          const p = data.vin.split(':');
+          const ph = parseInt(p[0]);
+          const pm = parseInt(p[1]);
+          const pc = p.length >= 3 ? parseInt(p[2]) : 1;
+          if (!isNaN(ph)) setSlotConfig(prev => ({ ...prev, startH: ph }));
+          if (!isNaN(pm)) setSlotConfig(prev => ({ ...prev, startM: pm }));
+          if (!isNaN(pc) && pc > 0) setSlotConfig(prev => ({ ...prev, capacity: pc }));
+        }
+      }
+    })();
+  }, []);
+
+  const fetchBookings = useCallback(async () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dateStr = yesterday.toISOString().split('T')[0];
+    const { data } = await db.select('booking', { or: `tanggal.gte.${dateStr},id.eq.999999` });
+    if (Array.isArray(data)) setBookings(data);
+  }, []);
+
+  useEffect(() => {
+    fetchBookings();
+    const channel = supabase
+      .channel('sa-booking-realtime')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'booking' },
+        () => fetchBookings()
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchBookings]);
+
+  const JAM_PILIHAN = useMemo(() => generateSlots(slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM), [slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM]);
 
   const changeCalMonth = (offset) => {
     const next = new Date(currentCalMonth);
@@ -107,6 +154,7 @@ export default function SABookingPanel() {
   };
 
   const handleUseVehicle = () => {
+    setIsManual(false);
     setStep('form');
   };
 
@@ -115,12 +163,15 @@ export default function SABookingPanel() {
     setPlateSearch('');
     setFoundVehicle(null);
     setSearchError('');
+    setIsManual(false);
     setFormData({
       tanggal: new Date().toISOString().split('T')[0],
       jam: '',
       atasNama: '',
       noTelp: '',
       keluhan: '',
+      noPolisi: '',
+      modelKendaraan: '',
     });
     setCurrentCalMonth(new Date());
   };
@@ -133,6 +184,24 @@ export default function SABookingPanel() {
     }
     setIsSubmitting(true);
     try {
+      if (isManual) {
+        const { error } = await db.insert('booking', {
+          tanggal: formData.tanggal,
+          jam: formData.jam,
+          noPlat: formData.noPolisi,
+          namaCustomer: formData.atasNama,
+          noTelp: formData.noTelp,
+          tipeMobil: formData.modelKendaraan || '-',
+          keperluanService: formData.keluhan || '-',
+          status: 'waiting confirm',
+          bookingVia: 'SA Booking (Manual)',
+          createdAt: new Date().toISOString(),
+        });
+        if (error) throw error;
+        Toastify({ text: "Booking BERHASIL ditambahkan ke sistem!", background: "green" }).showToast();
+        resetModal();
+        return;
+      }
       const targetJam = formData.jam.replace('.', ':') + ':00';
       const janjiDatang = `${formData.tanggal} ${targetJam}`;
       const postData = {
@@ -218,12 +287,28 @@ export default function SABookingPanel() {
               </div>
             )}
 
-            <button type="submit" disabled={isSearching || !plateSearch.trim()}
-              className="w-full bg-zinc-900 hover:bg-black text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-zinc-200 transition-all flex items-center justify-center gap-3 disabled:opacity-40"
-            >
-              {isSearching ? 'Mencari...' : 'Cari Kendaraan'}
-              <Search size={16} />
-            </button>
+            {searchError && (
+              <div className="relative flex items-center gap-3 py-2">
+                <div className="flex-1 h-px bg-zinc-200"></div>
+                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400">Atau</span>
+                <div className="flex-1 h-px bg-zinc-200"></div>
+              </div>
+            )}
+
+            {searchError ? (
+              <button type="button" onClick={() => { setIsManual(true); setFormData(prev => ({ ...prev, noPolisi: plateSearch.toUpperCase() })); setStep('form'); }}
+                className="w-full bg-zinc-100 hover:bg-zinc-200 text-zinc-800 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-3"
+              >
+                <Edit3 size={16} /> Isi Data Manual
+              </button>
+            ) : (
+              <button type="submit" disabled={isSearching || !plateSearch.trim()}
+                className="w-full bg-zinc-900 hover:bg-black text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-zinc-200 transition-all flex items-center justify-center gap-3 disabled:opacity-40"
+              >
+                {isSearching ? 'Mencari...' : 'Cari Kendaraan'}
+                <Search size={16} />
+              </button>
+            )}
           </form>
 
           {foundVehicle && (
@@ -304,14 +389,21 @@ export default function SABookingPanel() {
                   <div className="grid grid-cols-2 gap-2">
                     {JAM_PILIHAN.map((slot) => {
                       const isPastTime = formData.tanggal === new Date().toISOString().split('T')[0] && parseFloat(slot) < (new Date().getHours() + new Date().getMinutes() / 60);
+                      const slotBookings = bookings.filter(b =>
+                        b.id !== 999999 &&
+                        b.tanggal === formData.tanggal &&
+                        (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed') &&
+                        String(b.jam || '').replace(':', '.').trim() === slot
+                      );
+                      const isFull = slotBookings.length >= slotConfig.capacity;
                       return (
-                        <button key={slot} type="button" disabled={isPastTime}
+                        <button key={slot} type="button" disabled={isPastTime || isFull}
                           onClick={() => setFormData({ ...formData, jam: slot })}
                           className={`py-3 px-2 rounded-xl border-2 font-black text-[9px] uppercase tracking-widest transition-all ${formData.jam === slot ? 'bg-black border-black text-white shadow-lg' :
-                            isPastTime ? 'bg-zinc-50 border-transparent text-zinc-200 cursor-not-allowed' : 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
+                            isPastTime ? 'bg-zinc-50 border-transparent text-zinc-200 cursor-not-allowed' : isFull ? 'bg-red-50 border-red-200 text-red-400 cursor-not-allowed' : 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
                           }`}
                         >
-                          {slot.replace('.', ':')} WIB
+                          {slot.replace('.', ':')} WIB {slotBookings.length}/{slotConfig.capacity}
                         </button>
                       );
                     })}
@@ -320,19 +412,35 @@ export default function SABookingPanel() {
               </div>
 
               <div className="space-y-6 flex flex-col h-full lg:border-r border-zinc-100 lg:pr-6">
-                <div className="p-4 bg-zinc-50 border border-zinc-100 rounded-2xl">
-                  <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-500 tracking-wider mb-2">
-                    <ShieldCheck size={12} className="text-emerald-600" /> Data Kendaraan
+                {isManual ? (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                    <div className="flex items-center gap-2 text-[9px] font-black uppercase text-amber-700 tracking-wider mb-3">
+                      <Edit3 size={12} /> Data Manual
+                    </div>
+                    <div className="space-y-3">
+                      <input required type="text" placeholder="No Polisi"
+                        className="w-full bg-white border border-amber-200 rounded-xl p-3 text-xs font-bold text-zinc-900 focus:border-amber-500 outline-none transition-all"
+                        value={formData.noPolisi} onChange={e => setFormData({ ...formData, noPolisi: e.target.value.toUpperCase() })} />
+                      <input type="text" placeholder="Model Kendaraan (opsional)"
+                        className="w-full bg-white border border-amber-200 rounded-xl p-3 text-xs font-bold text-zinc-900 focus:border-amber-500 outline-none transition-all"
+                        value={formData.modelKendaraan} onChange={e => setFormData({ ...formData, modelKendaraan: e.target.value })} />
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-1 text-[11px]">
-                    <span className="text-zinc-400">No Polisi:</span>
-                    <span className="font-black text-zinc-900">{foundVehicle?.no_polisi}</span>
-                    <span className="text-zinc-400">Model:</span>
-                    <span className="font-black text-zinc-900">{foundVehicle?.nama_kendaraan || foundVehicle?.model_kendaraan}</span>
-                    <span className="text-zinc-400">Pemilik:</span>
-                    <span className="font-black text-zinc-900">{foundVehicle?.nama_pelanggan}</span>
+                ) : (
+                  <div className="p-4 bg-zinc-50 border border-zinc-100 rounded-2xl">
+                    <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-500 tracking-wider mb-2">
+                      <ShieldCheck size={12} className="text-emerald-600" /> Data Kendaraan
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 text-[11px]">
+                      <span className="text-zinc-400">No Polisi:</span>
+                      <span className="font-black text-zinc-900">{foundVehicle?.no_polisi}</span>
+                      <span className="text-zinc-400">Model:</span>
+                      <span className="font-black text-zinc-900">{foundVehicle?.nama_kendaraan || foundVehicle?.model_kendaraan}</span>
+                      <span className="text-zinc-400">Pemilik:</span>
+                      <span className="font-black text-zinc-900">{foundVehicle?.nama_pelanggan}</span>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <form id="saBookingForm" onSubmit={handleFormSubmit} className="space-y-4">
                   <div className="space-y-2">
@@ -366,7 +474,7 @@ export default function SABookingPanel() {
                     </div>
                     <div className="flex justify-between text-xs">
                       <span className="text-zinc-400 font-bold">Kendaraan</span>
-                      <span className="font-black text-zinc-900">{foundVehicle?.no_polisi}</span>
+                      <span className="font-black text-zinc-900">{isManual ? formData.noPolisi : foundVehicle?.no_polisi}</span>
                     </div>
                     <div className="flex justify-between text-xs">
                       <span className="text-zinc-400 font-bold">Atas Nama</span>
@@ -377,7 +485,7 @@ export default function SABookingPanel() {
                     <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-400 tracking-widest mb-1.5">
                       <Info size={12} className="text-black" /> Informasi
                     </div>
-                    <p className="text-[10px] font-bold text-zinc-600 leading-relaxed">Booking akan dikirim ke DMS. Pastikan data sudah sesuai.</p>
+                    <p className="text-[10px] font-bold text-zinc-600 leading-relaxed">{isManual ? 'Booking akan disimpan ke sistem internal. Data kendaraan bisa dilengkapi nanti.' : 'Booking akan dikirim ke DMS. Pastikan data sudah sesuai.'}</p>
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">

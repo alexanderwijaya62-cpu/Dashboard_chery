@@ -4,7 +4,6 @@ import {
   Search, ShieldCheck, ShieldAlert,
   ChevronRight, Wrench, Package, ArrowLeft
 } from 'lucide-react';
-import { supabase } from '../utils/supabaseClient';
 import Toastify from 'toastify-js';
 
 const CustomerPanel = ({ user, handleLogout }) => {

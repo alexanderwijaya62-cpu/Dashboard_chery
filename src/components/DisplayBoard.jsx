@@ -9,18 +9,18 @@ const DISPLAY_COUNT = 2; // Default for vertical columns
 const COMPLETED_DISPLAY_COUNT = 2; // Show only 2 completed units per slide
 const SLIDE_INTERVAL = 10000; // 10 seconds per slide
 
-const generateSlots = (count) => {
+const generateSlots = (count, gapMinutes = 30, startHour = 8, startMin = 30) => {
    const slots = [];
-   let currentHour = 8;
-   let currentMin = 30;
+   let currentHour = startHour;
+   let currentMin = startMin;
    for (let i = 0; i < count; i++) {
       const h = String(currentHour).padStart(2, '0');
       const m = String(currentMin).padStart(2, '0');
       slots.push(`${h}.${m}`);
-      currentMin += 30;
-      if (currentMin >= 60) {
+      currentMin += gapMinutes;
+      while (currentMin >= 60) {
          currentHour += 1;
-         currentMin = 0;
+         currentMin -= 60;
       }
    }
    return slots;
@@ -362,7 +362,10 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
    }, [rawHistory, lastNotifiedId]);
    const configSlot = bookings.find(b => b.id === 999999);
    const maxCount = configSlot ? (parseInt(configSlot.namaCustomer || configSlot.addedBy) || 4) : 4;
-   const dynamicJamPilihan = generateSlots(maxCount);
+   const gapMinutes = configSlot ? (parseInt(configSlot.tipeMobil) || 30) : 30;
+    const startTime = configSlot?.vin ? (() => { const p = configSlot.vin.split(':'); return { h: parseInt(p[0]) || 8, m: parseInt(p[1]) || 30 }; })() : { h: 8, m: 30 };
+    const slotCapacityDisplay = configSlot?.vin ? (() => { const p = configSlot.vin.split(':'); return p.length >= 3 ? parseInt(p[2]) || 1 : 1; })() : 1;
+    const dynamicJamPilihan = generateSlots(maxCount, gapMinutes, startTime.h, startTime.m);
 
    const sortQueue = (arr) => [...arr].sort((a, b) => {
       const aScore = a.status === 'working' ? 0 : a.status === 'istirahat' ? 1 : 2;
@@ -404,7 +407,7 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
       });
 
       const occupiedCount = bookings.filter(b => isSameDate(b.tanggal, todayStr) && b.id !== 999999 && (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed')).length;
-      const remainingSlots = Math.max(0, dynamicJamPilihan.length - occupiedCount);
+      const remainingSlots = Math.max(0, (dynamicJamPilihan.length * slotCapacityDisplay) - occupiedCount);
 
       const arrivedReguler = processedQueue.filter(i => {
          const s = (i.status || '').toLowerCase();
@@ -577,8 +580,27 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
          </header>
 
          <main className="flex-1 overflow-y-auto px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3 custom-scrollbar pb-[72px] md:pb-4">
-            <CompletedCarousel data={todayCompleted} formatTime={formatTime} setSelectedUnit={setSelectedUnit} />
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-4 min-h-0">
+             <CompletedCarousel data={todayCompleted} formatTime={formatTime} setSelectedUnit={setSelectedUnit} />
+             <div className="bg-white rounded-2xl border-2 border-zinc-100 p-4">
+                <div className="flex items-center gap-2 mb-3">
+                   <CalendarDays size={16} className="text-zinc-600" />
+                   <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Slot Availability</span>
+                   <span className="ml-auto text-[10px] font-black text-zinc-400">{categories.remainingSlots} Slot Tersisa</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                   {dynamicJamPilihan.map((slot) => {
+                      const todayStr = new Date().toLocaleDateString('en-CA');
+                      const occupied = bookings.filter(b => isSameDate(b.tanggal, todayStr) && b.id !== 999999 && b.jam === slot && (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'waiting' || b.status === 'working')).length;
+                      const full = occupied >= slotCapacityDisplay;
+                      return (
+                         <div key={slot} className={`px-3 py-1.5 rounded-lg border text-[9px] font-black tabular-nums ${full ? 'bg-red-50 border-red-200 text-red-600' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
+                            {slot} <span className="opacity-50">|</span> {occupied}/{slotCapacityDisplay}
+                         </div>
+                      );
+                   })}
+                </div>
+             </div>
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-4 min-h-0">
                <CarouselCol title="Booking" data={categories.booking} colorClass="bg-red-600" icon={Bookmark} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} subtitle={( <div className="flex flex-col mt-0.5"><div className="flex items-center gap-1.5 overflow-hidden"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" /><span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest truncate">{categories.booking.length} Unit Antrian</span></div></div> )} />
                <CarouselCol title="Reguler" data={categories.reguler} colorClass="bg-zinc-800" icon={Zap} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />
                <CarouselCol title="Menginap" data={categories.menginap} colorClass="bg-purple-600" icon={Moon} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />

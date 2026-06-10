@@ -1,15 +1,15 @@
 import https from 'https';
 import urllib from 'url';
 
-const BASE_URL = process.env.WARRANTY_BASE_URL || 'https://103.160.12.43';
-const WARRANTY_USER = process.env.WARRANTY_USER || 'nisa';
-const WARRANTY_PASS = process.env.WARRANTY_PASS || 'qwerty12345';
-const WARRANTY_TOKEN = process.env.WARRANTY_TOKEN || '6aad5b';
-const KODE_DEALER = process.env.WARRANTY_KODE_DEALER || 'MOS';
-const DEPT = process.env.WARRANTY_DEPT || 'S';
+const BASE_URL = process.env.WARRANTY_BASE_URL;
+const WARRANTY_USER = process.env.WARRANTY_USER;
+const WARRANTY_PASS = process.env.WARRANTY_PASS;
+const WARRANTY_TOKEN = process.env.WARRANTY_TOKEN;
+const KODE_DEALER = process.env.WARRANTY_KODE_DEALER;
+const DEPT = process.env.WARRANTY_DEPT;
 
 const httpsAgent = new https.Agent({
-  rejectUnauthorized: false,
+  rejectUnauthorized: true,
   keepAlive: true,
   maxSockets: 32,
 });
@@ -225,7 +225,7 @@ async function getSession() {
 }
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', 'https://cherymedan.web.id');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
 

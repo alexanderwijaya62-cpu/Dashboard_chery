@@ -12,7 +12,7 @@ import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import ReactApexChart from 'react-apexcharts';
 
-import { supabase } from '../utils/supabaseClient';
+import { db } from '../utils/dbClient';
 
 
 const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSettings, setBreakSettings, setIsNavbarVisible, activeTab: activeTabProp }) => {
@@ -52,7 +52,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
   const fetchFinancialData = React.useCallback(async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.from('revenue').select('*');
+      const { data, error } = await db.select('revenue');
       if (error) throw error;
 
       // Map columns from snake_case with dots/spaces if any (based on your schema)
@@ -82,7 +82,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
   const fetchWoHistory = React.useCallback(async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.from('laporanwo').select('*');
+      const { data, error } = await db.select('laporanwo');
       if (error) throw error;
 
       // Map dari nama kolom ber-titik dan spasi (No. WO, Wkt.Masuk, dll)
@@ -107,7 +107,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
   const fetchCroHistory = React.useCallback(async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.from('cro').select('*').eq('status', 'Sudah');
+      const { data, error } = await db.select('cro', { eq: { status: 'Sudah' } });
       if (error) throw error;
       setCroHistory(data || []);
     } catch (e) {
@@ -118,7 +118,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
 
   const fetchUsers = React.useCallback(async () => {
     try {
-      const { data, error } = await supabase.from('users').select('username, name, role');
+      const { data, error } = await db.select('users', { select: 'username, name, role' });
       if (error) throw error;
       if (data) setUsersData(data);
     } catch (e) {
@@ -150,14 +150,14 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
     e.preventDefault();
     setIsLoading(true);
     try {
-      const { data: existing } = await supabase.from('users').select('id').eq('username', userFormData.username).maybeSingle();
+      const { data: existing } = await db.select('users', { select: 'id', eq: { username: userFormData.username }, maybeSingle: true });
       let error;
       if (existing) {
         const updates = { name: userFormData.name, role: userFormData.role };
         if (userFormData.password) updates.password = userFormData.password;
-        ({ error } = await supabase.from('users').update(updates).eq('id', existing.id));
+        ({ error } = await db.update('users', updates, { eq: { id: existing.id } }));
       } else {
-        ({ error } = await supabase.from('users').insert(userFormData));
+        ({ error } = await db.insert('users', userFormData));
       }
       if (!error) {
         Toastify({ text: `✓ User ${existing ? 'diperbarui' : 'ditambahkan'}`, duration: 3000, gravity: "top", position: "right", style: { background: "#10b981", borderRadius: "10px" } }).showToast();
@@ -174,7 +174,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
     if (!window.confirm(`Hapus user ${username}?`)) return;
     setIsLoading(true);
     try {
-      const { error } = await supabase.from('users').delete().eq('username', username);
+      const { error } = await db.delete('users', { eq: { username } });
       if (!error) {
         Toastify({ text: "✓ User Terhapus", duration: 3000, gravity: "top", position: "right", style: { background: "#ef4444", borderRadius: "10px" } }).showToast();
         fetchUsers();
@@ -677,9 +677,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
         const idField = isRevenue ? 'no_wo' : '"No. WO"';
 
         // ── Check Existing Data for De-duplication ───────────────────────────
-        const { data: existingRecords, error: fetchError } = await supabase
-          .from(targetTable)
-          .select(idField);
+        const { data: existingRecords, error: fetchError } = await db.select(targetTable, { select: idField });
 
         if (fetchError) {
           console.error('Fetch error:', fetchError);
@@ -777,9 +775,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
         }
 
         // ── Simpan ke Supabase ──────────────────────────────────────────────
-        const { error: supaError } = await supabase
-          .from(targetTable)
-          .insert(toInsert);
+        const { error: supaError } = await db.insert(targetTable, toInsert);
 
         if (!supaError) {
           Toastify({
