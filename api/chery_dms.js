@@ -1144,6 +1144,9 @@ export default async function handler(req, res) {
             } else if (endpoint === 'proforma-detail') {
                 const id = req.query.id || '';
                 targetUrl = `https://dms.chery.co.id/afterSales/api/v1/claimSettlements/${id}`;
+            } else if (endpoint === 'repair-contract-detail') {
+                const id = req.query.id || '';
+                targetUrl = `https://dms.chery.co.id/afterSales/api/v1/repairContracts/${id}`;
             } else if (endpoint === 'part_orders') {
                 const orderCode = req.query.orderCode || '';
                 targetUrl = `https://dms.chery.co.id/parts/api/v1/partSaleOrders/forCurrentUser?pageIndex=${pageIndex}&pageSize=${pageSize}&isBuyer=true`;

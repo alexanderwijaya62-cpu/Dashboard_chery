@@ -25,7 +25,7 @@ import {
   RefreshCw,
   Key
 } from 'lucide-react';
-import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL, API_KEY } from '../utils/config';
+import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL, GATE } from '../utils/config';
 
 // --- Components ---
 
@@ -131,7 +131,7 @@ export default function QuotationSPA({ onClose }) {
     try {
       // Use EXACT URL from OwnerPanel
       const resp = await fetch(`${CHERY_DMS_URL}?pageSize=10&status=1&code=${encodeURIComponent(code)}`, {
-        headers: { 'x-api-key': API_KEY }
+        headers: { 'x-api-key': GATE }
       });
       const result = await resp.json();
       const dmsData = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);

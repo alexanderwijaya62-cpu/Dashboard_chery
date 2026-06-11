@@ -3,7 +3,7 @@ import { LayoutDashboard, Settings, Calendar, Plus, Zap, FileText, LogOut, Truck
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 
-import { API_KEY, GAS_URL, GAS_USERS_URL, IS_MAINTENANCE } from './utils/config';
+import { GATE, GAS_URL, GAS_USERS_URL, IS_MAINTENANCE } from './utils/config';
 import { supabase } from './utils/supabaseClient';
 import { db } from './utils/dbClient';
 
@@ -51,7 +51,7 @@ const customFetch = (url, options = {}) => {
   const headers = { ...options.headers };
 
   if (!isGAS) {
-    headers["x-api-key"] = API_KEY;
+    headers["x-api-key"] = GATE;
   }
 
   return fetch(url, {

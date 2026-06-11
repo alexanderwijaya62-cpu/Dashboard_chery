@@ -9,7 +9,7 @@ import {
 import Toastify from 'toastify-js';
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
-import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL, API_KEY } from '../utils/config';
+import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL, GATE } from '../utils/config';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -267,7 +267,7 @@ export default function OwnerPanel({
     setIsPartOrdersLoading(true);
     try {
       const resp = await fetch(`${CHERY_DMS_URL}?endpoint=part_orders&pageIndex=${page}&pageSize=10${searchCode ? `&orderCode=${searchCode}` : ''}`, {
-        headers: { 'x-api-key': API_KEY }
+        headers: { 'x-api-key': GATE }
       });
       const result = await resp.json();
       const payload = result?.payload?.content || [];
@@ -285,7 +285,7 @@ export default function OwnerPanel({
     setIsPartOrderDetailLoading(true);
     try {
       const resp = await fetch(`${CHERY_DMS_URL}?endpoint=part_order_detail&orderId=${orderId}`, {
-        headers: { 'x-api-key': API_KEY }
+        headers: { 'x-api-key': GATE }
       });
       const result = await resp.json();
       if (result && result.payload) {
@@ -491,7 +491,7 @@ export default function OwnerPanel({
     try {
       // Step 1: Try searching by CODE first
       let resp = await fetch(`${CHERY_DMS_URL}?pageSize=${dmsPageSize}&status=1&pageIndex=${pageIndex}&code=${encodeURIComponent(query)}`, {
-        headers: { 'x-api-key': API_KEY }
+        headers: { 'x-api-key': GATE }
       });
       let result = await resp.json();
       let dmsData = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);
@@ -500,7 +500,7 @@ export default function OwnerPanel({
       // Step 2: If no results by CODE, try searching by NAME
       if (dmsData.length === 0) {
         resp = await fetch(`${CHERY_DMS_URL}?pageSize=${dmsPageSize}&status=1&pageIndex=${pageIndex}&name=${encodeURIComponent(query)}`, {
-          headers: { 'x-api-key': API_KEY }
+          headers: { 'x-api-key': GATE }
         });
         result = await resp.json();
         dmsData = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);
@@ -801,7 +801,7 @@ export default function OwnerPanel({
       
       const resp = await fetch(`${CHERY_DMS_URL}?endpoint=claims_query&pageIndex=${pageIndex}&pageSize=${effectivePageSize}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+        headers: { 'Content-Type': 'application/json', 'x-api-key': GATE },
         body: JSON.stringify(body)
       });
       const result = await resp.json();
@@ -832,7 +832,7 @@ export default function OwnerPanel({
 
     try {
       const resp = await fetch(`${CHERY_DMS_URL}?endpoint=claim_detail&claimId=${id}`, {
-        headers: { 'x-api-key': API_KEY }
+        headers: { 'x-api-key': GATE }
       });
       const result = await resp.json();
       const payload = result.payload || {};

@@ -1,12 +1,8 @@
 export default async function handler(req, res) {
     const clientApiKey = req.headers['x-api-key'];
-    const expectedApiKey = process.env.VITE_API_KEY;
+    const expectedGate = process.env.VITE_GATE || 'chery-gate-2024';
 
-    if (!expectedApiKey) {
-      return res.status(500).json({ error: "VITE_API_KEY not configured on server" });
-    }
-
-    if (!clientApiKey || clientApiKey !== expectedApiKey) {
+    if (!clientApiKey || clientApiKey !== expectedGate) {
         return res.status(401).json({ error: "Unauthorized access" });
     }
 

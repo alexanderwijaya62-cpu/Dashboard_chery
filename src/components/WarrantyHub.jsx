@@ -227,7 +227,7 @@ export function WarrantyWorkOrderPage() {
             status = 'perlu_diisi';
           } else {
             const allFulfilled = parts.every(p =>
-              ['Disetujui', 'Aktif', 'Dipenuhi', 'VALIDATED'].includes(p.status_permintaan || p.status)
+              ['Disetujui', 'Dipenuhi', 'VALIDATED'].includes(p.status_permintaan || p.status)
             );
             status = allFulfilled ? 'dipenuhi' : 'belum_dipenuhi';
           }

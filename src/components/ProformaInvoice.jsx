@@ -298,12 +298,45 @@ function DetailPage({ settlement, onBack }) {
         }
       }
 
-      setExportProgress(100);
+      // 4. Fetch missing parts data for all matched work orders
+      const woIdsToFetch = new Set();
+      items.forEach((item) => {
+        if (item._type === 'adjustment') return;
+        const v = item.vin || item.vinCode || item.chassisNo || '';
+        const vd = GLOBAL_PROFORMA_CACHE.vinCrossRef[v] || vinData[v] || { wos: [] };
+        const ic = item.code || item.claimCode || '';
+        const m = findBestMatchingWO(vd.wos, ic, v, item.mileage, ic.startsWith('BY'));
+        if (m?.id_wo && !GLOBAL_PROFORMA_CACHE.parts[m.id_wo]?.data) {
+          woIdsToFetch.add(m.id_wo);
+        }
+      });
+      const woArray = [...woIdsToFetch];
+      for (let i = 0; i < woArray.length; i++) {
+        const ac = new AbortController();
+        const timeoutId = setTimeout(() => ac.abort(), 15000);
+        try {
+          const res = await fetch(`/api/chery_dms?${new URLSearchParams({ endpoint: 'warranty-estimasi-detail', id: woArray[i] })}`, { signal: ac.signal });
+          clearTimeout(timeoutId);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          GLOBAL_PROFORMA_CACHE.parts[woArray[i]] = { loading: false, error: null, data: json.parts || [] };
+        } catch (e) {
+          clearTimeout(timeoutId);
+          console.error("Export: failed to fetch parts for WO", woArray[i], e);
+          GLOBAL_PROFORMA_CACHE.parts[woArray[i]] = { loading: false, error: e.message, data: [] };
+        }
+      }
+      if (woArray.length > 0) {
+        setPartsCache(prev => ({ ...prev, ...Object.fromEntries(woArray.map(w => [w, GLOBAL_PROFORMA_CACHE.parts[w]])) }));
+      }
+
       setContractDetails(currentContractDetails);
       setRepairContracts(currentRepairContracts);
 
       const freeServiceRows = [];
       const warrantyRows = [];
+
+      const VALID_STATUSES = ['Disetujui', 'Dipenuhi', 'VALIDATED'];
 
       items.forEach((item) => {
         if (item._type === 'adjustment') return;
@@ -318,6 +351,23 @@ function DetailPage({ settlement, onBack }) {
         const contract = currentRepairContracts[detail.repairContractId || item.repairContractId] || {};
         const dmsDescription = contract.description || detail.faultDescription || detail.checkMeasureResult || detail.description || item.description || '';
 
+        let validationStatus = 'Belum Estimasi';
+        const woId = matchWO?.id_wo;
+        if (woId) {
+          const partsInfo = GLOBAL_PROFORMA_CACHE.parts[woId];
+          if (partsInfo?.data?.length > 0) {
+            const total = partsInfo.data.length;
+            const validated = partsInfo.data.filter(p =>
+              VALID_STATUSES.includes(p.status_permintaan) || VALID_STATUSES.includes(p.status)
+            ).length;
+            validationStatus = validated === total
+              ? `${validated}/${total} Sudah Validasi`
+              : validated === 0
+                ? `${validated}/${total} Belum di Validasi`
+                : `${validated}/${total} Belum Validasi Semua`;
+          }
+        }
+
         const isFree = itemCode.startsWith('BY');
 
         const rowData = {
@@ -327,6 +377,7 @@ function DetailPage({ settlement, onBack }) {
           'VIN': vin,
           'Pekerjaan DMS': dmsDescription,
           'Pekerjaan Internal': matchWO ? matchWO.perintah : '',
+          'Status Validasi': validationStatus,
           'Tipe Mobil': detail.productCategoryCode || item.productCategoryCode || '',
           'Nomor Mesin': detail.engineCode || item.engineCode || ''
         };
@@ -347,6 +398,7 @@ function DetailPage({ settlement, onBack }) {
       XLSX.utils.book_append_sheet(wb, wsWarranty, "Warranty");
 
       const fileName = `Export_Proforma_${settlement.code || 'Invoice'}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      setExportProgress(100);
       XLSX.writeFile(wb, fileName);
 
     } catch (e) {
@@ -849,7 +901,7 @@ function DetailPage({ settlement, onBack }) {
                               ) : partsCache[matchWO.id_wo].error ? (
                                 'Gagal'
                               ) : (
-                                `Part: ${partsCache[matchWO.id_wo].data.filter(p => ['Disetujui', 'Aktif', 'Dipenuhi', 'VALIDATED'].includes(p.status_permintaan) || ['Disetujui', 'Aktif', 'Dipenuhi', 'VALIDATED'].includes(p.status)).length} Disetujui / ${partsCache[matchWO.id_wo].data.length} Total`
+                                `Part: ${partsCache[matchWO.id_wo].data.filter(p => ['Disetujui', 'Dipenuhi', 'VALIDATED'].includes(p.status_permintaan) || ['Disetujui', 'Dipenuhi', 'VALIDATED'].includes(p.status)).length} Dipenuhi / ${partsCache[matchWO.id_wo].data.length} Total`
                               )
                             ) : (
                               <>
@@ -913,7 +965,7 @@ function DetailPage({ settlement, onBack }) {
                           <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1 flex items-center gap-1"><Wrench size={10} /> Detail Sparepart</p>
                           <div className="space-y-1 mt-1.5 text-[11px]">
                             {partsCache[matchWO.id_wo].data.map((part, pIdx) => {
-                              const isValidated = ['Disetujui', 'Aktif', 'Dipenuhi', 'VALIDATED'].includes(part.status_permintaan) || ['Disetujui', 'Aktif', 'Dipenuhi', 'VALIDATED'].includes(part.status);
+                               const isValidated = ['Disetujui', 'Dipenuhi', 'VALIDATED'].includes(part.status_permintaan) || ['Disetujui', 'Dipenuhi', 'VALIDATED'].includes(part.status);
                               const displayStatus = part.status_permintaan || part.status || '-';
                               return (
                                 <div key={pIdx} className="flex justify-between items-center py-1 border-b border-zinc-100 last:border-0">
