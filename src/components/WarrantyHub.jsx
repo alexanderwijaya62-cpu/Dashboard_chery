@@ -191,7 +191,12 @@ export function WarrantyWorkOrderPage() {
 
   const fetchData = useCallback(async (forceRefresh) => {
     const wk = getWOCacheKey();
-    if (!forceRefresh && GLOBAL_WARRANTY_CACHE.workorder[wk]) return;
+    if (!forceRefresh && GLOBAL_WARRANTY_CACHE.workorder[wk]) {
+      const cached = GLOBAL_WARRANTY_CACHE.workorder[wk];
+      setData(cached.data);
+      setTotalRecords(cached.totalRecords);
+      return;
+    }
     setIsLoading(true); setError(null);
     try {
       const params = new URLSearchParams({ endpoint:'work-order', draw:page+1, start:page*pageSize, length:pageSize, search, status:statusFilter, kategori:kategoriFilter, from:fromDate, to:toDate });
@@ -205,7 +210,7 @@ export function WarrantyWorkOrderPage() {
     finally { setIsLoading(false); }
   }, [page, search, statusFilter, kategoriFilter, fromDate, toDate]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData, page]);
 
   const loadPartsStatus = useCallback(async (woList) => {
     const toLoad = woList.filter(wo => wo.no_wo && !GLOBAL_WARRANTY_CACHE.partsStatus[wo.no_wo]);
@@ -218,7 +223,7 @@ export function WarrantyWorkOrderPage() {
       const batch = toLoad.slice(i, i + batchSize);
       await Promise.allSettled(batch.map(async (wo) => {
         try {
-          const res = await fetch(`/api/chery_dms?endpoint=warranty-estimasi-detail&id=${wo.no_wo}`);
+          const res = await fetch(`/api/chery_dms?endpoint=warranty-estimasi-detail&id=${wo.id_wo}`);
           const json = await res.json();
           if (json.error) throw new Error(json.error);
           const parts = json.parts || [];
@@ -267,7 +272,7 @@ export function WarrantyWorkOrderPage() {
         </form>
         <button onClick={()=>setShowFilter(!showFilter)} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-colors ${showFilter||hasActiveFilters?'bg-zinc-900 text-white border-zinc-900':'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'}`}><Filter size={13}/> Filter {hasActiveFilters&&<span className="w-1.5 h-1.5 bg-red-400 rounded-full"></span>}</button>
         <button onClick={() => fetchData(true)} disabled={isLoading} className="p-2 rounded-xl border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors ml-auto"><RefreshCw size={14} className={isLoading?'animate-spin':''}/></button>
-        <span className="text-xs text-zinc-400">{isLoading?'Memuat...':`${totalRecords.toLocaleString()} WO`}</span>
+        <span className="text-xs text-zinc-400">{isLoading?'Memuat...': sparepartFilter !== 'all' ? `${displayData.length} WO (dari ${totalRecords.toLocaleString()})` : `${totalRecords.toLocaleString()} WO`}</span>
       </div>
 
       {showFilter && (
@@ -367,13 +372,13 @@ export function WarrantyWorkOrderPage() {
         )}
       </div>
 
-      {totalPages > 1 && (
+      {(totalPages > 1 || sparepartFilter !== 'all') && (
         <div className="bg-white border-t border-zinc-200 px-4 py-3 flex items-center justify-between shrink-0">
-          <p className="text-xs text-zinc-500">{page*pageSize+1}–{Math.min((page+1)*pageSize,totalRecords)} dari {totalRecords.toLocaleString()}</p>
+          <p className="text-xs text-zinc-500">{sparepartFilter !== 'all' ? `${page*pageSize+1}–${page*pageSize+displayData.length} WO` : `${page*pageSize+1}–${Math.min((page+1)*pageSize,totalRecords)} dari ${totalRecords.toLocaleString()}`}</p>
           <div className="flex items-center gap-2">
             <button onClick={()=>setPage(p=>Math.max(0,p-1))} disabled={page===0||isLoading} className="p-2 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronLeft size={14}/></button>
-            <span className="text-sm font-semibold text-zinc-700 px-2">{page+1} / {totalPages}</span>
-            <button onClick={()=>setPage(p=>Math.min(totalPages-1,p+1))} disabled={page>=totalPages-1||isLoading} className="p-2 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronRight size={14}/></button>
+            <span className="text-sm font-semibold text-zinc-700 px-2">{page+1} / {sparepartFilter !== 'all' ? '?' : totalPages}</span>
+            <button onClick={()=>setPage(p=>Math.min((sparepartFilter!=='all'?999:totalPages)-1,p+1))} disabled={page>=totalPages-1||isLoading} className="p-2 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronRight size={14}/></button>
           </div>
         </div>
       )}

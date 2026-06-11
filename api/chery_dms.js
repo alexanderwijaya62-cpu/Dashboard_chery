@@ -152,6 +152,7 @@ let croCookieExpiry = 0;
 
 async function warrantyGenericLogin(isCro = false) {
     const BASE = process.env.WARRANTY_BASE_URL;
+    const PUBLIC_HOST = 'https://dms.chery.co.id';
     const USER = isCro ? (process.env.CRO_USER) : (process.env.WARRANTY_USER);
     const PASS = isCro ? (process.env.CRO_PASS) : (process.env.WARRANTY_PASS);
     const TOKEN = isCro ? (process.env.CRO_TOKEN) : (process.env.WARRANTY_TOKEN);
@@ -180,11 +181,11 @@ async function warrantyGenericLogin(isCro = false) {
     const csrf = csrfMatch ? csrfMatch[1] : '';
     if (!csrf) throw new Error(`[${isCro?'CRO':'Warranty'}] Cannot extract CSRF from login page — snippet: ${loginHtml.slice(0,200)}`);
 
-    // Step 2: POST login
+    // Step 2: POST login — gunakan Origin/Referer dari public host
     const loginBody = new URLSearchParams({ _token: csrf, username: USER, password: PASS }).toString();
     const loginRes = await fetchWithHttps(`${BASE}/aftersales/login`, {
         method: 'POST',
-        headers: { ...baseHeaders, 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(loginBody), 'Cookie': Object.entries(jar).map(([k,v])=>`${k}=${v}`).join('; '), 'Referer': `${BASE}/aftersales/login`, 'Origin': BASE },
+        headers: { ...baseHeaders, 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(loginBody), 'Cookie': Object.entries(jar).map(([k,v])=>`${k}=${v}`).join('; '), 'Referer': `${PUBLIC_HOST}/aftersales/login`, 'Origin': PUBLIC_HOST },
         body: loginBody,
     });
     if (loginRes.status >= 400) {
@@ -197,10 +198,14 @@ async function warrantyGenericLogin(isCro = false) {
         if (idx > 0) jar[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
     }
 
-    // Step 3: GET token page (CRO accounts may skip this — redirects to /aftersales)
+    // Step 3: GET token page
     const cookieStr = () => Object.entries(jar).map(([k,v])=>`${k}=${v}`).join('; ');
-    const tokenPage = await fetchWithHttps(`${BASE}/aftersales/token`, { headers: { ...baseHeaders, 'Cookie': cookieStr(), 'Referer': `${BASE}/aftersales/` } });
+    const tokenPage = await fetchWithHttps(`${BASE}/aftersales/token`, { headers: { ...baseHeaders, 'Cookie': cookieStr(), 'Referer': `${PUBLIC_HOST}/aftersales/` } });
     if (tokenPage.status === 302) {
+        const loc = tokenPage.headers.get('location') || '';
+        if (loc.includes('login')) {
+            throw new Error(`[${isCro?'CRO':'Warranty'}] Login failed — redirected to login page: ${loc}`);
+        }
         // CRO account — token step skipped, cookies from login are enough
         const finalCookie = cookieStr();
         if (isCro) {
@@ -368,7 +373,7 @@ async function handleWarrantyEstimasiDetail(req, res) {
             const tbodyMatch = body.match(/<tbody[^>]*id="tbody_part"[\s\S]*?<\/tbody>/i);
             if (tbodyMatch) {
                 const tbodyHtml = tbodyMatch[0];
-                const trRegex = /<tr[^>]*class="[^"]*partRow[^"]*"[\s\S]*?<\/tr>/gi;
+                const trRegex = /<tr[^>]*>[\s\S]*?<\/tr>/gi;
                 let trMatch;
                 while ((trMatch = trRegex.exec(tbodyHtml)) !== null) {
                     const trHtml = trMatch[0];
@@ -734,7 +739,7 @@ async function handleBookingData(req, res) {
             headers: {
                 'Cookie': croCookie,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': `${BASE}/aftersales/booking`,
+                'Referer': `https://dms.chery.co.id/aftersales/booking`,
                 'Accept': 'application/json, text/javascript, */*; q=0.01',
                 'X-Requested-With': 'XMLHttpRequest',
             },
@@ -744,6 +749,9 @@ async function handleBookingData(req, res) {
         if (response.status === 302 || response.status === 401 || isHtml) {
             croCookie = null;
             attempts++;
+            if (attempts >= 2) {
+                return res.status(500).json({ error: 'CRO login failed after 2 attempts', detail: `status=${response.status}, snippet=${body.slice(0,300)}` });
+            }
             continue;
         }
         try {
