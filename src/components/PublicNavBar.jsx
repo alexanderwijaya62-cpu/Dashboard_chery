@@ -95,11 +95,14 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout }) => {
   const sidebarItems = user ? getNavItems(user.role?.toLowerCase()) : [];
 
   // Is current page a dashboard page (not public)?
-  const publicPagesList = ['display', 'booking-public', 'tracking-public', 'login'];
+  const publicPagesList = ['display', 'booking-public', 'tracking-public', 'login', 'register'];
   const isOnDashboard = user && !publicPagesList.includes(currentPage);
 
   // Show mobile top bar only when on dashboard
   const showMobileTopBar = isOnDashboard && sidebarItems.length > 0;
+
+  // Sembunyikan bottom nav di halaman login/register
+  const hideMobileNav = currentPage === 'login' || currentPage === 'register';
 
   return (
     <>
@@ -234,35 +237,37 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout }) => {
       )}
 
       {/* ===== MOBILE: Bottom Navigation ===== */}
-      <nav
-        className="flex md:hidden fixed bottom-0 left-0 right-0 z-50 items-center justify-around bg-white border-t border-zinc-200 px-2 py-2 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]"
-        role="navigation"
-        aria-label="Mobile bottom navigation"
-      >
-        {bottomNavItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = item.id === 'dashboard'
-            ? isOnDashboard
-            : currentPage === item.page;
+      {!hideMobileNav && (
+        <nav
+          className="flex md:hidden fixed bottom-0 left-0 right-0 z-50 items-center justify-around bg-white border-t border-zinc-200 px-2 py-2 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]"
+          role="navigation"
+          aria-label="Mobile bottom navigation"
+        >
+          {bottomNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = item.id === 'dashboard'
+              ? isOnDashboard
+              : currentPage === item.page;
 
-          return (
-            <button
-              key={item.id}
-              onClick={() => handleNavigate(item.page)}
-              aria-label={item.ariaLabel}
-              aria-current={isActive ? 'page' : undefined}
-              className={`flex flex-col items-center justify-center gap-0.5 min-w-[56px] min-h-[48px] rounded-xl transition-all duration-200 ${
-                isActive
-                  ? 'bg-zinc-900 text-white shadow-md scale-105'
-                  : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
-              }`}
-            >
-              <Icon size={20} />
-              <span className="text-[10px] font-semibold leading-tight">{item.label}</span>
-            </button>
-          );
-        })}
-      </nav>
+            return (
+              <button
+                key={item.id}
+                onClick={() => handleNavigate(item.page)}
+                aria-label={item.ariaLabel}
+                aria-current={isActive ? 'page' : undefined}
+                className={`flex flex-col items-center justify-center gap-0.5 min-w-[56px] min-h-[48px] rounded-xl transition-all duration-200 ${
+                  isActive
+                    ? 'bg-zinc-900 text-white shadow-md scale-105'
+                    : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
+                }`}
+              >
+                <Icon size={20} />
+                <span className="text-[10px] font-semibold leading-tight">{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
 
       {/* ===== MOBILE: Sidebar Overlay ===== */}
       <div

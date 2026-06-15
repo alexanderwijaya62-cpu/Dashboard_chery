@@ -1439,9 +1439,9 @@ const App = () => {
   }
 
   // Determine if navbars should be shown
-  const showNavbar = currentPage !== 'login' && user?.role?.toLowerCase() !== 'display';
+  const showNavbar = currentPage !== 'login' && currentPage !== 'register' && user?.role?.toLowerCase() !== 'display';
   // Check if on a dashboard page (not public)
-  const publicPages = ['display', 'booking-public', 'tracking-public', 'login'];
+  const publicPages = ['display', 'booking-public', 'tracking-public', 'login', 'register'];
   const isOnDashboard = user && !publicPages.includes(currentPage);
   const hasSidebarItems = user && getNavItems(user.role?.toLowerCase()).length > 0;
 

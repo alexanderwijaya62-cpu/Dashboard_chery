@@ -5,6 +5,7 @@ import {
   Calendar, DollarSign, CheckCircle2, XCircle, Loader2,
   ArrowLeft, ChevronRight, ShieldCheck, Wrench, Clock, Car
 } from 'lucide-react';
+import { findBestMatchingWO } from '../utils/dmsMatcher';
 
 // ─── Constants ────────────────────────────────────────────────
 const STATUS_MAP = {
@@ -109,43 +110,7 @@ const buildSingleContainerUrl = (clickedAtt, allAttachments) => {
   return `https://dms.chery.co.id/imagePreview/?${parts.join('&')}`;
 };
 
-// ΓöÇΓöÇΓöÇ Detail Page ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-const findBestMatchingWO = (wos, itemCode, vin, itemMileage, isFree) => {
-  if (!wos || !Array.isArray(wos) || wos.length === 0) return null;
-  const targetKategori = isFree ? 'IFS' : 'IKC';
-  const catWos = wos.filter(w => (w.kategori || '').toUpperCase() === targetKategori);
-  if (catWos.length === 0) return null;
-
-  // 1. Try exact match on WO DMS code
-  let match = catWos.find(w => (w.no_wo_dms || '').toLowerCase() === itemCode.toLowerCase());
-  if (match) return match;
-
-  // 2. Try exact match on mileage / KM
-  if (itemMileage != null && itemMileage !== '') {
-    const targetKm = Number(itemMileage);
-    match = catWos.find(w => Number(w.stand_km || 0) === targetKm);
-    if (match) return match;
-  }
-
-  // 3. Try closest mileage / KM within 2000 km difference
-  if (itemMileage != null && itemMileage !== '') {
-    const targetKm = Number(itemMileage);
-    let closest = null;
-    let minDiff = Infinity;
-    catWos.forEach(w => {
-      const diff = Math.abs(Number(w.stand_km || 0) - targetKm);
-      if (diff < minDiff && diff <= 2000) {
-        minDiff = diff;
-        closest = w;
-      }
-    });
-    if (closest) return closest;
-  }
-
-  // 4. Fallback: return first
-  return catWos[0];
-};
-
+// ─── Detail Page ────────────────────────────────────────────────
 function DetailPage({ settlement, onBack }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -164,6 +129,27 @@ function DetailPage({ settlement, onBack }) {
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [partsCache, setPartsCache] = useState(() => GLOBAL_PROFORMA_CACHE.parts || {});
+
+  // Date range centered around settlementMonth (3-month window: prev, current, next)
+  const dateRange = useMemo(() => {
+    if (!settlement.settlementMonth) return { from: '', to: '' };
+    try {
+      const d = new Date(settlement.settlementMonth);
+      if (isNaN(d)) return { from: '', to: '' };
+      const y = d.getFullYear();
+      const m = d.getMonth();
+      const prev = new Date(y, m - 1, 1);
+      const next = new Date(y, m + 2, 0);
+      const pad = n => String(n).padStart(2, '0');
+      const fmt = date => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+      return {
+        from: fmt(prev),
+        to: fmt(next)
+      };
+    } catch {
+      return { from: '', to: '' };
+    }
+  }, [settlement.settlementMonth]);
 
   const handleLoadParts = useCallback(async (idWo) => {
     if (!idWo) return;
@@ -220,7 +206,7 @@ function DetailPage({ settlement, onBack }) {
         await Promise.all(
           vinsToFetch.map(async (vin) => {
             try {
-              const r = await apiFetch({ endpoint: 'warranty-search-vin', vin, length: 100, from: '', to: '' });
+              const r = await apiFetch({ endpoint: 'warranty-search-vin', vin, length: 100, from: dateRange.from, to: dateRange.to });
               GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: r.data || [], loading: false };
             } catch (e) {
               GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: [], loading: false };
@@ -421,8 +407,6 @@ function DetailPage({ settlement, onBack }) {
     setPartsCache({});
     setVinData({});
     loaded.current = false;
-    queuedVins.current = new Set();
-    partsLoadingQueued.current = new Set();
     load();
   };
 
@@ -564,19 +548,9 @@ function DetailPage({ settlement, onBack }) {
         const q = search.toLowerCase();
         const vin = (item.vin || item.vinCode || item.chassisNo || '').toLowerCase();
 
-        // O(1) lookup
+        // O(1) lookup using external findBestMatchingWO function
         const vd = vinLookupMap.get(vin) || { wos: [] };
-        let matchWO = vd.wos.find(w => (w.no_wo_dms || '').toLowerCase() === itemCode.toLowerCase());
-        if (!matchWO) {
-          if (itemCode.startsWith('BY')) {
-            matchWO = vd.wos.find(w => (w.kategori || '').toUpperCase() === 'IFS');
-          } else if (itemCode.startsWith('BX')) {
-            matchWO = vd.wos.find(w => (w.kategori || '').toUpperCase() === 'IKC');
-          }
-        }
-        if (!matchWO) {
-          matchWO = vd.wos.find(w => (w.no_chassis || '').toLowerCase() === vin) || vd.wos[0];
-        }
+        let matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
         const perintah = matchWO?.perintah || '';
 
         const hay = [itemCode, vin, item.customerName || '', item.productCategoryCode || '', perintah].join(' ').toLowerCase();
@@ -591,93 +565,73 @@ function DetailPage({ settlement, onBack }) {
     return filteredItems.slice(itemPage * itemsPerPage, (itemPage + 1) * itemsPerPage);
   }, [filteredItems, itemPage, itemsPerPage]);
 
-  // ─── Refs to prevent redundant work ──────────────────────────
-  const queuedVins = useRef(new Set());
-  const partsLoadingQueued = useRef(new Set());
+  // ─── Refs for VIN loading queue ────────────────────────────────
+  const vinQueue = useRef([]);
+  const vinRunning = useRef(0);
+  const VIN_BATCH_SIZE = 3;
 
-  // ─── Combined effect: load VINs + auto-load spare parts ──────
+  const processVinQueue = useCallback(() => {
+    while (vinRunning.current < VIN_BATCH_SIZE && vinQueue.current.length > 0) {
+      const { vin } = vinQueue.current.shift();
+      vinRunning.current++;
+      (async () => {
+        try {
+          const r = await apiFetch({ endpoint: 'warranty-search-vin', vin, length: 100, from: dateRange.from, to: dateRange.to });
+          GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: r.data || [], loading: false };
+        } catch {
+          GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: [], loading: false };
+        }
+        setVinData(prev => ({
+          ...prev,
+          [vin]: GLOBAL_PROFORMA_CACHE.vinCrossRef[vin],
+        }));
+        vinRunning.current--;
+        processVinQueue();
+      })();
+    }
+  }, []);
+
+  // ─── Effect 1: Load VINs from DMS (cross-reference) ────────────
   useEffect(() => {
-    console.log('[DEBUG] Combined effect triggered, pagedItems:', pagedItems.length, 'vinData:', Object.keys(vinData).length);
     if (pagedItems.length === 0) return;
 
-    // Step 1: Collect new VINs + sync VINs from global cache to local state
-    const newVins = [];
-    const syncVins = [];
+    let queueChanged = false;
     pagedItems.forEach(it => {
       const vin = it.vin || it.vinCode || it.chassisNo;
       if (!vin) return;
+
       if (!GLOBAL_PROFORMA_CACHE.vinCrossRef[vin]) {
-        if (!queuedVins.current.has(vin)) {
-          queuedVins.current.add(vin);
-          newVins.push(vin);
-        }
-      } else if (!vinData[vin]) {
-        syncVins.push(vin);
+        GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: [], loading: true };
+        setVinData(prev => ({ ...prev, [vin]: { wos: [], loading: true } }));
+        vinQueue.current.push({ vin });
+        queueChanged = true;
+      } else {
+        // Sync cache to component state if needed
+        setVinData(prev => {
+          if (prev[vin]) return prev;
+          return { ...prev, [vin]: GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] };
+        });
       }
     });
-    if (syncVins.length > 0) {
-      setVinData(prev => {
-        const next = { ...prev };
-        syncVins.forEach(vin => {
-          next[vin] = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin];
-        });
-        return next;
-      });
-    }
 
-    // Step 2: Collect new WOs for parts loading (only for VINs already resolved)
-    const newWOs = [];
+    if (queueChanged) {
+      processVinQueue();
+    }
+  }, [pagedItems, processVinQueue]);
+
+  // ─── Effect 2: Auto-load spare parts for matched WOs ───────────
+  useEffect(() => {
     pagedItems.forEach(item => {
       const itemCode = item.code || item.claimCode || '';
       const vin = item.vin || item.vinCode || item.chassisNo || '';
-      const vd = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin];
+      const vd = vinData[vin];
       if (vd && vd.wos) {
         const matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
-        if (matchWO && matchWO.id_wo && !partsLoadingQueued.current.has(matchWO.id_wo)) {
-          partsLoadingQueued.current.add(matchWO.id_wo);
-          newWOs.push(matchWO.id_wo);
+        if (matchWO && matchWO.id_wo) {
+          handleLoadParts(matchWO.id_wo);
         }
       }
     });
-
-    if (newVins.length === 0 && newWOs.length === 0) return;
-
-    // Step 3: Load VINs in batches, then batch-update state
-    if (newVins.length > 0) {
-      let cancelled = false;
-      (async () => {
-        const batchSize = 5;
-        for (let i = 0; i < newVins.length; i += batchSize) {
-          const batch = newVins.slice(i, i + batchSize);
-          await Promise.allSettled(
-            batch.map(async vin => {
-              try {
-                const r = await apiFetch({ endpoint: 'warranty-search-vin', vin, length: 100, from: '', to: '' });
-                if (!cancelled) GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: r.data || [], loading: false };
-              } catch {
-                if (!cancelled) GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: [], loading: false };
-              }
-            })
-          );
-        }
-        if (!cancelled) {
-          setVinData(prev => {
-            const next = { ...prev };
-            newVins.forEach(vin => {
-              next[vin] = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin];
-            });
-            return next;
-          });
-        }
-      })();
-      return () => {
-        cancelled = true;
-        newVins.forEach(vin => queuedVins.current.delete(vin));
-      };
-    }
-
-    // Step 4: Load parts for matched WOs (only if no new VINs were found)
-    newWOs.forEach(idWo => handleLoadParts(idWo));
   }, [pagedItems, vinData, handleLoadParts]);
 
   const handleSearch = (e) => { e.preventDefault(); setSearch(searchInput); setItemPage(0); };

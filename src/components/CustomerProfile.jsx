@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { User, Car, FileText, Save, AlertCircle } from 'lucide-react';
+import { db } from '../utils/dbClient';
 
 const CustomerProfile = ({ user, setUser }) => {
   const [formData, setFormData] = useState({
@@ -18,26 +19,33 @@ const CustomerProfile = ({ user, setUser }) => {
 
     setIsLoading(true);
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({
+      // Try customers table first (new customers), fallback to users table (legacy)
+      const { error: custErr } = await db.update('customers', {
+        nama: formData.name,
+        no_bk: formData.plat_bk.toUpperCase().replace(/\s+/g, ''),
+        vin: formData.vin.toUpperCase(),
+      }, { eq: { no_hp: user.username } });
+
+      if (custErr && !custErr.message?.includes('not found')) {
+        // Fallback to legacy users table
+        const { error: userErr } = await db.update('users', {
           name: formData.name,
           plat_bk: formData.plat_bk.toUpperCase().replace(/\s+/g, ''),
           vin: formData.vin.toUpperCase(),
-        })
-        .eq('username', user.username);
+        }, { eq: { username: user.username } });
 
-      if (error) throw error;
+        if (userErr) throw userErr;
+      } else if (custErr) {
+        throw custErr;
+      }
 
-      alert("Profil berhasil diperbarui! Silakan tunggu konfirmasi admin untuk melihat riwayat servis.");
+      alert("Profil berhasil diperbarui!");
       
       const updatedUser = { ...user, ...formData };
       setUser(updatedUser);
       localStorage.setItem('chery_auth_user', JSON.stringify(updatedUser));
       
-      // No need to change page manually, App.jsx logic will handle it or user can refresh
       window.location.reload();
-
     } catch (err) {
       console.error(err);
       alert("Gagal menyimpan profil.");

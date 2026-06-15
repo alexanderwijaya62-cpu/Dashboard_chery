@@ -26,10 +26,15 @@ import {
   Key
 } from 'lucide-react';
 import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL, GATE } from '../utils/config';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 // --- Components ---
 
 export default function QuotationSPA({ onClose }) {
+  const currentUser = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem('chery_auth_user') || '{}'); } catch { return {}; }
+  }, []);
   const [searchTerm, setSearchTerm] = useState('');
   const [masterParts, setMasterParts] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -211,7 +216,241 @@ export default function QuotationSPA({ onClose }) {
   };
 
   const downloadInvoice = () => {
-    window.print();
+    const userName = currentUser.name || currentUser.username || 'Guest';
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const pageW = 210;
+    const margin = 15;
+    const contentW = pageW - margin * 2;
+    let y = margin;
+
+    // Helper: rupiah format
+    const rp = (n) => 'Rp ' + (n || 0).toLocaleString('id-ID');
+
+    // ── Header ──
+    doc.setFillColor(0, 0, 0);
+    doc.rect(margin, y, 40, 2, 'F');
+    y += 6;
+    doc.setFont('helvetica', 'bolditalic');
+    doc.setFontSize(26);
+    doc.text('ESTIMASI', margin, y);
+    y += 5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(150);
+    doc.text('CHERY AUTHORIZED DEALER', margin, y);
+
+    // Document number on right
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(180);
+    doc.text('NOMOR DOKUMEN', pageW - margin, margin + 2, { align: 'right' });
+    doc.setFontSize(11);
+    doc.setTextColor(0);
+    doc.text(invoiceMetadata.no, pageW - margin, margin + 8, { align: 'right' });
+    doc.setFontSize(7);
+    doc.setTextColor(150);
+    doc.text(`Medan, ${invoiceMetadata.date}`, pageW - margin, margin + 16, { align: 'right' });
+    if (currentUser.name) {
+      doc.setFontSize(6);
+      doc.setTextColor(180);
+      doc.text(`Dibuat oleh: ${currentUser.name}`, pageW - margin, margin + 21, { align: 'right' });
+    }
+
+    y = margin + 28;
+
+    // ── Separator line ──
+    doc.setDrawColor(220);
+    doc.setLineWidth(0.3);
+    doc.line(margin, y, pageW - margin, y);
+    y += 8;
+
+    // ── Customer Info ──
+    doc.setFillColor(248, 248, 248);
+    doc.roundedRect(margin, y, contentW, 28, 2, 2, 'F');
+    doc.setDrawColor(230);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(margin, y, contentW, 28, 2, 2, 'S');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6);
+    doc.setTextColor(180);
+    doc.text('DITUJUKAN KEPADA', margin + 5, y + 5);
+    doc.setFontSize(11);
+    doc.setTextColor(0);
+    doc.text((customerInfo.name || 'PELANGGAN UMUM').toUpperCase(), margin + 5, y + 13);
+    doc.setFontSize(6);
+    doc.setTextColor(150);
+    doc.text(customerInfo.vehicle || 'ALL CHERY MODELS', margin + 5, y + 18);
+    if (customerInfo.phone) {
+      doc.text(customerInfo.phone, margin + 5, y + 23);
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6);
+    doc.setTextColor(180);
+    doc.text('REFERENSI PO', pageW - margin - 5, y + 5, { align: 'right' });
+    doc.setFontSize(10);
+    doc.setTextColor(0);
+    doc.text(customerInfo.poNumber || '-', pageW - margin - 5, y + 13, { align: 'right' });
+
+    // Draf Estimasi badge
+    doc.setFillColor(0, 0, 0);
+    doc.roundedRect(pageW - margin - 32, y + 17, 32, 7, 2, 2, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6);
+    doc.setTextColor(255);
+    doc.text('DRAF ESTIMASI', pageW - margin - 5, y + 22, { align: 'right' });
+
+    y += 36;
+
+    // ── Parts Table ──
+    const tableHeaders = [['Part Number', 'Nama Part', 'Harga Satuan', 'Qty', 'Subtotal']];
+    const tableRows = items.length === 0
+      ? [['-', 'Belum ada item yang dipilih', '', '', '']]
+      : items.map(item => {
+          const fp = item.unit_price - (item.discount || 0);
+          return [
+            item.part_number,
+            item.part_name,
+            rp(fp),
+            String(item.qty || 1),
+            rp(fp * (item.qty || 1)),
+          ];
+        });
+
+    autoTable(doc, {
+      startY: y,
+      head: tableHeaders,
+      body: tableRows,
+      theme: 'plain',
+      styles: {
+        font: 'helvetica',
+        fontSize: 7,
+        cellPadding: { top: 3, right: 3, bottom: 3, left: 3 },
+        lineColor: [230, 230, 230],
+        lineWidth: 0.2,
+      },
+      headStyles: {
+        fontStyle: 'bold',
+        fontSize: 6,
+        textColor: [150, 150, 150],
+        cellPadding: { top: 4, right: 3, bottom: 6, left: 3 },
+        lineColor: [0, 0, 0],
+        lineWidth: 0.5,
+      },
+      columnStyles: {
+        0: { cellWidth: 30, fontStyle: 'bold' },
+        1: { cellWidth: 55 },
+        2: { cellWidth: 30, halign: 'right' },
+        3: { cellWidth: 12, halign: 'center', fontStyle: 'bold' },
+        4: { cellWidth: 35, halign: 'right', fontStyle: 'bold', fontSize: 8 },
+      },
+      didParseCell: function (data) {
+        // First column (part number) should be uppercase bold
+        if (data.section === 'body' && data.column.index === 0) {
+          data.cell.raw = data.cell.raw.toUpperCase();
+        }
+      },
+      margin: { top: margin, right: margin, bottom: margin, left: margin },
+    });
+
+    // Get the last Y position after the table
+    const finalY = doc.lastAutoTable.finalY + 5;
+
+    // ── Totals Section ──
+    const totX = pageW - margin - 80;
+    let totY = finalY + 3;
+
+    // Gross Subtotal
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(150);
+    doc.text('Gross Subtotal', totX, totY);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0);
+    doc.text(rp(totals.subtotalRaw), pageW - margin, totY, { align: 'right' });
+    totY += 5;
+
+    // Global Discount (if any)
+    if (globalDiscountPercent > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(220, 50, 50);
+      doc.text(`Diskon Khusus (${globalDiscountPercent}%)`, totX, totY);
+      doc.text(`- ${rp(totals.globalDiscountAmount)}`, pageW - margin, totY, { align: 'right' });
+      totY += 5;
+    }
+
+    // Separator
+    doc.setDrawColor(220);
+    doc.setLineWidth(0.2);
+    doc.line(totX, totY, pageW - margin, totY);
+    totY += 4;
+
+    // DPP (Harga Sebelum PPN)
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(80);
+    doc.text('DPP (Harga Sebelum PPN)', totX, totY);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(0);
+    doc.text(rp(totals.subtotal), pageW - margin, totY, { align: 'right' });
+    totY += 6;
+
+    // PPN 11%
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(80);
+    doc.text('PPN 11%', totX, totY);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0);
+    doc.text(rp(totals.ppn), pageW - margin, totY, { align: 'right' });
+    totY += 5;
+
+    // Grand Total separator (thick)
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.8);
+    doc.line(totX, totY, pageW - margin, totY);
+    totY += 5;
+
+    // Grand Total
+    doc.setFont('helvetica', 'bolditalic');
+    doc.setFontSize(9);
+    doc.setTextColor(0);
+    doc.text('Total Termasuk PPN', totX, totY);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text(rp(totals.grandTotal), pageW - margin, totY, { align: 'right' });
+    totY += 5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(5.5);
+    doc.setTextColor(180);
+    doc.text('HARGA SUDAH TERMASUK PPN 11%', pageW - margin, totY, { align: 'right' });
+
+    totY += 10;
+
+    // ── Footer ──
+    if (totY > 270) totY = 270; // near bottom
+    doc.setDrawColor(210);
+    doc.setLineWidth(0.3);
+    doc.line(margin, totY, pageW - margin, totY);
+    totY += 4;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(5.5);
+    doc.setTextColor(180);
+    doc.text('OFFICIAL QUOTATION', margin, totY);
+    totY += 3;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5);
+    doc.text('Harga tidak mengikat dan dapat berubah sewaktu-waktu. Estimasi berlaku selama 7 hari sejak tanggal diterbitkan.', margin, totY);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Chery Oriental Medan', pageW - margin, totY - 3, { align: 'right' });
+    doc.text(`© ${new Date().getFullYear()}`, pageW - margin, totY + 1, { align: 'right' });
+
+    // ── Save ──
+    const fileName = `Quotation_${userName}_${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(fileName);
   };
 
   const sendWhatsApp = () => {
@@ -444,66 +683,82 @@ export default function QuotationSPA({ onClose }) {
       {/* RIGHT PANEL: PREVIEW */}
       <main className="flex-1 h-full overflow-y-auto custom-scrollbar p-12 lg:p-20 flex flex-col items-center">
         {/* INVOICE SHEET */}
-        <div id="invoice-sheet" className="bg-white w-full max-w-[900px] min-h-[1200px] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.1)] flex flex-col p-16 relative overflow-hidden origin-top scale-90 md:scale-100">
+        <div id="invoice-sheet" className="bg-white w-full max-w-[210mm] min-h-[1200px] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.1)] flex flex-col p-12 relative origin-top scale-90 md:scale-100">
             
             {/* Header Estimasi */}
-            <div className="flex justify-between items-start mb-24 relative z-10">
-              <div className="space-y-4">
-                <div className="h-2 w-16 bg-black"></div>
-                <h1 className="text-7xl font-black tracking-tighter leading-none italic uppercase">Estimasi</h1>
-                <p className="text-gray-400 font-bold tracking-[0.4em] text-[10px] uppercase">Chery Authorized Parts & Service</p>
+            <div className="flex justify-between items-start mb-16 relative z-10">
+              <div className="space-y-5">
+                <div className="h-1.5 w-20 bg-gradient-to-r from-black to-gray-400"></div>
+                <div>
+                  <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.3em] mb-2">Chery Authorized Dealer</p>
+                  <h1 className="text-7xl font-black tracking-tighter leading-none italic uppercase">Estimasi</h1>
+                </div>
               </div>
               <div className="text-right">
-                <p className="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-1">Nomor Dokumen</p>
-                <p className="font-black text-lg leading-none">{invoiceMetadata.no}</p>
-                <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest mt-12">Medan, {invoiceMetadata.date}</p>
+                <div className="bg-gray-50 px-6 py-4 rounded-2xl border border-gray-100">
+                  <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">Nomor Dokumen</p>
+                  <p className="font-black text-lg leading-none tracking-tight">{invoiceMetadata.no}</p>
+                </div>
+                <p className="text-gray-400 text-[9px] font-bold uppercase tracking-widest mt-6">Medan, {invoiceMetadata.date}</p>
+                {currentUser.name && (
+                  <p className="text-[9px] font-bold text-gray-300 uppercase tracking-widest mt-2">Dibuat oleh: {currentUser.name}</p>
+                )}
               </div>
             </div>
 
             {/* Info Customer & PO */}
-            <div className="mb-20 grid grid-cols-2 gap-20">
-              <div className="space-y-6">
+            <div className="mb-16 grid grid-cols-2 gap-16 bg-gray-50 rounded-3xl p-8 border border-gray-100">
+              <div className="space-y-4">
                 <div>
-                  <p className="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-4">Ditujukan Kepada</p>
-                  <h3 className="text-4xl font-black uppercase tracking-tighter mb-1">{customerInfo.name || 'PELANGGAN UMUM'}</h3>
-                  <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">{customerInfo.vehicle || 'ALL CHERY MODELS'}</p>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-6 h-px bg-black"></div>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Ditujukan Kepada</p>
+                  </div>
+                  <h3 className="text-3xl font-black uppercase tracking-tighter mb-1 leading-tight">{customerInfo.name || 'PELANGGAN UMUM'}</h3>
+                  <p className="text-gray-400 text-[9px] font-black uppercase tracking-widest">{customerInfo.vehicle || 'ALL CHERY MODELS'}</p>
                 </div>
                 {customerInfo.phone && (
-                  <div className="flex items-center gap-2 text-gray-400 font-bold text-[10px] uppercase tracking-widest">
-                    <MessageCircle size={12} /> {customerInfo.phone}
+                  <div className="flex items-center gap-2 text-gray-400 font-bold text-[9px] uppercase tracking-widest">
+                    <MessageCircle size={11} /> {customerInfo.phone}
                   </div>
                 )}
               </div>
-              <div className="text-right">
-                <p className="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-4">Referensi PO</p>
-                <h3 className="text-2xl font-black uppercase tracking-tighter">{customerInfo.poNumber || '-'}</h3>
-                <div className="inline-block mt-8 px-6 py-2.5 bg-black text-white text-[10px] font-black uppercase tracking-widest">Draf Estimasi</div>
+              <div className="text-right flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-end gap-2 mb-3">
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Referensi PO</p>
+                    <div className="w-6 h-px bg-black"></div>
+                  </div>
+                  <h3 className="text-xl font-black uppercase tracking-tighter">{customerInfo.poNumber || '-'}</h3>
+                </div>
+                <div className="inline-block self-end mt-4 px-5 py-2.5 bg-black text-white text-[9px] font-black uppercase tracking-widest rounded-xl">Draf Estimasi</div>
               </div>
             </div>
 
             {/* Table */}
-            <div className="flex-1 mb-24">
-              <table className="w-full text-left">
+            <div className="mb-12">
+              <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b-[4px] border-black text-[10px] font-black uppercase tracking-widest">
-                    <th className="pb-6 w-32">Pratinjau</th>
-                    <th className="pb-6">Detail Part</th>
-                    <th className="pb-6 text-right w-40">Harga Satuan</th>
-                    <th className="pb-6 text-center w-24">Qty</th>
-                    <th className="pb-6 text-right w-44">Subtotal</th>
+                  <tr className="text-[9px] font-black uppercase tracking-widest">
+                    <th className="pb-4 w-24 text-gray-400 font-black">Pratinjau</th>
+                    <th className="pb-4 text-gray-400 font-black">Detail Part</th>
+                    <th className="pb-4 text-right w-36 text-gray-400 font-black">Harga Satuan</th>
+                    <th className="pb-4 text-center w-20 text-gray-400 font-black">Qty</th>
+                    <th className="pb-4 text-right w-40 text-gray-400 font-black">Subtotal</th>
                   </tr>
+                  <tr><th colSpan="5" className="border-b-2 border-black pb-1"></th></tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-50">
                   {items.length === 0 ? (
                       <tr>
-                        <td colSpan="5" className="py-24 text-center text-gray-200 font-black uppercase tracking-[0.4em] italic">Belum ada item yang dipilih</td>
+                        <td colSpan="5" className="py-20 text-center text-gray-200 font-black uppercase tracking-[0.4em] italic text-sm">Belum ada item yang dipilih</td>
                       </tr>
                    ) : items.map((item, index) => {
                       const finalUnitPrice = item.unit_price - (item.discount || 0);
                       return (
-                          <tr key={index} className="group">
-                              <td className="py-8">
-                                <div className="w-24 h-24 bg-gray-50 rounded-2xl overflow-hidden border border-gray-100 p-1 flex items-center justify-center">
+                          <tr key={index} className="group hover:bg-gray-50 transition-colors">
+                              <td className="py-5">
+                                <div className="w-20 h-20 bg-gray-50 rounded-2xl overflow-hidden border border-gray-100 flex items-center justify-center">
                                   {epcmImages[item.part_number] ? (
                                     <img 
                                       src={epcmImages[item.part_number][0]} 
@@ -511,17 +766,17 @@ export default function QuotationSPA({ onClose }) {
                                       className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
                                     />
                                   ) : (
-                                    <Package size={32} className="text-gray-200" />
+                                    <Package size={24} className="text-gray-200" />
                                   )}
                                 </div>
                               </td>
-                              <td className="py-8">
-                                  <div className="font-black text-xl tracking-tighter text-black uppercase leading-none mb-2">{item.part_number}</div>
-                                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-tight">{item.part_name}</div>
+                              <td className="py-5">
+                                  <div className="font-black text-base tracking-tight text-black uppercase leading-none mb-1.5">{item.part_number}</div>
+                                  <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider leading-tight">{item.part_name}</div>
                               </td>
-                              <td className="py-8 text-right font-bold text-sm text-gray-600">Rp {finalUnitPrice.toLocaleString()}</td>
-                              <td className="py-8 text-center font-black text-xl">{item.qty}</td>
-                              <td className="py-8 text-right font-black text-2xl tracking-tighter">Rp {(finalUnitPrice * item.qty).toLocaleString()}</td>
+                              <td className="py-5 text-right font-bold text-sm text-gray-600 align-top">Rp {finalUnitPrice.toLocaleString()}</td>
+                              <td className="py-5 text-center font-black text-lg align-top">{item.qty}</td>
+                              <td className="py-5 text-right font-black text-xl tracking-tight align-top">Rp {(finalUnitPrice * item.qty).toLocaleString()}</td>
                           </tr>
                       );
                   })}
@@ -530,9 +785,9 @@ export default function QuotationSPA({ onClose }) {
             </div>
 
             {/* Totals Section */}
-            <div className="mt-auto flex justify-end">
+            <div className="flex justify-end" style={{ pageBreakInside: 'avoid' }}>
               <div className="w-96 space-y-5">
-                <div className="flex justify-between items-center text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                <div className="flex justify-between items-center text-[10px] font-bold text-gray-400 uppercase tracking-widest pb-4 border-b border-gray-100">
                   <span>Gross Subtotal</span>
                   <span className="text-black font-black">Rp {totals.subtotalRaw.toLocaleString()}</span>
                 </div>
@@ -542,37 +797,42 @@ export default function QuotationSPA({ onClose }) {
                     <span>- Rp {totals.globalDiscountAmount.toLocaleString()}</span>
                   </div>
                 )}
-                <div className="flex justify-between items-center text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">
-                  <span>PPN (11%)</span>
+                <div className="flex justify-between items-center text-xs font-bold text-gray-600 border-b border-gray-100 pb-4">
+                  <span>DPP (Harga Sebelum PPN)</span>
+                  <span className="text-black font-black text-lg">Rp {totals.subtotal.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs font-bold text-gray-600">
+                  <span>PPN 11%</span>
                   <span className="text-black font-black">Rp {totals.ppn.toLocaleString()}</span>
                 </div>
-                <div className="pt-8 border-t-[6px] border-black flex justify-between items-end">
-                  <span className="font-black uppercase tracking-tighter text-sm italic">Total Estimasi</span>
+                <div className="pt-6 border-t-[6px] border-black flex justify-between items-end">
+                  <span className="font-black uppercase tracking-tighter text-sm italic">Total Termasuk PPN</span>
                   <div className="text-right">
                     <p className="text-5xl font-black tracking-tighter leading-none">
                       Rp {totals.grandTotal.toLocaleString()}
                     </p>
-                    <p className="text-[9px] font-black text-gray-300 uppercase tracking-[0.3em] mt-3">Termasuk PPN 11%</p>
+                    <p className="text-[9px] font-black text-gray-300 uppercase tracking-[0.3em] mt-3">Harga Sudah Termasuk PPN 11%</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Footer Decorative */}
-            <div className="mt-32 pt-12 border-t border-gray-100 flex justify-between items-center">
-              <p className="text-[10px] font-black tracking-[0.2em] uppercase text-gray-200 italic">
-                Harga tidak mengikat dan dapat berubah sewaktu-waktu
-              </p>
-              <div className="flex items-center gap-4">
-                <div className="h-px w-20 bg-gray-100"></div>
-                <p className="text-[10px] font-black tracking-[0.4em] uppercase text-gray-200">
-                  Official Estimation
+            {/* Footer */}
+            <div className="mt-16 pt-6 border-t border-gray-200 flex justify-between items-end">
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className="h-px w-12 bg-gray-300"></div>
+                  <p className="text-[8px] font-black tracking-[0.2em] uppercase text-gray-300">Official Quotation</p>
+                </div>
+                <p className="text-[8px] font-medium text-gray-300 max-w-md leading-relaxed">
+                  Harga tidak mengikat dan dapat berubah sewaktu-waktu. Estimasi berlaku selama 7 hari sejak tanggal diterbitkan.
                 </p>
               </div>
+              <div className="text-right">
+                <p className="text-[8px] font-bold text-gray-300 uppercase tracking-widest">Chery Oriental Medan</p>
+                <p className="text-[8px] font-bold text-gray-300 tracking-wider">© {new Date().getFullYear()}</p>
+              </div>
             </div>
-
-            {/* Decorative Side bar */}
-            <div className="absolute top-0 right-0 w-4 h-full bg-black opacity-5"></div>
         </div>
       </main>
 
@@ -583,12 +843,11 @@ export default function QuotationSPA({ onClose }) {
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #D4D4D8; }
 
         @media print {
+            @page { size: A4 portrait; margin: 12mm 15mm; }
             .no-print, nav, aside { display: none !important; }
             body, html { background: white !important; margin: 0 !important; padding: 0 !important; }
-            .fixed { position: relative !important; overflow: visible !important; }
-            .flex-col { flex-direction: column !important; }
-            .md\\:flex-row { flex-direction: column !important; }
-            .w-full { width: 100% !important; }
+            .fixed { position: relative !important; overflow: visible !important; height: auto !important; }
+            main { overflow: visible !important; padding: 0 !important; }
             #invoice-sheet { 
               box-shadow: none !important; 
               border: none !important; 
@@ -598,9 +857,39 @@ export default function QuotationSPA({ onClose }) {
               width: 100% !important;
               max-width: 100% !important;
               border-radius: 0 !important;
+              min-height: 0 !important;
+              height: auto !important;
+              overflow: visible !important;
+              scale: 1 !important;
+              font-size: 9pt !important;
             }
-            .p-12, .p-20 { padding: 0 !important; }
-            .bg-zinc-100, .bg-zinc-50 { background: white !important; }
+            .bg-zinc-100, .bg-zinc-50, .bg-gray-50 { background: white !important; }
+            #invoice-sheet .text-7xl { font-size: 22pt !important; }
+            #invoice-sheet .text-5xl { font-size: 16pt !important; }
+            #invoice-sheet .text-4xl { font-size: 14pt !important; }
+            #invoice-sheet .text-3xl { font-size: 13pt !important; }
+            #invoice-sheet .text-2xl { font-size: 12pt !important; }
+            #invoice-sheet .text-xl { font-size: 11pt !important; }
+            #invoice-sheet .text-lg { font-size: 10pt !important; }
+            #invoice-sheet .text-base { font-size: 9pt !important; }
+            #invoice-sheet .text-sm { font-size: 8pt !important; }
+            #invoice-sheet .text-xs { font-size: 7.5pt !important; }
+            #invoice-sheet table { font-size: 8pt !important; }
+            #invoice-sheet .text-\\[10px\\] { font-size: 7pt !important; }
+            #invoice-sheet .text-\\[9px\\] { font-size: 6.5pt !important; }
+            #invoice-sheet .text-\\[8px\\] { font-size: 6pt !important; }
+            #invoice-sheet .mb-16 { margin-bottom: 1rem !important; }
+            #invoice-sheet .mb-20 { margin-bottom: 1.25rem !important; }
+            #invoice-sheet .mt-24 { margin-top: 1.5rem !important; }
+            #invoice-sheet .py-5 { padding-top: 0.3rem !important; padding-bottom: 0.3rem !important; }
+            #invoice-sheet .p-8 { padding: 0.75rem !important; }
+            #invoice-sheet .px-6 { padding-left: 0.75rem !important; padding-right: 0.75rem !important; }
+            #invoice-sheet .py-4 { padding-top: 0.4rem !important; padding-bottom: 0.4rem !important; }
+            #invoice-sheet .w-20 { width: 3rem !important; }
+            #invoice-sheet .h-20 { height: 3rem !important; }
+            #invoice-sheet .gap-16 { gap: 2rem !important; }
+            #invoice-sheet .rounded-3xl { border-radius: 0.5rem !important; }
+            #invoice-sheet .rounded-2xl { border-radius: 0.4rem !important; }
         }
 
         @keyframes fadeIn {

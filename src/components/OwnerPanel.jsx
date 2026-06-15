@@ -655,7 +655,8 @@ export default function OwnerPanel({
     const newItem = {
       name: item.name || '-',
       code: item.code || '-',
-      price: item.retailGuidePrice || 0,
+      price: item.retailGuidePrice ? Math.round(item.retailGuidePrice) : 0,
+      priceExc: item.retailGuidePriceExcludingTax ? Math.round(item.retailGuidePriceExcludingTax) : (item.retailGuidePrice ? Math.round(item.retailGuidePrice / 1.11) : 0),
       models: getCombinedModels(details),
       image: manualImage || (epcmImages[item.code]?.[0] || null),
       status: item.name?.includes('TIDAK DITEMUKAN') ? 'not_found' : (item.name?.includes('ERROR') ? 'error' : 'success')
@@ -679,7 +680,7 @@ export default function OwnerPanel({
       return;
     }
 
-    const doc = new jsPDF();
+    const doc = new jsPDF('landscape'); // Landscape to fit all columns nicely
     const tableData = [];
     
     Toastify({ text: "⏳ Sedang menyiapkan PDF...", duration: 2000 }).showToast();
@@ -702,6 +703,8 @@ export default function OwnerPanel({
       });
     };
 
+    const formatRp = (val) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val || 0);
+
     for (let i = 0; i < selectedParts.length; i++) {
       const part = selectedParts[i];
       let base64 = null;
@@ -711,41 +714,77 @@ export default function OwnerPanel({
         } catch (e) { console.error("PDF Base64 Error:", e); }
       }
       
+      const ppnVal = (part.price || 0) - (part.priceExc || 0);
       tableData.push([
         i + 1,
         part.code,
         part.name,
         part.models,
-        new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(part.price),
+        formatRp(part.priceExc),
+        formatRp(ppnVal),
+        formatRp(part.price),
         base64 ? { content: '', image: base64 } : 'No Image'
       ]);
     }
 
-    doc.setFontSize(18);
-    doc.text("Chery Sparepart Quotation", 14, 20);
-    doc.setFontSize(10);
-    doc.text(`Tanggal: ${new Date().toLocaleString()}`, 14, 28);
+    // Calculate totals for PDF summary row
+    const totalExc = selectedParts.reduce((acc, curr) => acc + (curr.priceExc || 0), 0);
+    const totalPpn = selectedParts.reduce((acc, curr) => acc + ((curr.price || 0) - (curr.priceExc || 0)), 0);
+    const totalInc = selectedParts.reduce((acc, curr) => acc + (curr.price || 0), 0);
+
+    // Summary row
+    tableData.push([
+      { content: 'TOTAL', colSpan: 4, styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
+      { content: formatRp(totalExc), styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
+      { content: formatRp(totalPpn), styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
+      { content: formatRp(totalInc), styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
+      { content: '', fillColor: [240, 240, 240] }
+    ]);
+
+    doc.setFontSize(22);
+    doc.setTextColor(30, 30, 30);
+    doc.text("CHERY SPAREPART QUOTATION", 14, 20);
+    doc.setFontSize(9);
+    doc.setTextColor(120, 120, 120);
+    doc.text(`Tanggal: ${new Date().toLocaleString('id-ID')}`, 14, 28);
+    doc.text(`Item: ${selectedParts.length} part(s)`, 14, 33);
 
     autoTable(doc, {
-      startY: 35,
-      head: [['No', 'Part Number', 'Part Name', 'Model Tipe', 'Price (Retail)', 'Preview']],
+      startY: 38,
+      head: [['No', 'Part Number', 'Part Name', 'Model Tipe', 'Harga Non PPN', 'PPN (11%)', 'Total (Inc PPN)', 'Preview']],
       body: tableData,
       theme: 'grid',
-      headStyles: { fillGray: [40, 40, 40], textColor: [255, 255, 255] },
+      headStyles: { fillColor: [30, 30, 30], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+      bodyStyles: { fontSize: 7 },
+      alternateRowStyles: { fillColor: [248, 248, 248] },
       didDrawCell: (data) => {
-        if (data.section === 'body' && data.column.index === 5 && data.cell.raw && data.cell.raw.image) {
+        if (data.section === 'body' && data.column.index === 7 && data.cell.raw && data.cell.raw.image) {
           doc.addImage(data.cell.raw.image, 'JPEG', data.cell.x + 2, data.cell.y + 2, 40, 30);
         }
       },
       columnStyles: {
-        0: { cellWidth: 10 },
-        1: { cellWidth: 30 },
-        2: { cellWidth: 35 },
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 30, fontStyle: 'bold' },
+        2: { cellWidth: 55 },
         3: { cellWidth: 35 },
-        4: { cellWidth: 35, fontStyle: 'bold' },
-        5: { cellWidth: 45, minCellHeight: 35 }
-      }
+        4: { cellWidth: 30, halign: 'right' },
+        5: { cellWidth: 30, halign: 'right' },
+        6: { cellWidth: 35, halign: 'right', fontStyle: 'bold' },
+        7: { cellWidth: 45, minCellHeight: 35 }
+      },
+      margin: { left: 14, right: 14 },
+      tableWidth: 'auto'
     });
+
+    // Footer
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(7);
+      doc.setTextColor(160, 160, 160);
+      doc.text(`Page ${i} of ${pageCount}`, doc.internal.pageSize.width - 14, doc.internal.pageSize.height - 10, { align: 'right' });
+      doc.text('Chery Sparepart Quotation System', 14, doc.internal.pageSize.height - 10);
+    }
 
     doc.save(`Quotation_Chery_${new Date().getTime()}.pdf`);
     Toastify({ text: "✅ PDF Berhasil diunduh!", style: { background: "#10b981" } }).showToast();
@@ -1820,11 +1859,26 @@ export default function OwnerPanel({
                               <div className="flex-1 min-w-0 pr-8">
                                 <h5 className="text-xs font-black text-zinc-900 truncate uppercase">{p.name}</h5>
                                 <p className="text-[9px] font-bold text-zinc-500 font-mono tracking-wider mb-1">{p.code}</p>
-                                <div className="flex items-center justify-between mt-2">
-                                  <p className="text-sm font-black text-zinc-900">
-                                    {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(p.price)}
-                                  </p>
-                                  <span className="text-[8px] font-black text-zinc-400 uppercase tracking-tighter truncate max-w-[80px]">
+                                <div className="flex items-center gap-3 mt-2">
+                                  <div>
+                                    <p className="text-[8px] font-black text-zinc-400 uppercase tracking-tight">Non PPN</p>
+                                    <p className="text-xs font-bold text-zinc-600 leading-tight">
+                                      {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(p.priceExc)}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[8px] font-black text-zinc-400 uppercase tracking-tight">PPN (11%)</p>
+                                    <p className="text-xs font-bold text-zinc-600 leading-tight">
+                                      {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format((p.price || 0) - (p.priceExc || 0))}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[8px] font-black text-zinc-400 uppercase tracking-tight">Total</p>
+                                    <p className="text-xs font-bold text-zinc-900 leading-tight">
+                                      {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(p.price)}
+                                    </p>
+                                  </div>
+                                  <span className="text-[8px] font-black text-zinc-400 uppercase tracking-tighter truncate max-w-[60px] ml-auto">
                                     {p.models}
                                   </span>
                                 </div>
@@ -1852,10 +1906,26 @@ export default function OwnerPanel({
                     </div>
 
                     {selectedParts.length > 0 && (
-                      <div className="mt-8 pt-8 border-t border-zinc-200 space-y-6">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-black text-zinc-500 uppercase tracking-[0.2em]">Total Est. Price</p>
-                          <p className="text-2xl font-black text-zinc-900">
+                      <div className="mt-8 pt-8 border-t border-zinc-200 space-y-3">
+                        <div className="flex items-center justify-between text-zinc-600 text-xs font-semibold">
+                          <p className="uppercase tracking-wider">Total Non PPN</p>
+                          <p>
+                            {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(
+                              selectedParts.reduce((acc, curr) => acc + (curr.priceExc || 0), 0)
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-between text-zinc-600 text-xs font-semibold">
+                          <p className="uppercase tracking-wider">Total PPN (11%)</p>
+                          <p>
+                            {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(
+                              selectedParts.reduce((acc, curr) => acc + ((curr.price || 0) - (curr.priceExc || 0)), 0)
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-between border-t border-zinc-200 pt-3">
+                          <p className="text-sm font-black text-zinc-900 uppercase tracking-[0.1em]">Total (Inc PPN)</p>
+                          <p className="text-xl font-black text-zinc-900">
                             {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(
                               selectedParts.reduce((acc, curr) => acc + (curr.price || 0), 0)
                             )}
@@ -3241,7 +3311,13 @@ export default function OwnerPanel({
                       <input 
                         type="number"
                         value={selectedParts[editingPartIdx].price}
-                        onChange={(e) => handleUpdatePartManual(editingPartIdx, { price: parseInt(e.target.value) || 0 })}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 0;
+                          handleUpdatePartManual(editingPartIdx, { 
+                            price: val, 
+                            priceExc: Math.round(val / 1.11)
+                          });
+                        }}
                         className="w-full bg-zinc-100 border border-zinc-200 rounded-md px-5 py-4 text-zinc-900 font-bold outline-none focus:border-zinc-2000 transition-all font-mono"
                       />
                    </div>

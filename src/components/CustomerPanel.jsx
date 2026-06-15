@@ -2,14 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { 
   History, Car, Calendar, User, FileText, 
   Search, ShieldCheck, ShieldAlert,
-  ChevronRight, Wrench, Package, ArrowLeft
+  ChevronRight, Wrench, Package, ArrowLeft,
+  AlertTriangle, Key, CheckCircle2, MessageCircle
 } from 'lucide-react';
 import Toastify from 'toastify-js';
+import CustomerComplaint from './CustomerComplaint';
 
 const CustomerPanel = ({ user, handleLogout }) => {
   const [history, setHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('history');
+  const [vinVerified, setVinVerified] = useState(() => sessionStorage.getItem('vin_verified') === 'true');
+  const [vinInput, setVinInput] = useState('');
+  const [vinError, setVinError] = useState('');
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -17,14 +22,13 @@ const CustomerPanel = ({ user, handleLogout }) => {
         setIsLoading(false);
         return;
       }
-
       try {
+        const { supabase } = await import('../utils/supabaseClient');
         const { data, error } = await supabase
           .from('history')
           .select('*')
           .or(`bk.eq.${user.plat_bk},plat.eq.${user.plat_bk}`)
           .order('id', { ascending: false });
-
         if (error) throw error;
         setHistory(data || []);
       } catch (err) {
@@ -34,9 +38,28 @@ const CustomerPanel = ({ user, handleLogout }) => {
         setIsLoading(false);
       }
     };
-
     fetchHistory();
   }, [user.plat_bk]);
+
+  const handleVinVerify = () => {
+    if (!user.vin) {
+      setVinError('Data VIN tidak tersedia. Hubungi admin.');
+      return;
+    }
+    const last4 = user.vin.slice(-4).toUpperCase();
+    if (vinInput.toUpperCase() === last4) {
+      setVinVerified(true);
+      setVinError('');
+      sessionStorage.setItem('vin_verified', 'true');
+    } else {
+      setVinError('4 digit terakhir VIN tidak cocok. Coba lagi.');
+    }
+  };
+
+  // ── If showing complaint page ──
+  if (activeTab === 'complaint') {
+    return <CustomerComplaint user={user} onBack={() => setActiveTab('history')} />;
+  }
 
   return (
     <div className="min-h-screen bg-white pb-[72px] md:pb-0">
@@ -75,8 +98,8 @@ const CustomerPanel = ({ user, handleLogout }) => {
               <div>
                 <h3 className="font-black text-lg text-black">Akun Sedang Diverifikasi</h3>
                 <p className="text-zinc-400 text-sm mt-1 leading-relaxed">
-                  Terima kasih sudah melengkapi profil! Admin kami sedang melakukan verifikasi data kendaraan Anda. 
-                  Riwayat servis akan muncul otomatis setelah akun Anda disetujui.
+                  Terima kasih sudah mendaftar! Admin kami sedang memproses verifikasi akun Anda.
+                  Setelah disetujui, Anda bisa melihat riwayat servis dan mengirim keluhan.
                 </p>
               </div>
             </div>
@@ -90,6 +113,13 @@ const CustomerPanel = ({ user, handleLogout }) => {
             className={`px-4 md:px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all min-w-[44px] min-h-[44px] ${activeTab === 'history' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}
           >
             Riwayat Servis
+          </button>
+          <button 
+            onClick={() => setActiveTab('complaint')}
+            className={`px-4 md:px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all min-w-[44px] min-h-[44px] flex items-center gap-2 ${activeTab === 'complaint' ? 'bg-red-500 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}
+          >
+            <AlertTriangle size={14} />
+            Komplain
           </button>
           <button 
             onClick={() => setActiveTab('profile')}
@@ -160,58 +190,96 @@ const CustomerPanel = ({ user, handleLogout }) => {
 
                     <div className="flex items-center justify-between pt-6 border-t border-zinc-50">
                        <span className="text-[9px] font-black text-zinc-300 uppercase tracking-widest">ID Servis: {item.id}</span>
-                       <button className="flex items-center gap-1 text-[10px] font-black text-black uppercase tracking-widest hover:gap-2 transition-all min-w-[44px] min-h-[44px] justify-center">
-                          Lihat Detail <ChevronRight size={14} />
-                       </button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
-        ) : (
+        ) : activeTab === 'profile' ? (
           <div className="space-y-6">
              <h2 className="text-sm font-black text-zinc-400 uppercase tracking-widest ml-1">Data Akun & Kendaraan</h2>
-             <div className="bg-white border border-zinc-100 rounded-[2.5rem] p-8 shadow-sm divide-y divide-zinc-50">
-                <div className="py-6 flex items-center justify-between first:pt-0">
-                   <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-zinc-50 rounded-xl flex items-center justify-center text-zinc-400"><User size={18} /></div>
-                      <div>
-                         <p className="text-[9px] text-zinc-400 font-black uppercase tracking-widest mb-0.5">Nama Lengkap</p>
-                         <p className="text-sm font-black text-black">{user.name}</p>
-                      </div>
-                   </div>
-                </div>
-                <div className="py-6 flex items-center justify-between">
-                   <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-zinc-50 rounded-xl flex items-center justify-center text-zinc-400"><Car size={18} /></div>
-                      <div>
-                         <p className="text-[9px] text-zinc-400 font-black uppercase tracking-widest mb-0.5">Plat Kendaraan</p>
-                         <p className="text-sm font-black text-black">{user.plat_bk}</p>
-                      </div>
-                   </div>
-                </div>
-                <div className="py-6 flex items-center justify-between">
-                   <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-zinc-50 rounded-xl flex items-center justify-center text-zinc-400"><FileText size={18} /></div>
-                      <div>
-                         <p className="text-[9px] text-zinc-400 font-black uppercase tracking-widest mb-0.5">Nomor Rangka (VIN)</p>
-                         <p className="text-sm font-black text-black">{user.vin || '-'}</p>
-                      </div>
-                   </div>
-                </div>
-                <div className="py-6 flex items-center justify-between last:pb-0">
-                   <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-zinc-50 rounded-xl flex items-center justify-center text-zinc-400"><Package size={18} /></div>
-                      <div>
-                         <p className="text-[9px] text-zinc-400 font-black uppercase tracking-widest mb-0.5">Username / WhatsApp</p>
-                         <p className="text-sm font-black text-black">{user.username}</p>
-                      </div>
-                   </div>
-                </div>
-             </div>
+
+             {/* VIN Verification Gate */}
+             {!vinVerified ? (
+               <div className="bg-zinc-50 border border-zinc-200 rounded-[2.5rem] p-8 text-center shadow-sm">
+                 <div className="w-16 h-16 bg-zinc-200 rounded-full flex items-center justify-center mx-auto mb-5">
+                   <Key size={28} className="text-zinc-500" />
+                 </div>
+                 <h3 className="text-lg font-black text-black mb-2">Verifikasi Data Kendaraan</h3>
+                 <p className="text-zinc-400 text-sm mb-6 max-w-sm mx-auto leading-relaxed">
+                   Masukkan <strong>4 digit terakhir</strong> Nomor Rangka (VIN) kendaraan Anda untuk mengakses data kendaraan.
+                 </p>
+                 <div className="flex items-center gap-3 max-w-xs mx-auto">
+                   <input
+                     type="text"
+                     maxLength={4}
+                     placeholder="4 digit terakhir VIN"
+                     className="flex-1 bg-white border-2 border-zinc-200 p-4 rounded-2xl focus:border-black outline-none transition-all text-center font-black text-xl tracking-[0.3em] uppercase"
+                     value={vinInput}
+                     onChange={(e) => { setVinInput(e.target.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 4)); setVinError(''); }}
+                     onKeyDown={(e) => { if (e.key === 'Enter') handleVinVerify(); }}
+                   />
+                   <button
+                     onClick={handleVinVerify}
+                     className="px-6 py-4 bg-black text-white rounded-2xl font-black text-sm hover:bg-zinc-800 transition-all min-w-[44px]"
+                   >
+                     OK
+                   </button>
+                 </div>
+                 {vinError && (
+                   <p className="text-red-500 text-xs font-bold mt-3 flex items-center justify-center gap-2">
+                     <AlertTriangle size={14} /> {vinError}
+                   </p>
+                 )}
+               </div>
+             ) : (
+               <div className="bg-white border border-zinc-100 rounded-[2.5rem] p-8 shadow-sm divide-y divide-zinc-50">
+                 <div className="py-6 flex items-center justify-between first:pt-0">
+                    <div className="flex items-center gap-4">
+                       <div className="w-10 h-10 bg-zinc-50 rounded-xl flex items-center justify-center text-zinc-400"><User size={18} /></div>
+                       <div>
+                          <p className="text-[9px] text-zinc-400 font-black uppercase tracking-widest mb-0.5">Nama Lengkap</p>
+                          <p className="text-sm font-black text-black">{user.name}</p>
+                       </div>
+                    </div>
+                 </div>
+                 <div className="py-6 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                       <div className="w-10 h-10 bg-zinc-50 rounded-xl flex items-center justify-center text-zinc-400"><Car size={18} /></div>
+                       <div>
+                          <p className="text-[9px] text-zinc-400 font-black uppercase tracking-widest mb-0.5">Plat Kendaraan</p>
+                          <p className="text-sm font-black text-black">{user.plat_bk}</p>
+                       </div>
+                    </div>
+                 </div>
+                 <div className="py-6 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                       <div className="w-10 h-10 bg-zinc-50 rounded-xl flex items-center justify-center text-zinc-400"><FileText size={18} /></div>
+                       <div>
+                          <p className="text-[9px] text-zinc-400 font-black uppercase tracking-widest mb-0.5">Nomor Rangka (VIN)</p>
+                          <p className="text-sm font-black text-black">
+                            {user.vin ? `${user.vin.slice(0, -4)}${'*'.repeat(4)}` : '-'}
+                            <span className="text-emerald-600 ml-2 text-[10px]">
+                              <CheckCircle2 size={12} className="inline" /> Terverifikasi
+                            </span>
+                          </p>
+                       </div>
+                    </div>
+                 </div>
+                 <div className="py-6 flex items-center justify-between last:pb-0">
+                    <div className="flex items-center gap-4">
+                       <div className="w-10 h-10 bg-zinc-50 rounded-xl flex items-center justify-center text-zinc-400"><MessageCircle size={18} /></div>
+                       <div>
+                          <p className="text-[9px] text-zinc-400 font-black uppercase tracking-widest mb-0.5">Username / WhatsApp</p>
+                          <p className="text-sm font-black text-black">{user.username}</p>
+                       </div>
+                    </div>
+                 </div>
+               </div>
+             )}
           </div>
-        )}
+        ) : null}
       </main>
     </div>
   );

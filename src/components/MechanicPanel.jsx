@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { User, CheckCircle, Calendar, Key, AlertCircle, TrendingUp, CheckCircle2, Eye, EyeOff, Zap, Shield, Clock, Activity, FileText, X } from 'lucide-react';
+import { User, CheckCircle, Calendar, Key, AlertCircle, TrendingUp, CheckCircle2, Eye, EyeOff, Zap, Shield, Clock, Activity, FileText, X, Search } from 'lucide-react';
+import { db } from '../utils/dbClient';
 
-const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = [], queue = [], onStartWork, onComplete, onToggleTask, formatTime }) => {
+const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = [], queue = [], onStartWork, onComplete, onToggleTask, formatTime, onSetOvernight, onCancelOvernight }) => {
     const [history, setHistory] = useState([]);
     const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '', confirmPassword: '' });
     const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
@@ -9,6 +10,75 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [selectedUnit, setSelectedUnit] = useState(null);
     const [isLoadingProcess, setIsLoadingProcess] = useState(false);
+
+    // States for DMS Work Order History
+    const [woTab, setWoTab] = useState('antrian');
+    const [woHistory, setWoHistory] = useState([]);
+    const [isWoLoading, setIsWoLoading] = useState(false);
+    const [woSearch, setWoSearch] = useState('');
+
+    // Speech-to-Text & Overnight States
+    const [overnightReason, setOvernightReason] = useState('');
+    const [isListening, setIsListening] = useState(false);
+
+    const handleSpeech = () => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Browser Anda tidak mendukung Speech Recognition.");
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'id-ID';
+        recognition.continuous = false;
+        recognition.interimResults = false;
+
+        recognition.onstart = () => {
+            setIsListening(true);
+        };
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            setOvernightReason(prev => prev ? prev + ' ' + transcript : transcript);
+        };
+
+        recognition.onerror = (e) => {
+            console.error("Speech Recognition Error:", e);
+            setIsListening(false);
+        };
+
+        recognition.onend = () => {
+            setIsListening(false);
+        };
+
+        recognition.start();
+    };
+
+    useEffect(() => {
+        const fetchWoHistory = async () => {
+            if (!user?.name) return;
+            setIsWoLoading(true);
+            try {
+                // Using case-insensitive ilike matching with wildcard characters to make it robust
+                const { data, error } = await db.select('laporanwo', {
+                    ilike: { 'Mekanik': `%${user.name}%` }
+                });
+                if (error) throw error;
+                // Sort by entry time descending
+                const sorted = (data || []).sort((a, b) => {
+                    const dateA = a['Wkt.Masuk'] ? new Date(a['Wkt.Masuk']) : new Date(0);
+                    const dateB = b['Wkt.Masuk'] ? new Date(b['Wkt.Masuk']) : new Date(0);
+                    return dateB - dateA;
+                });
+                setWoHistory(sorted);
+            } catch (err) {
+                console.error("Gagal mengambil data laporanwo:", err);
+            } finally {
+                setIsWoLoading(false);
+            }
+        };
+        fetchWoHistory();
+    }, [user?.name]);
 
     const toggleShow = (field) => setShowPasswords(prev => ({ ...prev, [field]: !prev[field] }));
 
@@ -270,25 +340,125 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                     </div>
 
                     {/* HISTORY LIST MINI */}
-                    <div className="bg-white rounded-2xl md:rounded-[2rem] border border-zinc-200 shadow-xl shadow-zinc-200/30 overflow-hidden flex-1 overflow-y-auto max-h-[400px] custom-scrollbar">
-                        <div className="p-4 md:p-6 border-b border-zinc-50 bg-zinc-50/50 flex justify-between items-center">
-                            <h3 className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Riwayat Terakhir</h3>
-                            <span className="text-[9px] font-bold text-zinc-300">{history.length} ITEMS</span>
-                        </div>
-                        <div className="divide-y divide-zinc-50">
-                            {history.slice(0, 10).map((h, i) => (
-                                <div key={i} className="p-4 min-h-[44px] flex justify-between items-center bg-white hover:bg-zinc-50 transition-all">
-                                    <div>
-                                        <p className="text-sm font-black text-zinc-900 font-mono tracking-tighter leading-none mb-1">{h.bk}</p>
-                                        <p className="text-[9px] md:text-[10px] font-black text-zinc-400 uppercase tracking-widest">{h.tipe}</p>
-                                    </div>
-                                    <p className="text-[10px] md:text-[11px] font-black text-zinc-400 font-mono">{new Date(h.completedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}</p>
+                    <div className="bg-white rounded-2xl md:rounded-[2rem] border border-zinc-200 shadow-xl shadow-zinc-200/30 overflow-hidden flex flex-col max-h-[450px] min-h-[350px]">
+                        <div className="p-4 md:p-6 border-b border-zinc-100 bg-zinc-50/50 flex flex-col gap-3">
+                            <div className="flex justify-between items-center">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Riwayat Perbaikan</h3>
+                            </div>
+                            
+                            {/* Tab Toggles */}
+                            <div className="flex bg-zinc-100 p-1 rounded-xl border border-zinc-200 w-full">
+                                <button
+                                    onClick={() => setWoTab('antrian')}
+                                    className={`flex-1 text-[9px] font-black uppercase tracking-widest py-2 rounded-lg transition-all ${woTab === 'antrian' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-600'}`}
+                                >
+                                    Antrean ({history.length})
+                                </button>
+                                <button
+                                    onClick={() => setWoTab('wo')}
+                                    className={`flex-1 text-[9px] font-black uppercase tracking-widest py-2 rounded-lg transition-all ${woTab === 'wo' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-600'}`}
+                                >
+                                    Work Orders ({woHistory.length})
+                                </button>
+                            </div>
+
+                            {/* Search bar inside the modal/sidebar header if on WO tab */}
+                            {woTab === 'wo' && (
+                                <div className="relative mt-2">
+                                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-zinc-400">
+                                        <Search size={14} />
+                                    </span>
+                                    <input
+                                        type="text"
+                                        placeholder="Cari No. WO, BK, Tipe..."
+                                        value={woSearch}
+                                        onChange={(e) => setWoSearch(e.target.value)}
+                                        className="w-full bg-white border border-zinc-200 text-xs rounded-xl pl-9 pr-4 py-2 text-zinc-900 font-bold focus:outline-none focus:border-zinc-950 shadow-sm"
+                                    />
                                 </div>
-                            ))}
+                            )}
                         </div>
-                        {history.length === 0 && (
-                            <div className="p-10 text-center opacity-30 italic text-xs">Belum ada riwayat</div>
-                        )}
+
+                        <div className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-zinc-50">
+                            {woTab === 'antrian' ? (
+                                <>
+                                    {history.slice(0, 20).map((h, i) => (
+                                        <div key={i} className="p-4 min-h-[44px] flex justify-between items-center bg-white hover:bg-zinc-50 transition-all">
+                                            <div>
+                                                <p className="text-sm font-black text-zinc-900 font-mono tracking-tighter leading-none mb-1">{h.bk}</p>
+                                                <p className="text-[9px] md:text-[10px] font-black text-zinc-400 uppercase tracking-widest">{h.tipe}</p>
+                                            </div>
+                                            <p className="text-[10px] md:text-[11px] font-black text-zinc-400 font-mono">
+                                                {new Date(h.completedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                                            </p>
+                                        </div>
+                                    ))}
+                                    {history.length === 0 && (
+                                        <div className="p-10 text-center opacity-30 italic text-xs">Belum ada riwayat antrean</div>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    {isWoLoading ? (
+                                        <div className="py-12 text-center">
+                                            <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                                            <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider">Loading WO...</p>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            {(() => {
+                                                const filtered = woHistory.filter(h => {
+                                                    if (!woSearch.trim()) return true;
+                                                    const searchLower = woSearch.toLowerCase();
+                                                    return (
+                                                        String(h['No. WO'] || '').toLowerCase().includes(searchLower) ||
+                                                        String(h['No. Pol'] || '').toLowerCase().includes(searchLower) ||
+                                                        String(h['Kendaraan'] || '').toLowerCase().includes(searchLower)
+                                                    );
+                                                });
+
+                                                if (filtered.length === 0) {
+                                                    return <div className="p-10 text-center opacity-30 italic text-xs">Tidak ada Work Order yang cocok</div>;
+                                                }
+
+                                                return filtered.map((h, i) => {
+                                                    const prefix = String(h['No. WO'] || '').substring(0, 3).toUpperCase();
+                                                    const badgeColor = prefix === 'EUR' ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                                                                       prefix === 'IFS' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                                                                       prefix === 'IKC' ? 'bg-purple-50 text-purple-600 border-purple-100' :
+                                                                       'bg-zinc-50 text-zinc-600 border-zinc-100';
+                                                    
+                                                    return (
+                                                        <div key={i} className="p-4 flex flex-col bg-white hover:bg-zinc-50 transition-all gap-2 text-xs">
+                                                            <div className="flex justify-between items-start">
+                                                                <div>
+                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                        <p className="font-black text-zinc-900 font-mono tracking-tighter leading-none">{h['No. WO']}</p>
+                                                                        <span className={`text-[7px] font-black px-1.5 py-0.5 rounded border ${badgeColor}`}>
+                                                                            {prefix}
+                                                                        </span>
+                                                                    </div>
+                                                                    <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">{h['Kendaraan']} • {h['No. Pol']}</p>
+                                                                </div>
+                                                                <span className="text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest bg-zinc-100 text-zinc-500">
+                                                                    {h['Status'] || 'CLOSED'}
+                                                                </span>
+                                                            </div>
+                                                            
+                                                            <div className="flex justify-between items-center text-[9px] text-zinc-500 font-bold uppercase tracking-widest mt-1 border-t border-zinc-50 pt-2">
+                                                                <span>Jasa: {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(h['LC'] || 0)}</span>
+                                                                <span>Total: {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(h['G.TOTAL'] || h['TOTAL'] || 0)}</span>
+                                                            </div>
+                                                            <p className="text-[8px] font-mono text-zinc-300 text-right mt-1">{h['Wkt.Masuk'] || '-'}</p>
+                                                        </div>
+                                                    );
+                                                });
+                                            })()}
+                                        </>
+                                    )}
+                                </>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -324,9 +494,9 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
 
                                 {/* CHECKLIST */}
                                 <h4 className="text-[10px] font-black uppercase text-zinc-400 tracking-widest ml-1 mb-4 flex items-center gap-2">
-                                    <div className="w-1.5 h-1.5 bg-black rounded-full"></div> Progress Checklist
+                                    <div className="w-1.5 h-1.5 bg-black rounded-full"></div> Progress Checklist (Ketuk untuk Selesai)
                                 </h4>
-                                <div className="space-y-3">
+                                <div className="space-y-4">
                                     {(liveUnit.checklist || []).length === 0 ? (
                                         <div className="py-12 border-2 border-dashed border-zinc-100 rounded-3xl flex flex-col items-center justify-center opacity-40">
                                             <CheckCircle size={32} className="mb-2" />
@@ -335,20 +505,82 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                                     ) : liveUnit.checklist.map(task => (
                                         <button
                                             key={task.id}
-                                            disabled={false}
+                                            disabled={liveUnit.status !== 'working'}
                                             onClick={() => onToggleTask(liveUnit, task.id)}
-                                            className={`w-full flex items-center gap-3 md:gap-4 p-4 md:p-5 min-h-[44px] rounded-xl md:rounded-2xl transition-all border shadow-sm ${task.completed ? 'bg-zinc-50 border-zinc-200' : 'bg-white border-zinc-100 hover:border-black'}`}
+                                            className={`w-full flex items-center gap-4 p-6 md:p-8 rounded-[2rem] transition-all border-2 shadow-sm ${
+                                                task.completed 
+                                                    ? 'bg-zinc-50 border-zinc-200 text-zinc-400' 
+                                                    : 'bg-white border-zinc-300 hover:border-black active:bg-zinc-100 text-zinc-900'
+                                            }`}
                                         >
-                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${task.completed ? 'bg-black text-white' : 'bg-zinc-50 text-zinc-300'}`}>
-                                                <CheckCircle size={18} />
+                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                                                task.completed ? 'bg-black text-white' : 'bg-zinc-50 text-zinc-300'
+                                            }`}>
+                                                <CheckCircle size={22} />
                                             </div>
-                                            <span className={`font-bold uppercase tracking-tight text-left text-sm ${task.completed ? 'text-zinc-400 line-through opacity-60' : 'text-zinc-900'}`}>{task.text}</span>
+                                            <span className={`font-black text-base uppercase tracking-tight text-left ${
+                                                task.completed ? 'line-through opacity-60' : ''
+                                            }`}>{task.text}</span>
                                         </button>
                                     ))}
                                     {liveUnit.status !== 'working' && (liveUnit.checklist || []).length > 0 && (
-                                        <p className="text-center text-[10px] font-black text-zinc-400 mt-6 bg-zinc-50 py-3 rounded-xl border border-zinc-100 uppercase tracking-widest">Status: Menunggu dimulai</p>
+                                        <p className="text-center text-[10px] font-black text-zinc-400 mt-6 bg-zinc-50 py-4 rounded-2xl border border-zinc-100 uppercase tracking-widest">Status: Menunggu dimulai</p>
                                     )}
                                 </div>
+
+                                {/* OVERNIGHT / MENGINAP FORM (SPEECH TO TEXT) */}
+                                {liveUnit.status === 'working' && (
+                                    <div className="mt-8 pt-8 border-t border-zinc-100 space-y-4">
+                                        <h4 className="text-[10px] font-black uppercase text-zinc-400 tracking-widest ml-1 flex items-center gap-2">
+                                            <div className="w-1.5 h-1.5 bg-purple-500 rounded-full"></div> Tandai Menginap (Overnight)
+                                        </h4>
+                                        <div className="space-y-2">
+                                            <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest ml-1">Alasan Menginap (Tekan Mic Untuk Bicara)</label>
+                                            <div className="relative">
+                                                <textarea 
+                                                    value={overnightReason}
+                                                    onChange={(e) => setOvernightReason(e.target.value)}
+                                                    placeholder="Contoh: nunggu sparepart, pengerjaan belum selesai..." 
+                                                    rows={3}
+                                                    className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl p-5 pr-16 text-sm font-bold text-black focus:outline-none focus:border-zinc-950 resize-none placeholder:text-zinc-300"
+                                                />
+                                                <button 
+                                                    type="button"
+                                                    onClick={handleSpeech}
+                                                    className={`absolute right-4 bottom-4 w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
+                                                        isListening 
+                                                            ? 'bg-red-500 text-white animate-pulse shadow-lg shadow-red-200' 
+                                                            : 'bg-zinc-100 text-zinc-400 hover:text-black hover:bg-zinc-200'
+                                                    }`}
+                                                    title="Bicara (Bahasa Indonesia)"
+                                                >
+                                                    <Activity size={20} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <button 
+                                            type="button"
+                                            onClick={async () => {
+                                                if (!overnightReason.trim()) {
+                                                    alert("Silakan isi alasan menginap.");
+                                                    return;
+                                                }
+                                                setIsLoadingProcess(true);
+                                                try {
+                                                    await onSetOvernight(liveUnit, overnightReason.trim());
+                                                    setSelectedUnit(null);
+                                                    setOvernightReason('');
+                                                } catch (e) {
+                                                    console.error("Gagal men-set overnight:", e);
+                                                }
+                                                setIsLoadingProcess(false);
+                                            }}
+                                            className="w-full bg-purple-600 hover:bg-purple-700 text-white py-5 rounded-2xl font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all active:scale-95 shadow-md flex items-center justify-center gap-2"
+                                        >
+                                            Set Unit Menginap
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

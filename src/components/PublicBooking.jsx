@@ -89,9 +89,50 @@ export default function PublicBooking({ user }) {
             yesterday.setDate(yesterday.getDate() - 1);
             const dateStr = yesterday.toISOString().split('T')[0];
 
-            const { data, error } = await db.select('booking', { or: `tanggal.gte.${dateStr},id.eq.999999` });
+            const { data: supabaseData, error } = await db.select('booking', { or: `tanggal.gte.${dateStr},id.eq.999999` });
             if (error) throw error;
-            if (Array.isArray(data)) setBookings(data);
+
+            let merged = Array.isArray(supabaseData) ? [...supabaseData] : [];
+
+            // Juga ambil booking dari DMS internal
+            try {
+                const now = new Date();
+                const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+                const nextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+                const to = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-${String(nextMonth.getDate()).padStart(2, '0')}`;
+
+                const dmsRes = await fetch(`/api/chery_dms?endpoint=booking-data&datefrom=${from}&dateto=${to}&length=200`);
+                if (dmsRes.ok) {
+                    const dmsJson = await dmsRes.json();
+                    const dmsBookings = (dmsJson.data || []).map(b => {
+                        const janji = b.janji_datang || '';
+                        const parts = janji.split(' ');
+                        const tgl = parts[0] || '';
+                        const jamRaw = parts[1] || '00:00';
+                        const jam = jamRaw.replace(':', '.');
+                        const sBooking = (b.status_booking || '').toLowerCase();
+                        if (['batal', 'expired', 'declined'].includes(sBooking)) return null;
+                        return {
+                            id: `dms_${b.no_booking || b.id || Math.random()}`,
+                            noUrut: 0,
+                            tanggal: tgl,
+                            jam,
+                            noPlat: b.no_polisi || '',
+                            namaCustomer: b.nama_pelanggan || '',
+                            noTelp: b.no_telp || '',
+                            tipeMobil: b.nama_kendaraan || '',
+                            keperluanService: '',
+                            status: 'accepted',
+                            bookingVia: 'DMS Internal',
+                        };
+                    }).filter(Boolean).filter(b => b.tanggal >= dateStr);
+                    merged = [...merged, ...dmsBookings];
+                }
+            } catch (dmsErr) {
+                console.warn('Gagal fetch DMS bookings:', dmsErr);
+            }
+
+            setBookings(merged);
         } catch (e) { console.error('Gagal fetch booking:', e); }
     };
 
@@ -208,9 +249,62 @@ export default function PublicBooking({ user }) {
         setPendingBookJam('');
     };
 
+    const checkDmsVehicle = async (noPlat) => {
+        try {
+            const cleanPlat = noPlat.toUpperCase().replace(/\s+/g, '');
+            const res = await fetch(`/api/chery_dms?endpoint=vehicle-select&term=${cleanPlat}&q=${cleanPlat}`);
+            if (!res.ok) return null;
+            const json = await res.json();
+            const matched = Array.isArray(json) && json.find(v =>
+                (v.no_polisi || '').toUpperCase().replace(/\s+/g, '') === cleanPlat
+            );
+            return matched || null;
+        } catch (e) {
+            console.warn("DMS check error:", e);
+            return null;
+        }
+    };
+
+    const createDmsBooking = async (vehicleData) => {
+        const cleanPlat = formData.noPlat.toUpperCase().replace(/\s+/g, '');
+        const v = vehicleData;
+        const bookingPerson = user ? user.name : formData.namaCustomer;
+        const dmsBookingPayload = {
+            uniqid: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
+            id_kendaraan: v.id_kendaraan,
+            no_polisi: v.no_polisi,
+            model_kendaraan: v.model_kendaraan || v.nama_kendaraan || '',
+            nama_kendaraan: v.nama_kendaraan || '',
+            tipe_kendaraan: v.tipe_kendaraan || '',
+            no_chassis: v.no_chassis,
+            group_kendaraan: v.group_kendaraan || 'PC',
+            no_pelanggan: v.no_pelanggan,
+            id_pelanggan: v.id_pelanggan,
+            tipe_pelanggan: v.tipe_pelanggan || 'PRIBADI',
+            nama_pelanggan: v.nama_pelanggan,
+            no_telp_pelanggan: v.no_telp || formData.noTelp,
+            alamat_pelanggan: v.alamat || '-',
+            atas_nama_booking: formData.namaCustomer,
+            no_telp_booking: formData.noTelp,
+            janji_datang: `${selectedDate}T${(formData.jam || '08.30').replace('.', ':')}`,
+            keluhan: formData.keluhan || '-',
+            booking_via: 'Web-Public',
+            booking_via_personal: bookingPerson,
+            km: 0
+        };
+
+        const res = await fetch('/api/chery_dms?endpoint=booking-create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(dmsBookingPayload)
+        });
+
+        return res.ok;
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (isLoading) return; // Mencegah klik ganda simultan
+        if (isLoading) return;
 
         if (!formData.jam || !formData.noPlat || !formData.namaCustomer || !formData.noTelp) {
             Toastify({ text: "Harap isi semua field wajib!", background: "red" }).showToast();
@@ -222,7 +316,6 @@ export default function PublicBooking({ user }) {
             return;
         }
 
-        // Cek ketersediaan slot (1 unit per 30 mnt)
         const bookedAtThisTime = bookings.filter(b => 
             b.id !== 999999 &&
             isSameDate(b.tanggal, selectedDate) && 
@@ -240,9 +333,11 @@ export default function PublicBooking({ user }) {
 
         setIsLoading(true);
 
-        // 1. CEK DUPLIKASI PLAT BK (Strict Check)
         const { data: existingPlatBooking, error: platError } = await supabase
-            .rpc('check_duplicate_booking', { p_plat: formData.noPlat.toUpperCase().replace(/\s+/g, '') });
+            .from('booking')
+            .select('noPlat, tanggal, jam, status')
+            .eq('noPlat', formData.noPlat.toUpperCase().replace(/\s+/g, ''))
+            .in('status', ['waiting_approval', 'waiting confirm', 'accepted']);
 
         if (platError) {
             console.error("Plat Check Error:", platError);
@@ -264,7 +359,6 @@ export default function PublicBooking({ user }) {
             return;
         }
 
-
         const targetJam = normalizeJam(formData.jam);
 
         const { data: allBookings } = await db.select('booking', { select: 'jam, status', eq: { tanggal: selectedDate }, in: { status: ['waiting confirm', 'accepted', 'completed'] } });
@@ -279,31 +373,53 @@ export default function PublicBooking({ user }) {
             return;
         }
 
-        // 3. AMBIL NOMOR URUT TERKINI (Sequential)
         const { data: latestBooking } = await db.select('booking', { select: 'noUrut', order: { column: 'noUrut', ascending: false }, limit: 1, maybeSingle: true });
 
         const currentMax = Number(latestBooking?.noUrut || 0);
         const nextNoUrut = currentMax + 1;
 
+        const cleanPlat = formData.noPlat.toUpperCase().replace(/\s+/g, '');
+
         try {
+            // 1. CEK DMS DULU
+            let dmsSynced = false;
+            let dmsBookingStatus = 'waiting_approval';
+            let dmsBookingVia = user ? `Booking via: ${user.name}` : 'Web-Public';
+
+            const vehicleData = await checkDmsVehicle(cleanPlat);
+            if (vehicleData) {
+                const dmsOk = await createDmsBooking(vehicleData);
+                if (dmsOk) {
+                    dmsSynced = true;
+                    dmsBookingStatus = 'accepted';
+                    dmsBookingVia = 'Web-Public (Synced DMS)';
+                }
+            }
+
+            // 2. SIMPAN KE SUPABASE
             const newId = Date.now();
             const { error } = await db.insert('booking', {
                 id: newId,
                 noUrut: nextNoUrut,
                 tanggal: selectedDate,
                 jam: formData.jam,
-                noPlat: formData.noPlat.toUpperCase().replace(/\s+/g, ''),
+                noPlat: cleanPlat,
                 namaCustomer: formData.namaCustomer,
-                bookingVia: user ? `Booking via: ${user.name}` : 'Web-Public',
+                bookingVia: dmsBookingVia,
                 noTelp: formData.noTelp,
                 keperluanService: formData.keluhan,
                 ip_address: userIP,
-                status: 'waiting_approval'
+                status: dmsBookingStatus
             });
 
             if (error) throw error;
 
-            Toastify({ text: '✅ Booking berhasil dikirim!', style: { background: 'green' } }).showToast();
+            if (dmsSynced) {
+                Toastify({ text: '✅ Booking berhasil! Data kendaraan ditemukan di DMS & langsung aktif.', style: { background: 'green' } }).showToast();
+            } else {
+                Toastify({ text: '✅ Booking berhasil dikirim! Menunggu konfirmasi admin.', style: { background: 'green' } }).showToast();
+            }
+
             setIsBookingMode(false);
             setFormData({ jam: '', noPlat: '', namaCustomer: '', noTelp: '', keluhan: '' });
             fetchBookings();
