@@ -25,28 +25,45 @@ export default async function handler(req, res) {
     if (body.secret !== webhookSecret) {
       return res.status(401).json({ error: 'Invalid secret' });
     }
-    if (!body.sender || !body.text) {
-      return res.status(400).json({ error: 'sender and text required' });
+    if (!body.text) {
+      return res.status(400).json({ error: 'text required' });
     }
 
-    const cleanSender = body.sender?.replace(/\D/g, '') || '';
     const cleanText = body.text.trim();
+    const cleanSender = (body.sender || '').replace(/[^\d]/g, '');
 
     try {
-      // Cari pending customer berdasarkan OTP (ignore sender number)
-      const { data: customers, error: findErr } = await supabase
-        .from('customers')
-        .select('id, no_hp, otp, status')
-        .eq('otp', cleanText)
-        .eq('status', 'pending')
-        .limit(1);
+      let customer = null;
 
-      if (findErr) throw findErr;
-      if (!customers || customers.length === 0) {
-        return res.json({ matched: false, reason: 'otp_not_found' });
+      // 1) Coba match berdasarkan nomor + OTP (lebih aman)
+      if (cleanSender) {
+        const { data: byNumber } = await supabase
+          .from('customers')
+          .select('id, no_hp')
+          .eq('no_hp', cleanSender)
+          .eq('otp', cleanText)
+          .eq('status', 'pending')
+          .maybeSingle();
+
+        if (byNumber) customer = byNumber;
       }
 
-      const customer = customers[0];
+      // 2) Fallback: match OTP aja (buat yg sender-nya @lid / non-phone)
+      if (!customer) {
+        const { data: byOtp } = await supabase
+          .from('customers')
+          .select('id, no_hp')
+          .eq('otp', cleanText)
+          .eq('status', 'pending')
+          .maybeSingle();
+
+        if (byOtp) customer = byOtp;
+      }
+
+      if (!customer) {
+        return res.json({ matched: false, reason: 'not_found' });
+      }
+
       await supabase.from('customers').update({ status: 'active', otp: null }).eq('id', customer.id);
       await supabase.from('notifications').insert({
         type: 'registration_active',
