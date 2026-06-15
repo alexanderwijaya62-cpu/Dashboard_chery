@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Phone, ArrowRight, AlertCircle, Eye, EyeOff, Lock, MessageCircle, ShieldCheck, Send } from 'lucide-react';
 import { db } from '../utils/dbClient';
-import { WA_BASE_URL, WA_INSTANCE, sendText } from '../utils/waClient';
+import { WA_BASE_URL, WA_INSTANCE } from '../utils/waClient';
 import cheryLogo from '../assets/cherylogo.png';
 import orientalLogo from '../assets/oriental.jpeg';
 
@@ -14,11 +14,8 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [step, setStep] = useState('form');
   const [otpCode, setOtpCode] = useState('');
-  const [otpInput, setOtpInput] = useState(['', '', '', '', '', '']);
-  const [otpError, setOtpError] = useState('');
   const [otpVerified, setOtpVerified] = useState(false);
   const [socketReady, setSocketReady] = useState(false);
-  const otpRefs = useRef([]);
   const socketRef = useRef(null);
 
   const generateOtp = () => String(Math.floor(100000 + Math.random() * 900000));
@@ -41,12 +38,6 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
         target_role: 'owner',
         read: false
       }).catch(() => {});
-
-      // Balas WA konfirmasi ke customer
-      const nama = phone;
-      sendText(formatPhone(phone),
-        `🎉 *Akun Anda sudah aktif!*\n\nTerima kasih sudah mendaftar di Chery Oriental Medan.\n\nSekarang kamu bisa login dan mulai menggunakan fitur-fitur kami.\n\n🔗 https://cherymedan.web.id`
-      ).catch(() => {});
 
       setOtpVerified(true);
     } catch (err) {
@@ -125,20 +116,6 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
     };
   }, [step, otpVerified, phone, otpCode]);
 
-  const handleOtpChange = (idx, val) => {
-    if (!/^\d?$/.test(val)) return;
-    const newOtp = [...otpInput];
-    newOtp[idx] = val;
-    setOtpInput(newOtp);
-    if (val && idx < 5) otpRefs.current[idx + 1]?.focus();
-  };
-
-  const handleOtpKeyDown = (idx, e) => {
-    if (e.key === 'Backspace' && !otpInput[idx] && idx > 0) {
-      otpRefs.current[idx - 1]?.focus();
-    }
-  };
-
   const handleRegister = async (e) => {
     e.preventDefault();
     if (!phone || phone.length < 10) {
@@ -199,47 +176,6 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
     } catch (err) {
       console.error(err);
       alert("Gagal melakukan registrasi.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleVerifyManual = async () => {
-    const code = otpInput.join('');
-    if (code.length < 6) {
-      setOtpError('Masukkan 6 digit kode OTP');
-      return;
-    }
-
-    setIsLoading(true);
-    setOtpError('');
-
-    try {
-      const { data: user } = await db.select('customers', {
-        select: 'otp,status',
-        eq: { no_hp: phone },
-        maybeSingle: true,
-      });
-
-      if (!user) {
-        setOtpError('Akun tidak ditemukan. Silakan daftar ulang.');
-        return;
-      }
-
-      if (user.status === 'active') {
-        setOtpVerified(true);
-        return;
-      }
-
-      if (user.otp !== code) {
-        setOtpError('Kode OTP salah. Coba lagi.');
-        return;
-      }
-
-      await activateAccount();
-    } catch (err) {
-      console.error(err);
-      setOtpError('Gagal verifikasi. Coba lagi.');
     } finally {
       setIsLoading(false);
     }
@@ -320,46 +256,6 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
           >
             <Send size={18} /> Kirim OTP via WhatsApp
           </button>
-
-          <details className="text-left">
-            <summary className="text-[10px] text-zinc-400 font-bold cursor-pointer hover:text-zinc-600">
-              Atau masukkan kode secara manual
-            </summary>
-
-            <div className="mt-4 space-y-4">
-              <div className="flex justify-center gap-3">
-                {otpInput.map((digit, idx) => (
-                  <input
-                    key={idx}
-                    ref={(el) => (otpRefs.current[idx] = el)}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={digit}
-                    onChange={(e) => handleOtpChange(idx, e.target.value)}
-                    onKeyDown={(e) => handleOtpKeyDown(idx, e)}
-                    className="w-12 h-14 text-center text-2xl font-black bg-zinc-50 border-2 border-zinc-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-50 outline-none transition-all"
-                  />
-                ))}
-              </div>
-
-              {otpError && (
-                <div className="bg-red-50 text-red-600 text-xs p-3 rounded-xl border border-red-100 flex items-center justify-center gap-2">
-                  <AlertCircle size={16} /> {otpError}
-                </div>
-              )}
-
-              <button
-                onClick={handleVerifyManual}
-                disabled={isLoading}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-bold text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-50"
-              >
-                {isLoading ? 'Memverifikasi...' : (
-                  <>Verifikasi <ShieldCheck size={18} /></>
-                )}
-              </button>
-            </div>
-          </details>
         </div>
       </div>
     );
