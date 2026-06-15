@@ -5,7 +5,7 @@ import { WA_BASE_URL, WA_INSTANCE } from '../utils/waClient';
 import cheryLogo from '../assets/cherylogo.png';
 import orientalLogo from '../assets/oriental.jpeg';
 
-const WA_BOT_NUMBER = import.meta.env.VITE_WA_BOT_NUMBER || '6281263656724';
+const WA_BOT_NUMBER = import.meta.env.VITE_WA_BOT_NUMBER || '628888512596';
 
 const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
   const [phone, setPhone] = useState('');
