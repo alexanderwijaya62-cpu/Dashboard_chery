@@ -54,6 +54,35 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
     }
   };
 
+  // ── Polling: cek status jadi active via webhook ──
+  useEffect(() => {
+    if (step !== 'otp' || otpVerified) return;
+    let destroyed = false;
+    let timer;
+
+    const checkStatus = async () => {
+      if (destroyed) return;
+      try {
+        const { data } = await db.select('customers', {
+          select: 'status',
+          eq: { no_hp: phone },
+          maybeSingle: true,
+        });
+        if (data && data.status === 'active') {
+          setOtpVerified(true);
+        }
+      } catch (_) {}
+    };
+
+    timer = setInterval(checkStatus, 3000);
+    checkStatus();
+
+    return () => {
+      destroyed = true;
+      clearInterval(timer);
+    };
+  }, [step, otpVerified, phone]);
+
   useEffect(() => {
     if (step !== 'otp' || otpVerified) return;
 
