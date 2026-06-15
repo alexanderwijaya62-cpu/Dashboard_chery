@@ -29,36 +29,33 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'sender and text required' });
     }
 
-    const cleanSender = body.sender.replace(/\D/g, '');
+    const cleanSender = body.sender?.replace(/\D/g, '') || '';
     const cleanText = body.text.trim();
 
     try {
+      // Cari pending customer berdasarkan OTP (ignore sender number)
       const { data: customers, error: findErr } = await supabase
         .from('customers')
         .select('id, no_hp, otp, status')
-        .eq('no_hp', cleanSender)
+        .eq('otp', cleanText)
         .eq('status', 'pending')
         .limit(1);
 
       if (findErr) throw findErr;
       if (!customers || customers.length === 0) {
-        return res.json({ matched: false, reason: 'no_pending_customer' });
+        return res.json({ matched: false, reason: 'otp_not_found' });
       }
 
       const customer = customers[0];
-      if (customer.otp !== cleanText) {
-        return res.json({ matched: false, reason: 'otp_mismatch' });
-      }
-
       await supabase.from('customers').update({ status: 'active', otp: null }).eq('id', customer.id);
       await supabase.from('notifications').insert({
         type: 'registration_active',
-        message: `Akun pelanggan aktif via WA: ${cleanSender}`,
+        message: `Akun pelanggan aktif via WA: ${customer.no_hp}`,
         target_role: 'owner',
         read: false
       });
 
-      return res.json({ matched: true, no_hp: cleanSender });
+      return res.json({ matched: true, no_hp: customer.no_hp });
     } catch (error) {
       console.error('Webhook Error:', error.message);
       return res.status(500).json({ error: 'Internal server error' });
