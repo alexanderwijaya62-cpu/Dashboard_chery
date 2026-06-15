@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Phone, ArrowRight, AlertCircle, Eye, EyeOff, Lock, MessageCircle, ShieldCheck, Send } from 'lucide-react';
+import { Phone, ArrowRight, AlertCircle, Eye, EyeOff, Lock, MessageCircle, ShieldCheck, Send, CheckCircle } from 'lucide-react';
 import { db } from '../utils/dbClient';
-import { WA_BASE_URL, WA_INSTANCE } from '../utils/waClient';
+import { WA_BASE_URL, WA_INSTANCE, sendText } from '../utils/waClient';
 import cheryLogo from '../assets/cherylogo.png';
 import orientalLogo from '../assets/oriental.jpeg';
 
@@ -33,6 +33,21 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
   const activateAccount = async () => {
     try {
       await db.update('customers', { status: 'active', otp: null }, { eq: { no_hp: phone } });
+
+      // Notif ke owner: akun aktif
+      await db.insert('notifications', {
+        type: 'registration_active',
+        message: `Akun pelanggan aktif: ${phone}`,
+        target_role: 'owner',
+        read: false
+      }).catch(() => {});
+
+      // Balas WA konfirmasi ke customer
+      const nama = phone;
+      sendText(formatPhone(phone),
+        `🎉 *Akun Anda sudah aktif!*\n\nTerima kasih sudah mendaftar di Chery Oriental Medan.\n\nSekarang kamu bisa login dan mulai menggunakan fitur-fitur kami.\n\n🔗 https://cherymedan.web.id`
+      ).catch(() => {});
+
       setOtpVerified(true);
     } catch (err) {
       console.error(err);
