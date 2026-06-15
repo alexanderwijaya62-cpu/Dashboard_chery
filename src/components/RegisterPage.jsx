@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Phone, ArrowRight, AlertCircle, Eye, EyeOff, Lock, MessageCircle, ShieldCheck, Send, CheckCircle } from 'lucide-react';
+import { Phone, ArrowRight, AlertCircle, Eye, EyeOff, Lock, MessageCircle, ShieldCheck, Send } from 'lucide-react';
 import { db } from '../utils/dbClient';
 import { WA_BASE_URL, WA_INSTANCE, sendText } from '../utils/waClient';
 import cheryLogo from '../assets/cherylogo.png';
