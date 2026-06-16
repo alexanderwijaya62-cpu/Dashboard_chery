@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS public.customers (
     no_bk TEXT DEFAULT '', -- Nomor Plat Kendaraan
     status TEXT NOT NULL DEFAULT 'pending', -- pending, active
     otp TEXT,
+    otp_expires_at TIMESTAMP WITH TIME ZONE, -- Waktu kadaluwarsa OTP
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 CREATE TABLE IF NOT EXISTS public.sparepart (
@@ -252,3 +253,5 @@ CREATE POLICY "deny_all_anon" ON public.customers FOR ALL USING (false) WITH CHE
 -- ALTER TABLE public.users ADD COLUMN IF NOT EXISTS plat_bk TEXT;
 -- ALTER TABLE public.users ADD COLUMN IF NOT EXISTS vin TEXT;
 -- ALTER TABLE public.cro ADD COLUMN IF NOT EXISTS lampiran TEXT DEFAULT '[]';
+-- ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS otp_expires_at TIMESTAMP WITH TIME ZONE;
+-- ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS otp_resend_at TIMESTAMP WITH TIME ZONE;

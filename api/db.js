@@ -49,13 +49,19 @@ export default async function handler(req, res) {
 
         const { data: byNumber } = await supabase
           .from('customers')
-          .select('id, no_hp')
+          .select('id, no_hp, otp_expires_at')
           .in('no_hp', formats)
           .eq('otp', cleanText)
           .eq('status', 'pending')
           .maybeSingle();
 
-        if (byNumber) customer = byNumber;
+        if (byNumber) {
+          // Cek masa berlaku OTP
+          if (byNumber.otp_expires_at && new Date(byNumber.otp_expires_at) < new Date()) {
+            return res.json({ matched: false, reason: 'expired' });
+          }
+          customer = byNumber;
+        }
       }
 
       // TIDAK ada fallback OTP-only — hanya aktivasi jika nomor pengirim cocok

@@ -1,11 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Phone, ArrowRight, AlertCircle, Eye, EyeOff, Lock, MessageCircle, ShieldCheck, Send } from 'lucide-react';
+import { Phone, ArrowRight, AlertCircle, Eye, EyeOff, Lock, MessageCircle, ShieldCheck, Send, RefreshCw } from 'lucide-react';
 import { db } from '../utils/dbClient';
 import { WA_BASE_URL, WA_INSTANCE } from '../utils/waClient';
 import cheryLogo from '../assets/cherylogo.png';
 import orientalLogo from '../assets/oriental.jpeg';
 
 const WA_BOT_NUMBER = import.meta.env.VITE_WA_BOT_NUMBER || '628888512596';
+const OTP_DURATION = 300; // 5 menit (detik)
+const RESEND_COOLDOWN = 60; // 1 menit (detik)
 
 const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
   const [phone, setPhone] = useState('');
@@ -16,7 +18,12 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
   const [otpCode, setOtpCode] = useState('');
   const [otpVerified, setOtpVerified] = useState(false);
   const [socketReady, setSocketReady] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(OTP_DURATION);
+  const [isOtpExpired, setIsOtpExpired] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [isResending, setIsResending] = useState(false);
   const socketRef = useRef(null);
+  const isSubmitting = useRef(false);
 
   const generateOtp = () => String(Math.floor(100000 + Math.random() * 900000));
 
@@ -28,10 +35,11 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
   };
 
   const activateAccount = async () => {
+    if (isSubmitting.current) return;
+    isSubmitting.current = true;
     try {
-      await db.update('customers', { status: 'active', otp: null }, { eq: { no_hp: phone } });
+      await db.update('customers', { status: 'active', otp: null, otp_expires_at: null }, { eq: { no_hp: phone } });
 
-      // Notif ke owner: akun aktif
       await db.insert('notifications', {
         type: 'registration_active',
         message: `Akun pelanggan aktif: ${phone}`,
@@ -42,8 +50,39 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
       setOtpVerified(true);
     } catch (err) {
       console.error(err);
+    } finally {
+      isSubmitting.current = false;
     }
   };
+
+  // ── Countdown OTP ──
+  useEffect(() => {
+    if (step !== 'otp' || otpVerified || isOtpExpired) return;
+    let destroyed = false;
+
+    const update = () => {
+      if (destroyed) return;
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          setIsOtpExpired(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    };
+
+    const timer = setInterval(update, 1000);
+    return () => { destroyed = true; clearInterval(timer); };
+  }, [step, otpVerified, isOtpExpired]);
+
+  // ── Resend cooldown ──
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown(prev => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   // ── Polling: cek status jadi active via webhook ──
   useEffect(() => {
@@ -74,8 +113,9 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
     };
   }, [step, otpVerified, phone]);
 
+  // ── Socket.IO listener ──
   useEffect(() => {
-    if (step !== 'otp' || otpVerified) return;
+    if (step !== 'otp' || otpVerified || isOtpExpired) return;
 
     let io = null;
     let socket = null;
@@ -114,16 +154,21 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
       destroyed = true;
       if (socket) socket.disconnect();
     };
-  }, [step, otpVerified, phone, otpCode]);
+  }, [step, otpVerified, phone, otpCode, isOtpExpired]);
 
   const handleRegister = async (e) => {
     e.preventDefault();
+    if (isSubmitting.current) return;
+    isSubmitting.current = true;
+
     if (!phone || phone.length < 10) {
       alert("Nomor telepon tidak valid!");
+      isSubmitting.current = false;
       return;
     }
     if (!password || password.length < 6) {
       alert("Password minimal 6 karakter!");
+      isSubmitting.current = false;
       return;
     }
 
@@ -142,13 +187,15 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
       }
 
       const otp = generateOtp();
+      const otpExpiresAt = new Date(Date.now() + OTP_DURATION * 1000).toISOString();
 
       const { error: insertErr } = await db.insert('customers', {
         no_hp: phone,
         password: password,
         nama: phone,
         status: 'pending',
-        otp: otp
+        otp: otp,
+        otp_expires_at: otpExpiresAt
       });
 
       if (insertErr) {
@@ -172,13 +219,56 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
       }
 
       setOtpCode(otp);
+      setTimeLeft(OTP_DURATION);
+      setIsOtpExpired(false);
       setStep('otp');
     } catch (err) {
       console.error(err);
       alert("Gagal melakukan registrasi.");
     } finally {
       setIsLoading(false);
+      isSubmitting.current = false;
     }
+  };
+
+  const handleResendOtp = async () => {
+    if (isSubmitting.current || isResending || resendCooldown > 0) return;
+    isSubmitting.current = true;
+    setIsResending(true);
+
+    try {
+      const otp = generateOtp();
+      const otpExpiresAt = new Date(Date.now() + OTP_DURATION * 1000).toISOString();
+
+      await db.update('customers', {
+        otp: otp,
+        otp_expires_at: otpExpiresAt
+      }, { eq: { no_hp: phone } });
+
+      await db.insert('notifications', {
+        type: 'otp_resend',
+        message: `Pelanggan minta OTP baru: ${phone}, OTP: ${otp}`,
+        target_role: 'owner',
+        read: false
+      }).catch(() => {});
+
+      setOtpCode(otp);
+      setTimeLeft(OTP_DURATION);
+      setIsOtpExpired(false);
+      setResendCooldown(RESEND_COOLDOWN);
+    } catch (err) {
+      console.error(err);
+      alert("Gagal mengirim ulang OTP.");
+    } finally {
+      setIsResending(false);
+      isSubmitting.current = false;
+    }
+  };
+
+  const formatTime = (seconds) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
   // ── OTP VERIFIED SCREEN ──
@@ -211,51 +301,120 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
 
   // ── OTP SCREEN ──
   if (step === 'otp') {
+    const isExpired = isOtpExpired;
+    const canResend = isExpired && resendCooldown === 0 && !isResending;
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F2F2F7] p-6 animate-fade-in">
         <div className="w-full max-w-md bg-white rounded-[2.5rem] p-10 shadow-2xl border border-zinc-100 text-center">
-          <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
-            <MessageCircle size={40} className="text-blue-600" />
+          <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${
+            isExpired ? 'bg-red-50' : 'bg-blue-50'
+          }`}>
+            {isExpired ? (
+              <AlertCircle size={40} className="text-red-600" />
+            ) : (
+              <MessageCircle size={40} className="text-blue-600" />
+            )}
           </div>
-          <h2 className="text-2xl font-black tracking-tighter text-zinc-900 mb-2">AKTIVASI AKUN</h2>
+          <h2 className="text-2xl font-black tracking-tighter text-zinc-900 mb-2">
+            {isExpired ? 'OTP KADALUWARSA' : 'AKTIVASI AKUN'}
+          </h2>
           <p className="text-zinc-400 text-xs font-bold mb-6 uppercase tracking-[0.2em]">Chery Oriental Medan</p>
 
-          <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-5 mb-6 text-left">
-            <p className="text-xs text-zinc-500 font-bold mb-1">Langkah aktivasi:</p>
-            <ol className="text-xs text-zinc-700 space-y-2 font-medium">
-              <li>1. Buka WhatsApp kamu</li>
-              <li>2. Kirim pesan ke nomor <strong className="text-blue-600">{WA_BOT_NUMBER}</strong></li>
-              <li>3. Ketik kode: <strong className="text-lg tracking-widest text-blue-600">{otpCode}</strong></li>
-            </ol>
-          </div>
-
-          {socketReady ? (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-6">
-              <div className="flex items-center justify-center gap-2 text-sm text-emerald-700 font-bold">
-                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                Menunggu kiriman OTP via WhatsApp...
+          {!isExpired ? (
+            <>
+              <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-5 mb-6 text-left">
+                <p className="text-xs text-zinc-500 font-bold mb-1">Langkah aktivasi:</p>
+                <ol className="text-xs text-zinc-700 space-y-2 font-medium">
+                  <li>1. Buka WhatsApp kamu</li>
+                  <li>2. Kirim pesan ke nomor <strong className="text-blue-600">{WA_BOT_NUMBER}</strong></li>
+                  <li>3. Ketik kode: <strong className="text-lg tracking-widest text-blue-600">{otpCode}</strong></li>
+                </ol>
               </div>
-              <p className="text-[10px] text-emerald-500 mt-2">
-                Kirim kode <strong>{otpCode}</strong> ke {WA_BOT_NUMBER} via WhatsApp
-              </p>
-            </div>
-          ) : (
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
-              <p className="text-xs text-amber-700 font-bold text-center">
-                Kirim kode <strong>{otpCode}</strong> ke {WA_BOT_NUMBER} via WhatsApp
-              </p>
-            </div>
-          )}
 
-          <button
-            onClick={() => {
-              const waUrl = `https://wa.me/${WA_BOT_NUMBER}?text=${encodeURIComponent(otpCode)}`;
-              window.open(waUrl, '_blank');
-            }}
-            className="w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-2xl font-bold text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 mb-6"
-          >
-            <Send size={18} /> Kirim OTP via WhatsApp
-          </button>
+              {/* Countdown Timer */}
+              <div className="mb-4">
+                <div className="flex items-center justify-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${timeLeft <= 60 ? 'bg-red-500 animate-pulse' : 'bg-blue-500'}`} />
+                  <span className={`font-bold text-sm ${timeLeft <= 60 ? 'text-red-600' : 'text-zinc-700'}`}>
+                    {formatTime(timeLeft)}
+                  </span>
+                </div>
+                <p className="text-[10px] text-zinc-400 mt-1">Sisa waktu verifikasi</p>
+              </div>
+
+              {socketReady ? (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-6">
+                  <div className="flex items-center justify-center gap-2 text-sm text-emerald-700 font-bold">
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                    Menunggu kiriman OTP via WhatsApp...
+                  </div>
+                  <p className="text-[10px] text-emerald-500 mt-2">
+                    Kirim kode <strong>{otpCode}</strong> ke {WA_BOT_NUMBER} via WhatsApp
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
+                  <p className="text-xs text-amber-700 font-bold text-center">
+                    Kirim kode <strong>{otpCode}</strong> ke {WA_BOT_NUMBER} via WhatsApp
+                  </p>
+                </div>
+              )}
+
+              <button
+                onClick={() => {
+                  if (isSubmitting.current) return;
+                  isSubmitting.current = true;
+                  const waUrl = `https://wa.me/${WA_BOT_NUMBER}?text=${encodeURIComponent(otpCode)}`;
+                  window.open(waUrl, '_blank');
+                  setTimeout(() => { isSubmitting.current = false; }, 1000);
+                }}
+                className="w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-2xl font-bold text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 mb-6"
+              >
+                <Send size={18} /> Kirim OTP via WhatsApp
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage('login')}
+                className="w-full text-zinc-400 text-xs font-bold hover:text-zinc-600 transition-colors"
+              >
+                Sudah punya akun? Login di sini
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="bg-red-50 border border-red-100 rounded-2xl p-5 mb-6">
+                <p className="text-sm text-red-700 font-medium">
+                  Kode OTP telah kadaluwarsa. Silakan kirim ulang kode OTP baru untuk melanjutkan aktivasi.
+                </p>
+              </div>
+
+              <button
+                onClick={handleResendOtp}
+                disabled={!canResend || isResending}
+                className="w-full bg-zinc-900 hover:bg-black text-white py-5 rounded-2xl font-bold text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed mb-4"
+              >
+                {isResending ? 'Mengirim...' : resendCooldown > 0 ? (
+                  <>Kirim Ulang ({resendCooldown}s)</>
+                ) : (
+                  <><RefreshCw size={18} /> Kirim Ulang OTP</>
+                )}
+              </button>
+
+              <p className="text-[10px] text-zinc-400 mb-6">
+                Setiap kali kirim ulang, OTP baru akan dibuat dan OTP sebelumnya tidak berlaku.
+              </p>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage('login')}
+                className="w-full text-zinc-400 text-xs font-bold hover:text-zinc-600 transition-colors"
+              >
+                Kembali ke Login
+              </button>
+            </>
+          )}
         </div>
       </div>
     );
