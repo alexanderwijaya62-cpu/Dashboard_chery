@@ -35,12 +35,22 @@ export default async function handler(req, res) {
     try {
       let customer = null;
 
-      // 1) Coba match berdasarkan nomor + OTP (lebih aman)
+      // Match berdasarkan nomor pengirim + OTP (dengan normalisasi format)
       if (cleanSender) {
+        // Sender dari WhatsApp biasanya format internasional: 62812xxx
+        // Tapi no_hp di DB bisa disimpan sebagai 0812xxx atau 62812xxx
+        const formats = [cleanSender];
+        if (cleanSender.startsWith('62')) {
+          formats.push('0' + cleanSender.slice(2));
+        }
+        if (cleanSender.startsWith('0')) {
+          formats.push('62' + cleanSender.slice(1));
+        }
+
         const { data: byNumber } = await supabase
           .from('customers')
           .select('id, no_hp')
-          .eq('no_hp', cleanSender)
+          .in('no_hp', formats)
           .eq('otp', cleanText)
           .eq('status', 'pending')
           .maybeSingle();
@@ -48,18 +58,7 @@ export default async function handler(req, res) {
         if (byNumber) customer = byNumber;
       }
 
-      // 2) Fallback: match OTP aja (buat yg sender-nya @lid / non-phone)
-      if (!customer) {
-        const { data: byOtp } = await supabase
-          .from('customers')
-          .select('id, no_hp')
-          .eq('otp', cleanText)
-          .eq('status', 'pending')
-          .maybeSingle();
-
-        if (byOtp) customer = byOtp;
-      }
-
+      // TIDAK ada fallback OTP-only — hanya aktivasi jika nomor pengirim cocok
       if (!customer) {
         return res.json({ matched: false, reason: 'not_found' });
       }
