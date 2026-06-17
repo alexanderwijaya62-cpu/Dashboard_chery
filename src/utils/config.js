@@ -10,6 +10,7 @@ export const GAS_BOOKING_URL = "/api/gas_booking";
 export const CHERY_DMS_URL = "/api/chery_dms";
 export const CHERY_EPC_URL = "/api/chery_epc";
 export const CHERY_EPC_LOGIN_URL = "/api/chery_epc?action=login";
+export const CSI_PROXY_URL = "/api/csi-proxy";
 
 // SET TRUE UNTUK NON-AKTIFKAN PROYEK (TAMPILAN 404)
 // SET FALSE UNTUK MENGAKTIFKAN KEMBALI

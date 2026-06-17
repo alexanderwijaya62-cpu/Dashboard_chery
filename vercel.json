@@ -6,6 +6,8 @@
     { "src": "api/login.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },
     { "src": "api/db.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },
     { "src": "api/gas*.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },
+    { "src": "api/csi-proxy.js", "use": "@vercel/node", "config": { "maxDuration": 15 } },
+    { "src": "api/dhl_tracking.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },
     { "src": "package.json", "use": "@vercel/static-build", "config": { "framework": "vite" } }
   ],
   "rewrites": [
@@ -22,6 +24,8 @@
     { "source": "/api/gas_revenue", "destination": "/api/gas_revenue.js" },
     { "source": "/api/gas_sparepart", "destination": "/api/gas_sparepart.js" },
     { "source": "/api/gas_users", "destination": "/api/gas_users.js" },
+    { "source": "/api/csi-proxy", "destination": "/api/csi-proxy.js" },
+    { "source": "/api/dhl_tracking", "destination": "/api/dhl_tracking.js" },
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"

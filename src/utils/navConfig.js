@@ -24,6 +24,7 @@ import {
   Trash2,
   Car,
   BarChart2,
+  BarChart3,
 } from 'lucide-react';
 
 /**
@@ -62,6 +63,8 @@ export const NAV_CONFIG = {
     { id: 'cro-booking', icon: Calendar, label: 'Booking Management', page: 'cro-booking', ariaLabel: 'Booking Management' },
     { id: 'cro-booking-approval', icon: ShieldCheck, label: 'Konfirmasi Booking', page: 'cro-booking-approval', ariaLabel: 'Konfirmasi Booking' },
     { id: 'cro-holidays', icon: Settings, label: 'Libur Dealer', page: 'cro-holidays', ariaLabel: 'Libur Dealer' },
+    { id: 'cro-csi', icon: BarChart3, label: 'CSI Result', page: 'cro-csi', ariaLabel: 'CSI Result' },
+    { id: 'cro-customers', icon: Users, label: 'CSI Customer Review', page: 'cro-customers', ariaLabel: 'CSI Customer Review' },
   ],
   sparepart: [
     { id: 'sparepart-input', icon: Plus, label: 'Input Order', page: 'sparepart', ariaLabel: 'Input Order' },

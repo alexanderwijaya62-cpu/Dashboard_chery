@@ -15,6 +15,24 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      '/api/dhl_tracking': {
+        target: 'https://www.dhl.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/dhl_tracking/, '/utapi'),
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36');
+            proxyReq.setHeader('Accept', 'application/json, text/plain, */*');
+            proxyReq.setHeader('Accept-Language', 'en-US,en;q=0.9,id;q=0.8');
+            proxyReq.setHeader('Referer', 'https://www.dhl.com/id-en/home/tracking.html');
+            proxyReq.setHeader('Origin', 'https://www.dhl.com');
+          });
+        }
+      },
+      '/api/csi-proxy': {
+        target: 'http://localhost:3099',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'https://cherymedan.web.id',
         changeOrigin: true,

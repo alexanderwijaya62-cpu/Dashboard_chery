@@ -26,6 +26,8 @@ import BookingSettings from './components/BookingSettings';
 import OwnerPanel from './components/OwnerPanel';
 import StockComparison from './components/StockComparison';
 import RegisterPage from './components/RegisterPage';
+import CsiResult from './components/CsiResult';
+import CsiCustomers from './components/CsiCustomers';
 import CustomerProfile from './components/CustomerProfile';
 import CustomerPanel from './components/CustomerPanel';
 import PublicTracking from './components/PublicTracking';
@@ -291,7 +293,7 @@ const App = () => {
           const allowedPages = {
             admin: ['admin', 'admin-booking', 'admin-wo', 'promo', 'display', 'booking-public', 'sa-booking'],
             manager: ['manager', 'manager-financial', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'display', 'booking-public'],
-            cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-booking-approval', 'cro-holidays', 'display', 'booking-public', 'sa-booking', 'booking-settings'],
+            cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-booking-approval', 'cro-holidays', 'cro-csi', 'cro-customers', 'display', 'booking-public', 'sa-booking', 'booking-settings'],
             sparepart: ['sparepart', 'sparepart-view', 'sparepart-quotation', 'sparepart-profit', 'quotation', 'display', 'booking-public', 'stock-comparison'],
             owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'display', 'booking-public', 'stock-comparison'],
             warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-proforma'],
@@ -1541,6 +1543,12 @@ const App = () => {
       )}
       {currentPage === 'cro-holidays' && (
         <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="holidays" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+      )}
+      {currentPage === 'cro-csi' && (
+        <CsiResult />
+      )}
+      {currentPage === 'cro-customers' && (
+        <CsiCustomers />
       )}
       {currentPage === 'booking-public' && <PublicBooking user={user} />}
       {currentPage === 'sa-booking' && <SABookingPanel />}
