@@ -53,15 +53,14 @@ export default async function handler(req, res) {
       .update({ status: 'active', otp: null, otp_expires_at: null })
       .eq('id', customer.id);
 
-    await supabase
-      .from('notifications')
-      .insert({
+    try {
+      await supabase.from('notifications').insert({
         type: 'registration_active',
         message: `Akun pelanggan aktif via WA: ${customer.no_hp}`,
         target_role: 'owner',
         read: false,
-      })
-      .catch(() => {});
+      });
+    } catch (_) {} // notification optional
 
     return res.json({ matched: true, no_hp: customer.no_hp });
   } catch (err) {
