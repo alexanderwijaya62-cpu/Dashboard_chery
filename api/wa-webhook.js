@@ -23,10 +23,6 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'sender and text required' });
   }
 
-  // Respond dulu biar VPS gak timeout
-  res.json({ success: true, message: 'processing' });
-
-  // Proses DB di background (respond udah dikirim)
   try {
     const supabase = createClient(
       process.env.VITE_SUPABASE_URL,
@@ -45,8 +41,12 @@ export default async function handler(req, res) {
       .eq('status', 'pending')
       .maybeSingle();
 
-    if (!customer) return;
-    if (customer.otp_expires_at && new Date(customer.otp_expires_at) < new Date()) return;
+    if (!customer) {
+      return res.json({ matched: false, reason: 'not_found' });
+    }
+    if (customer.otp_expires_at && new Date(customer.otp_expires_at) < new Date()) {
+      return res.json({ matched: false, reason: 'expired' });
+    }
 
     await supabase
       .from('customers')
@@ -62,7 +62,10 @@ export default async function handler(req, res) {
         read: false,
       })
       .catch(() => {});
+
+    return res.json({ matched: true, no_hp: customer.no_hp });
   } catch (err) {
-    console.error('Webhook bg error:', err.message);
+    console.error('Webhook error:', err.message);
+    return res.status(500).json({ error: err.message });
   }
 }
