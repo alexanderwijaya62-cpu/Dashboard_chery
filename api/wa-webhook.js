@@ -17,7 +17,7 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, serviceKey);
 
   const body = req.body || {};
-  const WA_WEBHOOK_SECRET = process.env.WA_WEBHOOK_SECRET || 'rahasia123';
+  const WA_WEBHOOK_SECRET = process.env.WA_WEBHOOK_SECRET || process.env.KUNCI || 'rahasia123';
 
   const receivedSecret = body.secret || body.webhook_secret || '';
   if (receivedSecret !== WA_WEBHOOK_SECRET) {

@@ -1,5 +1,5 @@
 const VPS_URL = process.env.VPS_API_URL || 'http://202.155.13.9:3000';
-const WA_KEY = process.env.VITE_WA_KEY || '';
+const WA_KEY = process.env.KUNCI || process.env.VITE_WA_KEY || '';
 
 async function proxyToVPS(endpoint, req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
