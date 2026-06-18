@@ -8,18 +8,10 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const supabaseUrl = process.env.VITE_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceKey) {
-    return res.status(500).json({ error: 'Server not configured' });
-  }
-
-  const supabase = createClient(supabaseUrl, serviceKey);
-
   const body = req.body || {};
   const WA_WEBHOOK_SECRET = process.env.WA_WEBHOOK_SECRET || process.env.KUNCI || 'rahasia123';
-
   const receivedSecret = body.secret || body.webhook_secret || '';
+
   if (receivedSecret !== WA_WEBHOOK_SECRET) {
     return res.status(401).json({ error: 'Invalid secret' });
   }
@@ -31,11 +23,20 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'sender and text required' });
   }
 
-  const formats = [sender];
-  if (sender.startsWith('62')) formats.push('0' + sender.slice(2));
-  if (sender.startsWith('0')) formats.push('62' + sender.slice(1));
+  // Respond dulu biar VPS gak timeout
+  res.json({ success: true, message: 'processing' });
 
+  // Proses DB di background (respond udah dikirim)
   try {
+    const supabase = createClient(
+      process.env.VITE_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+
+    const formats = [sender];
+    if (sender.startsWith('62')) formats.push('0' + sender.slice(2));
+    if (sender.startsWith('0')) formats.push('62' + sender.slice(1));
+
     const { data: customer } = await supabase
       .from('customers')
       .select('id, no_hp, otp_expires_at')
@@ -44,13 +45,8 @@ export default async function handler(req, res) {
       .eq('status', 'pending')
       .maybeSingle();
 
-    if (!customer) {
-      return res.json({ matched: false, reason: 'not_found' });
-    }
-
-    if (customer.otp_expires_at && new Date(customer.otp_expires_at) < new Date()) {
-      return res.json({ matched: false, reason: 'expired' });
-    }
+    if (!customer) return;
+    if (customer.otp_expires_at && new Date(customer.otp_expires_at) < new Date()) return;
 
     await supabase
       .from('customers')
@@ -66,10 +62,7 @@ export default async function handler(req, res) {
         read: false,
       })
       .catch(() => {});
-
-    return res.json({ success: true, no_hp: customer.no_hp });
   } catch (err) {
-    console.error('Webhook error:', err.message);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('Webhook bg error:', err.message);
   }
 }
