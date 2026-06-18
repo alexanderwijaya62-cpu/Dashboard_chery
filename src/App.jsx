@@ -242,10 +242,9 @@ const App = () => {
     const savedUser = localStorage.getItem('chery_auth_user');
 
     // 1. PUBLIC ROUTES — hanya login yang bisa diakses tanpa auth
-    const publicPaths = ['/login'];
+    const publicPaths = ['/login', '/register'];
     if (publicPaths.includes(path)) {
-      // path === '/login'
-      if (savedUser && savedUser !== 'null') {
+      if (savedUser && savedUser !== 'null' && path === '/login') {
         const u = JSON.parse(savedUser);
         if (u && u.role) {
           const role = u.role.toLowerCase();
@@ -255,7 +254,7 @@ const App = () => {
           window.location.reload();
         }
       } else {
-        setCurrentPage('login');
+        setCurrentPage(path === '/register' ? 'register' : 'login');
       }
       return;
     }
@@ -1169,22 +1168,69 @@ const App = () => {
       // Optimistic Update: Update local state immediately so user sees the change instantly
       setQueue(prev => prev.map(q => q.id === id ? { ...q, checklist: newChecklist } : q));
 
-      const { error } = await db.update('antrian', {
-        checklist: newChecklist
-      }, { eq: { id } });
+      // Simpan ke local cache untuk draft offline
+      localStorage.setItem(`offline_checklist_${id}`, JSON.stringify(newChecklist));
 
-      if (error) {
-        // Revert if error? For now just log
-        if (error.code === 'PGRST204') {
+      if (navigator.onLine) {
+        const { error } = await db.update('antrian', {
+          checklist: newChecklist
+        }, { eq: { id } });
+
+        if (!error) {
+          localStorage.removeItem(`offline_checklist_${id}`);
+        } else if (error.code === 'PGRST204') {
           Toastify({ text: "⚠️ Fitur Task belum aktif. Silakan tambah kolom 'checklist' di Supabase.", style: { background: '#f59e0b' } }).showToast();
         } else {
           throw error;
         }
+      } else {
+        Toastify({
+          text: "⚠️ Koneksi Terputus. Draft disimpan lokal & akan disinkronkan saat online.",
+          style: { background: '#f59e0b' }
+        }).showToast();
       }
     } catch (err) {
       console.error("Gagal update checklist:", err);
     }
   };
+
+  // Background Sync untuk offline checklists
+  useEffect(() => {
+    const syncOfflineChecklists = async () => {
+      if (!navigator.onLine) return;
+      try {
+        let keysToSync = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('offline_checklist_')) {
+            keysToSync.push(key);
+          }
+        }
+
+        for (const key of keysToSync) {
+          const id = parseInt(key.replace('offline_checklist_', ''));
+          const newChecklist = JSON.parse(localStorage.getItem(key));
+          
+          const { error } = await db.update('antrian', {
+            checklist: newChecklist
+          }, { eq: { id } });
+          
+          if (!error) {
+            localStorage.removeItem(key);
+            console.log(`Synced offline checklist for id ${id}`);
+          }
+        }
+      } catch (err) {
+        console.error("Gagal sinkronisasi data offline:", err);
+      }
+    };
+
+    window.addEventListener('online', syncOfflineChecklists);
+    // Jalankan sekali saat mount jika online
+    syncOfflineChecklists();
+
+    return () => window.removeEventListener('online', syncOfflineChecklists);
+  }, []);
 
   const handleAddTask = async (item, taskText) => {
     const currentChecklist = Array.isArray(item.checklist) ? item.checklist : [];
@@ -1521,6 +1567,7 @@ const App = () => {
       {currentPage === 'sparepart-view' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="view" />}
       {currentPage === 'sparepart-quotation' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="quotation" />}
       {currentPage === 'sparepart-profit' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="profit" />}
+      {currentPage === 'sparepart-predict' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="predict" />}
       {currentPage === 'quotation' && <QuotationSPA />}
       {currentPage === 'booking_manager' && <BookingManager user={user} handleLogout={handleLogout} isNavbarVisible={true} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />}
       {currentPage === 'cro' && (

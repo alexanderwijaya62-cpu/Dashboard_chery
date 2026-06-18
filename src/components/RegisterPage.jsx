@@ -8,19 +8,59 @@ import orientalLogo from '../assets/oriental.jpeg';
 const WA_BOT_NUMBER = import.meta.env.VITE_WA_BOT_NUMBER || '628888512596';
 const OTP_DURATION = 300; // 5 menit (detik)
 const RESEND_COOLDOWN = 60; // 1 menit (detik)
+const REGISTRATION_STATE_KEY = 'chery_registration_state';
+
+const saveRegistrationState = (state) => {
+  try {
+    localStorage.setItem(REGISTRATION_STATE_KEY, JSON.stringify(state));
+  } catch (_) {}
+};
+
+const clearRegistrationState = () => {
+  try {
+    localStorage.removeItem(REGISTRATION_STATE_KEY);
+  } catch (_) {}
+};
+
+const loadRegistrationState = () => {
+  try {
+    const raw = localStorage.getItem(REGISTRATION_STATE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
+  }
+};
 
 const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
+  const saved = loadRegistrationState();
+
+  const initialTimeLeft = (() => {
+    if (saved && saved.otpExpiresAt) {
+      const remaining = Math.max(0, Math.floor((new Date(saved.otpExpiresAt).getTime() - Date.now()) / 1000));
+      return remaining;
+    }
+    return OTP_DURATION;
+  })();
+
+  const initialResendCooldown = (() => {
+    if (saved && saved.resendCooldownUntil) {
+      return Math.max(0, Math.floor((new Date(saved.resendCooldownUntil).getTime() - Date.now()) / 1000));
+    }
+    return 0;
+  })();
+
+  const [phone, setPhone] = useState(saved?.phone || '');
+  const [password, setPassword] = useState(saved?.password || '');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [step, setStep] = useState('form');
-  const [otpCode, setOtpCode] = useState('');
-  const [otpVerified, setOtpVerified] = useState(false);
+  const [step, setStep] = useState(saved?.step || 'form');
+  const [otpCode, setOtpCode] = useState(saved?.otpCode || '');
+  const [otpVerified, setOtpVerified] = useState(saved?.otpVerified || false);
   const [socketReady, setSocketReady] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(OTP_DURATION);
-  const [isOtpExpired, setIsOtpExpired] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(initialTimeLeft);
+  const [otpExpiresAt, setOtpExpiresAt] = useState(saved?.otpExpiresAt || null);
+  const [isOtpExpired, setIsOtpExpired] = useState(saved?.isOtpExpired || (initialTimeLeft <= 0 && saved?.step === 'otp') || false);
+  const [resendCooldown, setResendCooldown] = useState(initialResendCooldown);
   const [isResending, setIsResending] = useState(false);
   const socketRef = useRef(null);
   const isSubmitting = useRef(false);
@@ -54,6 +94,24 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
       isSubmitting.current = false;
     }
   };
+
+  // ── Persist registration state to localStorage ──
+  useEffect(() => {
+    if (otpVerified) {
+      clearRegistrationState();
+      return;
+    }
+    saveRegistrationState({
+      phone,
+      password,
+      step,
+      otpCode,
+      otpVerified,
+      isOtpExpired,
+      otpExpiresAt,
+      resendCooldownUntil: resendCooldown > 0 ? new Date(Date.now() + resendCooldown * 1000).toISOString() : null,
+    });
+  }, [phone, password, step, otpCode, otpVerified, isOtpExpired, timeLeft, resendCooldown, otpExpiresAt]);
 
   // ── Countdown OTP ──
   useEffect(() => {
@@ -104,7 +162,7 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
       } catch (_) {}
     };
 
-    timer = setInterval(checkStatus, 3000);
+    timer = setInterval(checkStatus, 1500);
     checkStatus();
 
     return () => {
@@ -175,19 +233,50 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
     setIsLoading(true);
     try {
       const { data: existingUsers, error: checkErr } = await db.select('customers', {
-        select: 'no_hp', eq: { no_hp: phone }, limit: 2
+        select: 'no_hp, status', eq: { no_hp: phone }, limit: 2
       });
 
       if (checkErr) throw checkErr;
 
-      if (existingUsers && existingUsers.length > 0) {
-        alert("Nomor ini sudah terdaftar. Silakan login.");
-        setCurrentPage('login');
-        return;
-      }
-
       const otp = generateOtp();
-      const otpExpiresAt = new Date(Date.now() + OTP_DURATION * 1000).toISOString();
+      const expiresAt = new Date(Date.now() + OTP_DURATION * 1000).toISOString();
+
+      if (existingUsers && existingUsers.length > 0) {
+        const existingUser = existingUsers[0];
+        if (existingUser.status === 'pending') {
+          // Update the pending registration with new password and OTP
+          const { error: updateErr } = await db.update('customers', {
+            password: password,
+            nama: phone,
+            otp: otp,
+            otp_expires_at: expiresAt
+          }, { eq: { no_hp: phone } });
+
+          if (updateErr) throw updateErr;
+
+          try {
+            await db.insert('notifications', {
+              type: 'new_registration',
+              message: `Pelanggan mendaftar ulang (pending): ${phone}, OTP: ${otp}`,
+              target_role: 'owner',
+              read: false
+            });
+          } catch (e) {
+            console.warn("Gagal mengirim notifikasi ke owner");
+          }
+
+          setOtpCode(otp);
+          setOtpExpiresAt(expiresAt);
+          setTimeLeft(OTP_DURATION);
+          setIsOtpExpired(false);
+          setStep('otp');
+          return;
+        } else {
+          alert("Nomor ini sudah terdaftar. Silakan login.");
+          (clearRegistrationState(), setCurrentPage('login'));
+          return;
+        }
+      }
 
       const { error: insertErr } = await db.insert('customers', {
         no_hp: phone,
@@ -195,13 +284,13 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
         nama: phone,
         status: 'pending',
         otp: otp,
-        otp_expires_at: otpExpiresAt
+        otp_expires_at: expiresAt
       });
 
       if (insertErr) {
         if (insertErr.code === '23505') {
           alert("Nomor ini sudah terdaftar. Silakan login.");
-          setCurrentPage('login');
+          (clearRegistrationState(), setCurrentPage('login'));
           return;
         }
         throw insertErr;
@@ -219,6 +308,7 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
       }
 
       setOtpCode(otp);
+      setOtpExpiresAt(expiresAt);
       setTimeLeft(OTP_DURATION);
       setIsOtpExpired(false);
       setStep('otp');
@@ -238,11 +328,11 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
 
     try {
       const otp = generateOtp();
-      const otpExpiresAt = new Date(Date.now() + OTP_DURATION * 1000).toISOString();
+      const expiresAt = new Date(Date.now() + OTP_DURATION * 1000).toISOString();
 
       await db.update('customers', {
         otp: otp,
-        otp_expires_at: otpExpiresAt
+        otp_expires_at: expiresAt
       }, { eq: { no_hp: phone } });
 
       await db.insert('notifications', {
@@ -253,6 +343,7 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
       }).catch(() => {});
 
       setOtpCode(otp);
+      setOtpExpiresAt(expiresAt);
       setTimeLeft(OTP_DURATION);
       setIsOtpExpired(false);
       setResendCooldown(RESEND_COOLDOWN);
@@ -262,6 +353,30 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
     } finally {
       setIsResending(false);
       isSubmitting.current = false;
+    }
+  };
+
+  // ── Manual verify: cek DB langsung (sama kaya polling) ──
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [manualError, setManualError] = useState('');
+
+  const manualVerifyOtp = async () => {
+    if (isVerifying || !phone || !otpCode) return;
+    setIsVerifying(true);
+    setManualError('');
+    try {
+      const { data } = await db.select('customers', {
+        select: 'status', eq: { no_hp: phone }, maybeSingle: true,
+      });
+      if (data?.status === 'active') {
+        setOtpVerified(true);
+      } else {
+        setManualError('Status masih pending. Pastikan kode OTP sudah dikirim ke WhatsApp.');
+      }
+    } catch (_) {
+      setManualError('Gagal cek status. Coba lagi.');
+    } finally {
+      setIsVerifying(false);
     }
   };
 
@@ -289,7 +404,7 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
           </div>
 
           <button
-            onClick={() => setCurrentPage('login')}
+            onClick={() => (clearRegistrationState(), setCurrentPage('login'))}
             className="w-full bg-zinc-900 hover:bg-black text-white py-4 rounded-2xl font-bold text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95"
           >
             Ke Halaman Login
@@ -374,9 +489,22 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
                 <Send size={18} /> Kirim OTP via WhatsApp
               </button>
 
+              {manualError && (
+                <p className="text-red-500 text-xs font-bold mb-3 flex items-center justify-center gap-2">
+                  <AlertCircle size={14} /> {manualError}
+                </p>
+              )}
+              <button
+                onClick={manualVerifyOtp}
+                disabled={isVerifying}
+                className="w-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50 mb-4"
+              >
+                {isVerifying ? 'Memeriksa...' : 'Sudah Kirim? Cek Status'}
+              </button>
+
               <button
                 type="button"
-                onClick={() => setCurrentPage('login')}
+                onClick={() => (clearRegistrationState(), setCurrentPage('login'))}
                 className="w-full text-zinc-400 text-xs font-bold hover:text-zinc-600 transition-colors"
               >
                 Sudah punya akun? Login di sini
@@ -408,7 +536,7 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
 
               <button
                 type="button"
-                onClick={() => setCurrentPage('login')}
+                onClick={() => (clearRegistrationState(), setCurrentPage('login'))}
                 className="w-full text-zinc-400 text-xs font-bold hover:text-zinc-600 transition-colors"
               >
                 Kembali ke Login
@@ -491,7 +619,7 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
 
           <button
             type="button"
-            onClick={() => setCurrentPage('login')}
+            onClick={() => (clearRegistrationState(), setCurrentPage('login'))}
             className="w-full text-zinc-400 text-xs font-bold hover:text-zinc-600 transition-colors"
           >
             Sudah punya akun? Login di sini
