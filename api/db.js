@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
-const ALLOWED_TABLES = ['users','settings','antrian','history','booking','cro','libur','notifications','revenue','laporanwo','sparepart','customers'];
+const ALLOWED_TABLES = ['users','settings','antrian','history','booking','cro','libur','notifications','revenue','laporanwo','sparepart','customers','push_subscriptions','sparepart_master','sparepart_revenue'];
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', 'https://cherymedan.web.id');
@@ -84,10 +84,51 @@ export default async function handler(req, res) {
     }
   }
 
+  const authUsername = req.headers['x-auth-username'] || '';
+  const authSessionId = req.headers['x-auth-session-id'] || '';
+
   const { table, action, data, filters } = body;
 
   if (!table || !action) return res.status(400).json({ error: 'table and action required' });
   if (!ALLOWED_TABLES.includes(table)) return res.status(403).json({ error: 'Table not allowed' });
+
+  // ── Authentication Check ──
+  const isPublicBooking = table === 'booking' && action === 'insert';
+  const isPublicLibur = table === 'libur' && action === 'select';
+  const isPublicSettings = table === 'settings' && action === 'select';
+  const isPublicRegister = table === 'customers' && (action === 'insert' || action === 'select' || action === 'update');
+  const isPublicNotification = table === 'notifications' && action === 'insert';
+  const isPublicPush = table === 'push_subscriptions';
+
+  const isPublic = isPublicBooking || isPublicLibur || isPublicSettings || isPublicRegister || isPublicNotification || isPublicPush;
+
+  if (!isPublic) {
+    if (!authUsername || !authSessionId) {
+      return res.status(401).json({ error: 'Authentication required. Missing headers.' });
+    }
+
+    // Verify session in users table
+    const { data: userRecord, error: userErr } = await supabase
+      .from('users')
+      .select('username, sessionId, status')
+      .eq('username', authUsername)
+      .eq('sessionId', authSessionId)
+      .maybeSingle();
+
+    if (userErr || !userRecord || userRecord.status !== 'active') {
+      // Also check customer table for active customer account (inbound tracking or feedback)
+      const { data: customerRecord, error: custErr } = await supabase
+        .from('customers')
+        .select('no_hp, sessionId, status')
+        .eq('no_hp', authUsername)
+        .eq('sessionId', authSessionId)
+        .maybeSingle();
+
+      if (custErr || !customerRecord || customerRecord.status !== 'active') {
+        return res.status(401).json({ error: 'Invalid or expired session' });
+      }
+    }
+  }
 
   function applyFilters(q, filters) {
     if (!filters || !Array.isArray(filters)) return q;
@@ -100,9 +141,28 @@ export default async function handler(req, res) {
         case 'limit': q = q.limit(f.value); break;
         case 'gte': q = q.gte(f.column, f.value); break;
         case 'lte': q = q.lte(f.column, f.value); break;
+        case 'gt': q = q.gt(f.column, f.value); break;
+        case 'lt': q = q.lt(f.column, f.value); break;
         case 'like': q = q.like(f.column, f.value); break;
         case 'ilike': q = q.ilike(f.column, f.value); break;
         case 'is': q = q.is(f.column, f.value); break;
+        case 'in': q = q.in(f.column, f.value); break;
+        case 'or': {
+          const conditions = f.conditions || [];
+          const orParts = conditions.map(c => {
+            if (c.op === 'eq') return `${c.column}.eq.${c.value}`;
+            if (c.op === 'gte') return `${c.column}.gte.${c.value}`;
+            if (c.op === 'lte') return `${c.column}.lte.${c.value}`;
+            if (c.op === 'lt') return `${c.column}.lt.${c.value}`;
+            if (c.op === 'gt') return `${c.column}.gt.${c.value}`;
+            if (c.op === 'neq') return `${c.column}.neq.${c.value}`;
+            if (c.op === 'like') return `${c.column}.like.${c.value}`;
+            if (c.op === 'ilike') return `${c.column}.ilike.${c.value}`;
+            return '';
+          }).filter(Boolean);
+          if (orParts.length > 0) q = q.or(orParts.join(','));
+          break;
+        }
       }
     }
     return q;
@@ -114,20 +174,68 @@ export default async function handler(req, res) {
 
     switch (action) {
       case 'select': {
-        q = q.select(data?.select || '*');
-        if (data?.maybeSingle) { q = q.maybeSingle(); }
-        else if (data?.single) q = q.single();
+        const headOnly = data?.head === true;
+        q = q.select(data?.select || '*', { count: 'exact', head: headOnly });
+        if (!headOnly) {
+          if (data?.maybeSingle) { q = q.maybeSingle(); }
+          else if (data?.single) q = q.single();
+        }
         q = applyFilters(q, filters);
         result = await q;
         break;
       }
       case 'insert': {
-        q = q.insert(data?.values || data);
+        // #1: Server-side double-booking prevention for booking table
+        if (table === 'booking' && data?.values?.tanggal && data?.values?.jam) {
+          const { tanggal, jam } = data.values;
+          const activeStatuses = ['waiting_approval', 'waiting confirm', 'accepted', 'completed'];
+
+          // Baca slotCapacity dari settings
+          let slotCapacity = 1;
+          const { data: capSetting } = await supabase
+            .from('settings')
+            .select('value')
+            .eq('key', 'booking_slot_capacity')
+            .maybeSingle();
+          if (capSetting?.value) slotCapacity = parseInt(capSetting.value, 10) || 1;
+
+          const { data: conflicts, error: conflictErr } = await supabase
+            .from('booking')
+            .select('id')
+            .eq('tanggal', tanggal)
+            .eq('jam', jam)
+            .in('status', activeStatuses);
+          if (conflictErr) throw conflictErr;
+          if (conflicts && conflicts.length >= slotCapacity) {
+            return res.status(409).json({
+              error: `Slot jam ${jam} pada tanggal ${tanggal} sudah terisi${slotCapacity > 1 ? ' penuh' : ''}`,
+              code: 'SLOT_CONFLICT'
+            });
+          }
+        }
+        // H1: Whitelist kolom untuk booking publik
+        if (table === 'booking' && action === 'insert' && isPublic) {
+          const allowed = ['id', 'noUrut', 'tanggal', 'jam', 'noPlat', 'namaCustomer', 'noTelp', 'keperluanService', 'ip_address', 'bookingVia', 'tipeMobil', 'status'];
+          const safe = {};
+          const raw = data?.values || data;
+          for (const k of allowed) { if (raw[k] !== undefined) safe[k] = raw[k]; }
+          q = q.insert(safe);
+        } else {
+          q = q.insert(data?.values || data);
+        }
         result = await q.select();
         break;
       }
       case 'update': {
-        q = q.update(data?.values || data);
+        // K2: Whitelist kolom untuk customers update publik
+        let updateValues = data?.values || data;
+        if (table === 'customers' && isPublic) {
+          const allowed = ['nama', 'no_bk', 'vin', 'password'];
+          const safe = {};
+          for (const k of allowed) { if (updateValues[k] !== undefined) safe[k] = updateValues[k]; }
+          updateValues = safe;
+        }
+        q = q.update(updateValues);
         q = applyFilters(q, filters);
         if (data?.select) q = q.select();
         result = await q;
