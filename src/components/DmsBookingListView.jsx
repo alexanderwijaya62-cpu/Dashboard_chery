@@ -3,6 +3,7 @@ import { AlertCircle, Calendar, CheckCircle, ChevronDown, ChevronLeft, ChevronRi
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import BookingSettings from './BookingSettings';
+import { db } from '../utils/dbClient';
 
 const STATUS_STYLES = {
   'Baru': { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200' },
@@ -104,11 +105,13 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await supabase
-          .from('booking')
-          .select('*')
-          .or('bookingVia.ilike.%Manual%,bookingVia.ilike.%Local Approved%')
-          .order('createdAt', { ascending: false });
+        const { data } = await db.select('booking', {
+          order: { column: 'createdAt', ascending: false },
+          or: [
+            { op: 'ilike', column: 'bookingVia', value: '%Manual%' },
+            { op: 'ilike', column: 'bookingVia', value: '%Local Approved%' }
+          ]
+        });
         setSupabaseData(data || []);
       } catch (e) {
         console.error('Gagal fetch manual bookings:', e);

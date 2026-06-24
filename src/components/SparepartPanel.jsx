@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { PackageSearch, Plus, Trash2, Check, ArrowLeft, ArrowRight, Send, Upload, Search, Filter, X, Menu, FileText, TrendingUp, Layers } from 'lucide-react';
 import QuotationSPA from '../quotation/QuotationSPA';
 import ProfitDashboard from './ProfitDashboard';
+import SparepartPredictor from './SparepartPredictor';
 import Toastify from 'toastify-js';
 import * as XLSX from 'xlsx';
 
@@ -615,6 +616,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible, se
                             {activeTab === 'input' ? 'Order Management' : 
                              activeTab === 'quotation' ? 'Quotation Hub' : 
                              activeTab === 'profit' ? 'Profit Analysis' :
+                             activeTab === 'predict' ? 'Stock Predictor' :
                              'Logistics Monitor'}
                             <div className="h-2 w-2 bg-black rounded-full animate-pulse"></div>
                         </h1>
@@ -970,8 +972,14 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible, se
                     )}
 
                     {activeTab === 'quotation' && (
+                        <div className="flex-1 animate-fade-in h-full">
+                            <QuotationSPA onClose={() => setActiveTab('view')} />
+                        </div>
+                    )}
+
+                    {activeTab === 'predict' && (
                         <div className="flex-1 animate-fade-in pb-32">
-                            {/* Quotation SPA moved to end of root div to avoid transform context */}
+                            <SparepartPredictor />
                         </div>
                     )}
                 </div>
@@ -987,7 +995,6 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible, se
                 }
                 .animate-fade-in { animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
             `}</style>
-            {activeTab === 'quotation' && <QuotationSPA onClose={() => setActiveTab('view')} />}
         </div>
     );
 }

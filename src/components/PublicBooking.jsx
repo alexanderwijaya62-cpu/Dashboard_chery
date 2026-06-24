@@ -3,25 +3,9 @@ import { Calendar as CalendarIcon, Clock, Send, User, ChevronLeft, ChevronRight,
 import Toastify from 'toastify-js';
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
+import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
 import orientalLogo from '../assets/oriental.jpeg';
 import cheryLogo from '../assets/chery.png';
-
-const generateSlots = (count, gapMinutes = 30, startHour = 8, startMin = 30) => {
-    const slots = [];
-    let currentHour = startHour;
-    let currentMin = startMin;
-    for (let i = 0; i < count; i++) {
-        const h = String(currentHour).padStart(2, '0');
-        const m = String(currentMin).padStart(2, '0');
-        slots.push(`${h}.${m}`);
-        currentMin += gapMinutes;
-        while (currentMin >= 60) {
-            currentHour += 1;
-            currentMin -= 60;
-        }
-    }
-    return slots;
-};
 
 const isSameDate = (dateA, dateB) => {
     const normalize = (d) => {
@@ -58,6 +42,7 @@ const normalizeJam = (j) => {
 
 export default function PublicBooking({ user }) {
     const [bookings, setBookings] = useState([]);
+    const [bookingConfig, setBookingConfig] = useState({ slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 });
     const [isLoading, setIsLoading] = useState(false);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [isBookingMode, setIsBookingMode] = useState(false);
@@ -89,7 +74,9 @@ export default function PublicBooking({ user }) {
             yesterday.setDate(yesterday.getDate() - 1);
             const dateStr = yesterday.toISOString().split('T')[0];
 
-            const { data: supabaseData, error } = await db.select('booking', { or: `tanggal.gte.${dateStr},id.eq.999999` });
+            const { data: supabaseData, error } = await db.select('booking', {
+                gte: { tanggal: dateStr }
+            });
             if (error) throw error;
 
             let merged = Array.isArray(supabaseData) ? [...supabaseData] : [];
@@ -147,12 +134,13 @@ export default function PublicBooking({ user }) {
     useEffect(() => {
         fetchBookings();
         fetchHolidays();
+        fetchBookingConfig().then(setBookingConfig).catch(() => {});
 
         // REAL-TIME: Subscribe to changes in the 'booking' table
         const bookingSubscription = supabase
             .channel('public-booking-realtime')
             .on('postgres_changes',
-                { event: '*', schema: 'public', table: 'booking' },
+                { event: '*', schema: 'public', table: 'booking', filter: 'status=neq.declined' },
                 (payload) => {
                     console.log('Change received in Public Booking!', payload);
                     fetchBookings();
@@ -171,17 +159,13 @@ export default function PublicBooking({ user }) {
 
     const getDateAvailability = useCallback((dateStr) => {
         if (isClosed(dateStr)) return 'closed';
-        const configSlot = bookings.find(b => b.id === 999999);
-        const maxSlots = configSlot ? (parseInt(configSlot.namaCustomer || configSlot.nama_customer) || 4) : 4;
-        const gapMinutes = configSlot ? (parseInt(configSlot.tipeMobil) || 30) : 30;
-        const startTime = configSlot?.vin ? (() => { const p = configSlot.vin.split(':'); return { h: parseInt(p[0]) || 8, m: parseInt(p[1]) || 30 }; })() : { h: 8, m: 30 };
-        const slotCapacity = configSlot?.vin ? (() => { const p = configSlot.vin.split(':'); return p.length >= 3 ? parseInt(p[2]) || 1 : 1; })() : 1;
-        const dynamicJam = generateSlots(maxSlots, gapMinutes, startTime.h, startTime.m);
+        const { slotCount: maxSlots, gapMinutes, startHour, startMinute, slotCapacity } = bookingConfig;
+        const dynamicJam = generateSlots(maxSlots, gapMinutes, startHour, startMinute);
         
         const isToday = isSameDate(dateStr, new Date());
         const now = new Date();
         
-        const dayBookings = bookings.filter(b => b.id !== 999999 && isSameDate(b.tanggal, dateStr) && (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed'));
+        const dayBookings = bookings.filter(b => isSameDate(b.tanggal, dateStr) && (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed'));
         
         let fullSlotsCount = 0;
         let hasAnyBooking = false;
@@ -207,16 +191,10 @@ export default function PublicBooking({ user }) {
         if (fullSlotsCount >= (dynamicJam.length)) return 'full';
         if (hasAnyBooking) return 'partial';
         return 'empty';
-    }, [bookings, holidays]);
+    }, [bookings, holidays, bookingConfig]);
 
-    const configSlot = bookings.find(b => b.id === 999999);
-    // PASTIKAN minimal ada 1 slot (default 4) agar daftar jam tidak kosong
-    const rawCount = configSlot ? (configSlot.namaCustomer || configSlot.nama_customer || configSlot.addedBy) : 4;
-    const maxSlotsCount = Math.max(1, parseInt(rawCount) || 4);
-    const gapConfig = configSlot ? (parseInt(configSlot.tipeMobil) || 30) : 30;
-    const startConfig = configSlot?.vin ? (() => { const p = configSlot.vin.split(':'); return { h: parseInt(p[0]) || 8, m: parseInt(p[1]) || 30 }; })() : { h: 8, m: 30 };
-    const slotCapacity = configSlot?.vin ? (() => { const p = configSlot.vin.split(':'); return p.length >= 3 ? parseInt(p[2]) || 1 : 1; })() : 1;
-    const JAM_PILIHAN = useMemo(() => generateSlots(maxSlotsCount, gapConfig, startConfig.h, startConfig.m), [maxSlotsCount, gapConfig, startConfig.h, startConfig.m]);
+    const { slotCount: maxSlotsCount, gapMinutes: gapConfig, startHour: startConfigH, startMinute: startConfigM, slotCapacity } = bookingConfig;
+    const JAM_PILIHAN = useMemo(() => generateSlots(maxSlotsCount, gapConfig, startConfigH, startConfigM), [maxSlotsCount, gapConfig, startConfigH, startConfigM]);
 
     const getIsPastTime = useCallback((slotJam) => {
         if (!isSameDate(selectedDate, new Date())) return false;
@@ -233,7 +211,6 @@ export default function PublicBooking({ user }) {
     }, [selectedDate]);
 
     const bookingsForDate = useMemo(() => {
-        // Include completed agar sinkron dengan warna titik di kalender
         return bookings.filter(b => isSameDate(b.tanggal, selectedDate) && (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed'));
     }, [bookings, selectedDate]);
 
@@ -317,13 +294,12 @@ export default function PublicBooking({ user }) {
         }
 
         const bookedAtThisTime = bookings.filter(b => 
-            b.id !== 999999 &&
             isSameDate(b.tanggal, selectedDate) && 
             normalizeJam(b.jam) === normalizeJam(formData.jam) && 
             (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed')
         ).length;
 
-        if (bookedAtThisTime >= 1) { 
+        if (bookedAtThisTime >= (bookingConfig.slotCapacity || 1)) { 
             Toastify({ text: `Maaf, slot jam ${formData.jam} baru saja terisi penuh!`, background: "orange" }).showToast();
             setIsBookingMode(false);
             fetchBookings();
@@ -333,11 +309,11 @@ export default function PublicBooking({ user }) {
 
         setIsLoading(true);
 
-        const { data: existingPlatBooking, error: platError } = await supabase
-            .from('booking')
-            .select('noPlat, tanggal, jam, status')
-            .eq('noPlat', formData.noPlat.toUpperCase().replace(/\s+/g, ''))
-            .in('status', ['waiting_approval', 'waiting confirm', 'accepted']);
+        const { data: existingPlatBooking, error: platError } = await db.select('booking', {
+            select: 'noPlat, tanggal, jam, status',
+            eq: { noPlat: formData.noPlat.toUpperCase().replace(/\s+/g, '') },
+            in: { status: ['waiting_approval', 'waiting confirm', 'accepted'] }
+        });
 
         if (platError) {
             console.error("Plat Check Error:", platError);
@@ -363,7 +339,7 @@ export default function PublicBooking({ user }) {
 
         const { data: allBookings } = await db.select('booking', { select: 'jam, status', eq: { tanggal: selectedDate }, in: { status: ['waiting confirm', 'accepted', 'completed'] } });
 
-        const isConflict = allBookings?.filter(b => normalizeJam(b.jam) === targetJam).length >= 1;
+        const isConflict = allBookings?.filter(b => normalizeJam(b.jam) === targetJam).length >= (bookingConfig.slotCapacity || 1);
 
         if (isConflict) {
             Toastify({ text: `⚠️ Konflik: Slot jam ${formData.jam} baru saja terisi orang lain!`, style: { background: '#f97316' }, duration: 5000 }).showToast();
@@ -397,7 +373,7 @@ export default function PublicBooking({ user }) {
             }
 
             // 2. SIMPAN KE SUPABASE
-            const newId = Date.now();
+            const newId = Date.now() + Math.floor(Math.random() * 1000);
             const { error } = await db.insert('booking', {
                 id: newId,
                 noUrut: nextNoUrut,
@@ -425,8 +401,8 @@ export default function PublicBooking({ user }) {
             fetchBookings();
         } catch (err) {
             console.error('Booking error:', err);
-            const msg = err.message?.includes('duplicate')
-                ? '❌ Duplikat: Slot ini sudah dibooking!'
+            const msg = err.message?.includes('duplicate') || err.code === 'SLOT_CONFLICT'
+                ? '❌ Slot ini sudah dibooking orang lain! Silakan pilih jam lain.'
                 : `❌ Gagal booking: ${err.message}`;
             Toastify({ text: msg, style: { background: '#dc2626' }, duration: 5000 }).showToast();
         } finally {
@@ -655,6 +631,18 @@ export default function PublicBooking({ user }) {
                             <form onSubmit={handleSubmit} className="flex-1 flex flex-col">
                                 <div className="p-6 md:p-8 space-y-6 md:space-y-8">
                                     <section className="space-y-4 md:space-y-5">
+                                        {user && (
+                                            <button type="button" onClick={() => setFormData({ ...formData, namaCustomer: user.name || '', noTelp: user.username || '', noPlat: user.plat_bk || '' })}
+                                                className="w-full bg-emerald-500/10 border border-emerald-500/30 p-3 md:p-4 rounded-xl flex items-center gap-3 hover:bg-emerald-500/20 transition-all group">
+                                                <div className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center">
+                                                    <User size={14} className="text-emerald-400" />
+                                                </div>
+                                                <div className="text-left">
+                                                    <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Gunakan Data Saya</p>
+                                                    <p className="text-[10px] text-emerald-500/70 font-medium">Isi otomatis dari akun Anda</p>
+                                                </div>
+                                            </button>
+                                        )}
                                         <h3 className="text-[9px] md:text-[10px] font-black uppercase text-white tracking-widest bg-white/5 p-3 md:p-4 rounded-xl border border-white/5 flex items-center gap-2"><User size={14} /> Info Pelanggan</h3>
                                         <div className="space-y-4">
                                             <div className="space-y-2 md:space-y-3">

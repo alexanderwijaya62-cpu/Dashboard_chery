@@ -1,9 +1,26 @@
 const API = '/api/db';
 
 async function request({ table, action, data, filters }) {
+  let authUsername = '';
+  let authSessionId = '';
+  try {
+    const savedUser = localStorage.getItem('chery_auth_user');
+    if (savedUser) {
+      const userObj = JSON.parse(savedUser);
+      authUsername = userObj.username || '';
+    }
+    authSessionId = localStorage.getItem('chery_session_id') || '';
+  } catch (e) {
+    console.warn('Gagal membaca sesi dari localStorage:', e);
+  }
+
   const res = await fetch(API, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Auth-Username': authUsername,
+      'X-Auth-Session-Id': authSessionId
+    },
     body: JSON.stringify({ table, action, data, filters })
   });
   const json = await res.json();
@@ -49,6 +66,16 @@ export const db = {
         filters.push(f('lte', col, val));
       }
     }
+    if (opts.gt) {
+      for (const [col, val] of Object.entries(opts.gt)) {
+        filters.push(f('gt', col, val));
+      }
+    }
+    if (opts.lt) {
+      for (const [col, val] of Object.entries(opts.lt)) {
+        filters.push(f('lt', col, val));
+      }
+    }
     if (opts.like) {
       for (const [col, val] of Object.entries(opts.like)) {
         filters.push(f('like', col, val));
@@ -68,11 +95,15 @@ export const db = {
       filters.push({ op: 'order', column: opts.order.column || opts.order, ascending: opts.order.ascending ?? true });
     }
     if (opts.limit) filters.push({ op: 'limit', value: opts.limit });
+    if (opts.range) filters.push({ op: 'range', from: opts.range.from, to: opts.range.to });
+    if (opts.or) {
+      filters.push({ op: 'or', conditions: opts.or });
+    }
 
     return request({
       table,
       action: 'select',
-      data: { select: opts.select || '*', single: opts.single ?? false, maybeSingle: opts.maybeSingle ?? false },
+      data: { select: opts.select || '*', single: opts.single ?? false, maybeSingle: opts.maybeSingle ?? false, head: opts.head ?? false },
       filters: filters.length > 0 ? filters : undefined
     });
   },

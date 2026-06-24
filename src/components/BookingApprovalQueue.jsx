@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, ArrowRight, Calendar, Check, CheckCircle, ClipboardList, Clock, FileText, HelpCircle, MapPin, Phone, RefreshCw, Search, ShieldCheck, Truck, User, XCircle } from 'lucide-react';
+import { db } from '../utils/dbClient';
 import { supabase } from '../utils/supabaseClient';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
@@ -20,11 +21,10 @@ export default function BookingApprovalQueue({ user, setCurrentPage }) {
   const fetchPendingBookings = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('booking')
-        .select('*')
-        .eq('status', 'waiting_approval')
-        .order('tanggal', { ascending: true });
+      const { data, error } = await db.select('booking', {
+        eq: { status: 'waiting_approval' },
+        order: { column: 'tanggal', ascending: true }
+      });
 
       if (error) throw error;
       setPendingBookings(data || []);
@@ -92,8 +92,14 @@ export default function BookingApprovalQueue({ user, setCurrentPage }) {
     // Subscribe to realtime booking table changes
     const bookingSub = supabase
       .channel('approval-realtime')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'booking' },
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'booking' },
+        () => {
+          fetchPendingBookings();
+        }
+      )
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'booking', filter: 'status=eq.waiting_approval' },
         () => {
           fetchPendingBookings();
         }
@@ -168,13 +174,10 @@ export default function BookingApprovalQueue({ user, setCurrentPage }) {
       }
 
       // 2. Update status to 'accepted' in Supabase local database
-      const { error } = await supabase
-        .from('booking')
-        .update({ 
-          status: 'accepted',
-          bookingVia: externalSuccess ? 'Web-Public (Synced DMS)' : 'Web-Public (Local Approved)'
-        })
-        .eq('id', booking.id);
+      const { error } = await db.update('booking', { 
+        status: 'accepted',
+        bookingVia: externalSuccess ? 'Web-Public (Synced DMS)' : 'Web-Public (Local Approved)'
+      }, { eq: { id: booking.id } });
 
       if (error) throw error;
 
@@ -197,15 +200,16 @@ export default function BookingApprovalQueue({ user, setCurrentPage }) {
     }
   };
 
-  // Decline Booking Action
+  // Decline Booking Action with reason
   const handleDeclineBooking = async (booking) => {
-    if (!window.confirm(`Tolak dan hapus booking dari customer ${booking.namaCustomer} (${booking.noPlat})?`)) return;
+    const reason = window.prompt(`Alasan menolak booking ${booking.noPlat} (kosongkan jika tanpa alasan):`, '');
+    if (reason === null) return;
     
     try {
-      const { error } = await supabase
-        .from('booking')
-        .update({ status: 'declined' })
-        .eq('id', booking.id);
+      const { error } = await db.update('booking', {
+        status: 'declined',
+        cancellation_reason: reason || 'Ditolak admin'
+      }, { eq: { id: booking.id } });
 
       if (error) throw error;
       Toastify({ text: `Booking ${booking.noPlat} berhasil ditolak!`, background: "#3f3f46" }).showToast();

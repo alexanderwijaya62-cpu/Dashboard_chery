@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import bcrypt from 'bcryptjs';
 
@@ -100,7 +101,7 @@ export default async function handler(req, res) {
 
       if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
-      const sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
+      const sessionId = crypto.randomUUID();
       await supabase.from('users').update({
         sessionId,
         lastLogin: new Date().toLocaleString('id-ID'),
@@ -144,8 +145,8 @@ export default async function handler(req, res) {
 
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
-    const sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
-    // Customers don't have sessionId/isOnline columns; tracked via JWT/app state
+    const sessionId = crypto.randomUUID();
+    await supabase.from('customers').update({ sessionId }).eq('no_hp', username);
 
     return res.json({
       id: customer.id,
@@ -154,6 +155,7 @@ export default async function handler(req, res) {
       role: 'customer',
       plat_bk: customer.no_bk,
       vin: customer.vin,
+      status: customer.status,
       sessionId
     });
   } catch (error) {

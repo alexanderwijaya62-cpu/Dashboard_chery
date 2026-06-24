@@ -12,6 +12,8 @@
     "test": "vitest --run"
   },
   "dependencies": {
+    "@heroui/react": "^3.2.1",
+    "@heroui/styles": "^3.2.1",
     "@supabase/supabase-js": "^2.49.4",
     "@tailwindcss/postcss": "^4.2.1",
     "apexcharts": "^5.10.4",
@@ -27,6 +29,7 @@
     "react-google-charts": "^5.2.1",
     "telegram": "^2.26.22",
     "toastify-js": "^1.12.0",
+    "web-push": "^3.6.7",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

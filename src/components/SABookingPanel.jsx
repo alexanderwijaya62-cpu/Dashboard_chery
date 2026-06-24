@@ -4,23 +4,7 @@ import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
-
-const generateSlots = (count, gapMinutes = 30, startHour = 8, startMin = 30) => {
-  const slots = [];
-  let currentHour = startHour;
-  let currentMin = startMin;
-  for (let i = 0; i < count; i++) {
-    const h = String(currentHour).padStart(2, '0');
-    const m = String(currentMin).padStart(2, '0');
-    slots.push(`${h}.${m}`);
-    currentMin += gapMinutes;
-    while (currentMin >= 60) {
-      currentHour += 1;
-      currentMin -= 60;
-    }
-  }
-  return slots;
-};
+import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
 
 const daysInMonth = (month, year) => new Date(year, month + 1, 0).getDate();
 const startDayOfMonth = (month, year) => new Date(year, month, 1).getDay();
@@ -71,22 +55,14 @@ export default function SABookingPanel() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await db.select('booking', { select: 'namaCustomer, tipeMobil, vin', eq: { id: 999999 }, maybeSingle: true });
-      if (data) {
-        const c = parseInt(data.namaCustomer);
-        const g = parseInt(data.tipeMobil);
-        if (!isNaN(c) && c > 0) setSlotConfig(prev => ({ ...prev, count: c }));
-        if (!isNaN(g) && g > 0) setSlotConfig(prev => ({ ...prev, gap: g }));
-        if (data.vin) {
-          const p = data.vin.split(':');
-          const ph = parseInt(p[0]);
-          const pm = parseInt(p[1]);
-          const pc = p.length >= 3 ? parseInt(p[2]) : 1;
-          if (!isNaN(ph)) setSlotConfig(prev => ({ ...prev, startH: ph }));
-          if (!isNaN(pm)) setSlotConfig(prev => ({ ...prev, startM: pm }));
-          if (!isNaN(pc) && pc > 0) setSlotConfig(prev => ({ ...prev, capacity: pc }));
-        }
-      }
+      const config = await fetchBookingConfig();
+      setSlotConfig({
+        count: config.slotCount,
+        gap: config.gapMinutes,
+        startH: config.startHour,
+        startM: config.startMinute,
+        capacity: config.slotCapacity,
+      });
     })();
   }, []);
 
@@ -94,7 +70,7 @@ export default function SABookingPanel() {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const dateStr = yesterday.toISOString().split('T')[0];
-    const { data } = await db.select('booking', { or: `tanggal.gte.${dateStr},id.eq.999999` });
+    const { data } = await db.select('booking', { gte: { tanggal: dateStr } });
     if (Array.isArray(data)) setBookings(data);
   }, []);
 
@@ -225,6 +201,22 @@ export default function SABookingPanel() {
       });
       const json = await res.json();
       if (json.success) {
+        try {
+          await db.insert('booking', {
+            tanggal: formData.tanggal,
+            jam: formData.jam,
+            noPlat: formData.noPolisi,
+            namaCustomer: formData.atasNama,
+            noTelp: formData.noTelp,
+            tipeMobil: formData.modelKendaraan || '-',
+            keperluanService: formData.keluhan || '-',
+            status: 'accepted',
+            bookingVia: 'SA Booking (DMS Synced)',
+            createdAt: new Date().toISOString(),
+          });
+        } catch (localErr) {
+          console.error('Gagal simpan DMS booking lokal:', localErr);
+        }
         Toastify({ text: "Booking BERHASIL ditambahkan!", background: "green" }).showToast();
         resetModal();
       } else {
@@ -390,7 +382,6 @@ export default function SABookingPanel() {
                     {JAM_PILIHAN.map((slot) => {
                       const isPastTime = formData.tanggal === new Date().toISOString().split('T')[0] && parseFloat(slot) < (new Date().getHours() + new Date().getMinutes() / 60);
                       const slotBookings = bookings.filter(b =>
-                        b.id !== 999999 &&
                         b.tanggal === formData.tanggal &&
                         (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed') &&
                         String(b.jam || '').replace(':', '.').trim() === slot

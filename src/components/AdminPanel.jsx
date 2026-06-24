@@ -1,10 +1,11 @@
 ﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { User, Plus, Edit3, Bookmark, Zap, AlertCircle, CheckCircle2, Trash2, Check, Moon, X, Clock, Activity, UserCog, FileText, PlusCircle, CheckCircle, Trash, Search, ChevronDown, Car, ShieldCheck, Info } from 'lucide-react';
+import { User, Plus, Edit3, Bookmark, Zap, AlertCircle, CheckCircle2, Trash2, Check, Moon, X, Clock, Activity, UserCog, FileText, PlusCircle, CheckCircle, Trash, Search, ChevronDown, Car, ShieldCheck, Info, Megaphone } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import TimeInput from './TimeInput';
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
+import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
 import PublicBooking from './PublicBooking';
 
 const CAR_MODELS = [
@@ -13,23 +14,6 @@ const CAR_MODELS = [
     "TIGGO 8 PRO", "TIGGO 8 PRO MAX", "TIGGO 8 CSH", "TIGGO 9 CSH",
     "J6 IWD", "J6 RWD", "J6T", "J5", "J7 SHS", "J7 ICE", "J8 SHS"
 ];
-
-const generateSlots = (count, gapMinutes = 30, startHour = 8, startMin = 30) => {
-    const slots = [];
-    let currentHour = startHour;
-    let currentMin = startMin;
-    for (let i = 0; i < count; i++) {
-        const h = String(currentHour).padStart(2, '0');
-        const m = String(currentMin).padStart(2, '0');
-        slots.push(`${h}.${m}`);
-        currentMin += gapMinutes;
-        while (currentMin >= 60) {
-            currentHour += 1;
-            currentMin -= 60;
-        }
-    }
-    return slots;
-};
 
 const normalizeJam = (j) => {
     if (!j) return "";
@@ -40,8 +24,30 @@ const normalizeJam = (j) => {
     return `${h}.${m}`;
 };
 
-const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, clearQueue, editItem, handleSave, handleCancelEdit, formData, setFormData, isEditing, setIsEditing, errorMessage, isLoadingProcess, formatTime, handleComplete, handleSetOvernight, handleCancelOvernight, breakSettings, setBreakSettings, handleAddTask, handleRemoveTask, handleToggleTask, playNotificationSound, activeTab: activeTabProp }) => {
+const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, clearQueue, editItem, handleSave, handleCancelEdit, formData, setFormData, isEditing, setIsEditing, errorMessage, isLoadingProcess, formatTime, handleComplete, handleSetOvernight, handleCancelOvernight, breakSettings, setBreakSettings, handleAddTask, handleRemoveTask, handleToggleTask, playNotificationSound, handleCallQueue, activeTab: activeTabProp, callCooldown = 120 }) => {
+    const [bookingConfigState, setBookingConfigState] = useState({ slotCount: 8, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 });
     const [currentDay, setCurrentDay] = useState(new Date().toDateString());
+    const [adminCounter, setAdminCounter] = useState(() => {
+        return parseInt(localStorage.getItem('chery_admin_counter')) || 0;
+    });
+
+    const selectCounter = (c) => {
+        setAdminCounter(c);
+        localStorage.setItem('chery_admin_counter', String(c));
+        Toastify({ text: `✅ Anda memilih Counter ${c}`, style: { background: "#000000", borderRadius: "12px" } }).showToast();
+    };
+
+    const [tick, setTick] = useState(0);
+    useEffect(() => {
+        const t = setInterval(() => setTick(n => n + 1), 1000);
+        return () => clearInterval(t);
+    }, []);
+
+    const getCooldownSisa = (calledAt) => {
+        if (!calledAt) return 0;
+        const elapsed = Date.now() - new Date(calledAt).getTime();
+        return Math.max(0, callCooldown - Math.floor(elapsed / 1000));
+    };
 
     const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
     const [typeSearchTerm, setTypeSearchTerm] = useState('');
@@ -126,13 +132,18 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
             thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
             const dateStr = thirtyDaysAgo.toISOString().split('T')[0];
 
-            const { data, error } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, status, bookingVia, vin, noTelp, noUrut', or: `tanggal.gte.${dateStr},id.eq.999999` });
+            const { data, error } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, status, bookingVia, vin, noTelp, noUrut', gte: { tanggal: dateStr } });
             if (error) throw error;
             if (Array.isArray(data)) setRawBookings(data);
         } catch (e) {
             console.error('Gagal fetch booking dari Supabase:', e);
         }
     }, [cleanupPastBookings]);
+
+    // Fetch booking config once on mount
+    useEffect(() => {
+        fetchBookingConfig().then(setBookingConfigState).catch(() => {});
+    }, []);
 
     // 1. Subscribe ONLY ONCE on mount
     useEffect(() => {
@@ -149,12 +160,8 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
 
     // 2. Process data locally when rawBookings, queue, or rawHistory change
     // Get config slot count for showing all slots
-    const configSlotAdmin = rawBookings.find(b => b.id === 999999);
-    const maxSlotsAdmin = configSlotAdmin ? parseInt(configSlotAdmin.namaCustomer) || 8 : 8;
-    const gapAdmin = configSlotAdmin ? parseInt(configSlotAdmin.tipeMobil) || 30 : 30;
-    const startAdmin = configSlotAdmin?.vin ? (() => { const p = configSlotAdmin.vin.split(':'); return { h: parseInt(p[0]) || 8, m: parseInt(p[1]) || 30 }; })() : { h: 8, m: 30 };
-    const slotCapacityAdmin = configSlotAdmin?.vin ? (() => { const p = configSlotAdmin.vin.split(':'); return p.length >= 3 ? parseInt(p[2]) || 1 : 1; })() : 1;
-    const allSlots = useMemo(() => generateSlots(maxSlotsAdmin, gapAdmin, startAdmin.h, startAdmin.m), [maxSlotsAdmin, gapAdmin, startAdmin.h, startAdmin.m]);
+    const { slotCount: maxSlotsAdmin, gapMinutes: gapAdmin, startHour: startAdminH, startMinute: startAdminM, slotCapacity: slotCapacityAdmin } = bookingConfigState;
+    const allSlots = useMemo(() => generateSlots(maxSlotsAdmin, gapAdmin, startAdminH, startAdminM), [maxSlotsAdmin, gapAdmin, startAdminH, startAdminM]);
 
     // Refresh if day changes (midnight)
     useEffect(() => {
@@ -195,7 +202,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
 
         // Get all booked entries for today
         const bookedEntries = rawBookings
-            .filter(b => b.id !== 999999 && isSameDay(b.tanggal, todayStr) && b.status !== 'completed' && b.status !== 'declined' && b.status !== 'deleted')
+            .filter(b => isSameDay(b.tanggal, todayStr) && b.status !== 'completed' && b.status !== 'declined' && b.status !== 'deleted')
             .map(b => {
                 const plat = normalizeBK(b.noPlat);
                 const isArrived = activePlates.has(plat) || historyPlatesToday.has(plat);
@@ -270,7 +277,11 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
         const checkLate = async () => {
             const lates = todayBookings.filter(b => !b.isEmpty && b.isLate && !b.isArrived && b.status !== 'dipindahkan_reguler');
             for (const b of lates) {
+              try {
                 await db.update('booking', { status: 'dipindahkan_reguler' }, { eq: { id: b.id } });
+              } catch (e) {
+                console.error('Late update failed:', b.id, e);
+              }
             }
             if (lates.length > 0) fetchBookings();
         };
@@ -311,7 +322,6 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
 
     const filteredMasterBookings = useMemo(() => {
         return rawBookings
-            .filter(b => b.id !== 999999)
             .filter(b => {
                 const searchStr = `${b.namaCustomer} ${b.noPlat} ${b.vin} ${b.keperluanService}`.toLowerCase();
                 const matchesSearch = searchStr.includes(bookingSearchTerm.toLowerCase());
@@ -345,6 +355,15 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                     <div className="text-right hidden xl:block">
                         <p className="text-[10px] font-black uppercase text-black leading-none">{user?.name || 'Authorized Admin'}</p>
                         <p className="text-[7px] font-bold text-zinc-400 uppercase tracking-widest mt-1">Status: Online</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-zinc-100 p-1 rounded-xl border border-zinc-200">
+                        {[1, 2].map(c => (
+                            <button key={c} onClick={() => selectCounter(c)}
+                                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all min-w-[44px] min-h-[36px] ${adminCounter === c ? 'bg-black text-white shadow-md' : 'text-zinc-400 hover:text-black'}`}
+                            >
+                                C{c}
+                            </button>
+                        ))}
                     </div>
                 </div>
             </header>
@@ -428,113 +447,74 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                             </div>
                         </div>
 
-                {/* 2. FORM INPUT */}
-                <div className={`col-span-1 md:col-span-12 lg:col-span-8 lg:row-span-7 bg-white rounded-2xl border transition-all duration-300 flex flex-col overflow-hidden relative min-h-[400px] lg:min-h-0 ${isEditing ? 'border-black ring-4 ring-black/10 shadow-lg' : 'border-zinc-200 shadow-sm'}`}>
-                    <div className="p-1.5 px-4 border-b border-zinc-100 flex items-center justify-between shrink-0 bg-zinc-50/50">
+                {/* 2. FORM INPUT — REDESIGNED */}
+                <div className={`col-span-1 md:col-span-12 lg:col-span-8 lg:row-span-7 bg-white rounded-2xl border transition-all duration-300 flex flex-col overflow-hidden ${isEditing ? 'border-black ring-4 ring-black/10 shadow-lg' : 'border-zinc-200 shadow-sm'}`}>
+                    <div className="px-5 py-3 border-b border-zinc-100 flex items-center justify-between shrink-0 bg-white">
                         <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-lg text-white shadow-md ${isEditing ? 'bg-black' : 'bg-black'}`}>
+                            <div className={`p-2 rounded-xl text-white shadow-sm ${isEditing ? 'bg-black' : 'bg-black'}`}>
                                 {isEditing ? <Activity size={16} /> : <Plus size={16} />}
                             </div>
                             <div>
-                                <h2 className="text-[11px] font-black uppercase tracking-tight text-black">
-                                    {isEditing ? 'Editing Activity Mode' : 'Pendaftaran Unit Kedatangan'}
+                                <h2 className="text-sm font-black text-black">
+                                    {isEditing ? 'Edit Unit' : 'Daftarkan Unit'}
                                 </h2>
-                                <p className={`text-[8px] font-black uppercase tracking-widest mt-0.5 ${isEditing ? 'text-zinc-500' : 'text-zinc-500'}`}>
-                                    {isEditing ? 'Silahkan koreksi data kendaraan' : 'Input data unit untuk memulai timer operasional'}
+                                <p className="text-[10px] text-zinc-400 font-semibold">
+                                    {isEditing ? 'Koreksi data kendaraan' : 'Input data unit baru'}
                                 </p>
                             </div>
                         </div>
                         <div className="flex items-center gap-3">
-                            {errorMessage && <span className="text-[8px] font-black text-rose-600 bg-rose-50 px-3 py-1 rounded-lg uppercase border border-rose-100">{errorMessage}</span>}
+                            {errorMessage && <span className="text-[10px] font-bold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100">{errorMessage}</span>}
                             {isEditing && (
-                                <button onClick={handleCancelEdit} className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-500 rounded-lg transition-all" title="Cancel Edition">
-                                    <X size={14} strokeWidth={4} />
+                                <button onClick={handleCancelEdit} className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-500 rounded-xl transition-all" title="Cancel">
+                                    <X size={16} />
                                 </button>
                             )}
                         </div>
                     </div>
 
-                    <div className="flex-1 overflow-hidden p-3 flex flex-col lg:flex-row gap-4">
-                        {/* LEFT COLUMN: Inputs & Checklist */}
-                        <div className="flex-1 flex flex-col gap-3">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <div className="space-y-1.5">
-                                    <label className="text-[9px] font-black uppercase tracking-widest ml-1 flex items-center gap-1.5 text-zinc-500">
-                                        <Activity size={10} className="text-black" /> Nomor Polisi
-                                    </label>
-                                    <input type="text" value={formData.bk} onChange={(e) => setFormData({ ...formData, bk: e.target.value.toUpperCase().replace(/\s+/g, '') })}
-                                        placeholder="BK1XXXMA" className="w-full bg-zinc-50 border border-zinc-200 p-2 min-h-[44px] rounded-xl text-sm font-black outline-none transition-all uppercase focus:bg-white focus:border-black text-black shadow-inner" />
+                    <div className="flex-1 overflow-y-auto p-5 flex flex-col lg:flex-row gap-6">
+                        {/* LEFT — Main Fields */}
+                        <div className="flex-1 space-y-5">
+                            {/* Row: Plat + No Telp + Tipe + Mekanik */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">No. Polisi</label>
+                                    <input type="text" value={formData.bk}
+                                        onChange={(e) => setFormData({ ...formData, bk: e.target.value.toUpperCase().replace(/\s+/g, '') })}
+                                        placeholder="BK 1234 XX"
+                                        className="w-full bg-zinc-50 border border-zinc-200 px-4 py-3 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-black transition-all uppercase" />
                                 </div>
-                                <div className="space-y-1.5 relative" ref={dropdownRef}>
-                                    <label className="text-[9px] font-black uppercase tracking-widest ml-1 flex items-center justify-between text-zinc-500">
-                                        <div className="flex items-center gap-1.5">
-                                            <Car size={10} className="text-black" /> Tipe Unit
-                                        </div>
-                                        <button 
-                                            type="button"
-                                            onClick={() => {
-                                                const custom = prompt("Masukkan Tipe Mobil Baru:");
-                                                if(custom) setFormData({ ...formData, tipe: custom.toUpperCase() });
-                                            }}
-                                            className="p-1 hover:bg-zinc-200 text-black rounded-md transition-colors"
-                                            title="Tambah Tipe Kustom"
-                                        >
-                                            <Plus size={10} strokeWidth={4} />
-                                        </button>
-                                    </label>
-                                    <div 
-                                        onClick={() => setIsTypeDropdownOpen(!isTypeDropdownOpen)}
-                                        className={`w-full bg-zinc-50 border border-zinc-200 p-2 min-h-[44px] rounded-xl flex items-center justify-between cursor-pointer transition-all hover:bg-white active:scale-[0.98] ${isTypeDropdownOpen ? 'border-black ring-2 ring-black/10 bg-white' : ''}`}
-                                    >
-                                        <span className={`text-sm font-black uppercase tracking-tight ${formData.tipe ? 'text-black' : 'text-zinc-400'}`}>
-                                            {formData.tipe || "Pilih Tipe Mobil"}
+                                <div className="relative" ref={dropdownRef}>
+                                    <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">Tipe Mobil</label>
+                                    <div onClick={() => setIsTypeDropdownOpen(!isTypeDropdownOpen)}
+                                        className={`w-full bg-zinc-50 border border-zinc-200 px-4 py-3 rounded-xl flex items-center justify-between cursor-pointer hover:bg-white transition-all ${isTypeDropdownOpen ? 'border-black bg-white' : ''}`}>
+                                        <span className={`text-sm font-bold uppercase ${formData.tipe ? 'text-black' : 'text-zinc-400'}`}>
+                                            {formData.tipe || 'Pilih'}
                                         </span>
-                                        <ChevronDown size={14} className={`text-zinc-400 transition-transform duration-300 ${isTypeDropdownOpen ? 'rotate-180 text-black' : ''}`} />
+                                        <ChevronDown size={16} className={`text-zinc-400 transition-transform ${isTypeDropdownOpen ? 'rotate-180' : ''}`} />
                                     </div>
-
                                     {isTypeDropdownOpen && (
-                                        <div className="absolute left-0 right-0 top-full mt-2 bg-white border-2 border-zinc-100 rounded-2xl shadow-2xl z-[60] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                                            <div className="p-2 border-b border-zinc-50 bg-zinc-50/50">
-                                                <div className="relative">
-                                                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-                                                    <input 
-                                                        type="text" 
-                                                        autoFocus
-                                                        placeholder="Cari tipe mobil..." 
-                                                        value={typeSearchTerm}
-                                                        onChange={(e) => setTypeSearchTerm(e.target.value)}
-                                                        onClick={(e) => e.stopPropagation()}
-                                                        className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200 rounded-xl text-[11px] font-black uppercase outline-none focus:border-black transition-all"
-                                                    />
-                                                </div>
+                                        <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-zinc-200 rounded-xl shadow-xl z-[60] overflow-hidden">
+                                            <div className="p-2 border-b border-zinc-100">
+                                                <input autoFocus placeholder="Cari..." value={typeSearchTerm}
+                                                    onChange={(e) => setTypeSearchTerm(e.target.value)}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-bold outline-none focus:border-black" />
                                             </div>
-                                            <div className="max-h-[150px] overflow-y-auto custom-scrollbar p-1">
+                                            <div className="max-h-48 overflow-y-auto p-1">
                                                 {CAR_MODELS.filter(m => m.toLowerCase().includes(typeSearchTerm.toLowerCase())).map((model, i) => (
-                                                    <button
-                                                        key={i}
-                                                        onClick={() => {
-                                                            setFormData({ ...formData, tipe: model });
-                                                            setIsTypeDropdownOpen(false);
-                                                            setTypeSearchTerm('');
-                                                        }}
-                                                        className="w-full text-left px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-tight text-zinc-700 hover:bg-black hover:text-white transition-all flex items-center justify-between group"
-                                                    >
+                                                    <button key={i} onClick={() => { setFormData({ ...formData, tipe: model }); setIsTypeDropdownOpen(false); setTypeSearchTerm(''); }}
+                                                        className="w-full text-left px-3 py-2.5 rounded-lg text-xs font-bold uppercase hover:bg-black hover:text-white transition-all">
                                                         {model}
-                                                        <ChevronDown size={10} className="rotate-[-90deg] opacity-0 group-hover:opacity-100 transition-opacity" />
                                                     </button>
                                                 ))}
                                                 {CAR_MODELS.filter(m => m.toLowerCase().includes(typeSearchTerm.toLowerCase())).length === 0 && (
-                                                    <div className="p-6 text-center">
-                                                        <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest leading-loose">Tipe tidak ditemukan</p>
-                                                        <button 
-                                                            onClick={() => {
-                                                                setFormData({ ...formData, tipe: typeSearchTerm.toUpperCase() });
-                                                                setIsTypeDropdownOpen(false);
-                                                                setTypeSearchTerm('');
-                                                            }}
-                                                            className="mt-3 text-[10px] font-black text-black border-2 border-black px-4 py-1.5 rounded-full hover:bg-black hover:text-white transition-all uppercase"
-                                                        >
-                                                            Gunakan "{typeSearchTerm.toUpperCase()}"
+                                                    <div className="p-3 text-center">
+                                                        <p className="text-[10px] text-zinc-400 font-bold mb-2">Tidak ditemukan</p>
+                                                        <button onClick={() => { setFormData({ ...formData, tipe: typeSearchTerm.toUpperCase() }); setIsTypeDropdownOpen(false); setTypeSearchTerm(''); }}
+                                                            className="text-[10px] font-bold text-black border border-black px-3 py-1.5 rounded-full hover:bg-black hover:text-white transition-all">
+                                                            Pakai "{typeSearchTerm.toUpperCase()}"
                                                         </button>
                                                     </div>
                                                 )}
@@ -542,50 +522,37 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                         </div>
                                     )}
                                 </div>
-                                <div className="space-y-1.5 relative" ref={mechanicDropdownRef}>
-                                    <label className="text-[9px] font-black uppercase tracking-widest ml-1 flex items-center gap-1.5 text-zinc-500">
-                                        <UserCog size={10} className="text-black" /> Mekanik
-                                    </label>
-                                    <div 
-                                        onClick={() => setIsMechanicDropdownOpen(!isMechanicDropdownOpen)}
-                                        className={`w-full bg-zinc-50 border border-zinc-200 p-2 min-h-[44px] rounded-xl flex items-center justify-between cursor-pointer transition-all hover:bg-white active:scale-[0.98] ${isMechanicDropdownOpen ? 'border-black ring-2 ring-black/10 bg-white' : ''}`}
-                                    >
-                                        <span className={`text-sm font-black uppercase tracking-tight ${formData.mechanicName ? 'text-black' : 'text-zinc-400'}`}>
-                                            {formData.mechanicName || "Pilih Mekanik"}
+                                <div className="relative" ref={mechanicDropdownRef}>
+                                    <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">Mekanik</label>
+                                    <div onClick={() => setIsMechanicDropdownOpen(!isMechanicDropdownOpen)}
+                                        className={`w-full bg-zinc-50 border border-zinc-200 px-4 py-3 rounded-xl flex items-center justify-between cursor-pointer hover:bg-white transition-all ${isMechanicDropdownOpen ? 'border-black bg-white' : ''}`}>
+                                        <span className={`text-sm font-bold uppercase ${formData.mechanicName ? 'text-black' : 'text-zinc-400'}`}>
+                                            {formData.mechanicName || 'Pilih'}
                                         </span>
-                                        <ChevronDown size={14} className={`text-zinc-400 transition-transform duration-300 ${isMechanicDropdownOpen ? 'rotate-180 text-black' : ''}`} />
+                                        <ChevronDown size={16} className={`text-zinc-400 transition-transform ${isMechanicDropdownOpen ? 'rotate-180' : ''}`} />
                                     </div>
-
                                     {isMechanicDropdownOpen && (
-                                        <div className="absolute left-0 right-0 top-full mt-2 bg-white border-2 border-zinc-100 rounded-2xl shadow-2xl z-[60] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                                            <div className="max-h-[150px] overflow-y-auto custom-scrollbar p-1">
-                                                <button
-                                                    onClick={() => {
-                                                        setFormData({ ...formData, mechanicName: '' });
-                                                        setIsMechanicDropdownOpen(false);
-                                                    }}
-                                                    className="w-full text-left px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-tight text-zinc-400 hover:bg-zinc-100 transition-all"
-                                                >
-                                                    -- BELUM ASSIGN --
+                                        <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-zinc-200 rounded-xl shadow-xl z-[60] overflow-hidden">
+                                            <div className="max-h-48 overflow-y-auto p-1">
+                                                <button onClick={() => { setFormData({ ...formData, mechanicName: '' }); setIsMechanicDropdownOpen(false); }}
+                                                    className="w-full text-left px-3 py-2.5 rounded-lg text-xs font-bold text-zinc-400 hover:bg-zinc-100 transition-all">
+                                                    -- Belum Assign --
                                                 </button>
                                                 {mechanics.map((m, i) => (
-                                                    <button
-                                                        key={i}
-                                                        onClick={() => {
-                                                            const newMechanic = m.name;
-                                                            if (isEditing && formData.mechanicName && formData.mechanicName !== newMechanic) {
-                                                                if (window.confirm(`Ganti mekanik dari ${formData.mechanicName} ke ${newMechanic}?`)) {
-                                                                    setFormData({ ...formData, mechanicName: newMechanic });
-                                                                }
-                                                            } else {
+                                                    <button key={i} onClick={() => {
+                                                        const newMechanic = m.name;
+                                                        if (isEditing && formData.mechanicName && formData.mechanicName !== newMechanic) {
+                                                            if (window.confirm(`Ganti mekanik dari ${formData.mechanicName} ke ${newMechanic}?`)) {
                                                                 setFormData({ ...formData, mechanicName: newMechanic });
                                                             }
-                                                            setIsMechanicDropdownOpen(false);
-                                                        }}
-                                                        className="w-full text-left px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-tight text-zinc-700 hover:bg-black hover:text-white transition-all flex items-center justify-between group"
-                                                    >
+                                                        } else {
+                                                            setFormData({ ...formData, mechanicName: newMechanic });
+                                                        }
+                                                        setIsMechanicDropdownOpen(false);
+                                                    }}
+                                                        className="w-full text-left px-3 py-2.5 rounded-lg text-xs font-bold uppercase hover:bg-black hover:text-white transition-all flex items-center justify-between">
                                                         {m.name}
-                                                        <Check size={10} className={`opacity-0 ${formData.mechanicName === m.name ? 'opacity-100 text-black group-hover:text-white' : ''}`} />
+                                                        {formData.mechanicName === m.name && <Check size={12} />}
                                                     </button>
                                                 ))}
                                             </div>
@@ -593,151 +560,118 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     )}
                                 </div>
                             </div>
-                            {/* 3 CONTAINERS CATEGORY - HORIZONTAL */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5 w-full mt-1 mb-1 bg-zinc-50 p-2 rounded-2xl border border-zinc-100">
-                                {/* Container 1: Category (Single Select) */}
-                                <div className="bg-white p-4 rounded-2xl border-2 border-zinc-200 shadow-sm flex flex-col items-center gap-3">
-                                    <label className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400">TYPE</label>
-                                    <div className="flex flex-col gap-2 w-full">
-                                        {['Booking', 'Reguler'].map(cat => (
-                                            <button key={cat} onClick={() => setFormData({ ...formData, category: cat })}
-                                                className={`w-full py-1.5 min-h-[44px] rounded-lg text-sm md:text-[9px] font-black transition-all duration-300 border-2 ${formData.category === cat ? 'bg-black text-white border-black shadow-md -translate-y-0.5' : 'bg-white text-zinc-500 border-zinc-100 hover:border-zinc-200 hover:bg-zinc-200'}`}>
-                                                {cat}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
 
-                                {/* Container 2: Free Service (Single Select) */}
-                                <div className="bg-white p-2 md:p-3 rounded-xl border border-zinc-200 shadow-sm flex flex-col items-center gap-2">
-                                    <label className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400">MAINTENANCE</label>
-                                    <div className="flex flex-col gap-2 w-full">
-                                        {['FS1', 'FS2', 'FS3'].map(val => {
-                                            const parts = (formData.keluhan || '').split(', ').map(p => p.trim()).filter(p => p);
-                                            const isActive = parts.includes(val);
-                                            return (
-                                                <button key={val} onClick={() => {
-                                                    const otherParts = parts.filter(p => !['FS1', 'FS2', 'FS3'].includes(p));
-                                                    const newParts = isActive ? otherParts : [val, ...otherParts];
-                                                    setFormData({ ...formData, keluhan: newParts.join(', ') });
-                                                }}
-                                                    className={`w-full py-1.5 min-h-[44px] rounded-lg text-sm md:text-[9px] font-black transition-all duration-300 border-2 ${isActive ? 'bg-black text-white border-black shadow-md -translate-y-0.5' : 'bg-white text-zinc-500 border-zinc-100 hover:border-zinc-200 hover:bg-zinc-200'}`}>
-                                                    {val}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-
-                                {/* Container 3: Issues (Multi Select) */}
-                                <div className="bg-white p-2 md:p-3 rounded-xl border border-zinc-200 shadow-sm flex flex-col items-center gap-2">
-                                    <label className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400">ISSUES</label>
-                                    <div className="flex flex-col gap-2 w-full">
-                                        {['Keluhan', 'Update Software'].map(val => {
-                                            const parts = (formData.keluhan || '').split(', ').map(p => p.trim()).filter(p => p);
-                                            const isActive = parts.includes(val);
-                                            return (
-                                                <button key={val} onClick={() => {
-                                                    const newParts = isActive ? parts.filter(p => p !== val) : [...parts, val];
-                                                    setFormData({ ...formData, keluhan: newParts.join(', ') });
-                                                }}
-                                                    className={`w-full py-1.5 min-h-[44px] rounded-lg text-sm md:text-[9px] font-black transition-all duration-300 border-2 ${isActive ? 'bg-black text-white border-black shadow-md -translate-y-0.5' : 'bg-white text-zinc-500 border-zinc-100 hover:border-zinc-200 hover:bg-zinc-200'}`}>
-                                                    {val}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
+                            {/* Row: Category */}
+                            <div>
+                                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">Kategori</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {['Booking', 'Reguler'].map(cat => (
+                                        <button key={cat} onClick={() => setFormData({ ...formData, category: cat })}
+                                            className={`px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide transition-all border-2 ${formData.category === cat ? 'bg-black text-white border-black shadow-md' : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-300'}`}>
+                                            {cat}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
 
-                            {/* CHECKLIST & REASON GRID */}
-                            <div className={`grid grid-cols-1 ${isEditing && formData.status === 'menginap' ? 'md:grid-cols-2' : ''} gap-2 mb-0.5`}>
-                                {/* JOB CHECKLIST BUILDER */}
-                                <div className="bg-zinc-50 p-2 rounded-xl border border-zinc-100 flex flex-col">
-                                    <label className="text-[9px] font-black uppercase text-zinc-400 tracking-widest ml-3 mb-2 block flex items-center gap-2">
-                                        <FileText size={12} className="text-black" /> Job Checklist
-                                    </label>
-                                    <div className="flex gap-2 px-3 mb-2">
-                                        <input type="text" placeholder="Tambah item..."
-                                            className="flex-1 bg-white border border-zinc-200 p-2 min-h-[44px] rounded-xl text-sm md:text-[10px] font-bold focus:border-black outline-none shadow-sm"
-                                            id="initialTaskInput"
-                                            onKeyPress={(e) => {
-                                                if (e.key === 'Enter') {
-                                                    const val = e.target.value.trim();
-                                                    if (val) {
-                                                        const newTaskObj = { id: Date.now(), text: val, completed: false };
-                                                        setFormData(prev => ({ ...prev, checklist: [...(prev.checklist || []), newTaskObj] }));
-                                                        e.target.value = '';
-                                                    }
+                            {/* Row: Jenis Pekerjaan */}
+                            <div>
+                                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">Jenis Pekerjaan</label>
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    <select value={formData.jenisPekerjaan || ''} onChange={(e) => setFormData({ ...formData, jenisPekerjaan: e.target.value })}
+                                        className="bg-white border border-zinc-200 px-4 py-2.5 rounded-xl text-xs font-bold uppercase outline-none focus:border-black transition-all">
+                                        <option value="">Pilih...</option>
+                                        <option value="FS1">FS1</option>
+                                        <option value="FS2">FS2</option>
+                                        <option value="FS3">FS3</option>
+                                        <option value="Keluhan">Keluhan</option>
+                                        <option value="Update Software">Update Software</option>
+                                    </select>
+                                    {(formData.jenisPekerjaan === 'Keluhan' || formData.jenisPekerjaan === 'Update Software') && (
+                                        <textarea placeholder="Deskripsi keluhan / detail pekerjaan..." value={formData.keluhan || ''} onChange={(e) => setFormData({ ...formData, keluhan: e.target.value })}
+                                            className="w-full bg-zinc-50 border border-zinc-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-black focus:bg-white transition-all min-h-[60px] mt-2" />
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Checklist */}
+                            <div>
+                                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">Job Checklist</label>
+                                <div className="flex gap-2 mb-2">
+                                    <input type="text" placeholder="Tambah item pekerjaan..."
+                                        className="flex-1 bg-zinc-50 border border-zinc-200 px-4 py-2.5 rounded-xl text-sm outline-none focus:border-black focus:bg-white transition-all"
+                                        id="initialTaskInput"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                const val = e.target.value.trim();
+                                                if (val) {
+                                                    setFormData(prev => ({ ...prev, checklist: [...(prev.checklist || []), { id: Date.now(), text: val, completed: false }] }));
+                                                    e.target.value = '';
                                                 }
-                                            }} />
-                                        <button onClick={() => {
-                                            const input = document.getElementById('initialTaskInput');
-                                            const val = input.value.trim();
-                                            if (val) {
-                                                const newTaskObj = { id: Date.now(), text: val, completed: false };
-                                                setFormData(prev => ({ ...prev, checklist: [...(prev.checklist || []), newTaskObj] }));
-                                                input.value = '';
                                             }
-                                        }} className="bg-black text-white p-2 min-w-[44px] min-h-[44px] rounded-xl shadow-md hover:bg-zinc-700 transition-all flex items-center justify-center"><Plus size={14} strokeWidth={4} /></button>
-                                    </div>
-
-                                    <div className="space-y-1 max-h-[60px] overflow-y-auto px-4 custom-scrollbar">
-                                        {(formData.checklist || []).length === 0 ? (
-                                            <p className="text-center text-[10px] font-bold text-zinc-300 uppercase py-2 italic">No tasks</p>
-                                        ) : (
-                                            formData.checklist.map((t, idx) => (
-                                                <div key={idx} className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-zinc-100 shadow-sm">
-                                                    <span className="text-[9px] font-bold text-black uppercase tracking-tight truncate max-w-[120px]">{t.text}</span>
-                                                    <button onClick={() => setFormData({ ...formData, checklist: formData.checklist.filter((_, i) => i !== idx) })} className="p-1 text-zinc-300 hover:text-black transition-all"><Trash size={12} /></button>
-                                                </div>
-                                            ))
-                                        )}
-                                    </div>
+                                        }} />
+                                    <button onClick={() => {
+                                        const input = document.getElementById('initialTaskInput');
+                                        const val = input.value.trim();
+                                        if (val) {
+                                            setFormData(prev => ({ ...prev, checklist: [...(prev.checklist || []), { id: Date.now(), text: val, completed: false }] }));
+                                            input.value = '';
+                                        }
+                                    }} className="bg-black text-white px-4 rounded-xl text-sm font-bold hover:bg-zinc-800 transition-all shrink-0">+</button>
                                 </div>
-
-                                {/* REASON MENGINAP (Hanya tampil jika sedang EDIT unit MENGINAP) */}
-                                {isEditing && formData.status === 'menginap' && (
-                                    <div className="bg-zinc-50 p-2 rounded-xl border border-zinc-100 flex flex-col justify-center animate-fade-in">
-                                        <label className="text-[9px] font-black uppercase text-zinc-400 tracking-widest ml-3 mb-1.5 block flex items-center gap-2">
-                                            <Moon size={12} className="text-zinc-400" /> Reason Menginap
-                                        </label>
-                                        <textarea 
-                                            rows="3"
-                                            placeholder="Alasan menginap..."
-                                            className="w-full bg-white border border-zinc-200 p-2.5 rounded-xl text-[10px] font-black uppercase outline-none focus:border-black text-black transition-all shadow-inner resize-none"
-                                            value={formData.menginap_reason || ''}
-                                            onChange={(e) => setFormData({ ...formData, menginap_reason: e.target.value.toUpperCase() })}
-                                        />
-                                    </div>
-                                )}
+                                <div className="flex flex-wrap gap-1.5">
+                                    {(formData.checklist || []).length === 0 ? (
+                                        <p className="text-xs text-zinc-300 italic py-1">Belum ada item</p>
+                                    ) : (
+                                        formData.checklist.map((t, idx) => (
+                                            <div key={idx} className="flex items-center gap-1.5 bg-zinc-50 border border-zinc-200 px-3 py-1.5 rounded-lg">
+                                                <span className="text-xs font-bold text-black truncate max-w-[140px]">{t.text}</span>
+                                                <button onClick={() => setFormData({ ...formData, checklist: formData.checklist.filter((_, i) => i !== idx) })} className="text-zinc-300 hover:text-red-500 transition-all p-0.5">
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
                             </div>
-                            </div> {/* Penutup Kolom Kiri */}
 
-                            {/* KOLOM KANAN: Sidebar (Durasi & Tombol Aktifkan) */}
-                            <div className="w-full lg:w-48 xl:w-56 flex flex-col justify-start gap-3 shrink-0">
-                                    <div className="bg-white rounded-xl p-2 border border-zinc-200 shadow-sm flex flex-col gap-1.5">
-                                        <label className="text-[8px] font-black uppercase text-black tracking-[0.2em] block text-center leading-none">Durasi</label>
-                                        <div className="flex items-center justify-center gap-1 py-0">
-                                            <TimeInput label="H" value={formData.jam} max={23} onChange={(val) => setFormData({ ...formData, jam: val })} />
-                                            <span className="text-zinc-400 font-black text-sm">:</span>
-                                            <TimeInput label="M" value={formData.menit} max={59} onChange={(val) => setFormData({ ...formData, menit: val })} />
-                                            <span className="text-zinc-400 font-black text-sm">:</span>
-                                            <TimeInput label="S" value={formData.detik} max={59} onChange={(val) => setFormData({ ...formData, detik: val })} />
-                                        </div>
-                                        <div className="pt-1 border-t border-zinc-100 flex justify-between items-center px-1">
-                                            <p className="text-[7px] font-black text-zinc-400 uppercase tracking-widest">Selesai</p>
-                                            <p className="text-xs font-black text-black tracking-tighter">{totalDetik >= 1800 ? previewSelesai.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--'}</p>
-                                        </div>
-                                    </div>
+                            {/* Reason Menginap (edit mode only) */}
+                            {isEditing && formData.status === 'menginap' && (
+                                <div className="bg-purple-50 border border-purple-200 p-4 rounded-xl">
+                                    <label className="block text-[10px] font-bold text-purple-600 uppercase tracking-wider mb-1.5">Alasan Menginap</label>
+                                    <textarea rows="2" placeholder="Alasan menginap..."
+                                        className="w-full bg-white border border-purple-200 px-4 py-2.5 rounded-xl text-sm font-bold outline-none focus:border-purple-500 transition-all resize-none"
+                                        value={formData.menginap_reason || ''}
+                                        onChange={(e) => setFormData({ ...formData, menginap_reason: e.target.value.toUpperCase() })} />
+                                </div>
+                            )}
+                        </div>
 
-                                    <button onClick={handleSave} className={`w-full py-4 min-h-[44px] rounded-xl font-black text-sm md:text-[10px] uppercase tracking-[0.2em] shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all ${isEditing ? 'bg-black text-white hover:bg-zinc-800' : 'bg-black text-white hover:bg-zinc-800'}`}>
-                                        {isEditing ? <CheckCircle2 size={16} /> : <Zap size={16} />}
-                                        {isEditing ? 'Simpan Edit' : 'Aktifkan'}
-                                    </button>
-                                </div> {/* Penutup KOLOM KANAN */}
-                            </div> {/* Penutup lg:flex-row */}
-                        </div> {/* Penutup col-span-8 */}
+                        {/* RIGHT — Duration + Submit */}
+                        <div className="w-full lg:w-56 shrink-0 space-y-4">
+                            <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4">
+                                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider text-center mb-3">Estimasi Durasi</label>
+                                <div className="flex items-center justify-center gap-1">
+                                    <TimeInput label="Jam" value={formData.jam} max={23} onChange={(val) => setFormData({ ...formData, jam: val })} />
+                                    <span className="text-zinc-300 font-bold text-lg">:</span>
+                                    <TimeInput label="Menit" value={formData.menit} max={59} onChange={(val) => setFormData({ ...formData, menit: val })} />
+                                    <span className="text-zinc-300 font-bold text-lg">:</span>
+                                    <TimeInput label="Detik" value={formData.detik} max={59} onChange={(val) => setFormData({ ...formData, detik: val })} />
+                                </div>
+                                <div className="mt-3 pt-3 border-t border-zinc-200 flex justify-between items-center">
+                                    <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Selesai</span>
+                                    <span className="text-sm font-bold text-black">{totalDetik >= 1800 ? previewSelesai.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--'}</span>
+                                </div>
+                            </div>
+
+                            <button onClick={handleSave}
+                                className="w-full py-4 rounded-xl font-bold text-sm uppercase tracking-wider shadow-lg hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 bg-black text-white hover:bg-zinc-800">
+                                {isEditing ? <CheckCircle2 size={18} /> : <Zap size={18} />}
+                                {isEditing ? 'Simpan Perubahan' : 'Aktifkan Unit'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
 
                 {/* 3. MONITORING LIST */}
                 <div className="col-span-1 md:col-span-12 lg:row-span-5 flex flex-col bg-white rounded-2xl border border-dashed border-zinc-300 overflow-hidden shadow-sm min-h-[500px] lg:min-h-0">
@@ -765,11 +699,100 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                         <button onClick={clearQueue} className="text-sm md:text-[8px] font-black text-zinc-400 hover:text-black uppercase tracking-widest px-4 py-2 min-h-[44px] md:min-h-0 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-all border border-transparent">Reset Antrian</button>
                     </div>
 
-                    <div className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar relative">
+                    {/* Mobile Queue Cards */}
+                    <div className="md:hidden space-y-3 p-4">
+                        {queue.length === 0 ? (
+                            <div className="py-10 text-center text-zinc-300 font-bold uppercase text-[10px] tracking-widest">Belum ada unit diproses</div>
+                        ) : (
+                            queue.map((item, index) => {
+                                const statusColors = {
+                                    'working': 'bg-blue-600 text-white',
+                                    'waiting': 'bg-amber-500 text-white',
+                                    'completed': 'bg-emerald-500 text-white',
+                                    'menginap': 'bg-purple-700 text-white'
+                                };
+                                const isOvernight = item.status === 'menginap';
+                                const cd = getCooldownSisa(item.calledAt);
+                                const inCooldown = cd > 0;
+                                return (
+                                    <div key={index} className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-sm space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-white text-[10px] font-black shadow-md shrink-0">
+                                                    {item.category[0]}
+                                                </div>
+                                                <div>
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        {item.queueNumber > 0 && (
+                                                            <span className="text-[9px] font-black bg-zinc-800 text-white px-2 py-0.5 rounded-md">A-{String(item.queueNumber).padStart(3, '0')}</span>
+                                                        )}
+                                                        <span className="text-lg font-black text-black uppercase tracking-tight leading-none">{item.bk}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                                        <span className="text-[9px] font-black text-zinc-500 uppercase">{item.tipe}</span>
+                                                        <span className="text-[9px] font-black text-zinc-400">|</span>
+                                                        <span className="text-[9px] font-black text-black uppercase">{item.category}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className={`px-3 py-1.5 rounded-xl text-[8px] font-black uppercase tracking-widest flex items-center gap-1.5 shrink-0 ${statusColors[item.status] || 'bg-zinc-400 text-white'}`}>
+                                                {isOvernight ? <Moon size={10} /> : (item.status === 'working' ? <Clock size={10} className="animate-spin-slow" /> : null)}
+                                                {item.status === 'waiting' ? 'Menunggu' : item.status}
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center justify-between text-xs">
+                                            <div className="flex items-center gap-1.5">
+                                                <User size={12} className="text-zinc-400" />
+                                                <span className="font-bold text-zinc-600 uppercase text-[10px]">{item.mechanicName || 'BELUM ASSIGN'}</span>
+                                            </div>
+                                            <div className={`font-mono font-black tabular-nums ${item.estimasi < 0 ? 'text-rose-500 animate-pulse' : 'text-black'}`}>
+                                                {formatTime(item.estimasi)}
+                                            </div>
+                                        </div>
+                                        {item.keluhan && (
+                                            <p className="text-[9px] font-bold text-zinc-500 uppercase truncate">{item.keluhan}</p>
+                                        )}
+                                        {item.isCalled && (
+                                            <div className="text-[9px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 text-center">
+                                                ✅ Dipanggil ke Counter {item.counter}
+                                            </div>
+                                        )}
+                                        <div className="grid grid-cols-5 gap-2 pt-1">
+                                            <button onClick={() => {
+                                                if (!adminCounter) { Toastify({ text: "⚠️ Pilih Counter dulu!", style: { background: "#f59e0b" } }).showToast(); return; }
+                                                if (inCooldown) { Toastify({ text: `⏳ Tunggu ${cd} detik`, duration: 2000, style: { background: "#f59e0b" } }).showToast(); return; }
+                                                if (window.confirm(`Panggil ${item.bk} ke Counter ${adminCounter}?`)) handleCallQueue(item, adminCounter);
+                                            }} className={`col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 ${inCooldown ? 'bg-amber-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                                                {inCooldown ? <span className="text-[11px] font-black">{cd}s</span> : <Megaphone size={16} />}
+                                            </button>
+                                            <button onClick={() => handleComplete(item)} disabled={isLoadingProcess || (item.status !== 'working' && item.status !== 'waiting' && item.status !== 'menginap')}
+                                                className={`col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 ${isLoadingProcess ? 'bg-zinc-400 cursor-not-allowed' : 'bg-emerald-400/80 hover:bg-black'}`}>
+                                                {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <Check size={16} strokeWidth={4} />}
+                                            </button>
+                                            <button onClick={() => {
+                                                if (item.status === 'menginap') handleCancelOvernight(item);
+                                                else setShowOvernightModal(item);
+                                            }} className="col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 bg-black hover:bg-zinc-700">
+                                                <Moon size={16} fill="white" />
+                                            </button>
+                                            <button onClick={() => editItem(item)} className="col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl transition-all active:scale-95 bg-white text-zinc-400 border border-zinc-200 hover:bg-black hover:text-white">
+                                                <Edit3 size={16} />
+                                            </button>
+                                            <button onClick={() => deleteItem(item.id)} className="col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl transition-all active:scale-95 bg-white text-zinc-400 border border-zinc-200 hover:bg-black hover:text-white">
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                    {/* Desktop Queue Table */}
+                    <div className="hidden md:block flex-1 overflow-x-auto overflow-y-auto custom-scrollbar relative">
                         <table className="w-full text-left border-collapse min-w-[1000px]">
                             <thead className="sticky top-0 z-30 bg-white/95 backdrop-blur-md shadow-sm">
                                 <tr className="border-b-2 border-zinc-100 bg-zinc-50/50">
-                                    <th className="px-6 py-4 text-[9px] font-black uppercase text-zinc-400 w-[25%] tracking-widest">Identitas Unit</th>
+                                    <th className="px-6 py-4 text-[9px] font-black uppercase text-zinc-400 w-[25%] tracking-widest">Identitas / Antrian</th>
                                     <th className="px-6 py-4 text-[9px] font-black uppercase text-zinc-400 text-center w-[15%] tracking-widest">Status Flow</th>
                                     <th className="px-6 py-4 text-[9px] font-black uppercase text-zinc-400 text-center w-[15%] tracking-widest">Timer Realtime</th>
                                     <th className="px-6 py-4 text-[9px] font-black uppercase text-zinc-400 w-[25%] tracking-widest">Item Pekerjaan</th>
@@ -782,25 +805,37 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                 ) : (
                                     queue.map((item, index) => {
                                         const statusColors = {
-                                            'working': 'bg-zinc-700 text-white shadow-md',
-                                            'waiting': 'bg-zinc-100 text-zinc-500 border border-zinc-200',
-                                            'completed': 'bg-emerald-400/80 text-white shadow-md',
-                                            'menginap': 'bg-black text-white shadow-md'
+                                            'working': 'bg-blue-600 text-white shadow-md',
+                                            'waiting': 'bg-amber-500 text-white shadow-md',
+                                            'completed': 'bg-emerald-500 text-white shadow-md',
+                                            'menginap': 'bg-purple-700 text-white shadow-md'
                                         };
                                         const isOvernight = item.status === 'menginap';
                                         return (
                                             <tr key={index} className="hover:bg-zinc-50/50 transition-all border-l-4 border-transparent hover:border-black duration-200 group border-b border-zinc-100 border-dashed">
-                                                <td className="px-6 py-5">
+                                                    <td className="px-6 py-5">
                                                     <div className="flex items-center gap-4">
                                                         <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-white text-[10px] font-black shadow-md">
                                                             {item.category[0]}
                                                         </div>
                                                         <div className="flex flex-col">
-                                                            <span className="text-xl font-black text-black tabular-nums uppercase tracking-tight leading-none">{item.bk}</span>
+                                                            <div className="flex items-center gap-2">
+                                                                {item.queueNumber > 0 && (
+                                                                    <span className="text-[9px] font-black bg-zinc-800 text-white px-2 py-0.5 rounded-md tracking-wider">
+                                                                        A-{String(item.queueNumber).padStart(3, '0')}
+                                                                    </span>
+                                                                )}
+                                                                <span className="text-xl font-black text-black tabular-nums uppercase tracking-tight leading-none">{item.bk}</span>
+                                                            </div>
                                                             <div className="flex items-center gap-2 mt-1.5">
                                                                 <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">{item.tipe}</span>
                                                                 <div className="w-1 h-1 bg-black rounded-full"></div>
                                                                 <span className="text-[9px] font-black text-black uppercase tracking-widest">{item.category}</span>
+                                                                {item.isCalled && (
+                                                                    <span className="text-[8px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                                                                        Dipanggil C{item.counter}
+                                                                    </span>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     </div>
@@ -844,6 +879,35 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                 </td>
                                                 <td className="px-6 py-5 text-right">
                                                     <div className="flex justify-end gap-2.5 opacity-100 lg:opacity-40 group-hover:opacity-100 transition-all duration-300">
+                                                        {(() => {
+                                                            const cd = getCooldownSisa(item.calledAt);
+                                                            const inCooldown = cd > 0;
+                                                            return (
+                                                                <button onClick={() => {
+                                                                    if (!adminCounter) {
+                                                                        Toastify({ text: "⚠️ Pilih Counter dulu!", style: { background: "#f59e0b" } }).showToast();
+                                                                        return;
+                                                                    }
+                                                                    if (inCooldown) {
+                                                                        Toastify({
+                                                                            text: `⏳ Tunggu ${cd} detik lagi sebelum panggil ulang`,
+                                                                            duration: 2000,
+                                                                            style: { background: "#f59e0b", borderRadius: "12px", fontWeight: "900" }
+                                                                        }).showToast();
+                                                                        return;
+                                                                    }
+                                                                    if (window.confirm(`Panggil ${item.bk} ke Counter ${adminCounter}?`)) {
+                                                                        handleCallQueue(item, adminCounter);
+                                                                    }
+                                                                }} className={`p-3 min-w-[44px] min-h-[44px] rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center ${inCooldown ? 'bg-zinc-300 text-zinc-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`} title={inCooldown ? `Tunggu ${cd} detik` : "Panggil Antrian"}>
+                                                                    {inCooldown ? (
+                                                                        <span className="text-[11px] font-black tabular-nums">{cd}s</span>
+                                                                    ) : (
+                                                                        <Megaphone size={16} />
+                                                                    )}
+                                                                </button>
+                                                            );
+                                                        })()}
                                                         {(item.status === 'working' || item.status === 'waiting' || item.status === 'menginap') && (
                                                             <button 
                                                                 onClick={() => handleComplete(item)} 
@@ -1025,10 +1089,14 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                     </button>
                                                     <button 
                                                         onClick={async () => {
-                                                            if(window.confirm("Hapus booking ini permanen?")) {
-                                                                await db.delete('booking', { eq: { id: b.id } });
-                                                                fetchBookings();
-                                                                Toastify({ text: "Booking deleted!", background: "red" }).showToast();
+                                                            if(!window.confirm("Hapus booking ini permanen?")) return;
+                                                            try {
+                                                              const { error } = await db.delete('booking', { eq: { id: b.id } });
+                                                              if (error) throw error;
+                                                              fetchBookings();
+                                                              Toastify({ text: "Booking deleted!", background: "red" }).showToast();
+                                                            } catch (e) {
+                                                              Toastify({ text: `Gagal hapus: ${e.message}`, background: "red", duration: 5000 }).showToast();
                                                             }
                                                         }}
                                                         className="p-3 min-w-[44px] min-h-[44px] bg-zinc-50 hover:bg-black text-zinc-400 hover:text-white rounded-xl transition-all shadow-sm flex items-center justify-center"
@@ -1069,19 +1137,15 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                         </label>
                                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                             {(() => {
-                                                const config = rawBookings.find(b => b.id === 999999);
-                                                const slotCount = config ? parseInt(config.namaCustomer) || 4 : 4;
-                                                const gapInline = config ? parseInt(config.tipeMobil) || 30 : 30;
-                                                const startInline = config?.vin ? (() => { const p = config.vin.split(':'); return { h: parseInt(p[0]) || 8, m: parseInt(p[1]) || 30 }; })() : { h: 8, m: 30 };
-                                                const capInline = config?.vin ? (() => { const p = config.vin.split(':'); return p.length >= 3 ? parseInt(p[2]) || 1 : 1; })() : 1;
-                                                const allSlots = generateSlots(slotCount, gapInline, startInline.h, startInline.m);
+                                                const { slotCount, gapMinutes: gapInline, startHour: startInlineH, startMinute: startInlineM, slotCapacity: capInline } = bookingConfigState;
+                                                const allSlots = generateSlots(slotCount, gapInline, startInlineH, startInlineM);
                                                 
                                                 return allSlots.map(s => {
                                                     const bookingsAtSlot = rawBookings.filter(b => {
                                                         const isDateSame = b.tanggal === createBookingForm.tanggal;
                                                         const isJamSame = normalizeJam(b.jam) === normalizeJam(s);
                                                         const isActive = b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed';
-                                                        return b.id !== 999999 && isDateSame && isJamSame && isActive;
+                                                        return isDateSame && isJamSame && isActive;
                                                     });
                                                     const isFull = bookingsAtSlot.length >= capInline; 
                                                     const isSelected = createBookingForm.jam === s;
@@ -1141,7 +1205,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                         onClick={async () => {
                                             if(!createBookingForm.noPlat || !createBookingForm.tipeMobil) return Toastify({text: "Plat dan Tipe Wajib Diisi", background: "red"}).showToast();
                                             const { error: insertError } = await db.insert('booking', [{
-                                                id: Date.now(),
+                                                id: Date.now() + Math.floor(Math.random() * 1000),
                                                 ...createBookingForm,
                                                 noPlat: createBookingForm.noPlat.toUpperCase().replace(/\s+/g, ''),
                                                 status: 'accepted',
@@ -1192,19 +1256,14 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                         </label>
                                         <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
                                             {(() => {
-                                                const config = rawBookings.find(b => b.id === 999999);
-                                                const slotCount = config ? parseInt(config.namaCustomer) || 4 : 4;
-                                                const gapInline = config ? parseInt(config.tipeMobil) || 30 : 30;
-                                                const startInline = config?.vin ? (() => { const p = config.vin.split(':'); return { h: parseInt(p[0]) || 8, m: parseInt(p[1]) || 30 }; })() : { h: 8, m: 30 };
-                                                const capInline = config?.vin ? (() => { const p = config.vin.split(':'); return p.length >= 3 ? parseInt(p[2]) || 1 : 1; })() : 1;
-                                                const allSlots = generateSlots(slotCount, gapInline, startInline.h, startInline.m);
+                                                const { slotCount, gapMinutes: gapInline, startHour: startInlineH, startMinute: startInlineM, slotCapacity: capInline } = bookingConfigState;
+                                                const allSlots = generateSlots(slotCount, gapInline, startInlineH, startInlineM);
                                                 
                                                 return allSlots.map(s => {
                                                     const bookingsAtThisTime = rawBookings.filter(b => 
-                                                        b.id !== 999999 && 
                                                         b.id !== editingBooking.id && // Exclude CURRENT booking being edited
                                                         b.tanggal === editingBooking.tanggal && 
-                                                        b.jam === s &&
+                                                        normalizeJam(b.jam) === normalizeJam(s) &&
                                                         (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed')
                                                     );
                                                     const isFull = bookingsAtThisTime.length >= capInline;

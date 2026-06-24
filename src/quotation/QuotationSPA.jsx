@@ -467,7 +467,7 @@ export default function QuotationSPA({ onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-[#F5F5F7] z-[9999] flex flex-col md:flex-row overflow-hidden font-sans selection:bg-black selection:text-white text-black antialiased">
+    <div className="w-full h-full bg-[#F5F5F7] flex flex-col md:flex-row overflow-hidden font-sans selection:bg-black selection:text-white text-black antialiased">
       
       {/* LEFT PANEL: CONFIGURATOR */}
       <aside className="w-full md:w-[380px] bg-white border-r border-gray-200 p-8 flex flex-col h-full overflow-y-auto no-print shadow-2xl z-20">

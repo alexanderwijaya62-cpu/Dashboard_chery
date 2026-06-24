@@ -11,6 +11,7 @@ import {
   Truck,
   DollarSign,
   Activity,
+  Layers,
   Database,
   History,
   Settings,
@@ -25,6 +26,7 @@ import {
   Car,
   BarChart2,
   BarChart3,
+  MessageCircle,
 } from 'lucide-react';
 
 /**
@@ -71,11 +73,13 @@ export const NAV_CONFIG = {
     { id: 'sparepart-view', icon: Search, label: 'Order List', page: 'sparepart-view', ariaLabel: 'Order List' },
     { id: 'sparepart-quotation', icon: FileText, label: 'Quotations', page: 'sparepart-quotation', ariaLabel: 'Quotations' },
     { id: 'sparepart-profit', icon: TrendingUp, label: 'Analysis', page: 'sparepart-profit', ariaLabel: 'Analysis' },
+    { id: 'sparepart-predict', icon: Layers, label: 'Stock Predictor', page: 'sparepart-predict', ariaLabel: 'Stock Predictor' },
   ],
   owner: [
     { id: 'owner-monitoring', icon: Activity, label: 'Live Monitoring', page: 'owner', ariaLabel: 'Live Monitoring' },
     { id: 'owner-workshop', icon: Car, label: 'Antrian Workshop', page: 'owner-workshop', ariaLabel: 'Antrian Workshop' },
     { id: 'owner-dms', icon: Search, label: 'DMS Search', page: 'owner-dms', ariaLabel: 'DMS Search' },
+    { id: 'owner-sparepart-cost', icon: DollarSign, label: 'Sparepart Cost', page: 'owner-sparepart-cost', ariaLabel: 'Sparepart Cost' },
     { id: 'owner-warranty', icon: ShieldCheck, label: 'Warranty Search', page: 'owner-warranty', ariaLabel: 'Warranty Search' },
     { id: 'owner-parts', icon: Truck, label: 'Tracking Pemesanan Part', page: 'owner-parts', ariaLabel: 'Tracking Pemesanan Part' },
     { id: 'owner-users', icon: Users, label: 'Manajemen User', page: 'owner-users', ariaLabel: 'Manajemen User' },
@@ -85,9 +89,7 @@ export const NAV_CONFIG = {
   mekanik: [
     { id: 'mechanic', icon: Wrench, label: 'Workshop', page: 'mechanic', ariaLabel: 'Mechanic Panel' },
   ],
-  customer: [
-    { id: 'customer', icon: User, label: 'Profile', page: 'customer', ariaLabel: 'Customer Profile' },
-  ],
+  customer: [],
   display: [],
   warranty: [
     { id: 'warranty-dashboard', icon: BarChart2,   label: 'Dashboard',        page: 'warranty',          ariaLabel: 'Warranty Dashboard' },

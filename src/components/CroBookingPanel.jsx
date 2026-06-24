@@ -4,6 +4,7 @@ import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import DmsBookingListView from './DmsBookingListView';
 import { db } from '../utils/dbClient';
+import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
 
 const TIPE_MOBIL = [
     "Tiggo 5x", "Tiggo Cross", "Tiggo Cross Csh", "Tiggo 7", "Tiggo 8 Pro",
@@ -12,23 +13,6 @@ const TIPE_MOBIL = [
 ];
 
 const KEPERLUAN = ["Free Service 1", "Free Service 2", "Free Service 3", "General Repair", "Perawatan Berkala", "Claim Warranty"];
-
-const generateSlots = (count, gapMinutes = 30, startHour = 8, startMin = 0) => {
-  const slots = [];
-  let currentHour = startHour;
-  let currentMin = startMin;
-  for (let i = 0; i < count; i++) {
-    const h = String(currentHour).padStart(2, '0');
-    const m = String(currentMin).padStart(2, '0');
-    slots.push(`${h}.${m}`);
-    currentMin += gapMinutes;
-    while (currentMin >= 60) {
-      currentHour += 1;
-      currentMin -= 60;
-    }
-  }
-  return slots;
-};
 
 const daysInMonth = (month, year) => new Date(year, month + 1, 0).getDate();
 const startDayOfMonth = (month, year) => new Date(year, month, 1).getDay();
@@ -44,28 +28,14 @@ export default function CroBookingPanel({ user }) {
     useEffect(() => {
         (async () => {
             try {
-                const { data } = await db.select('booking', { select: 'namaCustomer, tipeMobil, vin', eq: { id: 999999 }, maybeSingle: true });
-                if (data) {
-                    const c = parseInt(data.namaCustomer);
-                    const g = parseInt(data.tipeMobil);
-                    let sh = 8, sm = 0, sc = 1;
-                    if (data.vin) {
-                        const p = data.vin.split(':');
-                        const ph = parseInt(p[0]);
-                        const pm = parseInt(p[1]);
-                        const pc = parseInt(p[2]);
-                        if (!isNaN(ph)) sh = ph;
-                        if (!isNaN(pm)) sm = pm;
-                        if (!isNaN(pc) && pc > 0) sc = pc;
-                    }
-                    setSlotConfig({
-                        count: !isNaN(c) && c > 0 ? c : 4,
-                        gap: !isNaN(g) && g > 0 ? g : 30,
-                        startH: sh,
-                        startM: sm,
-                        slotCapacity: sc,
-                    });
-                }
+                const config = await fetchBookingConfig();
+                setSlotConfig({
+                    count: config.slotCount,
+                    gap: config.gapMinutes,
+                    startH: config.startHour,
+                    startM: config.startMinute,
+                    slotCapacity: config.slotCapacity,
+                });
             } catch (_) {}
         })();
     }, []);
@@ -75,7 +45,10 @@ export default function CroBookingPanel({ user }) {
             try {
                 const yesterday = new Date();
                 yesterday.setDate(yesterday.getDate() - 1);
-                const { data } = await db.select('booking', { select: 'id, tanggal, jam, status', or: `tanggal.gte.${yesterday.toISOString().split('T')[0]},id.eq.999999` });
+                const { data } = await db.select('booking', {
+                    select: 'id, tanggal, jam, status',
+                    gte: { tanggal: yesterday.toISOString().split('T')[0] }
+                });
                 if (Array.isArray(data)) setBookings(data);
             } catch (_) {}
         })();
@@ -247,6 +220,22 @@ export default function CroBookingPanel({ user }) {
 
             const json = await res.json();
             if (json.success) {
+                try {
+                    await db.insert('booking', {
+                        tanggal: formData.tanggal,
+                        jam: formData.jam,
+                        noPlat: formData.noPolisi,
+                        namaCustomer: formData.atasNama,
+                        noTelp: formData.noTelp,
+                        tipeMobil: formData.modelKendaraan || '-',
+                        keperluanService: formData.keluhan || '-',
+                        status: 'accepted',
+                        bookingVia: 'CRO Booking (DMS Synced)',
+                        createdAt: new Date().toISOString(),
+                    });
+                } catch (localErr) {
+                    console.error('Gagal simpan DMS booking lokal:', localErr);
+                }
                 Toastify({ text: "Booking BERHASIL ditambahkan!", background: "green" }).showToast();
                 resetModal();
                 setRefreshTrigger(prev => prev + 1);
@@ -431,7 +420,6 @@ export default function CroBookingPanel({ user }) {
                                                         const [h, m] = slot.split('.');
                                                         const isPastTime = formData.tanggal === new Date().toISOString().split('T')[0] && parseFloat(slot) < (new Date().getHours() + new Date().getMinutes() / 60);
                                                         const count = bookings.filter(b =>
-                                                            b.id !== 999999 &&
                                                             b.tanggal === formData.tanggal &&
                                                             String(b.jam).replace(':', '.') === slot &&
                                                             (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed')

@@ -61,6 +61,8 @@ export default function OwnerPanel({
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
   const [isCroImagesEnabled, setIsCroImagesEnabled] = useState(true);
+  const [isAutoMenginapEnabled, setIsAutoMenginapEnabled] = useState(true);
+  const [callCooldown, setCallCooldown] = useState(120);
   const [mechanics, setMechanics] = useState([]);
   const soundFileRef = React.useRef(null);
   const audioRef = React.useRef(null);
@@ -92,6 +94,16 @@ export default function OwnerPanel({
   const [manualSearchQuery, setManualSearchQuery] = useState('');
   const [isManualSearching, setIsManualSearching] = useState(false);
   const [modalModelFilter, setModalModelFilter] = useState(''); // Filter model di dalam modal edit
+
+  // Sparepart Cost Calculator States
+  const [costSearchQuery, setCostSearchQuery] = useState('');
+  const [costResults, setCostResults] = useState([]);
+  const [isCostLoading, setIsCostLoading] = useState(false);
+  const [costMarkup, setCostMarkup] = useState(0);
+  const [costDiskon, setCostDiskon] = useState(0);
+  const [costList, setCostList] = useState([]);
+  const [isCostFetchingAll, setIsCostFetchingAll] = useState(false);
+  const [costAllTotal, setCostAllTotal] = useState(0);
 
   // Warranty Search States
   const [warrantyResults, setWarrantyResults] = useState([]);
@@ -551,6 +563,171 @@ export default function OwnerPanel({
       if (!isBulk) setIsDmsLoading(false);
     }
     return finalResult;
+  };
+
+  const searchCostParts = async (query) => {
+    setIsCostLoading(true);
+    try {
+      let resp = await fetch(`${CHERY_DMS_URL}?pageSize=50&status=1&pageIndex=0&code=${encodeURIComponent(query)}`, {
+        headers: { 'x-api-key': GATE }
+      });
+      let result = await resp.json();
+      let data = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);
+      if (data.length === 0) {
+        resp = await fetch(`${CHERY_DMS_URL}?pageSize=50&status=1&pageIndex=0&name=${encodeURIComponent(query)}`, {
+          headers: { 'x-api-key': GATE }
+        });
+        result = await resp.json();
+        data = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);
+      }
+      setCostResults(data);
+      if (data.length === 0) {
+        Toastify({ text: "Tidak ditemukan sparepart dengan kata kunci tersebut", background: "#f59e0b" }).showToast();
+      }
+    } catch (e) {
+      console.error("Cost Search Error:", e);
+      Toastify({ text: "Gagal mencari sparepart: " + e.message, style: { background: '#ef4444' } }).showToast();
+    } finally {
+      setIsCostLoading(false);
+    }
+  };
+
+  const fetchAllCostParts = async () => {
+    setIsCostFetchingAll(true);
+    setCostResults([]);
+    let allData = [];
+    let page = 0;
+    const pageSize = 100;
+    try {
+      while (true) {
+        const resp = await fetch(`${CHERY_DMS_URL}?pageSize=${pageSize}&status=1&pageIndex=${page}`, {
+          headers: { 'x-api-key': GATE }
+        });
+        const result = await resp.json();
+        const data = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);
+        const total = result.payload?.totalElements || 0;
+        setCostAllTotal(total);
+        allData = [...allData, ...data];
+        if (allData.length >= total || data.length === 0) break;
+        page++;
+      }
+      setCostResults(allData);
+      Toastify({ text: `Berhasil menarik ${allData.length} sparepart dari DMS`, background: "#10b981" }).showToast();
+    } catch (e) {
+      console.error("Fetch All Error:", e);
+      Toastify({ text: "Gagal menarik data: " + e.message, style: { background: '#ef4444' } }).showToast();
+    } finally {
+      setIsCostFetchingAll(false);
+    }
+  };
+
+  const addToCostList = (item) => {
+    setCostList(prev => {
+      const exists = prev.find(p => p.code === item.code);
+      if (exists) {
+        Toastify({ text: `${item.code} sudah ada di daftar`, background: "#f59e0b" }).showToast();
+        return prev;
+      }
+      return [...prev, {
+        code: item.code,
+        name: item.name,
+        cost: (item.wholesalePriceExclusiveOfTax ?? item.wholesalePriceExcludingTax ?? item.retailGuidePrice) || 0,
+        costRetail: (item.retailGuidePriceExcludingTax ?? item.retailGuidePrice) || 0,
+        markup: costMarkup,
+        diskon: costDiskon
+      }];
+    });
+  };
+
+  const removeFromCostList = (code) => {
+    setCostList(prev => prev.filter(p => p.code !== code));
+  };
+
+  const updateCostMarkup = (code, markup) => {
+    const val = Math.max(0, parseInt(markup) || 0);
+    setCostList(prev => prev.map(p => p.code === code ? { ...p, markup: val } : p));
+  };
+
+  const updateCostDiskon = (code, diskon) => {
+    const val = Math.max(0, parseInt(diskon) || 0);
+    setCostList(prev => prev.map(p => p.code === code ? { ...p, diskon: val } : p));
+  };
+
+  const applyMarkupAll = () => {
+    setCostList(prev => prev.map(p => ({ ...p, markup: costMarkup })));
+    Toastify({ text: `Markup ${costMarkup}% diterapkan ke semua item`, background: "#10b981" }).showToast();
+  };
+
+  const applyDiskonAll = () => {
+    setCostList(prev => prev.map(p => ({ ...p, diskon: costDiskon })));
+    Toastify({ text: `Diskon ${costDiskon}% diterapkan ke semua item`, background: "#10b981" }).showToast();
+  };
+
+  const getSellingPrice = (basePrice, markup) => {
+    return basePrice + (basePrice * markup / 100);
+  };
+
+  const getFinalProfit = (retailPrice, costPrice, markup, diskon) => {
+    const selling = getSellingPrice(retailPrice, markup);
+    const discountAmount = selling * (diskon / 100);
+    return selling - discountAmount - costPrice;
+  };
+
+  const exportCostExcel = () => {
+    if (costList.length === 0) {
+      Toastify({ text: "Tidak ada data untuk di-export", background: "#f59e0b" }).showToast();
+      return;
+    }
+    try {
+      const aoa = [];
+      aoa.push(['No', 'No Part', 'Nama Sparepart', 'Harga Modal', 'Harga Jual (Exc PPN)', 'Markup %', 'Harga Markup', 'Harga Setelah Markup', 'Diskon %', 'Harga Diskon', 'Total Profit']);
+
+      costList.forEach((item, idx) => {
+        const rowNum = idx + 2;
+        const retailPrice = item.costRetail || item.cost;
+        aoa.push([
+          idx + 1,
+          item.code,
+          item.name,
+          item.cost,
+          retailPrice,
+          item.markup,
+          { t: 'n', f: `E${rowNum}*F${rowNum}/100` },
+          { t: 'n', f: `E${rowNum}+G${rowNum}` },
+          item.diskon,
+          { t: 'n', f: `H${rowNum}*I${rowNum}/100` },
+          { t: 'n', f: `H${rowNum}-J${rowNum}-D${rowNum}` }
+        ]);
+      });
+
+      const lastDataRow = costList.length + 1;
+      aoa.push([
+        '',
+        'TOTAL',
+        `${costList.length} item`,
+        { t: 'n', f: `SUM(D2:D${lastDataRow})` },
+        { t: 'n', f: `SUM(E2:E${lastDataRow})` },
+        '',
+        { t: 'n', f: `SUM(G2:G${lastDataRow})` },
+        { t: 'n', f: `SUM(H2:H${lastDataRow})` },
+        '',
+        { t: 'n', f: `SUM(J2:J${lastDataRow})` },
+        { t: 'n', f: `SUM(K2:K${lastDataRow})` }
+      ]);
+
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      const wscols = [
+        { wch: 5 }, { wch: 20 }, { wch: 40 }, { wch: 18 }, { wch: 18 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 8 }, { wch: 18 }, { wch: 18 }
+      ];
+      ws['!cols'] = wscols;
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Sparepart Cost');
+      XLSX.writeFile(wb, `Sparepart_Cost_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      Toastify({ text: `Excel berhasil di-export: ${costList.length} item`, background: "#10b981" }).showToast();
+    } catch (e) {
+      console.error("Export Error:", e);
+      Toastify({ text: "Gagal export Excel: " + e.message, style: { background: '#ef4444' } }).showToast();
+    }
   };
 
   const fetchEpcImages = async (partCode) => {
@@ -1042,10 +1219,16 @@ export default function OwnerPanel({
 
       const { data: statusData } = await db.select('settings', { eq: { key: 'notification_sound_enabled' }, maybeSingle: true });
       if (statusData) setIsSoundEnabled(statusData.value === 'true');
+
+      const { data: menginapData } = await db.select('settings', { eq: { key: 'auto_menginap_enabled' }, maybeSingle: true });
+      if (menginapData) setIsAutoMenginapEnabled(menginapData.value === 'true');
+
+      const { data: cooldownData } = await db.select('settings', { eq: { key: 'call_cooldown_seconds' }, maybeSingle: true });
+      if (cooldownData) setCallCooldown(parseInt(cooldownData.value) || 120);
     } catch (e) { 
       // Silently ignore table errors
     }
-  }, [setNotifSoundUrl, setIsSoundEnabled]);
+  }, [setNotifSoundUrl, setIsSoundEnabled, setIsAutoMenginapEnabled, setCallCooldown]);
 
   useEffect(() => {
     fetchNotifSettings();
@@ -1123,6 +1306,28 @@ export default function OwnerPanel({
     }
   };
 
+  const handleToggleAutoMenginap = async () => {
+    const newState = !isAutoMenginapEnabled;
+    setIsAutoMenginapEnabled(newState);
+    try {
+      await db.upsert('settings', { key: 'auto_menginap_enabled', value: newState.toString() }, { onConflict: 'key' });
+      Toastify({ text: `🌙 Auto Menginap ${newState ? 'AKTIF' : 'NONAKTIF'}`, style: { background: newState ? '#10b981' : '#ef4444' } }).showToast();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSaveCooldown = async (value) => {
+    const sec = Math.max(10, Math.min(600, parseInt(value) || 120));
+    setCallCooldown(sec);
+    try {
+      await db.upsert('settings', { key: 'call_cooldown_seconds', value: String(sec) }, { onConflict: 'key' });
+      Toastify({ text: `⏱ Cooldown panggilan: ${sec} detik`, style: { background: '#10b981' } }).showToast();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   // Modal State
   const [modal, setModal] = useState({ type: null, user: null });
   const [newPassword, setNewPassword] = useState('');
@@ -1130,9 +1335,7 @@ export default function OwnerPanel({
   const fetchUsers = useCallback(async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*');
+      const { data, error } = await db.select('users');
       if (error) throw error;
       setUsers(data || []);
     } catch (e) {
@@ -1169,10 +1372,7 @@ export default function OwnerPanel({
     }
 
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({ sessionId: null, isOnline: false, lastAction: 'FORCE_LOGOUT' })
-        .eq('username', targetUser.username);
+      const { error } = await db.update('users', { sessionId: null, isOnline: false, lastAction: 'FORCE_LOGOUT' }, { eq: { username: targetUser.username } });
 
       if (error) throw error;
 
@@ -1191,10 +1391,7 @@ export default function OwnerPanel({
       return;
     }
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({ password: newPassword, sessionId: null, isOnline: false, lastAction: 'PASSWORD_RESET' })
-        .eq('username', modal.user.username);
+      const { error } = await db.update('users', { password: newPassword, sessionId: null, isOnline: false, lastAction: 'PASSWORD_RESET' }, { eq: { username: modal.user.username } });
 
       if (error) throw error;
 
@@ -1221,10 +1418,7 @@ export default function OwnerPanel({
 
   const handleResetAllSessions = async () => {
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({ sessionId: null, isOnline: false, lastAction: 'MASS_LOGOUT' })
-        .neq('username', user.username);
+      const { error } = await db.update('users', { sessionId: null, isOnline: false, lastAction: 'MASS_LOGOUT' }, { neq: { username: user.username } });
 
       if (error) throw error;
 
@@ -1301,6 +1495,7 @@ export default function OwnerPanel({
                  activeTab === 'users' ? '👥 Manajemen User' : 
                  activeTab === 'notification_sound' ? '🔔 Notifikasi Suara' : 
                  activeTab === 'dms_search' ? '🔍 DMS & EPCM Search' :
+                 activeTab === 'sparepart_cost' ? '💰 Sparepart Cost Calculator' :
                  activeTab === 'warranty_search' ? '🛡️ Warranty Claim Search' :
                  activeTab === 'part_orders' ? '📦 Tracking Pemesanan Part' :
                  '🗑️ Riwayat Penghapusan Data'}
@@ -1316,7 +1511,9 @@ export default function OwnerPanel({
                         ? 'Upload dan kelola suara notifikasi kustom'
                         : activeTab === 'dms_search'
                           ? 'Integrasi Katalog Sparepart'
-                          : activeTab === 'warranty_search'
+                          : activeTab === 'sparepart_cost'
+                            ? `Markup minimal 25% — ${costList.length} item dalam daftar`
+                            : activeTab === 'warranty_search'
                             ? 'Monitoring Klaim Warranty Realtime'
                             : activeTab === 'part_orders'
                               ? 'Status Pesanan & Pengiriman SAP Split'
@@ -1951,6 +2148,247 @@ export default function OwnerPanel({
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ====== TAB: SPAREPART COST CALCULATOR ====== */}
+          {activeTab === 'sparepart_cost' && (
+            <div className="space-y-6 animate-in fade-in duration-500">
+              {/* Search + Actions */}
+              <div className="bg-white border border-zinc-200 rounded-lg p-6">
+                <div className="flex flex-col md:flex-row gap-4 items-start md:items-end">
+                  <div className="flex-1 w-full">
+                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] ml-1">Cari Sparepart</label>
+                    <div className="flex gap-3 mt-2">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-400" size={20} />
+                        <input
+                          type="text"
+                          value={costSearchQuery}
+                          onChange={(e) => setCostSearchQuery(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && searchCostParts(costSearchQuery)}
+                          placeholder="Cari No Part atau Nama Sparepart..."
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-lg pl-14 pr-6 py-3.5 focus:outline-none focus:ring-2 focus:ring-zinc-900/20 focus:border-zinc-900 text-zinc-900 placeholder:text-zinc-400 transition-all"
+                        />
+                        {isCostLoading && (
+                          <div className="absolute right-5 top-1/2 -translate-y-1/2">
+                            <RefreshCw className="text-zinc-900 animate-spin" size={20} />
+                          </div>
+                        )}
+                      </div>
+                      <button onClick={() => searchCostParts(costSearchQuery)} disabled={isCostLoading}
+                        className="bg-white hover:bg-zinc-50 text-zinc-900 font-bold border border-zinc-300 shadow-sm px-8 rounded-lg font-black transition-all active:scale-95 disabled:opacity-50">
+                        CARI
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 w-full md:w-auto">
+                    <button onClick={fetchAllCostParts} disabled={isCostFetchingAll}
+                      className="flex items-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold border border-zinc-300 px-5 py-3.5 rounded-lg text-xs font-black transition-all active:scale-95 disabled:opacity-50">
+                      <RefreshCw size={16} className={isCostFetchingAll ? 'animate-spin' : ''} />
+                      {isCostFetchingAll ? 'Menarik...' : 'Tarik Semua Data'}
+                    </button>
+                    <button onClick={exportCostExcel} disabled={costList.length === 0}
+                      className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-3.5 rounded-lg text-xs font-black transition-all active:scale-95 disabled:opacity-50 shadow-sm">
+                      <Download size={16} />
+                      Export Excel ({costList.length})
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Markup + Diskon Setting + Apply All */}
+              <div className="bg-white border border-zinc-200 rounded-lg p-6">
+                <div className="flex flex-wrap items-center gap-6">
+                  <div className="flex items-center gap-3">
+                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Markup</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={costMarkup}
+                        onChange={(e) => setCostMarkup(Math.max(0, parseInt(e.target.value) || 0))}
+                        min={0}
+                        className="w-20 bg-zinc-50 border border-zinc-200 rounded-lg px-4 py-2 text-center font-black text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
+                      />
+                      <span className="text-sm font-black text-zinc-600">%</span>
+                    </div>
+                    <button onClick={applyMarkupAll} disabled={costList.length === 0}
+                      className="bg-zinc-900 hover:bg-zinc-800 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 disabled:opacity-30">
+                      Terapkan
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Diskon</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={costDiskon}
+                        onChange={(e) => setCostDiskon(Math.max(0, parseInt(e.target.value) || 0))}
+                        min={0}
+                        className="w-20 bg-zinc-50 border border-zinc-200 rounded-lg px-4 py-2 text-center font-black text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
+                      />
+                      <span className="text-sm font-black text-zinc-600">%</span>
+                    </div>
+                    <button onClick={applyDiskonAll} disabled={costList.length === 0}
+                      className="bg-zinc-900 hover:bg-zinc-800 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 disabled:opacity-30">
+                      Terapkan
+                    </button>
+                  </div>
+                  <span className="text-[9px] text-zinc-400 font-medium">Markup & Diskon opsional (0 = tidak dipakai)</span>
+                </div>
+              </div>
+
+              {/* Results Table - Memanjang (vertical full width) */}
+              {costResults.length > 0 && (
+                <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
+                  <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-50">
+                    <h3 className="text-sm font-black text-zinc-900">Hasil Pencarian DMS</h3>
+                    <span className="text-[10px] text-zinc-400 font-bold">{costResults.length} item ditemukan</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-zinc-50 border-b border-zinc-200">
+                          <th className="text-left px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider w-10">No</th>
+                          <th className="text-left px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider">No Part</th>
+                          <th className="text-left px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider">Nama Sparepart</th>
+                          <th className="text-right px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider">Harga Modal</th>
+                          <th className="text-right px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider">Harga Jual (Exc PPN)</th>
+                          <th className="text-center px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider w-16">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100">
+                        {costResults.map((item, idx) => {
+                          const cost = (item.wholesalePriceExclusiveOfTax ?? item.wholesalePriceExcludingTax ?? item.retailGuidePrice) || 0;
+                          const retail = (item.retailGuidePriceExcludingTax ?? item.retailGuidePrice) || 0;
+                          return (
+                            <tr key={idx} className="hover:bg-zinc-50 transition-colors">
+                              <td className="px-4 py-3 text-xs font-bold text-zinc-400">{idx + 1}</td>
+                              <td className="px-4 py-3 font-mono text-xs font-bold text-zinc-600">{item.code}</td>
+                              <td className="px-4 py-3 font-bold text-zinc-900 uppercase truncate max-w-[250px]">{item.name}</td>
+                              <td className="px-4 py-3 text-right font-bold text-zinc-700">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(cost)}</td>
+                              <td className="px-4 py-3 text-right font-black text-emerald-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(retail)}</td>
+                              <td className="px-4 py-3 text-center">
+                                <button onClick={() => addToCostList(item)}
+                                  className="p-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-500 hover:text-zinc-900 rounded-md transition-all">
+                                  <Plus size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Cost List Table */}
+              {costList.length > 0 && (
+                <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
+                  <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-50">
+                    <h3 className="text-sm font-black text-zinc-900">Daftar Harga Jual</h3>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] text-zinc-400 font-bold">{costList.length} item</span>
+                      <button onClick={() => setCostList([])}
+                        className="text-[10px] font-black text-red-500 hover:text-red-600 uppercase tracking-wider">
+                        Hapus Semua
+                      </button>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-zinc-50 border-b border-zinc-200">
+                          <th className="text-left px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider w-10">No</th>
+                          <th className="text-left px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider">No Part</th>
+                          <th className="text-left px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider">Nama Sparepart</th>
+                          <th className="text-right px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider">Harga Modal</th>
+                          <th className="text-right px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider">Harga Jual (Exc PPN)</th>
+                          <th className="text-center px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider w-20">Markup %</th>
+                          <th className="text-right px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider">Harga Markup</th>
+                          <th className="text-right px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider">Harga Setelah Markup</th>
+                          <th className="text-center px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider w-20">Diskon %</th>
+                          <th className="text-right px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider">Harga Diskon</th>
+                          <th className="text-right px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider w-28">Total Profit</th>
+                          <th className="text-center px-4 py-3 text-[9px] font-black text-zinc-500 uppercase tracking-wider w-12">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100">
+                        {costList.map((item, idx) => {
+                          const retailPrice = item.costRetail || item.cost;
+                          const hargaSetelahMarkup = getSellingPrice(retailPrice, item.markup);
+                          const hargaMarkup = retailPrice * (item.markup / 100);
+                          const hargaDiskon = hargaSetelahMarkup * (item.diskon / 100);
+                          const finalProfit = getFinalProfit(retailPrice, item.cost, item.markup, item.diskon);
+                          return (
+                            <tr key={idx} className="hover:bg-zinc-50 transition-colors">
+                              <td className="px-4 py-3 text-xs font-bold text-zinc-400">{idx + 1}</td>
+                              <td className="px-4 py-3 font-mono text-xs font-bold text-zinc-600">{item.code}</td>
+                              <td className="px-4 py-3 font-bold text-zinc-900 uppercase truncate max-w-[200px]">{item.name}</td>
+                              <td className="px-4 py-3 text-right font-bold text-zinc-700">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(item.cost)}</td>
+                              <td className="px-4 py-3 text-right font-black text-emerald-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(retailPrice)}</td>
+                              <td className="px-4 py-3 text-center">
+                                <input
+                                  type="number"
+                                  value={item.markup}
+                                  onChange={(e) => updateCostMarkup(item.code, e.target.value)}
+                                  min={0}
+                                  className="w-16 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1 text-center font-black text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20 mx-auto"
+                                />
+                              </td>
+                              <td className="px-4 py-3 text-right font-bold text-indigo-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(hargaMarkup)}</td>
+                              <td className="px-4 py-3 text-right font-black text-emerald-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(hargaSetelahMarkup)}</td>
+                              <td className="px-4 py-3 text-center">
+                                <input
+                                  type="number"
+                                  value={item.diskon}
+                                  onChange={(e) => updateCostDiskon(item.code, e.target.value)}
+                                  min={0}
+                                  className="w-16 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1 text-center font-black text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20 mx-auto"
+                                />
+                              </td>
+                              <td className="px-4 py-3 text-right font-bold text-orange-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(hargaDiskon)}</td>
+                              <td className="px-4 py-3 text-right font-black text-blue-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(finalProfit)}</td>
+                              <td className="px-4 py-3 text-center">
+                                <button onClick={() => removeFromCostList(item.code)}
+                                  className="p-1.5 text-zinc-400 hover:text-red-500 transition-colors">
+                                  <Trash2 size={15} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Total Row */}
+                  <div className="px-6 py-5 bg-zinc-50 border-t border-zinc-200">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                      <div>
+                        <p className="text-[9px] font-black text-zinc-500 uppercase tracking-wider">Total Item</p>
+                        <p className="text-lg font-black text-zinc-900">{costList.length} item</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black text-zinc-500 uppercase tracking-wider">Total Modal</p>
+                        <p className="text-lg font-bold text-zinc-700">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(costList.reduce((sum, p) => sum + p.cost, 0))}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black text-zinc-500 uppercase tracking-wider">Total Setelah Markup</p>
+                        <p className="text-lg font-black text-emerald-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(costList.reduce((sum, p) => sum + getSellingPrice(p.costRetail || p.cost, p.markup), 0))}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black text-zinc-500 uppercase tracking-wider">Total Diskon</p>
+                        <p className="text-lg font-bold text-orange-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(costList.reduce((sum, p) => sum + (getSellingPrice(p.costRetail || p.cost, p.markup) * (p.diskon / 100)), 0))}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black text-zinc-500 uppercase tracking-wider">Total Profit</p>
+                        <p className="text-lg font-black text-blue-600">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(costList.reduce((sum, p) => sum + getFinalProfit(p.costRetail || p.cost, p.cost, p.markup, p.diskon), 0))}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -2923,8 +3361,8 @@ export default function OwnerPanel({
                     <Volume2 size={28} className="text-black" />
                   </div>
                   <div>
-                    <h3 className="text-zinc-900 font-black text-lg">Konfigurasi Notifikasi Suara</h3>
-                    <p className="text-zinc-500 text-xs font-medium">Aktifkan atau matikan suara pengumuman "Mobil [BK] Selesai" secara global.</p>
+                    <h3 className="text-zinc-900 font-black text-lg">Pengaturan Sistem</h3>
+                    <p className="text-zinc-500 text-xs font-medium">Atur notifikasi suara dan auto menginap (19:00-08:00).</p>
                   </div>
                 </div>
 
@@ -2945,6 +3383,41 @@ export default function OwnerPanel({
                       >
                         <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all duration-300 shadow-sm ${isSoundEnabled ? 'left-7' : 'left-1'}`}></div>
                       </button>
+                    </div>
+                  </div>
+
+                  {/* Auto Menginap Toggle */}
+                  <div className="flex-1 bg-zinc-100 border border-zinc-200 rounded-md p-6 flex items-center justify-between">
+                    <div>
+                      <p className="text-zinc-900 font-black text-sm mb-1 uppercase tracking-tight">Auto Menginap</p>
+                      <p className="text-zinc-500 text-[10px] font-medium">Jika OFF, antrian tidak otomatis menginap di jam 19:00-08:00.</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${isAutoMenginapEnabled ? 'text-black' : 'text-zinc-400'}`}>
+                        {isAutoMenginapEnabled ? 'Active' : 'Disabled'}
+                      </span>
+                      <button 
+                        onClick={handleToggleAutoMenginap}
+                        className={`relative w-14 h-8 rounded-full transition-all duration-300 border-2 ${isAutoMenginapEnabled ? 'bg-black border-black shadow-lg' : 'bg-zinc-200 border-zinc-300'}`}
+                      >
+                        <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all duration-300 shadow-sm ${isAutoMenginapEnabled ? 'left-7' : 'left-1'}`}></div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Cooldown Setting */}
+                  <div className="flex-1 bg-zinc-100 border border-zinc-200 rounded-md p-6 flex items-center justify-between">
+                    <div>
+                      <p className="text-zinc-900 font-black text-sm mb-1 uppercase tracking-tight">Cooldown Panggilan</p>
+                      <p className="text-zinc-500 text-[10px] font-medium">Jeda minimal antar pemanggilan (10-600 detik).</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <input type="number" min={10} max={600} value={callCooldown}
+                        onChange={(e) => setCallCooldown(Math.max(10, Math.min(600, parseInt(e.target.value) || 120)))}
+                        onBlur={(e) => handleSaveCooldown(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleSaveCooldown(e.target.value); }}
+                        className="w-20 bg-white border border-zinc-300 rounded-md px-3 py-2 text-center font-black text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20" />
+                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Detik</span>
                     </div>
                   </div>
 

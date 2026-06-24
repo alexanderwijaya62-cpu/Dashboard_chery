@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { LayoutDashboard, Settings, Calendar, Plus, Zap, FileText, LogOut, Truck } from 'lucide-react';
+import { Button } from '@heroui/react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 
 import { GATE, GAS_URL, GAS_USERS_URL, IS_MAINTENANCE } from './utils/config';
-import { supabase } from './utils/supabaseClient';
 import { db } from './utils/dbClient';
+import { supabase } from './utils/supabaseClient';
+
 
 // Import Komponen Terpisah
 import DisplayBoard from './components/DisplayBoard';
@@ -30,6 +32,7 @@ import CsiResult from './components/CsiResult';
 import CsiCustomers from './components/CsiCustomers';
 import CustomerProfile from './components/CustomerProfile';
 import CustomerPanel from './components/CustomerPanel';
+import CustomerComplaint from './components/CustomerComplaint';
 import PublicTracking from './components/PublicTracking';
 import DesktopNavBar from './components/DesktopNavBar';
 import BottomNavBar from './components/BottomNavBar';
@@ -197,10 +200,7 @@ const App = () => {
           setTimeout(() => reject(new Error('Logout timeout')), 2000)
         );
         await Promise.race([
-          supabase
-            .from('users')
-            .update({ isOnline: false, sessionId: null })
-            .eq('username', user.username),
+          db.update('users', { isOnline: false, sessionId: null }, { eq: { username: user.username } }),
           timeoutPromise
         ]);
       } catch (err) {
@@ -294,7 +294,7 @@ const App = () => {
             manager: ['manager', 'manager-financial', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'display', 'booking-public'],
             cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-booking-approval', 'cro-holidays', 'cro-csi', 'cro-customers', 'display', 'booking-public', 'sa-booking', 'booking-settings'],
             sparepart: ['sparepart', 'sparepart-view', 'sparepart-quotation', 'sparepart-profit', 'quotation', 'display', 'booking-public', 'stock-comparison'],
-            owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'display', 'booking-public', 'stock-comparison'],
+            owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-sparepart-cost', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'display', 'booking-public', 'stock-comparison'],
             warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-proforma'],
           };
 
@@ -304,8 +304,13 @@ const App = () => {
             setCurrentPage(role === 'cro' ? 'cro' : role);
           }
         } else if (role === 'customer') {
-          window.history.replaceState({}, '', '/customer');
-          setCurrentPage('customer');
+          const customerPages = ['customer', 'customer-complaint'];
+          if (savedPage && customerPages.includes(savedPage)) {
+            setCurrentPage(savedPage);
+          } else {
+            window.history.replaceState({}, '', '/customer');
+            setCurrentPage('customer');
+          }
         } else {
           window.history.replaceState({}, '', '/karyawan');
           setCurrentPage('mechanic');
@@ -324,7 +329,7 @@ const App = () => {
 
       if (savedPage && (
         (role === 'mekanik' && savedPage === 'mechanic') ||
-        (role === 'customer' && (savedPage === 'customer' || savedPage === 'booking-public')) ||
+        (role === 'customer' && (savedPage === 'customer' || savedPage === 'booking-public' || savedPage === 'customer-complaint')) ||
         (['admin', 'manager', 'cro', 'sparepart', 'owner'].includes(role))
       )) {
         setCurrentPage(savedPage);
@@ -403,25 +408,20 @@ const App = () => {
 
   const fetchQueue = React.useCallback(async () => {
     try {
-      // Optimasi: Pilih hanya kolom yang dibutuhkan untuk mengurangi data egress
-      const { data: activeQueue, error: qError } = await supabase
-        .from('antrian')
-        .select('*');
+      const { data: activeQueue, error: qError } = await db.select('antrian');
 
-      const { data: historyData, error: hError } = await supabase
-        .from('history')
-        .select('*')
-        .order('targetTime', { ascending: false })
-        .limit(100);
+      const { data: historyData, error: hError } = await db.select('history', {
+        order: { column: 'targetTime', ascending: false },
+        limit: 100
+      });
 
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const bookingDateLimit = thirtyDaysAgo.toISOString().split('T')[0];
 
-      const { data: bookingData, error: bError } = await supabase
-        .from('booking')
-        .select('*')
-        .or(`tanggal.gte.${bookingDateLimit},id.eq.999999`);
+      const { data: bookingData, error: bError } = await db.select('booking', {
+        gte: { tanggal: bookingDateLimit }
+      });
 
       if (qError) throw qError;
       if (hError) throw hError;
@@ -445,7 +445,11 @@ const App = () => {
           targetTime: item.targetTime || item.target_time || 0,
           tanggal: item.Tanggal || item.tanggal,
           jam: item.jam,
-          noTelp: item.noTelp || item.no_telp
+          noTelp: item.noTelp || item.no_telp,
+          queueNumber: item.queue_number || 0,
+          isCalled: item.is_called || false,
+          calledAt: item.called_at || null,
+          counter: item.counter || 0
         };
       };
 
@@ -457,28 +461,41 @@ const App = () => {
     }
   }, []);
 
+  // Debounce fetchQueue: hanya eksekusi sekali dalam 2 detik
+  const fetchQueueRef = useRef(fetchQueue);
+  fetchQueueRef.current = fetchQueue;
+  const fetchTimerRef = useRef(null);
+  const debouncedFetchQueue = useCallback(() => {
+    if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
+    fetchTimerRef.current = setTimeout(() => {
+      fetchQueueRef.current();
+    }, 2000);
+  }, []);
+
   // Sinkronisasi dengan Supabase Realtime
   useEffect(() => {
     fetchQueue(); // Ambil data pertama kali
 
     const antrianSubscription = supabase
       .channel('antrian-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'antrian' }, payload => {
-        fetchQueue();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'antrian' }, (payload) => {
+        if (payload.eventType === 'UPDATE' && payload.new?.status === payload.old?.status && payload.new?.is_called === payload.old?.is_called) return;
+        debouncedFetchQueue();
       })
       .subscribe();
 
     const historySubscription = supabase
       .channel('history-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'history' }, payload => {
-        fetchQueue();
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'history' }, () => {
+        debouncedFetchQueue();
       })
       .subscribe();
 
     const bookingSubscription = supabase
       .channel('booking-changes-global')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'booking' }, payload => {
-        fetchQueue();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'booking' }, (payload) => {
+        if (payload.eventType === 'UPDATE' && payload.new?.status === payload.old?.status) return;
+        debouncedFetchQueue();
       })
       .subscribe();
 
@@ -487,15 +504,7 @@ const App = () => {
       supabase.removeChannel(historySubscription);
       supabase.removeChannel(bookingSubscription);
     };
-  }, [fetchQueue]);
-
-  // Fallback Polling: Dikurangi frekuensinya menjadi 60 detik untuk hemat egress
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchQueue();
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [fetchQueue]);
+  }, [fetchQueue, debouncedFetchQueue]);
 
   // Update waktu lokal setiap detik untuk countdown
   useEffect(() => {
@@ -519,75 +528,17 @@ const App = () => {
   }, [sessionId]);
 
   // ============================================================
-  // SINGLE SESSION GUARD — Realtime & Initial Check
+  // SINGLE SESSION GUARD — Disabled: multiple login diizinkan
   // ============================================================
   useEffect(() => {
     if (!user || !sessionId || currentPage === 'display') return;
-
-    // 1. Verifikasi awal saat mount: Cek apakah sessionId masih valid di DB
-    const verifySession = async () => {
-      const { data, error } = await supabase
-        .from('users')
-        .select('sessionId')
-        .eq('username', user.username)
-        .single();
-
-      if (!error && data && data.sessionId && data.sessionId !== sessionId) {
-        handleLogout(true);
-        Toastify({
-          text: "🔐 Sesi Anda berakhir. Akun ini baru saja login di perangkat lain.",
-          duration: 0,
-          close: true,
-          gravity: 'top',
-          position: 'center',
-          style: { background: 'linear-gradient(135deg, #dc2626, #b91c1c)', borderRadius: '16px', fontWeight: '800' }
-        }).showToast();
-      }
-    };
-    verifySession();
-
-    // 2. Realtime Listener: Kick jika ada login baru saat sedang aktif
-    const channel = supabase
-      .channel(`session-guard-${user.username}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'users',
-          filter: `username=eq.${user.username}`,
-        },
-        (payload) => {
-          const updatedRow = payload.new;
-          if (updatedRow.sessionId && updatedRow.sessionId !== sessionId) {
-            handleLogout(true);
-            Toastify({
-              text: `🔐 Sesi Berakhir: Akun Anda baru saja digunakan untuk login di perangkat lain.`,
-              duration: 0,
-              close: true,
-              gravity: 'top',
-              position: 'center',
-              style: {
-                background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
-                borderRadius: '16px',
-                fontWeight: '800',
-                padding: '16px 24px',
-                boxShadow: '0 20px 60px rgba(220,38,38,0.4)',
-              }
-            }).showToast();
-            try { new Audio('https://raw.githubusercontent.com/shubhamjain/ios-notification-sounds/master/iphone_notification.mp3').play().catch(() => { }); } catch (e) { }
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    // Session guard dinonaktifkan agar tidak logout paksa saat login baru
   }, [user, sessionId, currentPage]);
 
   const customSoundUrlRef = React.useRef(null);
   const customSoundChecked = React.useRef(false);
+  const autoMenginapEnabledRef = React.useRef(true);
+  const callCooldownRef = React.useRef(120);
 
   // Fetch custom notification sound URL on mount
   React.useEffect(() => {
@@ -600,6 +551,12 @@ const App = () => {
 
         const { data: soundStatus } = await db.select('settings', { eq: { key: 'notification_sound_enabled' }, maybeSingle: true });
         if (soundStatus) setIsSoundEnabled(soundStatus.value === 'true');
+
+        const { data: menginapStatus } = await db.select('settings', { eq: { key: 'auto_menginap_enabled' }, maybeSingle: true });
+        autoMenginapEnabledRef.current = menginapStatus ? menginapStatus.value === 'true' : true;
+
+        const { data: cooldownData } = await db.select('settings', { eq: { key: 'call_cooldown_seconds' }, maybeSingle: true });
+        if (cooldownData) callCooldownRef.current = parseInt(cooldownData.value) || 120;
       } catch (e) {
         // Silently skip if table missing or other error
       }
@@ -617,9 +574,23 @@ const App = () => {
           if (payload.new.key === 'notification_sound_enabled') {
             setIsSoundEnabled(payload.new.value === 'true');
           }
+          if (payload.new.key === 'auto_menginap_enabled') {
+            autoMenginapEnabledRef.current = payload.new.value === 'true';
+          }
+          if (payload.new.key === 'call_cooldown_seconds') {
+            callCooldownRef.current = parseInt(payload.new.value) || 120;
+          }
         }
-        if (payload.eventType === 'DELETE' && payload.old?.key === 'notification_sound_url') {
-          customSoundUrlRef.current = null;
+        if (payload.eventType === 'DELETE') {
+          if (payload.old?.key === 'notification_sound_url') {
+            customSoundUrlRef.current = null;
+          }
+          if (payload.old?.key === 'auto_menginap_enabled') {
+            autoMenginapEnabledRef.current = true;
+          }
+          if (payload.old?.key === 'call_cooldown_seconds') {
+            callCooldownRef.current = 120;
+          }
         }
       })
       .subscribe();
@@ -745,6 +716,7 @@ const App = () => {
   }, [rawHistory, playNotificationSound]);
 
   const isAutoUpdating = useRef(false);
+  const noShowCheckedRef = useRef(false);
 
   useEffect(() => {
     const checkAutoStatus = async () => {
@@ -762,7 +734,7 @@ const App = () => {
       let targetStatus = null;
 
       // Checking Overnight (menginap)
-      if (currentHour >= 19 || currentHour < 8) {
+      if (autoMenginapEnabledRef.current && (currentHour >= 19 || currentHour < 8)) {
         targetStatus = 'menginap';
       }
       // Checking Break (istirahat) Senin-Sabtu (1-6)
@@ -843,6 +815,60 @@ const App = () => {
     return () => clearTimeout(autoTimer);
   }, [queue, breakSettings]);
 
+  // #3: Auto no-show handling — check setiap 60 detik
+  useEffect(() => {
+    if (noShowCheckedRef.current) return;
+    noShowCheckedRef.current = true;
+
+    const checkNoShow = async () => {
+      try {
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+        const { data: todayBookings, error } = await db.select('booking', {
+          eq: { tanggal: todayStr },
+          in: { status: ['accepted', 'waiting confirm'] }
+        });
+        if (error || !Array.isArray(todayBookings)) return;
+
+        const antrianPlates = new Set();
+        const { data: activeAntrian } = await db.select('antrian', {
+          select: 'bk',
+          in: { status: ['waiting', 'working', 'istirahat', 'menginap'] }
+        });
+        if (Array.isArray(activeAntrian)) {
+          activeAntrian.forEach(a => { if (a.bk) antrianPlates.add(a.bk.toUpperCase().replace(/\s+/g, '')); });
+        }
+
+        for (const b of todayBookings) {
+          const jamStr = String(b.jam || '').replace(':', '.');
+          const [h, m] = jamStr.split('.');
+          if (!h || !m) continue;
+          const slotTime = new Date();
+          slotTime.setHours(parseInt(h), parseInt(m), 0, 0);
+          const diffMin = (now - slotTime) / (1000 * 60);
+
+          if (diffMin > 30) {
+            const plat = (b.noPlat || '').toUpperCase().replace(/\s+/g, '');
+            if (!plat) continue;
+            if (antrianPlates.has(plat)) continue;
+            // Atomic: hanya update jika status masih accepted/waiting confirm
+            await supabase
+              .from('booking')
+              .update({ status: 'no_show' })
+              .eq('id', b.id)
+              .in('status', ['accepted', 'waiting confirm']);
+          }
+        }
+      } catch (e) {
+        console.error('No-show check error:', e);
+      }
+    };
+
+    const interval = setInterval(checkNoShow, 60000);
+    checkNoShow();
+    return () => clearInterval(interval);
+  }, []);
+
   const fullProcessedQueue = useMemo(() => {
     return queue
       .map(item => {
@@ -875,8 +901,7 @@ const App = () => {
 
   const processedQueue = useMemo(() => fullProcessedQueue, [fullProcessedQueue]);
 
-  const configSlot = bookings.find(b => b.id === 999999);
-  const maxCount = configSlot ? (parseInt(configSlot.namaCustomer || configSlot.addedBy) || 4) : 4;
+
 
   const getDeviceInfo = () => {
     const ua = navigator.userAgent;
@@ -919,7 +944,8 @@ const App = () => {
           username: json.username, 
           role: json.role,
           plat_bk: json.plat_bk,
-          vin: json.vin
+          vin: json.vin,
+          status: json.status || 'active'
         };
         const today = new Date().toDateString();
 
@@ -1008,9 +1034,12 @@ const App = () => {
       bk: formData.bk.toUpperCase().replace(/\s+/g, ''),
       tipe: formData.tipe,
       category: formData.category,
-      keluhan: sanitizeInput(formData.keluhan || ''),
+      keluhan: formData.jenisPekerjaan === 'Keluhan' || formData.jenisPekerjaan === 'Update Software'
+        ? `${formData.jenisPekerjaan}: ${sanitizeInput(formData.keluhan || '')}`
+        : (formData.jenisPekerjaan || sanitizeInput(formData.keluhan || '')),
       checklist: formData.checklist || [],
       menginap_reason: formData.menginap_reason || '',
+      noTelp: formData.noTelp || '',
     };
 
     const mechanicValue = formData.mechanicName || '';
@@ -1028,12 +1057,15 @@ const App = () => {
       }
       updates.mechanicName = mechanicValue;
     } else {
-      updates.id = Math.floor(Date.now() / 1000);
+      updates.id = Date.now();
       updates.status = 'waiting';
       updates.addedBy = addedByValue;
       updates.estimasiDefault = totalSeconds;
       updates.targetTime = 0;
       updates.mechanicName = mechanicValue;
+      updates.is_called = false;
+      updates.counter = 0;
+      updates.queue_number = 0;
     }
 
     try {
@@ -1052,6 +1084,14 @@ const App = () => {
           throw error;
         }
       } else {
+        const { data: maxQueue } = await db.select('antrian', {
+          select: 'queue_number',
+          order: { column: 'queue_number', ascending: false },
+          limit: 1
+        });
+        const maxNum = (maxQueue && maxQueue.length > 0) ? (maxQueue[0].queue_number || 0) : 0;
+        updates.queue_number = maxNum + 1;
+
         const { error } = await db.insert('antrian', updates);
         if (error) throw error;
       }
@@ -1338,7 +1378,7 @@ const App = () => {
         estimasiDefault: item.estimasiDefault,
         targetTime: Date.now(),
         addedBy: item.addedBy || '',
-        Tanggal: tanggalISO,
+        tanggal: tanggalISO,
         waktuMasuk: waktuMasukDate.toLocaleString('id-ID', { hour12: false }),
         waktuSelesai: waktuSelesaiDate.toLocaleString('id-ID', { hour12: false }),
         'Jarak Waktu': jarakWaktuStr,
@@ -1424,10 +1464,87 @@ const App = () => {
     }
   };
 
+  const handleCallQueue = async (item, counterNum) => {
+    if (isLoadingProcess) return;
+
+    if (item.calledAt) {
+      const cooldownMs = (callCooldownRef.current || 120) * 1000;
+      const elapsed = Date.now() - new Date(item.calledAt).getTime();
+      if (elapsed < cooldownMs) {
+        const sisa = Math.ceil((cooldownMs - elapsed) / 1000);
+        Toastify({
+          text: `⏳ Tunggu ${sisa} detik lagi sebelum panggil ulang`,
+          duration: 3000,
+          style: { background: "#f59e0b", borderRadius: "12px", fontWeight: "900" }
+        }).showToast();
+        return;
+      }
+    }
+
+    setIsLoadingProcess(true);
+    try {
+      const now = new Date().toISOString();
+      await db.update('antrian', {
+        is_called: true,
+        counter: counterNum,
+        called_at: now
+      }, { eq: { id: item.id } });
+
+      const queueNum = item.queueNumber || item.queue_number || '';
+      const plat = item.bk || '';
+      const announceText = `Nomor antrian ${queueNum}, ${plat}, silahkan menuju counter ${counterNum}`;
+
+      fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plat,
+          title: '📢 Panggilan Antrian',
+          body: announceText,
+          url: '/customer'
+        })
+      }).catch(() => {});
+
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(announceText);
+        utterance.lang = 'id-ID';
+        utterance.rate = 0.85;
+        utterance.pitch = 1;
+        window.speechSynthesis.speak(utterance);
+      }
+
+      Toastify({
+        text: `📢 ${announceText}`,
+        duration: 6000,
+        close: true,
+        gravity: "top",
+        position: "center",
+        style: { background: "linear-gradient(135deg, #2563eb, #1d4ed8)", borderRadius: "16px", fontWeight: "900" }
+      }).showToast();
+    } catch (err) {
+      console.error("Gagal memanggil antrian:", err);
+      Toastify({ text: "❌ Gagal memanggil antrian", style: { background: "#dc2626" } }).showToast();
+    } finally {
+      setIsLoadingProcess(false);
+    }
+  };
+
   const editItem = (item) => {
-    // Saat edit, kita hitung ulang jam/menit/detik dari sisa estimasi saat ini
+    const rawKeluhan = item.keluhan || '';
+    let jenisPekerjaan = '';
+    let keluhanText = '';
+    const kelPrefix = rawKeluhan.match(/^(Keluhan|Update Software):\s*/);
+    if (kelPrefix) {
+      jenisPekerjaan = kelPrefix[1];
+      keluhanText = rawKeluhan.slice(kelPrefix[0].length);
+    } else if (rawKeluhan) {
+      jenisPekerjaan = rawKeluhan;
+    }
     setFormData({
       ...item,
+      jenisPekerjaan,
+      keluhan: keluhanText,
       jam: Math.floor(item.estimasi / 3600),
       menit: Math.floor((item.estimasi % 3600) / 60),
       detik: item.estimasi % 60,
@@ -1439,7 +1556,7 @@ const App = () => {
   };
 
   const handleCancelEdit = () => {
-    setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '', mechanicName: '', checklist: [], menginap_reason: '' });
+    setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', jenisPekerjaan: '', keluhan: '', mechanicName: '', checklist: [], menginap_reason: '', noTelp: '' });
     setIsEditing(false);
   };
 
@@ -1544,7 +1661,7 @@ const App = () => {
         </button>
       )}
       {currentPage === 'login' && <LoginPage loginForm={loginForm} setLoginForm={setLoginForm} handleLogin={handleLogin} errorMessage={errorMessage} setCurrentPage={setCurrentPage} />}
-      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} activeTab="dashboard" />}
+      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} handleCallQueue={handleCallQueue} activeTab="dashboard" callCooldown={callCooldownRef.current} />}
       {currentPage === 'admin-booking' && <CroBookingPanel user={user} />}
       {currentPage === 'admin-wo' && <WarrantyWorkOrderPage />}
       {currentPage === 'mechanic' && (
@@ -1629,6 +1746,9 @@ const App = () => {
       {currentPage === 'owner-sound' && user?.role === 'owner' && (
         <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="notification_sound" />
       )}
+      {currentPage === 'owner-sparepart-cost' && user?.role === 'owner' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="sparepart_cost" />
+      )}
       {currentPage === 'owner-deleted' && user?.role === 'owner' && (
         <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="deleted_bookings" />
       )}
@@ -1653,8 +1773,11 @@ const App = () => {
         !user.plat_bk ? (
           <CustomerProfile user={user} setUser={setUser} />
         ) : (
-          <CustomerPanel user={user} handleLogout={handleLogout} />
+          <CustomerPanel user={user} handleLogout={handleLogout} setCurrentPage={setCurrentPage} />
         )
+      )}
+      {currentPage === 'customer-complaint' && user?.role === 'customer' && user?.plat_bk && (
+        <CustomerComplaint user={user} onBack={() => setCurrentPage('customer')} />
       )}
 
       </main>

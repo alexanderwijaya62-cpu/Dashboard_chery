@@ -2,9 +2,28 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import legacy from '@vitejs/plugin-legacy'
 
+function stripLayerImportPlugin() {
+  return {
+    name: 'strip-layer-import',
+    enforce: 'pre',
+    transform(code, id) {
+      if (id.endsWith('.css')) {
+        const transformed = code.replaceAll(
+          /@import\s+(['"][^'"]+['"]|url\([^)]+\))\s*layer\s*\([^)]*\)/gi,
+          (match, url) => `@import ${url}`
+        )
+        if (transformed !== code) {
+          return { code: transformed, map: null }
+        }
+      }
+    }
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    stripLayerImportPlugin(),
     react(),
     legacy({
       targets: ['defaults', 'not IE 11', 'Chrome >= 49', 'Samsung >= 5'],

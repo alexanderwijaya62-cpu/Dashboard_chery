@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Settings, Save, Clock, Calendar } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
-import { db } from '../utils/dbClient';
+import { fetchBookingConfig, saveBookingConfig } from '../utils/bookingConfig';
 
 export default function BookingSettings() {
   const [slotCount, setSlotCount] = useState(4);
@@ -16,22 +16,12 @@ export default function BookingSettings() {
   useEffect(() => {
     const load = async () => {
       try {
-        const { data } = await db.select('booking', { select: 'namaCustomer, tipeMobil, vin', eq: { id: 999999 }, maybeSingle: true });
-        if (data) {
-          const c = parseInt(data.namaCustomer);
-          const g = parseInt(data.tipeMobil);
-          if (!isNaN(c) && c > 0) setSlotCount(c);
-          if (!isNaN(g) && g > 0) setGapMinutes(g);
-          if (data.vin) {
-            const parts = data.vin.split(':');
-            const sh = parseInt(parts[0]);
-            const sm = parseInt(parts[1]);
-            const sc = parts.length >= 3 ? parseInt(parts[2]) : 1;
-            if (!isNaN(sh) && sh >= 0 && sh < 24) setStartHour(sh);
-            if (!isNaN(sm) && sm >= 0 && sm < 60) setStartMin(sm);
-            if (!isNaN(sc) && sc > 0 && sc <= 20) setSlotCapacity(sc);
-          }
-        }
+        const config = await fetchBookingConfig();
+        setSlotCount(config.slotCount);
+        setGapMinutes(config.gapMinutes);
+        setStartHour(config.startHour);
+        setStartMin(config.startMinute);
+        setSlotCapacity(config.slotCapacity);
       } catch (e) {
         console.error('Gagal load settings:', e);
       } finally {
@@ -52,17 +42,13 @@ export default function BookingSettings() {
     }
     setIsSaving(true);
     try {
-      const payload = {
-        namaCustomer: String(slotCount),
-        tipeMobil: String(gapMinutes),
-        vin: `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:${slotCapacity}`,
-      };
-      const { data: existing } = await db.select('booking', { select: 'id', eq: { id: 999999 }, maybeSingle: true });
-      if (existing) {
-        await db.update('booking', payload, { eq: { id: 999999 } });
-      } else {
-        await db.insert('booking', { id: 999999, ...payload });
-      }
+      await saveBookingConfig({
+        slotCount,
+        gapMinutes,
+        startHour,
+        startMinute: startMin,
+        slotCapacity,
+      });
       Toastify({ text: 'Pengaturan booking disimpan!', background: 'green' }).showToast();
     } catch (err) {
       Toastify({ text: `Gagal menyimpan: ${err.message}`, background: 'red' }).showToast();

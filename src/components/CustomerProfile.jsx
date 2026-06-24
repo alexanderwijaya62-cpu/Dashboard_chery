@@ -9,6 +9,7 @@ const CustomerProfile = ({ user, setUser }) => {
     vin: user.vin || '',
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [vinError, setVinError] = useState('');
 
   const handleSaveProfile = async (e) => {
     e.preventDefault();
@@ -16,6 +17,11 @@ const CustomerProfile = ({ user, setUser }) => {
       alert("Semua data wajib diisi!");
       return;
     }
+    if (formData.vin.length !== 17) {
+      setVinError('Nomor rangka (VIN) harus 17 karakter.');
+      return;
+    }
+    setVinError('');
 
     setIsLoading(true);
     try {
@@ -104,11 +110,20 @@ const CustomerProfile = ({ user, setUser }) => {
                 <input
                   type="text"
                   required
-                  className="w-full bg-zinc-50 border border-zinc-200 p-4 pl-12 rounded-2xl focus:bg-white focus:ring-4 focus:ring-zinc-100 focus:border-black outline-none transition-all font-bold text-black"
-                  placeholder="VIN Kendaraan"
+                  maxLength={17}
+                  className="w-full bg-zinc-50 border border-zinc-200 p-4 pl-12 rounded-2xl focus:bg-white focus:ring-4 focus:ring-zinc-100 focus:border-black outline-none transition-all font-bold text-black uppercase tracking-wider"
+                  placeholder="17 digit nomor rangka (VIN)"
                   value={formData.vin}
-                  onChange={(e) => setFormData({ ...formData, vin: e.target.value })}
+                  onChange={(e) => {
+                    setVinError('');
+                    setFormData({ ...formData, vin: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 17) });
+                  }}
                 />
+                {vinError && (
+                  <p className="text-red-500 text-[10px] font-bold mt-1.5 ml-2 flex items-center gap-1">
+                    <AlertCircle size={12} /> {vinError}
+                  </p>
+                )}
               </div>
             </div>
           </div>

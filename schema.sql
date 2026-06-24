@@ -255,3 +255,30 @@ CREATE POLICY "deny_all_anon" ON public.customers FOR ALL USING (false) WITH CHE
 -- ALTER TABLE public.cro ADD COLUMN IF NOT EXISTS lampiran TEXT DEFAULT '[]';
 -- ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS otp_expires_at TIMESTAMP WITH TIME ZONE;
 -- ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS otp_resend_at TIMESTAMP WITH TIME ZONE;
+
+-- ============================================================
+-- 15. ANTRIAN CALLING SYSTEM UPGRADE
+-- Tambahkan kolom untuk fitur panggilan antrian + nomor antrian
+-- ============================================================
+-- ALTER TABLE public.antrian ADD COLUMN IF NOT EXISTS queue_number INTEGER DEFAULT 0;
+-- ALTER TABLE public.antrian ADD COLUMN IF NOT EXISTS is_called BOOLEAN DEFAULT false;
+-- ALTER TABLE public.antrian ADD COLUMN IF NOT EXISTS called_at TIMESTAMP WITH TIME ZONE;
+-- ALTER TABLE public.antrian ADD COLUMN IF NOT EXISTS counter INTEGER DEFAULT 0;
+
+-- ============================================================
+-- 16. PUSH SUBSCRIPTIONS TABLE (Web Push Notification)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+    id BIGSERIAL PRIMARY KEY,
+    plat TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(endpoint)
+);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_plat ON public.push_subscriptions(plat);
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
+-- Allow anon to insert/delete for their own subscriptions (authenticated by no secret data)
+CREATE POLICY "anon_insert_push_sub" ON public.push_subscriptions FOR INSERT TO anon WITH CHECK (true);
+CREATE POLICY "anon_delete_push_sub" ON public.push_subscriptions FOR DELETE TO anon USING (true);

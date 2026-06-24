@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Package, Layers, ArrowLeft, ChevronRight, Hash, Tag, Info } from 'lucide-react';
 import Toastify from 'toastify-js';
+import { db } from '../utils/dbClient';
 
 const SparepartGrouping = ({ onBack }) => {
     const [masterParts, setMasterParts] = useState([]);
@@ -16,9 +17,7 @@ const SparepartGrouping = ({ onBack }) => {
         setIsLoading(true);
         try {
             // Fetch everything from master
-            const { data, error } = await supabase
-                .from('sparepart_master')
-                .select('*');
+            const { data, error } = await db.select('sparepart_master');
             
             if (error) throw error;
             setMasterParts(data || []);

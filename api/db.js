@@ -139,6 +139,7 @@ export default async function handler(req, res) {
         case 'in': q = q.in(f.column, f.values); break;
         case 'order': q = q.order(f.column, { ascending: f.ascending ?? true, nullsFirst: f.nullsFirst ?? false }); break;
         case 'limit': q = q.limit(f.value); break;
+        case 'range': q = q.range(f.from, f.to); break;
         case 'gte': q = q.gte(f.column, f.value); break;
         case 'lte': q = q.lte(f.column, f.value); break;
         case 'gt': q = q.gt(f.column, f.value); break;
@@ -243,7 +244,11 @@ export default async function handler(req, res) {
       }
       case 'delete': {
         q = q.delete();
-        q = applyFilters(q, filters);
+        if (filters && filters.length > 0) {
+          q = applyFilters(q, filters);
+        } else {
+          q = q.not('id', 'is', null);
+        }
         result = await q;
         break;
       }

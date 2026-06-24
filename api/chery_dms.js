@@ -373,67 +373,31 @@ async function handleWarrantyEstimasiDetail(req, res) {
             const tbodyMatch = body.match(/<tbody[^>]*id="tbody_part"[\s\S]*?<\/tbody>/i);
             if (tbodyMatch) {
                 const tbodyHtml = tbodyMatch[0];
-                const trRegex = /<tr[^>]*>[\s\S]*?<\/tr>/gi;
+                const trRegex = /<tr[^>]*class="partRow"[^>]*>[\s\S]*?<\/tr>/gi;
                 let trMatch;
                 while ((trMatch = trRegex.exec(tbodyHtml)) !== null) {
                     const trHtml = trMatch[0];
-                    
-                    const qtyMatch = trHtml.match(/name="detail_part\[\d+\]\[qty\]"[^>]*value="([^"]+)"/i) ||
-                                     trHtml.match(/class="[^"]*qty[^"]*"[^>]*value="([^"]+)"/i) ||
-                                     trHtml.match(/<td>\s*(\d+)\s*<\/td>/i);
-                    const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
 
-                    const tds = [];
-                    const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-                    let tdMatch;
-                    while ((tdMatch = tdRegex.exec(trHtml)) !== null) {
-                        tds.push(tdMatch[1].replace(/<[^>]*>/g, '').trim());
-                    }
-                    
-                    const kodeMatch = trHtml.match(/name="detail_part\[\d+\]\[kode_part\]"[^>]*value="([^"]+)"/i) ||
-                                      trHtml.match(/name="detail_part\[\d+\]\[code\]"[^>]*value="([^"]+)"/i);
-                    const kode_part = kodeMatch ? kodeMatch[1].trim() : (tds[2] || tds[1] || '');
+                    const kodeMatch = trHtml.match(/name="detail_part\[\d+\]\[kode_part\]"[^>]*value="([^"]+)"/i);
+                    const kode_part = kodeMatch ? kodeMatch[1].trim() : '';
 
-                    const namaMatch = trHtml.match(/name="detail_part\[\d+\]\[nama_part\]"[^>]*value="([^"]+)"/i) ||
-                                      trHtml.match(/name="detail_part\[\d+\]\[name\]"[^>]*value="([^"]+)"/i);
-                    const nama_part = namaMatch ? namaMatch[1].trim() : (tds[3] || tds[2] || '');
+                    const namaMatch = trHtml.match(/name="detail_part\[\d+\]\[nama_part\]"[^>]*value="([^"]+)"/i);
+                    const nama_part = namaMatch ? namaMatch[1].trim() : '';
 
-                    const statusCell = tds[tds.length - 1] || '';
-                    const badgeMatch = trHtml.match(/<span[^>]*class="[^"]*kt-badge[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
-                    const status_permintaan = badgeMatch ? badgeMatch[1].replace(/<[^>]*>/g, '').trim() : statusCell;
+                    const qtyMatch = trHtml.match(/name="detail_part\[\d+\]\[jumlah\]"[^>]*value="([^"]+)"/i) ||
+                                     trHtml.match(/<td[^>]*class="[^"]*jumlahPart[^"]*"[^>]*>\s*(\d+)\s*<\/td>/i);
+                    const jumlah = qtyMatch ? parseInt(qtyMatch[1], 10) || 1 : 1;
+
+                    const badgeMatch = trHtml.match(/<span[^>]*class="[^"]*kt-badge[^"]*"[^>]*>\s*([^<]+)\s*<\/span>/i);
+                    const status_permintaan = badgeMatch ? badgeMatch[1].trim() : 'Aktif';
 
                     parts.push({
                         kode_part,
                         nama_part,
-                        jumlah: qty,
-                        status_permintaan: status_permintaan || 'Aktif',
-                        status: status_permintaan || 'Aktif'
+                        jumlah,
+                        status_permintaan,
+                        status: status_permintaan
                     });
-                }
-            } else {
-                // Fallback: try to parse any table with rows as generic sparepart table
-                const anyTable = body.match(/<table[\s\S]*?<\/table>/i);
-                if (anyTable) {
-                    const trRegex = /<tr[^>]*>[\s\S]*?<\/tr>/gi;
-                    let trMatch;
-                    while ((trMatch = trRegex.exec(anyTable[0])) !== null) {
-                        const trHtml = trMatch[0];
-                        const tds = [];
-                        const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-                        let tdMatch;
-                        while ((tdMatch = tdRegex.exec(trHtml)) !== null) {
-                            tds.push(tdMatch[1].replace(/<[^>]*>/g, '').trim());
-                        }
-                        if (tds.length >= 3 && /[A-Z0-9]{3,}/i.test(tds[1] || '')) {
-                            parts.push({
-                                kode_part: tds[1] || '',
-                                nama_part: tds[2] || '',
-                                jumlah: parseInt(tds[3] || '1', 10) || 1,
-                                status_permintaan: tds[tds.length - 1] || 'Aktif',
-                                status: tds[tds.length - 1] || 'Aktif'
-                            });
-                        }
-                    }
                 }
             }
             return res.status(200).json({ parts });
@@ -989,7 +953,7 @@ export default async function handler(req, res) {
         const from = req.query.from || '';
         const to   = req.query.to   || '';
 
-        const targetUrl = `${BASE}/aftersales/work-order/data?draw=${draw}&start=${start}&length=${length}` +
+        const columnsConfig =
             `&columns[0][data]=action&columns[0][name]=action&columns[0][searchable]=false&columns[0][orderable]=false&columns[0][search][value]=&columns[0][search][regex]=false` +
             `&columns[1][data]=no_wo&columns[1][name]=no_wo&columns[1][searchable]=true&columns[1][orderable]=true&columns[1][search][value]=&columns[1][search][regex]=false` +
             `&columns[2][data]=no_wo_dms&columns[2][name]=no_wo_dms&columns[2][searchable]=true&columns[2][orderable]=true&columns[2][search][value]=&columns[2][search][regex]=false` +
@@ -1015,37 +979,52 @@ export default async function handler(req, res) {
             `&columns[22][data]=id_wo&columns[22][name]=id_wo&columns[22][searchable]=true&columns[22][orderable]=true&columns[22][search][value]=&columns[22][search][regex]=false` +
             `&order[0][column]=18&order[0][dir]=desc` +
             `&search[value]=${encodeURIComponent(vin)}&search[regex]=false` +
-            `&status=&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&_=${Date.now()}`;
+            `&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&_=${Date.now()}`;
 
-        let wAttempts = 0;
-        while (wAttempts < 2) {
-            if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
-                warrantyCookie = await warrantyLogin();
-            }
-            const response = await fetchWithHttps(targetUrl, {
-                headers: {
-                    'Cookie': warrantyCookie,
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Referer': `${BASE}/aftersales/work-order`,
-                    'Accept': 'application/json, text/javascript, */*; q=0.01',
-                    'X-Requested-With': 'XMLHttpRequest',
-                },
-            });
-            const body = await response.text();
-            const isHtml = body.trimStart().startsWith('<');
-            if (response.status === 302 || response.status === 401 || isHtml) {
-                warrantyCookie = null;
-                wAttempts++;
-                continue;
-            }
-            try {
-                const json = JSON.parse(body);
-                return res.status(200).json({ data: json.data || [] });
-            } catch {
-                return res.status(500).json({ error: 'Non-JSON response', snippet: body.slice(0, 200) });
+        const statusesToFetch = ['Open', 'Closed'];
+        const allData = [];
+        const seenIds = new Set();
+
+        for (const s of statusesToFetch) {
+            const targetUrl = `${BASE}/aftersales/work-order/data?draw=${draw}&start=${start}&length=${length}${columnsConfig}&status=${encodeURIComponent(s)}`;
+            let wAttempts = 0;
+            while (wAttempts < 2) {
+                if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+                    warrantyCookie = await warrantyLogin();
+                }
+                const response = await fetchWithHttps(targetUrl, {
+                    headers: {
+                        'Cookie': warrantyCookie,
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Referer': `${BASE}/aftersales/work-order`,
+                        'Accept': 'application/json, text/javascript, */*; q=0.01',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                });
+                const body = await response.text();
+                const isHtml = body.trimStart().startsWith('<');
+                if (response.status === 302 || response.status === 401 || isHtml) {
+                    warrantyCookie = null;
+                    wAttempts++;
+                    continue;
+                }
+                try {
+                    const parsed = JSON.parse(body);
+                    if (parsed.data && Array.isArray(parsed.data)) {
+                        for (const item of parsed.data) {
+                            const itemId = item.id_wo || item.no_wo;
+                            if (!seenIds.has(itemId)) {
+                                seenIds.add(itemId);
+                                allData.push(item);
+                            }
+                        }
+                    }
+                } catch { /* skip */ }
+                break;
             }
         }
-        return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+
+        return res.status(200).json({ data: allData });
     }
 
     if (endpoint === 'vehicle-select' || endpoint.startsWith('booking-')) {

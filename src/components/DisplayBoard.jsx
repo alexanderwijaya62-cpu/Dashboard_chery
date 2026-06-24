@@ -1,30 +1,18 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ClockDisplay from './ClockDisplay';
-import { Bookmark, Zap, Car, Instagram, CheckCircle, Clock, Moon, FileText, X, Activity, CalendarDays, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Bookmark, Zap, Car, Instagram, CheckCircle, Clock, Moon, FileText, X, Activity, CalendarDays, ArrowRight, ChevronLeft, ChevronRight, Megaphone } from 'lucide-react';
 import cheryLogo from '../assets/cherylogo.png';
 import orientalLogo from '../assets/oriental.jpeg';
 import { QRCodeSVG } from 'qrcode.react';
+import Toastify from 'toastify-js';
+import "toastify-js/src/toastify.css";
+import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
 
 const DISPLAY_COUNT = 2; // Default for vertical columns
 const COMPLETED_DISPLAY_COUNT = 2; // Show only 2 completed units per slide
 const SLIDE_INTERVAL = 10000; // 10 seconds per slide
 
-const generateSlots = (count, gapMinutes = 30, startHour = 8, startMin = 30) => {
-   const slots = [];
-   let currentHour = startHour;
-   let currentMin = startMin;
-   for (let i = 0; i < count; i++) {
-      const h = String(currentHour).padStart(2, '0');
-      const m = String(currentMin).padStart(2, '0');
-      slots.push(`${h}.${m}`);
-      currentMin += gapMinutes;
-      while (currentMin >= 60) {
-         currentHour += 1;
-         currentMin -= 60;
-      }
-   }
-   return slots;
-};
+
 
 const isSameDate = (d1, d2) => {
    const normalize = (d) => {
@@ -360,12 +348,57 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
          return () => clearTimeout(timer);
       }
    }, [rawHistory, lastNotifiedId]);
-   const configSlot = bookings.find(b => b.id === 999999);
-   const maxCount = configSlot ? (parseInt(configSlot.namaCustomer || configSlot.addedBy) || 4) : 4;
-   const gapMinutes = configSlot ? (parseInt(configSlot.tipeMobil) || 30) : 30;
-    const startTime = configSlot?.vin ? (() => { const p = configSlot.vin.split(':'); return { h: parseInt(p[0]) || 8, m: parseInt(p[1]) || 30 }; })() : { h: 8, m: 30 };
-    const slotCapacityDisplay = configSlot?.vin ? (() => { const p = configSlot.vin.split(':'); return p.length >= 3 ? parseInt(p[2]) || 1 : 1; })() : 1;
-    const dynamicJamPilihan = generateSlots(maxCount, gapMinutes, startTime.h, startTime.m);
+
+   // ── Queue Call Announcement ──
+   const [callAnnouncement, setCallAnnouncement] = useState(null);
+   const announcedIdsRef = useRef(new Set());
+
+   useEffect(() => {
+      let channel;
+      let sb;
+      const initSub = async () => {
+         const { supabase } = await import('../utils/supabaseClient');
+         sb = supabase;
+         channel = supabase
+           .channel('display-calls')
+           .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'antrian', filter: 'is_called=eq.true' }, (payload) => {
+              const item = payload.new;
+              if (item && item.is_called && !announcedIdsRef.current.has(item.id)) {
+                 announcedIdsRef.current.add(item.id);
+                 const queueNum = item.queue_number || 0;
+                 const counter = item.counter || 0;
+                 const plat = item.noPlat || '';
+                 setCallAnnouncement({ queueNumber: queueNum, counter, bk: plat, id: item.id });
+
+                 const text = queueNum > 0
+                    ? `Nomor antrian A ${queueNum}, silahkan menuju counter ${counter}`
+                    : `${plat}, silahkan menuju counter ${counter}`;
+
+                 if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = 'id-ID';
+                    utterance.rate = 0.85;
+                    utterance.pitch = 1;
+                    utterance.volume = 1;
+                    window.speechSynthesis.speak(utterance);
+                 }
+
+                 setTimeout(() => setCallAnnouncement(null), 10000);
+              }
+           })
+           .subscribe();
+      };
+      initSub();
+      return () => { if (channel && sb) sb.removeChannel(channel); };
+   }, []);
+
+   const [displayConfig, setDisplayConfig] = useState({ slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 });
+   useEffect(() => {
+      fetchBookingConfig().then(setDisplayConfig).catch(() => {});
+   }, []);
+   const { slotCount: maxCount, gapMinutes, startHour, startMinute, slotCapacity: slotCapacityDisplay } = displayConfig;
+   const dynamicJamPilihan = generateSlots(maxCount, gapMinutes, startHour, startMinute);
 
    const sortQueue = (arr) => [...arr].sort((a, b) => {
       const aScore = a.status === 'working' ? 0 : a.status === 'istirahat' ? 1 : 2;
@@ -378,7 +411,6 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
       const todayStr = new Date().toLocaleDateString('en-CA');
       const todayBookingsRaw = bookings.filter(b => {
          if (!b.tanggal || !isSameDate(b.tanggal, todayStr)) return false;
-         if (b.id === 999999) return false;
          if (processedQueue.some(pq => pq.bk === b.bk)) return false;
          return true;
       });
@@ -406,7 +438,7 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
          }
       });
 
-      const occupiedCount = bookings.filter(b => isSameDate(b.tanggal, todayStr) && b.id !== 999999 && (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed')).length;
+      const occupiedCount = bookings.filter(b => isSameDate(b.tanggal, todayStr) && (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed')).length;
       const remainingSlots = Math.max(0, (dynamicJamPilihan.length * slotCapacityDisplay) - occupiedCount);
 
       const arrivedReguler = processedQueue.filter(i => {
@@ -550,6 +582,32 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
             </div>
          )}
 
+         {/* Call Announcement */}
+         {callAnnouncement && (
+            <div className="fixed top-10 left-1/2 -translate-x-1/2 z-[100] animate-modal-in pointer-events-none">
+               <div className="bg-blue-600 text-white px-10 py-6 rounded-[2.5rem] shadow-[0_20px_60px_rgba(37,99,235,0.4)] border-4 border-white flex items-center gap-6">
+                  <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center animate-bounce">
+                     <Megaphone size={32} fill="white" />
+                  </div>
+                  <div>
+                     <p className="text-sm font-black uppercase tracking-[0.3em] text-blue-200 mb-1">Panggilan Antrian</p>
+                     <h2 className="text-4xl font-black font-mono tracking-tighter uppercase">
+                        {callAnnouncement.queueNumber > 0 ? `A-${String(callAnnouncement.queueNumber).padStart(3, '0')}` : callAnnouncement.bk}
+                     </h2>
+                     <p className="text-lg font-black text-white mt-1">
+                        Silahkan menuju Counter {callAnnouncement.counter}
+                     </p>
+                  </div>
+                  <div className="ml-4 pl-6 border-l border-white/20 flex flex-col items-center">
+                     <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-blue-600 animate-pulse">
+                        <Megaphone size={24} />
+                     </div>
+                     <span className="text-[10px] font-black mt-1 uppercase">Memanggil...</span>
+                  </div>
+               </div>
+            </div>
+         )}
+
          <header className="px-4 md:px-10 py-4 flex justify-between items-center bg-white border-b border-zinc-100 z-50 shrink-0">
             <div className="flex items-center gap-6 md:gap-14" onDoubleClick={onLogoDoubleClick}>
                <div className="flex items-center gap-5 md:gap-10 bg-white rounded-xl p-1">
@@ -590,7 +648,7 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
                 <div className="flex flex-wrap gap-1.5">
                    {dynamicJamPilihan.map((slot) => {
                       const todayStr = new Date().toLocaleDateString('en-CA');
-                      const occupied = bookings.filter(b => isSameDate(b.tanggal, todayStr) && b.id !== 999999 && b.jam === slot && (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'waiting' || b.status === 'working')).length;
+                      const occupied = bookings.filter(b => isSameDate(b.tanggal, todayStr) && b.jam === slot && (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'waiting' || b.status === 'working')).length;
                       const full = occupied >= slotCapacityDisplay;
                       return (
                          <div key={slot} className={`px-3 py-1.5 rounded-lg border text-[9px] font-black tabular-nums ${full ? 'bg-red-50 border-red-200 text-red-600' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
