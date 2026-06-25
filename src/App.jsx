@@ -1436,70 +1436,44 @@ const App = () => {
       const tanggalISO = now.toISOString().split('T')[0];
 
       // 1. Insert into history
-      const historyData = {
-        id: item.id,
-        bk: item.bk,
-        tipe: item.tipe,
-        category: item.category,
-        keluhan: item.keluhan,
-        checklist: checklist,
-        mechanicName: item.mechanicName || '',
-        status: 'completed',
-        estimasiDefault: item.estimasiDefault,
-        targetTime: Date.now(),
-        addedBy: item.addedBy || '',
-        tanggal: tanggalISO,
-        waktuMasuk: waktuMasukDate.toLocaleString('id-ID', { hour12: false }),
-        waktuSelesai: waktuSelesaiDate.toLocaleString('id-ID', { hour12: false }),
-        'Jarak Waktu': jarakWaktuStr,
-        Bulan: bulanStr,
+      let historyKeluhan = item.keluhan || '';
+      if (checklist.length > 0) {
+        const s = checklist.map(t => `${t.completed ? '✅' : '❌'} ${t.text}`).join('\n');
+        historyKeluhan = (historyKeluhan ? historyKeluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + s;
+      }
+      let historyAttempt = {
+        id: item.id, bk: item.bk, tipe: item.tipe,
+        keluhan: historyKeluhan, status: 'completed'
       };
-
-      const { error: insertError } = await db.insert('history', historyData);
-
-      if (insertError) {
-        if (insertError.code === '23505' || insertError.status === 409) {
-          console.warn("Item ini sudah ada di history, melanjutkan pembersihan antrian...");
+      // Retry if bk is BIGINT and plate can't be inserted
+      for (let i = 0; i < 5; i++) {
+        const { error: e } = await db.insert('history', historyAttempt);
+        if (!e || e.code === '23505') { historyAttempt = null; break; }
+        if (e.code === '22P02' && historyAttempt.bk !== undefined) {
+          const { bk: _, ...rest } = historyAttempt;
+          historyAttempt = rest;
+          continue;
         }
-        else if (insertError.code === 'PGRST204') {
-          // Append checklist summary into keluhan before stripping columns
-          let attempt = { ...historyData };
-          delete attempt.checklist;
-          if (checklist.length > 0) {
-            const s = checklist.map(t => `${t.completed ? '✅' : '❌'} ${t.text}`).join('\n');
-            attempt.keluhan = (attempt.keluhan ? attempt.keluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + s;
+        if (e.code === 'PGRST204') {
+          const m = e.message.match(/'([^']+)'/);
+          const bad = m ? m[1] : null;
+          if (bad && historyAttempt[bad] !== undefined) {
+            const { [bad]: _, ...rest } = historyAttempt;
+            historyAttempt = rest;
+            continue;
           }
-          let lastError = null;
-          while (true) {
-            const { error: e } = await db.insert('history', attempt);
-            if (!e || e.code === '23505') { lastError = null; break; }
-            if (e.code !== 'PGRST204' && e.code !== '22P02') { lastError = e; break; }
-
-            let col = null;
-            if (e.code === 'PGRST204') {
-              const m = e.message.match(/'([^']+)'/);
-              col = m ? m[1] : null;
-            }
-            if (!col || attempt[col] === undefined) {
-              const order = ['bk', 'tipe', 'keluhan', 'tanggal', 'category', 'mechanicName',
-                'estimasiDefault', 'targetTime', 'addedBy', 'waktuMasuk', 'waktuSelesai',
-                'Jarak Waktu', 'Bulan'];
-              col = order.find(k => attempt[k] !== undefined);
-            }
-            if (!col || attempt[col] === undefined) break;
-            const { [col]: _, ...rest } = attempt;
-            attempt = rest;
-          }
-
-          if (lastError) {
-            const { error: last } = await db.insert('history', { id: item.id, status: 'completed' });
-            if (last && last.code !== '23505') {
-              throw new Error(`Database Error (History): ${last.message}`);
-            }
-          }
-        } else {
-          console.error("History Insert Error:", insertError);
-          throw new Error(`Database Error (History): ${insertError.message}`);
+        }
+        // Unknown error, strip progressively
+        const key = Object.keys(historyAttempt).find(k => k !== 'id');
+        if (!key) break;
+        const { [key]: _, ...rest } = historyAttempt;
+        historyAttempt = rest;
+      }
+      // Final safety net
+      if (historyAttempt) {
+        const { error: last } = await db.insert('history', { id: item.id, status: 'completed' });
+        if (last && last.code !== '23505') {
+          throw new Error(`Database Error (History): ${last.message}`);
         }
       }
 
