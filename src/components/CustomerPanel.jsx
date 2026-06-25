@@ -48,6 +48,11 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
   const [voiceEnabled, setVoiceEnabled] = useState(() =>
     JSON.parse(localStorage.getItem('chery_voice_enabled') || 'true')
   );
+
+  const formatQueueLabel = (queueNumber, category) => {
+    if (!queueNumber || queueNumber === 0) return '';
+    return category === 'Booking' ? `Booking ${queueNumber}` : `Reguler ${queueNumber}`;
+  };
   const calledHandledRef = useRef(new Set());
   const confirmedCallsRef = useRef(new Set(
     JSON.parse(sessionStorage.getItem('confirmed_calls') || '[]')
@@ -77,7 +82,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
           limit: 1
         });
         if (working && working.length > 0) {
-          setNowServing({ queueNumber: working[0].queue_number, bk: working[0].bk, counter: working[0].counter });
+          setNowServing({ queueNumber: working[0].queue_number, bk: working[0].bk, counter: working[0].counter, category: working[0].category });
         } else {
           setNowServing(null);
         }
@@ -127,7 +132,8 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
               id: item.id,
               queueNumber: queueNum,
               counter: counter,
-              bk: item.bk
+              bk: item.bk,
+              category: item.category
             });
           }
         } else {
@@ -138,8 +144,6 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
       }
     };
     fetchMyQueue();
-
-    pushSubscribe(user.plat_bk);
 
     let subscription;
     const initSub = async () => {
@@ -156,7 +160,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
             fetchMyQueue();
             if (payload.new && payload.new.is_called && !calledHandledRef.current.has(payload.new.id)) {
               calledHandledRef.current.add(payload.new.id);
-              setCalledItem({ id: payload.new.id, queueNumber: payload.new.queue_number || 0, counter: payload.new.counter || 0, bk: payload.new.bk || '' });
+              setCalledItem({ id: payload.new.id, queueNumber: payload.new.queue_number || 0, counter: payload.new.counter || 0, bk: payload.new.bk || '', category: payload.new.category || 'Reguler' });
             }
           } catch (e) {
             console.error('Realtime call handler error:', e);
@@ -188,7 +192,18 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
       setDismissedNotif(false);
 
       const safeBk = calledItem.bk || '';
-      const qnFormatted = calledItem.queueNumber > 0 ? `A-${String(calledItem.queueNumber).padStart(3, '0')}` : safeBk;
+      const cat = calledItem.category || 'Reguler';
+      const qnFormatted = calledItem.queueNumber > 0
+        ? (cat === 'Booking' ? `B-${String(calledItem.queueNumber).padStart(2, '0')}` : `R-${String(calledItem.queueNumber).padStart(2, '0')}`)
+        : safeBk;
+      const ttsText = calledItem.queueNumber > 0
+        ? (cat === 'Booking'
+          ? `Antrian Booking nomor ${calledItem.queueNumber}, ${safeBk}`
+          : `Antrian Reguler nomor ${calledItem.queueNumber}, ${safeBk}`)
+        : safeBk;
+      const callLabel = calledItem.queueNumber > 0
+        ? (cat === 'Booking' ? `Booking ${calledItem.queueNumber}` : `Reguler ${calledItem.queueNumber}`)
+        : safeBk;
 
       try {
         if (navigator.vibrate) {
@@ -199,14 +214,14 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
       if ("Notification" in window) {
         try {
           if (Notification.permission === "granted") {
-            new Notification(`📢 Dipanggil: ${qnFormatted}`, {
+            new Notification(`📢 Dipanggil: ${callLabel}`, {
               body: `Silahkan menuju Counter ${calledItem.counter}`,
               vibrate: [200, 100, 200]
             });
           } else if (Notification.permission === "default") {
             Notification.requestPermission().then(permission => {
               if (permission === "granted") {
-                new Notification(`📢 Dipanggil: ${qnFormatted}`, {
+                new Notification(`📢 Dipanggil: ${callLabel}`, {
                   body: `Silahkan menuju Counter ${calledItem.counter}`,
                   vibrate: [200, 100, 200]
                 });
@@ -220,7 +235,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
         try {
           if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(`Panggilan untuk ${qnFormatted}, silahkan menuju counter ${calledItem.counter}`);
+            const utterance = new SpeechSynthesisUtterance(`${ttsText}, silahkan menuju counter ${calledItem.counter}`);
             utterance.lang = 'id-ID';
             utterance.rate = 0.85;
             utterance.volume = 1;
@@ -231,7 +246,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
 
       try {
         Toastify({
-          text: `📢 ${qnFormatted} - Silahkan menuju Counter ${calledItem.counter}`,
+          text: `📢 ${callLabel} - Silahkan menuju Counter ${calledItem.counter}`,
           duration: 0,
           close: true,
           gravity: "top",
@@ -336,7 +351,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
             </div>
             <h2 className="text-3xl font-black text-black mb-2">Dipanggil!</h2>
             <p className="text-6xl font-black text-blue-600 mb-4 font-mono tracking-tight truncate max-w-full">
-              {myQueue?.queueNumber > 0 ? `A-${String(myQueue.queueNumber).padStart(3, '0')}` : (calledItem.bk || '—')}
+              {myQueue?.queueNumber > 0 ? formatQueueLabel(myQueue.queueNumber, myQueue.category) : (calledItem.bk || '—')}
             </p>
             <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-6">
               <p className="text-lg font-black text-blue-800">
@@ -369,10 +384,29 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => {
+              onClick={async () => {
                 const next = !voiceEnabled;
                 setVoiceEnabled(next);
                 localStorage.setItem('chery_voice_enabled', JSON.stringify(next));
+
+                if (next) {
+                  const ok = await pushSubscribe(user.plat_bk);
+                  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+                  if (!ok && isIOS) {
+                    Toastify({
+                      text: '💡 Aktifkan notifikasi: Buka Safari → Share → Add to Home Screen',
+                      duration: 6000,
+                      gravity: 'bottom',
+                      position: 'center',
+                      style: { background: '#1e3a5f', borderRadius: '12px', fontWeight: '700' }
+                    }).showToast();
+                  }
+                  if ("Notification" in window && Notification.permission === "default") {
+                    Notification.requestPermission();
+                  }
+                } else {
+                  pushUnsubscribe(user.plat_bk);
+                }
               }}
               className={`w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90 ${voiceEnabled ? 'bg-emerald-50 text-emerald-500' : 'bg-zinc-100 text-zinc-400'}`}
               title={voiceEnabled ? 'Suara Nyala' : 'Suara Mati'}
@@ -405,7 +439,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
               <div className="flex-1 min-w-0">
                 <p className="text-[10px] font-black text-blue-200 uppercase tracking-widest mb-1">Panggilan Antrian</p>
                 <p className="text-2xl font-black text-white truncate">
-                  {myQueue?.queueNumber > 0 ? `A-${String(myQueue.queueNumber).padStart(3, '0')}` : (calledItem.bk || '—')}
+                  {myQueue?.queueNumber > 0 ? formatQueueLabel(myQueue.queueNumber, myQueue.category) : (calledItem.bk || '—')}
                 </p>
                 <p className="text-base font-bold text-blue-100 mt-1">
                   Silahkan menuju <span className="text-white font-black">Counter {calledItem.counter || 0}</span>
@@ -460,7 +494,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
                     <div className="mb-3">
                       <p className="text-[9px] text-zinc-400 font-black uppercase tracking-widest mb-1">Nomor Antrian</p>
                       <p className="text-5xl md:text-6xl font-black font-mono tracking-tight text-white">
-                        A-{String(myQueue.queueNumber).padStart(3, '0')}
+                        {formatQueueLabel(myQueue.queueNumber, myQueue.category)}
                       </p>
                     </div>
                   )}
@@ -487,7 +521,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
                         <p className="text-[8px] text-zinc-400 font-black uppercase tracking-widest">Sedang Dilayani</p>
                         <p className="text-lg font-black text-white font-mono">
                           {nowServing && nowServing.queueNumber > 0
-                            ? `A-${String(nowServing.queueNumber).padStart(3, '0')}`
+                            ? formatQueueLabel(nowServing.queueNumber, nowServing.category)
                             : '-'}
                         </p>
                       </div>

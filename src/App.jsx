@@ -33,7 +33,6 @@ import CsiCustomers from './components/CsiCustomers';
 import CustomerProfile from './components/CustomerProfile';
 import CustomerPanel from './components/CustomerPanel';
 import CustomerComplaint from './components/CustomerComplaint';
-import PublicTracking from './components/PublicTracking';
 import DesktopNavBar from './components/DesktopNavBar';
 import BottomNavBar from './components/BottomNavBar';
 import PublicNavBar from './components/PublicNavBar';
@@ -144,7 +143,7 @@ const App = () => {
   const [queue, setQueue] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [now, setNow] = useState(Date.now());
-  const [formData, setFormData] = useState({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '', mechanicName: '', checklist: [] });
+  const [formData, setFormData] = useState({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', jenisPekerjaan: [], keluhan: '', mechanicName: '', checklist: [] });
   const [isEditing, setIsEditing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
@@ -163,6 +162,35 @@ const App = () => {
     };
   });
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
+  const audioCtxRef = useRef(null);
+  const audioUnlockedRef = useRef(false);
+
+  const unlockAudio = useCallback(() => {
+    if (audioUnlockedRef.current) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+      ctx.resume();
+      audioCtxRef.current = ctx;
+      audioUnlockedRef.current = true;
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
+    const handler = () => { unlockAudio(); };
+    window.addEventListener('click', handler, { once: true });
+    window.addEventListener('touchstart', handler, { once: true });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && audioCtxRef.current?.state === 'suspended') {
+        audioCtxRef.current.resume();
+      }
+    });
+    return () => window.removeEventListener('click', handler);
+  }, [unlockAudio]);
 
   // Refs
 
@@ -614,8 +642,25 @@ const App = () => {
     playedTextsRef.current.add(textOrBk);
     setTimeout(() => playedTextsRef.current.delete(textOrBk), 10000);
 
+    const playBeepInstead = () => {
+      try {
+        const ctx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)();
+        if (ctx.state === 'suspended') ctx.resume();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.5);
+      } catch (_) {}
+    };
+
     try {
-      const soundUrl = customSoundUrlRef.current || 'https://raw.githubusercontent.com/shubhamjain/ios-notification-sounds/master/iphone_notification.mp3';
+      const soundUrl = customSoundUrlRef.current || '/notification.mp3';
       const audio = new Audio(soundUrl);
       audio.play().then(() => {
         // Voice Notification (TTS)
@@ -644,11 +689,15 @@ const App = () => {
             window.speechSynthesis.speak(utterance);
           }, 1000); // Jeda 1 detik setelah bunyi notifikasi
         }
-      }).catch(e => console.warn("Audio autoplay blocked by browser:", e));
+      }).catch(e => {
+        console.warn("Audio autoplay blocked by browser:", e);
+        playBeepInstead();
+      });
     } catch (e) {
       console.error("Audio notification error:", e);
+      playBeepInstead();
     }
-  }, [isSoundEnabled]);
+  }, [isSoundEnabled, unlockAudio]);
 
   const lastNotifCheckRef = React.useRef(0);
   const notifiedIds = React.useRef(new Set());
@@ -1034,9 +1083,9 @@ const App = () => {
       bk: formData.bk.toUpperCase().replace(/\s+/g, ''),
       tipe: formData.tipe,
       category: formData.category,
-      keluhan: formData.jenisPekerjaan === 'Keluhan' || formData.jenisPekerjaan === 'Update Software'
-        ? `${formData.jenisPekerjaan}: ${sanitizeInput(formData.keluhan || '')}`
-        : (formData.jenisPekerjaan || sanitizeInput(formData.keluhan || '')),
+      keluhan: (formData.jenisPekerjaan || []).length > 0
+        ? `${(formData.jenisPekerjaan || []).join(' + ')}: ${sanitizeInput(formData.keluhan || '')}`
+        : sanitizeInput(formData.keluhan || ''),
       checklist: formData.checklist || [],
       menginap_reason: formData.menginap_reason || '',
       noTelp: formData.noTelp || '',
@@ -1098,6 +1147,7 @@ const App = () => {
 
       setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '', mechanicName: '', checklist: [], menginap_reason: '' });
       setIsEditing(false);
+      fetchQueueRef.current();
     } catch (error) {
       console.error("Gagal menyimpan data", error);
       setErrorMessage("Gagal menyimpan data ke Supabase");
@@ -1153,6 +1203,9 @@ const App = () => {
         targetTime: targetTime,
         mechanicName: user.name
       }, { eq: { id: item.id } });
+      // Update local state immediately without waiting for Realtime
+      setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'working', targetTime: targetTime, mechanicName: user.name } : q));
+      fetchQueueRef.current();
     } catch (err) {
       console.error(err);
     } finally {
@@ -1335,7 +1388,24 @@ const App = () => {
           textAlign: "center"
         }
       }).showToast();
-      try { new Audio('https://raw.githubusercontent.com/shubhamjain/ios-notification-sounds/master/iphone_notification.mp3').play().catch(() => { }); } catch (e) { }
+      try {
+        const a = new Audio('/notification.mp3');
+        a.play().catch(() => {
+          const ctx = audioCtxRef.current;
+          if (ctx) {
+            const osc = ctx.createOscillator();
+            const g = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = 660;
+            g.gain.setValueAtTime(0.2, ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+            osc.connect(g);
+            g.connect(ctx.destination);
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + 0.3);
+          }
+        });
+      } catch (_) {}
       return;
     }
 
@@ -1388,23 +1458,48 @@ const App = () => {
       const { error: insertError } = await db.insert('history', historyData);
 
       if (insertError) {
-        // Jika error "Conflict" (ID sudah ada), hapus saja dari antrian & anggap sukses
         if (insertError.code === '23505' || insertError.status === 409) {
           console.warn("Item ini sudah ada di history, melanjutkan pembersihan antrian...");
         }
-        // Fallback jika kolom checklist belum ada di tabel history Supabase
-        else if (insertError.code === 'PGRST204' || (insertError.message && insertError.message.includes('checklist'))) {
-          console.warn("Kolom 'checklist' tidak ditemukan di tabel history, mencoba simpan tanpa checklist...");
-          const { checklist: _, ...restHistory } = historyData;
+        else if (insertError.code === 'PGRST204') {
+          console.warn("Schema mismatch di history, mencoba dengan kolom minimal...");
+          const safeData = {
+            id: item.id, bk: item.bk, tipe: item.tipe,
+            category: item.category, keluhan: item.keluhan,
+            mechanicName: item.mechanicName || '',
+            status: 'completed',
+            estimasiDefault: item.estimasiDefault,
+            targetTime: Date.now(),
+            addedBy: item.addedBy || '',
+            tanggal: tanggalISO,
+            waktuMasuk: waktuMasukDate.toLocaleString('id-ID', { hour12: false }),
+            waktuSelesai: waktuSelesaiDate.toLocaleString('id-ID', { hour12: false }),
+            'Jarak Waktu': jarakWaktuStr,
+            Bulan: bulanStr,
+          };
           if (checklist.length > 0) {
             const checklistSummary = checklist.map(t => `${t.completed ? '✅' : '❌'} ${t.text}`).join('\n');
-            restHistory.keluhan = (restHistory.keluhan ? restHistory.keluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + checklistSummary;
+            safeData.keluhan = (safeData.keluhan ? safeData.keluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + checklistSummary;
           }
-
-          const { error: retryError } = await db.insert('history', restHistory);
+          const { error: retryError } = await db.insert('history', safeData);
           if (retryError && retryError.code !== '23505') {
             console.error("Retry Error:", retryError);
-            throw new Error(`Database Error (History Retry): ${retryError.message}`);
+            // Last resort: minimal insert with just id, bk, tipe, status
+            const minimalData = {
+              id: item.id, bk: item.bk,
+              tipe: item.tipe, status: 'completed',
+              tanggal: tanggalISO,
+              category: item.category,
+              keluhan: item.keluhan,
+            };
+            if (checklist.length > 0) {
+              const s = checklist.map(t => `${t.completed ? '✅' : '❌'} ${t.text}`).join('\n');
+              minimalData.keluhan = (minimalData.keluhan ? minimalData.keluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + s;
+            }
+            const { error: finalError } = await db.insert('history', minimalData);
+            if (finalError && finalError.code !== '23505') {
+              throw new Error(`Database Error (History Final): ${finalError.message}`);
+            }
           }
         } else {
           console.error("History Insert Error:", insertError);
@@ -1422,6 +1517,7 @@ const App = () => {
       // 3. Sync to CRO Table (Customer Relation Officer)
       try {
         const croData = {
+          id: Date.now(),
           workOrderNo: String(item.id).substring(0, 15),
           nama: item.addedBy || 'Pelanggan Workshop',
           telepon: item.noTelp || '-',
@@ -1446,8 +1542,9 @@ const App = () => {
         style: { background: "linear-gradient(135deg, #10b981, #059669)", borderRadius: "12px" }
       }).showToast();
 
-      // Triggering sound is now handled globally via the rawHistory useEffect listener
-      // to prevent double sound (local + server sync).
+      // Optimistic remove from queue + immediate re-fetch
+      setQueue(prev => prev.filter(q => q.id !== item.id));
+      fetchQueueRef.current();
 
     } catch (err) {
       console.error("Execution Error:", err);
@@ -1532,14 +1629,14 @@ const App = () => {
 
   const editItem = (item) => {
     const rawKeluhan = item.keluhan || '';
-    let jenisPekerjaan = '';
+    let jenisPekerjaan = [];
     let keluhanText = '';
-    const kelPrefix = rawKeluhan.match(/^(Keluhan|Update Software):\s*/);
-    if (kelPrefix) {
-      jenisPekerjaan = kelPrefix[1];
-      keluhanText = rawKeluhan.slice(kelPrefix[0].length);
+    const kelMatch = rawKeluhan.match(/^((?:FS[123]|Keluhan|Update Software)(?:\s*\+\s*(?:FS[123]|Keluhan|Update Software))*):\s*/);
+    if (kelMatch) {
+      jenisPekerjaan = kelMatch[1].split(/\s*\+\s*/);
+      keluhanText = rawKeluhan.slice(kelMatch[0].length);
     } else if (rawKeluhan) {
-      jenisPekerjaan = rawKeluhan;
+      keluhanText = rawKeluhan;
     }
     setFormData({
       ...item,
@@ -1556,7 +1653,7 @@ const App = () => {
   };
 
   const handleCancelEdit = () => {
-    setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', jenisPekerjaan: '', keluhan: '', mechanicName: '', checklist: [], menginap_reason: '', noTelp: '' });
+    setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', jenisPekerjaan: [], keluhan: '', mechanicName: '', checklist: [], menginap_reason: '', noTelp: '' });
     setIsEditing(false);
   };
 
@@ -1606,7 +1703,7 @@ const App = () => {
   // Determine if navbars should be shown
   const showNavbar = currentPage !== 'login' && currentPage !== 'register' && user?.role?.toLowerCase() !== 'display';
   // Check if on a dashboard page (not public)
-  const publicPages = ['display', 'booking-public', 'tracking-public', 'login', 'register'];
+  const publicPages = ['display', 'booking-public', 'login', 'register'];
   const isOnDashboard = user && !publicPages.includes(currentPage);
   const hasSidebarItems = user && getNavItems(user.role?.toLowerCase()).length > 0;
 
@@ -1684,7 +1781,7 @@ const App = () => {
       {currentPage === 'sparepart-view' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="view" />}
       {currentPage === 'sparepart-quotation' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="quotation" />}
       {currentPage === 'sparepart-profit' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="profit" />}
-      {currentPage === 'sparepart-predict' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="predict" />}
+      {/* {currentPage === 'sparepart-predict' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="predict" />} */}
       {currentPage === 'quotation' && <QuotationSPA />}
       {currentPage === 'booking_manager' && <BookingManager user={user} handleLogout={handleLogout} isNavbarVisible={true} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />}
       {currentPage === 'cro' && (
@@ -1765,9 +1862,6 @@ const App = () => {
           setErrorMessage={setErrorMessage} 
           errorMessage={errorMessage} 
         />
-      )}
-      {currentPage === 'tracking-public' && (
-        <PublicTracking setCurrentPage={setCurrentPage} />
       )}
       {currentPage === 'customer' && user?.role === 'customer' && (
         !user.plat_bk ? (

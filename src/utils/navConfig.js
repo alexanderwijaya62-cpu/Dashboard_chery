@@ -27,6 +27,7 @@ import {
   BarChart2,
   BarChart3,
   MessageCircle,
+  Home,
 } from 'lucide-react';
 
 /**
@@ -73,7 +74,7 @@ export const NAV_CONFIG = {
     { id: 'sparepart-view', icon: Search, label: 'Order List', page: 'sparepart-view', ariaLabel: 'Order List' },
     { id: 'sparepart-quotation', icon: FileText, label: 'Quotations', page: 'sparepart-quotation', ariaLabel: 'Quotations' },
     { id: 'sparepart-profit', icon: TrendingUp, label: 'Analysis', page: 'sparepart-profit', ariaLabel: 'Analysis' },
-    { id: 'sparepart-predict', icon: Layers, label: 'Stock Predictor', page: 'sparepart-predict', ariaLabel: 'Stock Predictor' },
+    // { id: 'sparepart-predict', icon: Layers, label: 'Stock Predictor', page: 'sparepart-predict', ariaLabel: 'Stock Predictor' },
   ],
   owner: [
     { id: 'owner-monitoring', icon: Activity, label: 'Live Monitoring', page: 'owner', ariaLabel: 'Live Monitoring' },
@@ -83,13 +84,16 @@ export const NAV_CONFIG = {
     { id: 'owner-warranty', icon: ShieldCheck, label: 'Warranty Search', page: 'owner-warranty', ariaLabel: 'Warranty Search' },
     { id: 'owner-parts', icon: Truck, label: 'Tracking Pemesanan Part', page: 'owner-parts', ariaLabel: 'Tracking Pemesanan Part' },
     { id: 'owner-users', icon: Users, label: 'Manajemen User', page: 'owner-users', ariaLabel: 'Manajemen User' },
-    { id: 'owner-sound', icon: Volume2, label: 'Notifikasi Suara', page: 'owner-sound', ariaLabel: 'Notifikasi Suara' },
+    { id: 'owner-sound', icon: Settings, label: 'Settings', page: 'owner-sound', ariaLabel: 'Settings' },
     { id: 'owner-deleted', icon: Trash2, label: 'Riwayat Hapus Booking', page: 'owner-deleted', ariaLabel: 'Riwayat Hapus Booking' },
   ],
   mekanik: [
     { id: 'mechanic', icon: Wrench, label: 'Workshop', page: 'mechanic', ariaLabel: 'Mechanic Panel' },
   ],
-  customer: [],
+  customer: [
+    { id: 'customer-home', icon: Home, label: 'Dashboard', page: 'customer', ariaLabel: 'Dashboard Saya' },
+    { id: 'customer-booking', icon: Calendar, label: 'Booking Service', page: 'booking-public', ariaLabel: 'Booking Service' },
+  ],
   display: [],
   warranty: [
     { id: 'warranty-dashboard', icon: BarChart2,   label: 'Dashboard',        page: 'warranty',          ariaLabel: 'Warranty Dashboard' },

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Upload, Search, Filter, RefreshCw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, TrendingUp, Layers, AlertCircle, X, FileSpreadsheet, Package, Download, Trash2 } from 'lucide-react';
+import { Upload, Search, Filter, RefreshCw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, TrendingUp, Layers, AlertCircle, X, FileSpreadsheet, Package, Download, Trash2, FileDown } from 'lucide-react';
 import { db } from '../utils/dbClient';
 import * as XLSX from 'xlsx';
 import Toastify from 'toastify-js';
@@ -41,7 +41,8 @@ export default function SparepartPredictor() {
   const pageSize = 15;
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
-  const [filterMonth, setFilterMonth] = useState('');
+  const [filterMonthFrom, setFilterMonthFrom] = useState('');
+  const [filterMonthTo, setFilterMonthTo] = useState('');
   const [filterYear, setFilterYear] = useState('');
   const [sortBy, setSortBy] = useState('total_desc');
   const [showUpload, setShowUpload] = useState(false);
@@ -284,12 +285,17 @@ export default function SparepartPredictor() {
         (r.NoTransaksi || '').toLowerCase().includes(q)
       );
     }
-    if (filterMonth) {
-      const targetMonth = String(parseInt(filterMonth));
+    if (filterMonthFrom || filterMonthTo) {
+      const from = filterMonthFrom ? parseInt(filterMonthFrom) : 1;
+      const to = filterMonthTo ? parseInt(filterMonthTo) : 12;
       filtered = filtered.filter(r => {
         const p = parseDate(r.Tgl);
-        return p && String(p.month + 1) === targetMonth;
+        if (!p) return false;
+        const m = p.month + 1;
+        if (filterYear && String(p.year) !== filterYear) return false;
+        return m >= from && m <= to;
       });
+      return filtered;
     }
     if (filterYear) {
       filtered = filtered.filter(r => {
@@ -298,7 +304,7 @@ export default function SparepartPredictor() {
       });
     }
     return filtered;
-  }, [records, search, filterMonth, filterYear]);
+  }, [records, search, filterMonthFrom, filterMonthTo, filterYear]);
 
   const pivotData = useMemo(() => {
     const withDate = filteredRecords.map(r => ({ ...r, _parsed: parseDate(r.Tgl) }));
@@ -321,6 +327,7 @@ export default function SparepartPredictor() {
     });
 
     const sortedMonths = [...monthSet].sort();
+    const monthCount = sortedMonths.length || 1;
     let result = Object.values(grouped);
 
     if (sortBy === 'total_desc') result.sort((a, b) => b.total - a.total);
@@ -328,14 +335,55 @@ export default function SparepartPredictor() {
     else if (sortBy === 'name_asc') result.sort((a, b) => a.partName.localeCompare(b.partName));
     else if (sortBy === 'name_desc') result.sort((a, b) => b.partName.localeCompare(a.partName));
 
-    return { pivot: result, months: sortedMonths, totalRecords: withDate.length };
+    result = result.map(item => ({
+      ...item,
+      avg: Math.round(item.total / monthCount),
+      safeStock: Math.round(item.total / monthCount * 1.5),
+      reorderPoint: Math.round(item.total / monthCount * 2),
+    }));
+
+    return { pivot: result, months: sortedMonths, totalRecords: withDate.length, monthCount };
   }, [filteredRecords, sortBy]);
 
   const totalPages = Math.ceil(pivotData.pivot.length / pageSize);
   const displayPivot = pivotData.pivot.slice(page * pageSize, (page + 1) * pageSize);
 
-  const hasActiveFilters = search || filterMonth || filterYear;
-  const clearFilters = () => { setSearch(''); setSearchInput(''); setFilterMonth(''); setFilterYear(''); setPage(0); };
+  const hasActiveFilters = search || filterMonthFrom || filterMonthTo || filterYear;
+  const clearFilters = () => { setSearch(''); setSearchInput(''); setFilterMonthFrom(''); setFilterMonthTo(''); setFilterYear(''); setPage(0); };
+
+  const handleExportPivot = () => {
+    if (pivotData.pivot.length === 0) return;
+    const rows = pivotData.pivot.map(item => {
+      const row = {
+        'Part Name': item.partName,
+        'Part No': item.partNo,
+      };
+      pivotData.months.forEach(m => {
+        row[m] = item.months[m] || 0;
+      });
+      row['Total Qty'] = item.total;
+      row['Rata-rata'] = item.avg;
+      row['Stok Aman'] = item.safeStock;
+      row['Reorder Point'] = item.reorderPoint;
+      return row;
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Pivot');
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
+    const buf = new ArrayBuffer(wbout.length);
+    const view = new Uint8Array(buf);
+    for (let i = 0; i < wbout.length; i++) view[i] = wbout.charCodeAt(i) & 0xFF;
+    const blob = new Blob([buf], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `rekap_penjualan_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="w-full h-full flex flex-col overflow-hidden bg-zinc-50">
@@ -437,9 +485,18 @@ export default function SparepartPredictor() {
       {showFilter && (
         <div className="bg-white border-b border-zinc-200 px-4 md:px-6 py-3 flex flex-wrap items-end gap-3 shrink-0">
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Bulan</label>
-            <select value={filterMonth} onChange={e => { setFilterMonth(e.target.value); setPage(0); }} className="px-3 py-2 text-sm border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900">
-              <option value="">Semua Bulan</option>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Dari Bulan</label>
+            <select value={filterMonthFrom} onChange={e => { setFilterMonthFrom(e.target.value); setPage(0); }} className="px-3 py-2 text-sm border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900">
+              <option value="">Awal</option>
+              {MONTHS_SHORT.map((m, i) => (
+                <option key={i} value={String(i + 1)}>{m}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Sampai Bulan</label>
+            <select value={filterMonthTo} onChange={e => { setFilterMonthTo(e.target.value); setPage(0); }} className="px-3 py-2 text-sm border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900">
+              <option value="">Akhir</option>
               {MONTHS_SHORT.map((m, i) => (
                 <option key={i} value={String(i + 1)}>{m}</option>
               ))}
@@ -448,7 +505,7 @@ export default function SparepartPredictor() {
           <div>
             <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Tahun</label>
             <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setPage(0); }} className="px-3 py-2 text-sm border border-zinc-200 rounded-xl bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900">
-              <option value="">Semua Tahun</option>
+              <option value="">Semua</option>
               {availableYears.map(y => (
                 <option key={y} value={String(y)}>{y}</option>
               ))}
@@ -505,6 +562,9 @@ export default function SparepartPredictor() {
                   <h3 className="font-black text-sm uppercase tracking-tight">Rekap Penjualan Per Bulan</h3>
                   <span className="text-[10px] text-zinc-400 font-bold">({pivotData.totalRecords} transaksi)</span>
                 </div>
+                <button onClick={handleExportPivot} className="flex items-center gap-1.5 px-3 py-2 bg-black text-white rounded-xl text-[10px] font-bold uppercase tracking-wider hover:bg-zinc-800 transition-all">
+                  <FileDown size={13} /> Export Excel
+                </button>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
@@ -516,6 +576,9 @@ export default function SparepartPredictor() {
                         <th key={m} className="text-right px-3 py-3 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">{m}</th>
                       ))}
                       <th className="text-right px-4 py-3 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap border-l-2 border-zinc-200">Total Qty</th>
+                      <th className="text-right px-4 py-3 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Rata²</th>
+                      <th className="text-right px-4 py-3 text-[10px] font-black uppercase tracking-wider text-emerald-600 whitespace-nowrap">Stok Aman</th>
+                      <th className="text-right px-4 py-3 text-[10px] font-black uppercase tracking-wider text-amber-600 whitespace-nowrap">Reorder</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100">
@@ -528,10 +591,13 @@ export default function SparepartPredictor() {
                             <td key={m} className="px-3 py-3 text-right font-bold text-zinc-800">{item.months[m] || '-'}</td>
                           ))}
                           <td className="px-4 py-3 text-right font-black text-zinc-900 border-l-2 border-zinc-200">{item.total}</td>
+                          <td className="px-4 py-3 text-right font-bold text-blue-600">{item.avg}</td>
+                          <td className="px-4 py-3 text-right font-black text-emerald-600">{item.safeStock}</td>
+                          <td className="px-4 py-3 text-right font-black text-amber-600">{item.reorderPoint}</td>
                         </tr>
                         {expandedRow === i && (
                           <tr className="bg-zinc-50">
-                            <td colSpan={pivotData.months.length + 3} className="px-5 py-4">
+                            <td colSpan={pivotData.months.length + 6} className="px-5 py-4">
                               <div className="overflow-x-auto max-h-60 overflow-y-auto">
                                 <table className="w-full text-xs">
                                   <thead>

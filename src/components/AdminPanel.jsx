@@ -273,35 +273,16 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
         return slotList;
     }, [rawBookings, queue, rawHistory, normalizeBK, allSlots, currentDay]);
 
-    useEffect(() => {
-        const checkLate = async () => {
-            const lates = todayBookings.filter(b => !b.isEmpty && b.isLate && !b.isArrived && b.status !== 'dipindahkan_reguler');
-            for (const b of lates) {
-              try {
-                await db.update('booking', { status: 'dipindahkan_reguler' }, { eq: { id: b.id } });
-              } catch (e) {
-                console.error('Late update failed:', b.id, e);
-              }
-            }
-            if (lates.length > 0) fetchBookings();
-        };
-        const timer = setInterval(checkLate, 60000); // Check every minute
-        checkLate(); // Initial check
-        return () => clearInterval(timer);
-    }, [todayBookings, fetchBookings]);
-
     const handleConfirmBooking = (booking) => {
         setFormData({
             ...formData,
             bk: (booking.noPlat || '').toUpperCase().replace(/\s+/g, ''),
             tipe: (booking.tipeMobil || '').toUpperCase(),
             category: booking.isLate ? 'Reguler' : 'Booking',
-            keluhan: `${booking.isLate ? 'LATE BOOKING (REGULER):' : 'BOOKING:'} ${booking.keperluanService || ''} (${booking.namaCustomer || ''})`,
+            keluhan: booking.keperluanService || '',
             jam: 0, menit: 30, detik: 0, mechanicName: ''
         });
-        if (booking.isLate) {
-            Toastify({ text: "⚠️ Booking Terlambat > 30 menit. Diubah menjadi REGULER.", background: "orange" }).showToast();
-        }
+        fetchVehicleByPlate((booking.noPlat || '').toUpperCase().replace(/\s+/g, ''));
     };
 
     const [activeTab, setActiveTab] = useState(activeTabProp || 'dashboard'); // 'dashboard' or 'booking'
@@ -330,6 +311,26 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
             })
             .sort((a,b) => new Date(b.tanggal) - new Date(a.tanggal));
     }, [rawBookings, bookingSearchTerm, bookingDateFilter]);
+
+    const fetchVehicleByPlate = async (plat) => {
+        if (!plat || plat.length < 3) return;
+        try {
+            const res = await fetch(`/api/chery_dms?endpoint=vehicle-select&term=${encodeURIComponent(plat)}&_type=query&q=${encodeURIComponent(plat)}`);
+            if (!res.ok) return;
+            const json = await res.json();
+            const matched = Array.isArray(json) && json.find(v =>
+                (v.no_polisi || '').toUpperCase().replace(/\s+/g, '') === plat.toUpperCase().replace(/\s+/g, '')
+            );
+            if (matched) {
+                setFormData(prev => ({
+                    ...prev,
+                    tipe: (matched.nama_kendaraan || matched.tipe_kendaraan || prev.tipe || '').toUpperCase(),
+                }));
+            }
+        } catch (e) {
+            console.warn('Gagal fetch kendaraan:', e);
+        }
+    };
 
     return (
         <div className="h-screen max-w-[100vw] bg-zinc-50 flex flex-col font-sans overflow-hidden transition-colors duration-500 text-black">
@@ -481,7 +482,11 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                 <div>
                                     <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">No. Polisi</label>
                                     <input type="text" value={formData.bk}
-                                        onChange={(e) => setFormData({ ...formData, bk: e.target.value.toUpperCase().replace(/\s+/g, '') })}
+                                        onChange={(e) => {
+                                            const val = e.target.value.toUpperCase().replace(/\s+/g, '');
+                                            setFormData({ ...formData, bk: val });
+                                            if (val.length >= 3) fetchVehicleByPlate(val);
+                                        }}
                                         placeholder="BK 1234 XX"
                                         className="w-full bg-zinc-50 border border-zinc-200 px-4 py-3 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-black transition-all uppercase" />
                                 </div>
@@ -578,20 +583,26 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                             <div>
                                 <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">Jenis Pekerjaan</label>
                                 <div className="flex flex-wrap gap-2 items-center">
-                                    <select value={formData.jenisPekerjaan || ''} onChange={(e) => setFormData({ ...formData, jenisPekerjaan: e.target.value })}
-                                        className="bg-white border border-zinc-200 px-4 py-2.5 rounded-xl text-xs font-bold uppercase outline-none focus:border-black transition-all">
-                                        <option value="">Pilih...</option>
-                                        <option value="FS1">FS1</option>
-                                        <option value="FS2">FS2</option>
-                                        <option value="FS3">FS3</option>
-                                        <option value="Keluhan">Keluhan</option>
-                                        <option value="Update Software">Update Software</option>
-                                    </select>
-                                    {(formData.jenisPekerjaan === 'Keluhan' || formData.jenisPekerjaan === 'Update Software') && (
-                                        <textarea placeholder="Deskripsi keluhan / detail pekerjaan..." value={formData.keluhan || ''} onChange={(e) => setFormData({ ...formData, keluhan: e.target.value })}
-                                            className="w-full bg-zinc-50 border border-zinc-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-black focus:bg-white transition-all min-h-[60px] mt-2" />
-                                    )}
+                                    {['FS1', 'FS2', 'FS3', 'Keluhan', 'Update Software'].map(type => (
+                                        <button key={type} onClick={() => {
+                                            const current = formData.jenisPekerjaan || [];
+                                            const isSelected = current.includes(type);
+                                            setFormData({
+                                                ...formData,
+                                                jenisPekerjaan: isSelected
+                                                    ? current.filter(t => t !== type)
+                                                    : [...current, type]
+                                            });
+                                        }}
+                                            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all border-2 ${(formData.jenisPekerjaan || []).includes(type) ? 'bg-black text-white border-black shadow-md' : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-300'}`}>
+                                            {type}
+                                        </button>
+                                    ))}
                                 </div>
+                                {(formData.jenisPekerjaan || []).length > 0 && (
+                                    <textarea placeholder="Deskripsi keluhan / detail pekerjaan..." value={formData.keluhan || ''} onChange={(e) => setFormData({ ...formData, keluhan: e.target.value })}
+                                        className="w-full bg-zinc-50 border border-zinc-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-black focus:bg-white transition-all min-h-[60px] mt-2" />
+                                )}
                             </div>
 
                             {/* Checklist */}

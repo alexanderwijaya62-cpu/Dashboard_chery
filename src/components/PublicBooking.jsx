@@ -40,10 +40,30 @@ const normalizeJam = (j) => {
     return `${h}.${m}`;
 };
 
+const CACHE_KEY = 'public_booking_cache';
+const CACHE_TTL = 30000;
+
+const loadCache = () => {
+    try {
+        const raw = localStorage.getItem(CACHE_KEY);
+        if (!raw) return null;
+        const { data, timestamp } = JSON.parse(raw);
+        if (Date.now() - timestamp < CACHE_TTL) return data;
+        return null;
+    } catch { return null; }
+};
+
+const saveCache = (data) => {
+    try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
+    } catch { /* quota exceeded */ }
+};
+
 export default function PublicBooking({ user }) {
     const [bookings, setBookings] = useState([]);
     const [bookingConfig, setBookingConfig] = useState({ slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 });
     const [isLoading, setIsLoading] = useState(false);
+    const [isSlotsReady, setIsSlotsReady] = useState(false);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [isBookingMode, setIsBookingMode] = useState(false);
     const [holidays, setHolidays] = useState([]);
@@ -68,7 +88,19 @@ export default function PublicBooking({ user }) {
         getIP();
     }, []);
 
-    const fetchBookings = async () => {
+    const fetchBookings = async (forceFresh = false) => {
+        // Try cache first (unless forced fresh, e.g. realtime)
+        if (!forceFresh) {
+            const cached = loadCache();
+            if (cached) {
+                setBookings(cached);
+                setIsSlotsReady(true);
+                // Still refresh in background
+                fetchBookings(true);
+                return;
+            }
+        }
+
         try {
             const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);
@@ -80,8 +112,11 @@ export default function PublicBooking({ user }) {
             if (error) throw error;
 
             let merged = Array.isArray(supabaseData) ? [...supabaseData] : [];
+            saveCache(merged);
+            setBookings(merged);
+            setIsSlotsReady(true);
 
-            // Juga ambil booking dari DMS internal
+            // DMS fetch in background — tidak blocking render
             try {
                 const now = new Date();
                 const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
@@ -114,13 +149,16 @@ export default function PublicBooking({ user }) {
                         };
                     }).filter(Boolean).filter(b => b.tanggal >= dateStr);
                     merged = [...merged, ...dmsBookings];
+                    saveCache(merged);
+                    setBookings(merged);
                 }
             } catch (dmsErr) {
                 console.warn('Gagal fetch DMS bookings:', dmsErr);
             }
-
-            setBookings(merged);
-        } catch (e) { console.error('Gagal fetch booking:', e); }
+        } catch (e) {
+            console.error('Gagal fetch booking:', e);
+            setIsSlotsReady(true); // tetap tampilkan UI meskipun error
+        }
     };
 
     const fetchHolidays = async () => {
@@ -143,7 +181,7 @@ export default function PublicBooking({ user }) {
                 { event: '*', schema: 'public', table: 'booking', filter: 'status=neq.declined' },
                 (payload) => {
                     console.log('Change received in Public Booking!', payload);
-                    fetchBookings();
+                    fetchBookings(true);
                 }
             )
             .subscribe();
@@ -390,6 +428,33 @@ export default function PublicBooking({ user }) {
 
             if (error) throw error;
 
+            // Auto-create customer entry in customers table if new plate
+            try {
+                const { data: byPlate } = await db.select('customers', {
+                    select: 'id',
+                    eq: { no_bk: cleanPlat }
+                });
+                const { data: byPhone } = await db.select('customers', {
+                    select: 'id',
+                    eq: { no_hp: formData.noTelp }
+                });
+                if ((!byPlate || byPlate.length === 0) && (!byPhone || byPhone.length === 0)) {
+                    const custId = Date.now() + Math.floor(Math.random() * 1000);
+                    await db.insert('customers', {
+                        id: custId,
+                        no_hp: formData.noTelp,
+                        password: Math.random().toString(36).slice(2, 10),
+                        nama: formData.namaCustomer,
+                        no_bk: cleanPlat,
+                        status: 'active'
+                    }).catch((custErr) => {
+                        console.warn('Auto-create customer non-critical:', custErr);
+                    });
+                }
+            } catch (custErr) {
+                console.warn('Customer check non-critical:', custErr);
+            }
+
             if (dmsSynced) {
                 Toastify({ text: '✅ Booking berhasil! Data kendaraan ditemukan di DMS & langsung aktif.', style: { background: 'green' } }).showToast();
             } else {
@@ -506,6 +571,7 @@ export default function PublicBooking({ user }) {
                                     className={`relative aspect-[4/5] rounded-[1rem] flex flex-col items-center justify-center transition-all duration-300 group overflow-hidden border-2 ${isPast ? 'bg-zinc-50 opacity-40 cursor-not-allowed border-transparent text-zinc-400' :
                                         !isSelectable ? 'bg-zinc-100 border-zinc-200 cursor-not-allowed opacity-50 grayscale text-zinc-400' :
                                             isActive ? 'bg-zinc-900 border-black text-white shadow-xl scale-110 z-10 font-bold' :
+                                                !isSlotsReady ? 'bg-white border-zinc-200 border-dashed text-zinc-300' :
                                                 availability === 'empty' ? 'bg-white border-zinc-100 border-dashed hover:border-emerald-500 hover:shadow-md text-zinc-500' :
                                                     availability === 'partial' ? 'bg-white border-zinc-100 border-dashed hover:border-amber-500 hover:shadow-md text-zinc-500' :
                                                         'bg-white border-rose-100 cursor-not-allowed opacity-70 text-zinc-300'
@@ -513,7 +579,8 @@ export default function PublicBooking({ user }) {
                                 >
                                     <span className={`text-[13px] md:text-sm tracking-tight ${isActive ? 'font-black' : 'font-bold'}`}>{item.day}</span>
                                     {isSelectable && !isPast && (
-                                        <div className={`w-1.5 h-1.5 rounded-full mt-1.5 ${availability === 'empty' ? 'bg-emerald-500' :
+                                        <div className={`w-1.5 h-1.5 rounded-full mt-1.5 ${!isSlotsReady ? 'bg-zinc-300 animate-pulse' :
+                                            availability === 'empty' ? 'bg-emerald-500' :
                                             availability === 'partial' ? 'bg-amber-400' :
                                                 'bg-rose-500'
                                             }`} />
@@ -561,15 +628,16 @@ export default function PublicBooking({ user }) {
                                          </p>
                                      </div>
                                      <div className="bg-emerald-500/10 px-3 md:px-5 py-3 md:py-4 rounded-2xl md:rounded-3xl border border-emerald-500/20 text-center flex flex-col items-center">
-                                         <p className="text-[6.5px] md:text-[8px] font-black text-emerald-500 uppercase tracking-widest mb-1 leading-none">Sisa Slot</p>
-                                         <p className="text-sm md:text-base font-black text-emerald-400 leading-none">
-                                            {(() => {
-                                                 const occupiedCount = (bookingsForDate || []).length;
-                                                 const totalCapacity = (JAM_PILIHAN.length || 0) * slotCapacity;
-                                                return Math.max(0, totalCapacity - occupiedCount);
-                                            })()}
-                                         </p>
-                                     </div>
+                                          <p className="text-[6.5px] md:text-[8px] font-black text-emerald-500 uppercase tracking-widest mb-1 leading-none">Sisa Slot</p>
+                                          <p className="text-sm md:text-base font-black text-emerald-400 leading-none">
+                                             {!isSlotsReady ? '...' :
+                                             (() => {
+                                                  const occupiedCount = (bookingsForDate || []).length;
+                                                  const totalCapacity = (JAM_PILIHAN.length || 0) * slotCapacity;
+                                                 return Math.max(0, totalCapacity - occupiedCount);
+                                             })()}
+                                          </p>
+                                      </div>
                                  </div>
                             </div>
 
@@ -582,7 +650,7 @@ export default function PublicBooking({ user }) {
 
                                         const isOccupied = bookingsAtThisTime.length >= slotCapacity;
                                         const isPastTime = getIsPastTime(jam);
-                                        const isDisabled = isOccupied || isPastTime;
+                                        const isDisabled = isOccupied || isPastTime || !isSlotsReady;
 
                                         return (
                                             <div key={idx} className={`p-4 md:p-5 rounded-[1.5rem] border flex items-center justify-between group/item transition-all ${isDisabled ? 'bg-zinc-200 border-zinc-300 opacity-60 cursor-not-allowed' : 'bg-black border-zinc-800 cursor-pointer hover:bg-zinc-800'
@@ -594,10 +662,10 @@ export default function PublicBooking({ user }) {
                                                     </div>
                                                     <div className="flex flex-col justify-center">
                                                         <p className={`text-[8.5px] md:text-[10px] font-black uppercase tracking-widest mb-1 text-white opacity-80`}>
-                                                            {isOccupied ? `Slot Penuh (${bookingsAtThisTime.length}/${slotCapacity})` : isPastTime ? 'Waktu Terlewati' : `Sisa Slot: ${Math.max(0, slotCapacity - bookingsAtThisTime.length)} Unit`}
+                                                            {!isSlotsReady ? 'Memuat data...' : isOccupied ? `Slot Penuh (${bookingsAtThisTime.length}/${slotCapacity})` : isPastTime ? 'Waktu Terlewati' : `Sisa Slot: ${Math.max(0, slotCapacity - bookingsAtThisTime.length)} Unit`}
                                                         </p>
                                                         <h4 className={`text-sm md:text-base font-black tracking-tight text-white`}>
-                                                            {isOccupied ? 'FULL BOOKED' : isPastTime ? 'CLOSED' : 'Klik Reservasi'}
+                                                            {!isSlotsReady ? 'LOADING' : isOccupied ? 'FULL BOOKED' : isPastTime ? 'CLOSED' : 'Klik Reservasi'}
                                                         </h4>
                                                     </div>
                                                 </div>

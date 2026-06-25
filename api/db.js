@@ -261,7 +261,15 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Invalid action' });
     }
 
-    if (result?.error) throw result.error;
+    if (result?.error) {
+      if (result.error.code === '23505' && table === 'booking') {
+        return res.status(409).json({
+          error: `Slot jam ${data?.values?.jam || ''} pada tanggal ${data?.values?.tanggal || ''} sudah dipesan. Silahkan pilih jam lain.`,
+          code: 'SLOT_CONFLICT'
+        });
+      }
+      throw result.error;
+    }
     return res.json({ data: result?.data ?? null, count: result?.count ?? null });
   } catch (error) {
     console.error(`DB Error [${table}/${action}]:`, error.message);

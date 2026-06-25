@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
+import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
 import CroBookingPanel from './CroBookingPanel';
 import HolidaySettings from './HolidaySettings';
 
@@ -455,6 +456,50 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
                     const { error } = await db.insert('cro', toInsert);
 
                     if (error) throw error;
+
+                    // SYNC: Future cro entries → booking table (block slots)
+                    try {
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const config = await fetchBookingConfig();
+                        const slots = generateSlots(config.slotCount, config.gapMinutes, config.startHour, config.startMinute);
+                        let syncCount = 0;
+                        for (let i = 0; i < toInsert.length; i++) {
+                            const item = toInsert[i];
+                            if (item.tanggalDatang && item.tanggalDatang !== '-' && item.plat && item.plat !== '-') {
+                                const parts = item.tanggalDatang.split('-');
+                                if (parts.length === 3) {
+                                    const dateStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                                    const d = new Date(dateStr + 'T00:00:00');
+                                    if (d >= today) {
+                                        const jam = slots[i % slots.length];
+                                        const bookingId = Date.now() + i + Math.floor(Math.random() * 10000);
+                                        await db.insert('booking', {
+                                            id: bookingId,
+                                            noUrut: 0,
+                                            tanggal: dateStr,
+                                            jam,
+                                            noPlat: item.plat,
+                                            namaCustomer: item.nama || '-',
+                                            tipeMobil: item.tipeMobil || '-',
+                                            noTelp: item.telepon || '-',
+                                            keperluanService: item.deskripsi || '-',
+                                            status: 'accepted',
+                                            bookingVia: 'CRO Internal (Sync)',
+                                        }).then(({ error: bkErr }) => {
+                                            if (!bkErr) syncCount++;
+                                        }).catch(() => {});
+                                    }
+                                }
+                            }
+                        }
+                        if (syncCount > 0) {
+                            console.log(`✅ Synced ${syncCount} CRO entries to booking`);
+                        }
+                    } catch (syncErr) {
+                        console.warn('Cro→booking sync skipped:', syncErr);
+                    }
+
                     setCurrentTab('belum');
                     Toastify({
                         text: `✅ Import Selesai! Berhasil: ${toInsert.length}, Lewati: ${skipCount} Duplikat, ${errorCount} Error.`,

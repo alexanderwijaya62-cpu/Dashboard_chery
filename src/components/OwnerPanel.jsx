@@ -4,7 +4,7 @@ import {
   LogOut, RefreshCw, Globe, MapPin, Clock, Lock,
   AlertTriangle, CheckCircle, Trash2, Key, Eye, EyeOff,
   Activity, Crown, XCircle, Menu, X, Car, Upload, Volume2, Play, Square, Edit3, Layers, ShieldCheck,
-  PackageSearch, Search, ExternalLink, MessageSquare, Truck, Package, Printer, Download, FileSpreadsheet, ArrowLeft, ArrowRight, Plus
+  PackageSearch, Search, ExternalLink, MessageSquare, Truck, Package, Printer, Download, FileSpreadsheet, ArrowLeft, ArrowRight, Plus, Settings
 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import { supabase } from '../utils/supabaseClient';
@@ -1493,7 +1493,7 @@ export default function OwnerPanel({
                 {activeTab === 'monitoring' ? '🔴 Live Session Monitoring' : 
                  activeTab === 'workshop' ? '🚗 Antrian Workshop Realtime' : 
                  activeTab === 'users' ? '👥 Manajemen User' : 
-                 activeTab === 'notification_sound' ? '🔔 Notifikasi Suara' : 
+                 activeTab === 'notification_sound' ? '⚙️ Settings' : 
                  activeTab === 'dms_search' ? '🔍 DMS & EPCM Search' :
                  activeTab === 'sparepart_cost' ? '💰 Sparepart Cost Calculator' :
                  activeTab === 'warranty_search' ? '🛡️ Warranty Claim Search' :
@@ -1508,7 +1508,7 @@ export default function OwnerPanel({
                     : activeTab === 'users'
                       ? `${users.length} total user terdaftar`
                       : activeTab === 'notification_sound'
-                        ? 'Upload dan kelola suara notifikasi kustom'
+                        ? 'Atur suara notifikasi, auto menginap, cooldown, dan pengaturan sistem lainnya'
                         : activeTab === 'dms_search'
                           ? 'Integrasi Katalog Sparepart'
                           : activeTab === 'sparepart_cost'
@@ -3358,11 +3358,11 @@ export default function OwnerPanel({
               <div className="bg-white border border-zinc-200 rounded-lg p-8">
                 <div className="flex items-center gap-4 mb-6">
                   <div className="w-14 h-14 bg-zinc-50 border border-zinc-200 rounded-md flex items-center justify-center">
-                    <Volume2 size={28} className="text-black" />
+                    <Settings size={28} className="text-black" />
                   </div>
                   <div>
-                    <h3 className="text-zinc-900 font-black text-lg">Pengaturan Sistem</h3>
-                    <p className="text-zinc-500 text-xs font-medium">Atur notifikasi suara dan auto menginap (19:00-08:00).</p>
+                    <h3 className="text-zinc-900 font-black text-lg">Settings</h3>
+                    <p className="text-zinc-500 text-xs font-medium">Atur suara notifikasi dan auto menginap (19:00-08:00).</p>
                   </div>
                 </div>
 

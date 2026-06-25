@@ -4,6 +4,7 @@ const NAV_CACHE = 'chery-nav-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
+  '/manifest.json',
   '/cherylogo.png'
 ];
 

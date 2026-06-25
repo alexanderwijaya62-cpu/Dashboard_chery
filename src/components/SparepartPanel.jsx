@@ -978,7 +978,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible, se
                     )}
 
                     {activeTab === 'predict' && (
-                        <div className="flex-1 animate-fade-in pb-32">
+                        <div className="flex-1 overflow-hidden">
                             <SparepartPredictor />
                         </div>
                     )}

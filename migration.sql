@@ -12,6 +12,15 @@ ON public.booking (tanggal, jam)
 WHERE status NOT IN ('declined', 'cancelled', 'no_show');
 
 -- ============================================================
+-- #1b: UNIQUE partial index untuk cegah double-booking (race condition)
+-- Atomic constraint di level database, bukan hanya application logic.
+-- ============================================================
+DROP INDEX IF EXISTS idx_booking_unique_active_slot;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_booking_unique_active_slot
+ON public.booking (tanggal, jam)
+WHERE status NOT IN ('declined', 'cancelled', 'no_show');
+
+-- ============================================================
 -- #2: Tambah kolom cancellation_reason di booking
 -- ============================================================
 ALTER TABLE public.booking ADD COLUMN IF NOT EXISTS cancellation_reason TEXT DEFAULT '';
@@ -72,7 +81,24 @@ DROP POLICY IF EXISTS "anon_read_settings" ON public.settings;
 CREATE POLICY "anon_read_settings" ON public.settings FOR SELECT TO anon USING (true);
 
 -- ============================================================
--- #5: Table sparepart_revenue untuk data penjualan sparepart
+-- #5: Tambah kolom di history untuk mendukung fitur checklist & laporan
+-- ============================================================
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS checklist JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS "waktuMasuk" TEXT DEFAULT '';
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS "waktuSelesai" TEXT DEFAULT '';
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS "Jarak Waktu" TEXT DEFAULT '';
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS "Bulan" TEXT DEFAULT '';
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS estimasiDefault BIGINT DEFAULT 0;
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS "targetTime" BIGINT DEFAULT 0;
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS mechanicName TEXT DEFAULT '';
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'Reguler';
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS addedBy TEXT DEFAULT '';
+
+-- Refresh PostgREST schema cache
+NOTIFY pgrst, 'reload schema';
+
+-- ============================================================
+-- #6: Table sparepart_revenue untuk data penjualan sparepart
 -- imported from Excel via SparepartPredictor
 -- ============================================================
 CREATE TABLE IF NOT EXISTS public.sparepart_revenue (
