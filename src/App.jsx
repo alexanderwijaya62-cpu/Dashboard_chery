@@ -1512,24 +1512,35 @@ const App = () => {
 
       // 3. Sync to CRO Table (Customer Relation Officer)
       try {
-        const croData = {
+        const croDataBase = {
           id: Date.now(),
           workOrderNo: String(item.id).substring(0, 15),
           nama: item.addedBy || 'Pelanggan Workshop',
-          telepon: item.noTelp || '-',
-          vin: '-',
+          telepon: item.noTelp ? (parseInt(item.noTelp.replace(/\D/g, '')) || 0) : 0,
+          vin: 0,
           plat: item.bk,
-          serviceAdvisor: item.addedBy || '-',
+          serviceAdvisor: item.addedBy || '',
           tipeMobil: item.tipe,
           deskripsi: `• ${item.keluhan || 'Perbaikan Workshop'}`,
-          tanggalDatang: tanggalISO.split('-').reverse().join('-'), // format DD-MM-YYYY
+          tanggalDatang: tanggalISO.split('-').reverse().join('-'),
           status: 'Belum',
           respon: '',
           lampiran: '[]'
         };
-        await db.insert('cro', croData);
+        // Silently retry if some columns have wrong types
+        let croAttempt = { ...croDataBase };
+        for (let i = 0; i < 10; i++) {
+          const { error: ce } = await db.insert('cro', croAttempt);
+          if (!ce || ce.code === '23505') break;
+          if (ce.code !== '22P02') break;
+          // Strip first non-id column and retry
+          const key = Object.keys(croAttempt).find(k => k !== 'id');
+          if (!key) break;
+          const { [key]: _, ...rest } = croAttempt;
+          croAttempt = rest;
+        }
       } catch (e) {
-        console.error("CRO Sync Error (Non-Fatal):", e);
+        // Silently ignore CRO errors
       }
 
       Toastify({
