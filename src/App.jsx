@@ -1462,44 +1462,31 @@ const App = () => {
           console.warn("Item ini sudah ada di history, melanjutkan pembersihan antrian...");
         }
         else if (insertError.code === 'PGRST204') {
-          console.warn("Schema mismatch di history, mencoba dengan kolom minimal...");
-          const safeData = {
-            id: item.id, bk: item.bk, tipe: item.tipe,
-            category: item.category, keluhan: item.keluhan,
-            mechanicName: item.mechanicName || '',
-            status: 'completed',
-            estimasiDefault: item.estimasiDefault,
-            targetTime: Date.now(),
-            addedBy: item.addedBy || '',
-            tanggal: tanggalISO,
-            waktuMasuk: waktuMasukDate.toLocaleString('id-ID', { hour12: false }),
-            waktuSelesai: waktuSelesaiDate.toLocaleString('id-ID', { hour12: false }),
-            'Jarak Waktu': jarakWaktuStr,
-            Bulan: bulanStr,
+          // Progressively strip unknown columns until insert succeeds
+          let safeData = { ...historyData };
+          delete safeData.checklist;
+          const tryInsert = async (data) => {
+            const { error: e } = await db.insert('history', data);
+            if (e && e.code === 'PGRST204') {
+              const match = e.message.match(/'([^']+)'/);
+              const badCol = match ? match[1] : null;
+              if (badCol && data[badCol] !== undefined) {
+                console.warn(`Removing unknown column '${badCol}', retrying...`);
+                const { [badCol]: _, ...rest } = data;
+                return tryInsert(rest);
+              }
+              // If can't parse column name, try absolute minimal set
+              const fallback = { id: item.id, bk: item.bk, status: 'completed' };
+              const { error: fErr } = await db.insert('history', fallback);
+              if (fErr && fErr.code !== '23505') return fErr;
+              return null;
+            }
+            return e && e.code !== '23505' ? e : null;
           };
-          if (checklist.length > 0) {
-            const checklistSummary = checklist.map(t => `${t.completed ? '✅' : '❌'} ${t.text}`).join('\n');
-            safeData.keluhan = (safeData.keluhan ? safeData.keluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + checklistSummary;
-          }
-          const { error: retryError } = await db.insert('history', safeData);
-          if (retryError && retryError.code !== '23505') {
+          const retryError = await tryInsert(safeData);
+          if (retryError) {
             console.error("Retry Error:", retryError);
-            // Last resort: minimal insert with just id, bk, tipe, status
-            const minimalData = {
-              id: item.id, bk: item.bk,
-              tipe: item.tipe, status: 'completed',
-              tanggal: tanggalISO,
-              category: item.category,
-              keluhan: item.keluhan,
-            };
-            if (checklist.length > 0) {
-              const s = checklist.map(t => `${t.completed ? '✅' : '❌'} ${t.text}`).join('\n');
-              minimalData.keluhan = (minimalData.keluhan ? minimalData.keluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + s;
-            }
-            const { error: finalError } = await db.insert('history', minimalData);
-            if (finalError && finalError.code !== '23505') {
-              throw new Error(`Database Error (History Final): ${finalError.message}`);
-            }
+            throw new Error(`Database Error (History): ${retryError.message}`);
           }
         } else {
           console.error("History Insert Error:", insertError);
