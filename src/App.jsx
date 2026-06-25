@@ -1462,31 +1462,40 @@ const App = () => {
           console.warn("Item ini sudah ada di history, melanjutkan pembersihan antrian...");
         }
         else if (insertError.code === 'PGRST204') {
-          // Progressively strip unknown columns until insert succeeds
-          let safeData = { ...historyData };
-          delete safeData.checklist;
-          const tryInsert = async (data) => {
-            const { error: e } = await db.insert('history', data);
-            if (e && e.code === 'PGRST204') {
-              const match = e.message.match(/'([^']+)'/);
-              const badCol = match ? match[1] : null;
-              if (badCol && data[badCol] !== undefined) {
-                console.warn(`Removing unknown column '${badCol}', retrying...`);
-                const { [badCol]: _, ...rest } = data;
-                return tryInsert(rest);
-              }
-              // If can't parse column name, try absolute minimal set
-              const fallback = { id: item.id, bk: item.bk, status: 'completed' };
-              const { error: fErr } = await db.insert('history', fallback);
-              if (fErr && fErr.code !== '23505') return fErr;
-              return null;
+          // Append checklist summary into keluhan before stripping columns
+          let attempt = { ...historyData };
+          delete attempt.checklist;
+          if (checklist.length > 0) {
+            const s = checklist.map(t => `${t.completed ? '✅' : '❌'} ${t.text}`).join('\n');
+            attempt.keluhan = (attempt.keluhan ? attempt.keluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + s;
+          }
+          let lastError = null;
+          while (true) {
+            const { error: e } = await db.insert('history', attempt);
+            if (!e || e.code === '23505') { lastError = null; break; }
+            if (e.code !== 'PGRST204' && e.code !== '22P02') { lastError = e; break; }
+
+            let col = null;
+            if (e.code === 'PGRST204') {
+              const m = e.message.match(/'([^']+)'/);
+              col = m ? m[1] : null;
             }
-            return e && e.code !== '23505' ? e : null;
-          };
-          const retryError = await tryInsert(safeData);
-          if (retryError) {
-            console.error("Retry Error:", retryError);
-            throw new Error(`Database Error (History): ${retryError.message}`);
+            if (!col || attempt[col] === undefined) {
+              const order = ['bk', 'tipe', 'keluhan', 'tanggal', 'category', 'mechanicName',
+                'estimasiDefault', 'targetTime', 'addedBy', 'waktuMasuk', 'waktuSelesai',
+                'Jarak Waktu', 'Bulan'];
+              col = order.find(k => attempt[k] !== undefined);
+            }
+            if (!col || attempt[col] === undefined) break;
+            const { [col]: _, ...rest } = attempt;
+            attempt = rest;
+          }
+
+          if (lastError) {
+            const { error: last } = await db.insert('history', { id: item.id, status: 'completed' });
+            if (last && last.code !== '23505') {
+              throw new Error(`Database Error (History): ${last.message}`);
+            }
           }
         } else {
           console.error("History Insert Error:", insertError);
