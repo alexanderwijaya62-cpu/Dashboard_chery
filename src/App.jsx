@@ -1079,6 +1079,17 @@ const App = () => {
       return;
     }
 
+    // Cegah duplikat plat (cek di seluruh antrian aktif)
+    if (!isEditing) {
+      const platBaru = formData.bk.toUpperCase().replace(/\s+/g, '');
+      const sudahAda = queue.some(q => q.bk?.toUpperCase().replace(/\s+/g, '') === platBaru);
+      if (sudahAda) {
+        setErrorMessage(`Mobil ${platBaru} sudah terdaftar di antrian!`);
+        setTimeout(() => setErrorMessage(""), 4000);
+        return;
+      }
+    }
+
     setIsLoadingProcess(true);
 
     let updates = {
@@ -1572,7 +1583,8 @@ const App = () => {
 
       const queueNum = item.queueNumber || item.queue_number || '';
       const plat = item.bk || '';
-      const announceText = `Nomor antrian ${queueNum}, ${plat}, silahkan menuju counter ${counterNum}`;
+      const cat = item.category === 'Booking' ? 'Booking' : 'Reguler';
+      const announceText = `Antrian ${cat} nomor ${queueNum}, ${plat}, silahkan menuju counter ${counterNum}`;
 
       fetch('/api/notify', {
         method: 'POST',
