@@ -97,28 +97,23 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
             .sort((a, b) => b.completedAt - a.completedAt);
 
         setHistory(myHistory);
-    }, [user.name, rawHistory]);
+    }, [user, rawHistory]);
 
     const myActiveJobs = useMemo(() => {
-        return queue.filter(item => item.status === 'working' && item.mechanicName === user.name);
-    }, [queue, user.name]);
+        return queue.filter(item => item.status === 'working' && item.mechanicName === user?.name);
+    }, [queue, user]);
 
     const availableQueue = useMemo(() => {
         return queue.filter(item => {
             if (item.status === 'waiting') {
-                // Jika sudah ada mekanik yang ditugaskan (misal oleh Admin), 
-                // hanya mekanik tersebut yang bisa melihatnya di antrean.
-                // Jika belum ada, semua mekanik bisa lihat.
-                return !item.mechanicName || item.mechanicName === user.name;
+                return !item.mechanicName || item.mechanicName === user?.name;
             }
             if (item.status === 'menginap') {
-                // KHUSUS MENGINAP: Hanya boleh untuk mekanik yang sebelumnya sudah menghandle.
-                // Jika belum ada mekanik, maka semua mekanik bisa ambil.
-                return !item.mechanicName || item.mechanicName === user.name;
+                return !item.mechanicName || item.mechanicName === user?.name;
             }
             return false;
         });
-    }, [queue, user.name]);
+    }, [queue, user]);
 
     const stats = useMemo(() => {
         const now = new Date();
