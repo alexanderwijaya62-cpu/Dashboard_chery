@@ -77,7 +77,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
       try {
         const { data: working } = await db.select('antrian', {
           select: 'queue_number, bk, counter',
-          in: { status: ['working', 'istirahat', 'menginap'] },
+          in: { status: ['working', 'istirahat', 'menginap', 'menunggu_konfirmasi'] },
           order: { column: 'queue_number', ascending: true },
           limit: 1
         });
@@ -106,7 +106,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
         const { data, error } = await db.select('antrian', {
           select: '*',
           eq: { bk: user.plat_bk.toUpperCase().replace(/\s+/g, '') },
-          in: { status: ['waiting', 'working', 'istirahat', 'menginap'] },
+          in: { status: ['waiting', 'working', 'istirahat', 'menginap', 'menunggu_konfirmasi'] },
           order: { column: 'id', ascending: false },
           limit: 1
         });
@@ -145,37 +145,37 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
     };
     fetchMyQueue();
 
-    let subscription;
-    const initSub = async () => {
-      const { supabase } = await import('../utils/supabaseClient');
-      subscription = supabase
-        .channel('customer-antrian-' + user.plat_bk)
-        .on('postgres_changes', {
-          event: '*',
-          schema: 'public',
-          table: 'antrian',
-          filter: `bk=eq.${user.plat_bk.toUpperCase().replace(/\s+/g, '')}`
-        }, (payload) => {
-          try {
-            fetchMyQueue();
-            if (payload.new && payload.new.is_called && !calledHandledRef.current.has(payload.new.id)) {
-              calledHandledRef.current.add(payload.new.id);
-              setCalledItem({ id: payload.new.id, queueNumber: payload.new.queue_number || 0, counter: payload.new.counter || 0, bk: payload.new.bk || '', category: payload.new.category || 'Reguler' });
-            }
-          } catch (e) {
-            console.error('Realtime call handler error:', e);
+    const subscription = supabase
+      .channel('customer-antrian-' + user.plat_bk)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'antrian',
+        filter: `bk=eq.${user.plat_bk.toUpperCase().replace(/\s+/g, '')}`
+      }, (payload) => {
+        try {
+          fetchMyQueue();
+          if (payload.new && payload.new.is_called && !calledHandledRef.current.has(payload.new.id)) {
+            calledHandledRef.current.add(payload.new.id);
+            setCalledItem({ id: payload.new.id, queueNumber: payload.new.queue_number || 0, counter: payload.new.counter || 0, bk: payload.new.bk || '', category: payload.new.category || 'Reguler' });
           }
-        })
-        .subscribe();
-    };
-    initSub();
+        } catch (e) {
+          console.error('Realtime call handler error:', e);
+        }
+      })
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') {
+          console.warn('Realtime customer subscription status:', status);
+        }
+      });
+
+    const pollInterval = setInterval(() => {
+      fetchMyQueue();
+    }, 5000);
 
     return () => {
-      if (subscription) {
-        import('../utils/supabaseClient').then(({ supabase }) => {
-          supabase.removeChannel(subscription);
-        });
-      }
+      supabase.removeChannel(subscription);
+      clearInterval(pollInterval);
     };
   }, [user.plat_bk]);
 
@@ -332,13 +332,15 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
     waiting: 'Menunggu Antrian',
     working: 'Sedang Dikerjakan',
     istirahat: 'Istirahat',
-    menginap: 'Menginap'
+    menginap: 'Menginap',
+    menunggu_konfirmasi: 'Menunggu Konfirmasi Admin'
   };
   const statusColors = {
     waiting: 'bg-zinc-100 text-zinc-600 border-zinc-200',
     working: 'bg-blue-50 text-blue-600 border-blue-200',
     istirahat: 'bg-orange-50 text-orange-600 border-orange-200',
-    menginap: 'bg-purple-50 text-purple-600 border-purple-200'
+    menginap: 'bg-purple-50 text-purple-600 border-purple-200',
+    menunggu_konfirmasi: 'bg-emerald-50 text-emerald-600 border-emerald-200'
   };
 
   return (
@@ -538,6 +540,14 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
                     <div className="bg-blue-500/20 rounded-xl p-3 mt-4 text-center">
                       <p className="text-xs font-black text-blue-200">
                         Mekanik sedang mengerjakan kendaraan Anda
+                      </p>
+                    </div>
+                  )}
+
+                  {myQueue.status === 'menunggu_konfirmasi' && (
+                    <div className="bg-emerald-500/20 rounded-xl p-3 mt-4 text-center">
+                      <p className="text-xs font-black text-emerald-200">
+                        Pekerjaan selesai — Menunggu konfirmasi admin
                       </p>
                     </div>
                   )}

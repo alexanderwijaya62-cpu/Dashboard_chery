@@ -594,11 +594,11 @@ export default function OwnerPanel({
 
   const fetchAllCostParts = async () => {
     setIsCostFetchingAll(true);
-    setCostResults([]);
-    let allData = [];
     let page = 0;
-    const pageSize = 100;
+    const pageSize = 15000;
+    const rows = [];
     try {
+      Toastify({ text: 'Menarik data & menyiapkan Excel...', background: '#3b82f6', duration: 5000 }).showToast();
       while (true) {
         const resp = await fetch(`${CHERY_DMS_URL}?pageSize=${pageSize}&status=1&pageIndex=${page}`, {
           headers: { 'x-api-key': GATE }
@@ -606,16 +606,30 @@ export default function OwnerPanel({
         const result = await resp.json();
         const data = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);
         const total = result.payload?.totalElements || 0;
-        setCostAllTotal(total);
-        allData = [...allData, ...data];
-        if (allData.length >= total || data.length === 0) break;
+        data.forEach(item => {
+          const modal = (item.wholesalePriceExclusiveOfTax ?? item.wholesalePriceExcludingTax ?? 0) || 0;
+          const jualExc = (item.retailGuidePriceExcludingTax ?? 0) || 0;
+          const jualInc = (item.retailGuidePrice ?? jualExc * 1.11) || 0;
+          rows.push({
+            'No Part': item.code || '',
+            'Nama Sparepart': item.name || '',
+            'Harga Modal (Exc PPN)': modal,
+            'Harga Modal (Inc PPN)': Math.round(modal * 1.11),
+            'Harga Jual (Exc PPN)': jualExc,
+            'Harga Jual (Inc PPN)': Math.round(jualInc),
+          });
+        });
+        if (rows.length >= total || data.length === 0) break;
         page++;
       }
-      setCostResults(allData);
-      Toastify({ text: `Berhasil menarik ${allData.length} sparepart dari DMS`, background: "#10b981" }).showToast();
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Sparepart Cost');
+      XLSX.writeFile(wb, `Sparepart_Cost_All_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      Toastify({ text: `Berhasil export ${rows.length} sparepart ke Excel!`, background: "#10b981" }).showToast();
     } catch (e) {
       console.error("Fetch All Error:", e);
-      Toastify({ text: "Gagal menarik data: " + e.message, style: { background: '#ef4444' } }).showToast();
+      Toastify({ text: "Gagal: " + e.message, style: { background: '#ef4444' } }).showToast();
     } finally {
       setIsCostFetchingAll(false);
     }
@@ -2184,9 +2198,9 @@ export default function OwnerPanel({
                   </div>
                   <div className="flex gap-3 w-full md:w-auto">
                     <button onClick={fetchAllCostParts} disabled={isCostFetchingAll}
-                      className="flex items-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold border border-zinc-300 px-5 py-3.5 rounded-lg text-xs font-black transition-all active:scale-95 disabled:opacity-50">
-                      <RefreshCw size={16} className={isCostFetchingAll ? 'animate-spin' : ''} />
-                      {isCostFetchingAll ? 'Menarik...' : 'Tarik Semua Data'}
+                      className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold border border-emerald-600 px-5 py-3.5 rounded-lg text-xs font-black transition-all active:scale-95 disabled:opacity-50 shadow-sm">
+                      <Download size={16} className={isCostFetchingAll ? 'animate-spin' : ''} />
+                      {isCostFetchingAll ? 'Menyiapkan...' : 'Export All DMS ke Excel'}
                     </button>
                     <button onClick={exportCostExcel} disabled={costList.length === 0}
                       className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-3.5 rounded-lg text-xs font-black transition-all active:scale-95 disabled:opacity-50 shadow-sm">

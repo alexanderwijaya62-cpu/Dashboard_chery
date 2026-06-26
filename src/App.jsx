@@ -316,7 +316,9 @@ const App = () => {
 
     // Specific path mapping
     if (path === '/staff' || path === '/' || path === '/display') {
-        if (['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty'].includes(role)) {
+        if (role === 'display' && path === '/display') {
+          setCurrentPage('display');
+        } else if (['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty'].includes(role)) {
           const allowedPages = {
             admin: ['admin', 'admin-booking', 'admin-wo', 'promo', 'display', 'booking-public', 'sa-booking'],
             manager: ['manager', 'manager-financial', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'display', 'booking-public'],
@@ -457,11 +459,27 @@ const App = () => {
 
       const mapDbToApp = (item) => {
         if (!item) return {};
+        
+        let rawCategory = item.category || 'Reguler';
+        let normalizedCategory = rawCategory;
+        const lowerCat = rawCategory.toLowerCase();
+        if (lowerCat === 'booking') {
+          normalizedCategory = 'Booking';
+        } else if (lowerCat === 'reguler') {
+          normalizedCategory = 'Reguler';
+        } else if (lowerCat === 'warranty') {
+          normalizedCategory = 'Warranty';
+        } else if (lowerCat === 'booking (late)') {
+          normalizedCategory = 'Booking (Late)';
+        } else if (lowerCat === 'reguler (late)') {
+          normalizedCategory = 'Reguler (Late)';
+        }
+
         return {
           id: item.id,
           bk: item.noPlat || item.no_plat || item.bk,
           tipe: item.tipeMobil || item.tipe_mobil || item.tipe,
-          category: item.category || 'Reguler',
+          category: normalizedCategory,
           keluhan: item.keluhanDetail || item.keluhan_detail || item.keluhan,
           mechanicName: item.mechanicName || item.mechanic_name || '',
           status: item.status,
@@ -715,6 +733,7 @@ const App = () => {
   // Check for new completed items — runs whenever rawHistory updates
   useEffect(() => {
     if (rawHistory.length === 0) return;
+    if (currentPage === 'display') return;
 
     // Pertama kali: seed semua ID existing agar tidak trigger notif untuk data lama
     if (!notifInitialized.current) {
@@ -745,11 +764,13 @@ const App = () => {
         notifiedIds.current.add(item.id);
         playNotificationSound(item.bk);
 
+        const plat = item.bk || item.noPlat || '(tanpa plat)';
+        const tipe = item.tipe || item.tipeMobil || '';
         if ("Notification" in window && Notification.permission === "granted") {
-          new Notification(`✅ Mobil Selesai`, { body: `Mobil ${item.bk} (${item.tipe}) sudah selesai.` });
+          new Notification(`✅ Mobil Selesai`, { body: `Mobil ${plat} (${tipe}) sudah selesai.` });
         }
         Toastify({
-          text: `✅ Mobil ${item.bk} (${item.tipe}) sudah selesai.`,
+          text: `✅ Mobil ${plat} (${tipe}) sudah selesai.`,
           duration: 10000,
           close: true,
           gravity: "top",
@@ -764,7 +785,7 @@ const App = () => {
         }).showToast();
       });
     }
-  }, [rawHistory, playNotificationSound]);
+  }, [rawHistory, playNotificationSound, currentPage]);
 
   const isAutoUpdating = useRef(false);
   const noShowCheckedRef = useRef(false);
@@ -772,6 +793,40 @@ const App = () => {
   useEffect(() => {
     const checkAutoStatus = async () => {
       if (isAutoUpdating.current || queue.length === 0) return;
+
+      // 1. Otomatis set 'menginap' untuk antrean dari hari-hari sebelumnya
+      const prevDayItems = queue.filter(q => {
+         const isTodayItem = isToday(parseInt(q.id));
+         return !isTodayItem && q.status !== 'menginap' && q.status !== 'completed' && q.status !== 'menunggu_konfirmasi';
+      });
+
+      if (prevDayItems.length > 0) {
+        isAutoUpdating.current = true;
+        try {
+          for (const item of prevDayItems) {
+            let sisaDetik = parseInt(item.estimasiDefault) || 0;
+            if (item.status === 'working') {
+              const targetTime = parseInt(item.targetTime) || Date.now();
+              sisaDetik = Math.max(0, Math.floor((targetTime - Date.now()) / 1000));
+            }
+            await db.update('antrian', {
+              status: 'menginap',
+              estimasiDefault: sisaDetik,
+              targetTime: 0,
+              menginap_reason: item.menginap_reason || 'Pekerjaan Hari Sebelumnya'
+            }, { eq: { id: item.id } });
+          }
+          Toastify({ 
+            text: `🌙 ${prevDayItems.length} unit hari sebelumnya diubah ke status menginap!`, 
+            style: { background: "#9333ea" } 
+          }).showToast();
+        } catch (e) {
+          console.error("Auto Menginap Prev Day Error:", e);
+        } finally {
+          isAutoUpdating.current = false;
+        }
+        return;
+      }
 
       const nowObj = new Date();
       // Ensure we use Jakarta Time (WIB - GMT+7)
@@ -935,7 +990,7 @@ const App = () => {
       })
       .sort((a, b) => {
         // Prioritas Status: Sedang Dikerjakan (Working) paling atas
-        const priorityScore = { working: 1, istirahat: 2, waiting: 3, menginap: 4 };
+        const priorityScore = { menunggu_konfirmasi: 1, working: 2, istirahat: 3, waiting: 4, menginap: 5 };
         const scoreA = priorityScore[a.status] || 99;
         const scoreB = priorityScore[b.status] || 99;
 
@@ -1426,8 +1481,52 @@ const App = () => {
 
     setIsLoadingProcess(true);
     try {
+      const now = new Date().toISOString();
+
+      // Update antrian status to 'menunggu_konfirmasi' — stay in queue
+      const { error: updateError } = await db.update('antrian', {
+        status: 'menunggu_konfirmasi',
+        waktuSelesai: now
+      }, { eq: { id: item.id } });
+
+      if (updateError) {
+        throw new Error(`Database Error (Update Antrian): ${updateError.message}`);
+      }
+
+      Toastify({
+        text: `⏳ ${item.bk} selesai dikerjakan — Menunggu konfirmasi admin`,
+        duration: 4000,
+        style: { background: "linear-gradient(135deg, #f59e0b, #d97706)", borderRadius: "12px", fontWeight: "900" }
+      }).showToast();
+
+      // Optimistic update + immediate re-fetch
+      setQueue(prev => prev.map(q =>
+        q.id === item.id ? { ...q, status: 'menunggu_konfirmasi', waktuSelesai: now } : q
+      ));
+      fetchQueueRef.current();
+
+    } catch (err) {
+      console.error("Execution Error:", err);
+      Toastify({
+        text: `❌ GAGAL: ${err.message || "Terjadi kesalahan sistem"}`,
+        duration: 10000,
+        close: true,
+        style: { background: "#dc2626", borderRadius: "12px" }
+      }).showToast();
+      setErrorMessage("Gagal menyelesaikan antrean.");
+      setTimeout(() => setErrorMessage(""), 3000);
+    } finally {
+      setIsLoadingProcess(false);
+    }
+  };
+
+  const handleConfirmCompletion = async (item) => {
+    if (isLoadingProcess) return;
+    if (!window.confirm(`Konfirmasi penyelesaian unit ${item.bk}? Data akan dipindahkan ke riwayat.`)) return;
+
+    setIsLoadingProcess(true);
+    try {
       const now = new Date();
-      // Ensure Jakarta time for string dates
       const jakartaNow = new Date(now.getTime() + (7 * 3600000));
 
       const itemIdNum = parseInt(item.id);
@@ -1435,7 +1534,6 @@ const App = () => {
       const waktuMasukDate = new Date(waktuMasukMs);
       const waktuSelesaiDate = now;
 
-      // Hitung durasi
       const selisihMs = waktuSelesaiDate.getTime() - waktuMasukDate.getTime();
       const selisihMenit = Math.max(0, Math.round(selisihMs / 60000));
       const jamKerja = Math.floor(selisihMenit / 60);
@@ -1447,20 +1545,49 @@ const App = () => {
       const namaBulan = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
       const bulanStr = namaBulan[now.getMonth()];
       const tanggalISO = now.toISOString().split('T')[0];
+      const day = String(now.getDate()).padStart(2, '0');
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const year = now.getFullYear();
+      const tanggalIndo = `${day}-${month}-${year}`;
 
       // 1. Insert into history
+      const checklist = Array.isArray(item.checklist) ? item.checklist : [];
       let historyKeluhan = item.keluhan || '';
       if (checklist.length > 0) {
         const s = checklist.map(t => `${t.completed ? '✅' : '❌'} ${t.text}`).join('\n');
         historyKeluhan = (historyKeluhan ? historyKeluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + s;
       }
       let historyAttempt = {
-        id: item.id, bk: item.bk, tipe: item.tipe,
-        keluhan: historyKeluhan, status: 'completed'
+        id: item.id, 
+        bk: item.bk || '', 
+        tipe: item.tipe || '',
+        keluhan: historyKeluhan, 
+        status: 'completed',
+        mechanicname: item.mechanicName || '',
+        category: item.category || 'Reguler',
+        addedby: item.addedBy || user?.name || '',
+        checklist: item.checklist || [],
+        waktuMasuk: waktuMasukDate.toISOString(),
+        waktuSelesai: now.toISOString(),
+        "Jarak Waktu": jarakWaktuStr,
+        estimasidefault: item.estimasiDefault || 0,
+        targetTime: item.targetTime || 0,
+        Tanggal: tanggalIndo,
+        Bulan: bulanStr,
+        noTelp: item.noTelp || '',
+        jam: item.jam || null,
+        menginap_reason: item.menginap_reason || ''
       };
-      // Retry if bk is BIGINT and plate can't be inserted
       for (let i = 0; i < 5; i++) {
         const { error: e } = await db.insert('history', historyAttempt);
+        if (e) {
+          console.error("Gagal insert history:", e);
+          Toastify({ 
+            text: `❌ Gagal Simpan Riwayat: ${e.message} (Code: ${e.code})`, 
+            duration: 10000, 
+            style: { background: "#dc2626", borderRadius: "12px", fontWeight: "900" } 
+          }).showToast();
+        }
         if (!e || e.code === '23505') { historyAttempt = null; break; }
         if (e.code === '22P02' && historyAttempt.bk !== undefined) {
           const { bk: _, ...rest } = historyAttempt;
@@ -1476,13 +1603,11 @@ const App = () => {
             continue;
           }
         }
-        // Unknown error, strip progressively
         const key = Object.keys(historyAttempt).find(k => k !== 'id');
         if (!key) break;
         const { [key]: _, ...rest } = historyAttempt;
         historyAttempt = rest;
       }
-      // Final safety net
       if (historyAttempt) {
         const { error: last } = await db.insert('history', { id: item.id, status: 'completed' });
         if (last && last.code !== '23505') {
@@ -1497,7 +1622,7 @@ const App = () => {
         throw new Error(`Database Error (Antrian): ${deleteError.message}`);
       }
 
-      // 3. Sync to CRO Table (Customer Relation Officer)
+      // 3. Sync to CRO Table
       try {
         const croDataBase = {
           id: Date.now(),
@@ -1514,42 +1639,53 @@ const App = () => {
           respon: '',
           lampiran: '[]'
         };
-        // Silently retry if some columns have wrong types
         let croAttempt = { ...croDataBase };
         for (let i = 0; i < 10; i++) {
           const { error: ce } = await db.insert('cro', croAttempt);
           if (!ce || ce.code === '23505') break;
           if (ce.code !== '22P02') break;
-          // Strip first non-id column and retry
           const key = Object.keys(croAttempt).find(k => k !== 'id');
           if (!key) break;
           const { [key]: _, ...rest } = croAttempt;
           croAttempt = rest;
         }
-      } catch (e) {
-        // Silently ignore CRO errors
-      }
+      } catch (e) {}
+
+      // 4. Notify customer
+      const plat = item.bk || '';
+      const queueNum = item.queueNumber || item.queue_number || '';
+      const cat = item.category === 'Booking' ? 'Booking' : 'Reguler';
+      const announceText = `Antrian ${cat} nomor ${queueNum}, ${plat}, kendaraan selesai. Silahkan mengambil kendaraan`;
+
+      fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plat,
+          title: '✅ Kendaraan Selesai',
+          body: announceText,
+          url: '/customer'
+        })
+      }).catch(() => {});
 
       Toastify({
-        text: `✅ Berhasil Menyelesaikan Pekerjaan: ${item.bk}`,
-        duration: 3000,
-        style: { background: "linear-gradient(135deg, #10b981, #059669)", borderRadius: "12px" }
+        text: `✅ Konfirmasi ${item.bk} berhasil — Data dipindahkan ke riwayat`,
+        duration: 4000,
+        style: { background: "linear-gradient(135deg, #10b981, #059669)", borderRadius: "12px", fontWeight: "900" }
       }).showToast();
 
-      // Optimistic remove from queue + immediate re-fetch
+      // Optimistic remove + re-fetch
       setQueue(prev => prev.filter(q => q.id !== item.id));
       fetchQueueRef.current();
 
     } catch (err) {
-      console.error("Execution Error:", err);
+      console.error("Confirm Completion Error:", err);
       Toastify({
         text: `❌ GAGAL: ${err.message || "Terjadi kesalahan sistem"}`,
         duration: 10000,
         close: true,
         style: { background: "#dc2626", borderRadius: "12px" }
       }).showToast();
-      setErrorMessage("Gagal menyelesaikan antrean.");
-      setTimeout(() => setErrorMessage(""), 3000);
     } finally {
       setIsLoadingProcess(false);
     }
@@ -1753,7 +1889,7 @@ const App = () => {
         </button>
       )}
       {currentPage === 'login' && <LoginPage loginForm={loginForm} setLoginForm={setLoginForm} handleLogin={handleLogin} errorMessage={errorMessage} setCurrentPage={setCurrentPage} />}
-      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} handleCallQueue={handleCallQueue} activeTab="dashboard" callCooldown={callCooldownRef.current} />}
+      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleConfirmCompletion={handleConfirmCompletion} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} handleCallQueue={handleCallQueue} activeTab="dashboard" callCooldown={callCooldownRef.current} />}
       {currentPage === 'admin-booking' && <CroBookingPanel user={user} />}
       {currentPage === 'admin-wo' && <WarrantyWorkOrderPage />}
       {currentPage === 'mechanic' && (

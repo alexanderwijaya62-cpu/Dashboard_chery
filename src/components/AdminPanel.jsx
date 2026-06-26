@@ -24,7 +24,7 @@ const normalizeJam = (j) => {
     return `${h}.${m}`;
 };
 
-const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, clearQueue, editItem, handleSave, handleCancelEdit, formData, setFormData, isEditing, setIsEditing, errorMessage, isLoadingProcess, formatTime, handleComplete, handleSetOvernight, handleCancelOvernight, breakSettings, setBreakSettings, handleAddTask, handleRemoveTask, handleToggleTask, playNotificationSound, handleCallQueue, activeTab: activeTabProp, callCooldown = 120 }) => {
+const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, clearQueue, editItem, handleSave, handleCancelEdit, formData, setFormData, isEditing, setIsEditing, errorMessage, isLoadingProcess, formatTime, handleComplete, handleConfirmCompletion, handleSetOvernight, handleCancelOvernight, breakSettings, setBreakSettings, handleAddTask, handleRemoveTask, handleToggleTask, playNotificationSound, handleCallQueue, activeTab: activeTabProp, callCooldown = 120 }) => {
     const [bookingConfigState, setBookingConfigState] = useState({ slotCount: 8, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 });
     const [currentDay, setCurrentDay] = useState(new Date().toDateString());
     const [adminCounter, setAdminCounter] = useState(() => {
@@ -484,7 +484,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     <input type="text" value={formData.bk}
                                         onChange={(e) => {
                                             const val = e.target.value.toUpperCase().replace(/\s+/g, '');
-                                            setFormData({ ...formData, bk: val });
+                                            setFormData({ ...formData, bk: val, ...(val ? {} : { tipe: '' }) });
                                             if (val.length >= 3) fetchVehicleByPlate(val);
                                         }}
                                         placeholder="BK 1234 XX"
@@ -582,27 +582,54 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                             {/* Row: Jenis Pekerjaan */}
                             <div>
                                 <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">Jenis Pekerjaan</label>
-                                <div className="flex flex-wrap gap-2 items-center">
-                                    {['FS1', 'FS2', 'FS3', 'Keluhan', 'Update Software'].map(type => (
-                                        <button key={type} onClick={() => {
-                                            const current = formData.jenisPekerjaan || [];
-                                            const isSelected = current.includes(type);
-                                            const isFS = ['FS1', 'FS2', 'FS3'].includes(type);
-                                            let next;
-                                            if (isFS) {
-                                                // FS1/FS2/FS3 are mutually exclusive
-                                                const nonFS = current.filter(t => !['FS1', 'FS2', 'FS3'].includes(t));
-                                                next = isSelected ? nonFS : [...nonFS, type];
-                                            } else {
-                                                // Keluhan & Update Software: normal toggle
-                                                next = isSelected ? current.filter(t => t !== type) : [...current, type];
-                                            }
-                                            setFormData({ ...formData, jenisPekerjaan: next });
-                                        }}
-                                            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all border-2 ${(formData.jenisPekerjaan || []).includes(type) ? 'bg-black text-white border-black shadow-md' : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-300'}`}>
-                                            {type}
-                                        </button>
-                                    ))}
+                                <div className="flex flex-col gap-3">
+                                    <div className="flex flex-wrap gap-1.5 items-center">
+                                        {[
+                                            { label: '5.000', hours: 0.75 },
+                                            { label: '10.000', hours: 1.2 },
+                                            { label: '15.000', hours: 1.2 },
+                                            { label: '20.000', hours: 1.8 },
+                                            { label: '30.000', hours: 1.8 },
+                                            { label: '40.000', hours: 1.8 },
+                                            { label: '45.000', hours: 1.2 },
+                                            { label: '50.000', hours: 1.2 },
+                                            { label: '60.000', hours: 2.5 },
+                                        ].map((svc) => {
+                                            const isSelected = (formData.jenisPekerjaan || []).includes(svc.label);
+                                            return (
+                                                <button key={svc.label} onClick={() => {
+                                                    const current = formData.jenisPekerjaan || [];
+                                                    const nonMileage = current.filter(t => !['5.000', '10.000', '15.000', '20.000', '30.000', '40.000', '45.000', '50.000', '60.000'].includes(t));
+                                                    const next = isSelected ? nonMileage : [...nonMileage, svc.label];
+                                                    setFormData({
+                                                        ...formData,
+                                                        jenisPekerjaan: next,
+                                                        ...(isSelected ? {} : {
+                                                            jam: Math.floor(svc.hours),
+                                                            menit: Math.round((svc.hours % 1) * 60),
+                                                            detik: 0
+                                                        })
+                                                    });
+                                                }}
+                                                    className={`px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wide transition-all border ${isSelected ? 'bg-black text-white border-black shadow-md' : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-300'}`}>
+                                                    {svc.label} KM
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2 items-center">
+                                        {['Keluhan', 'Update Software'].map(type => (
+                                            <button key={type} onClick={() => {
+                                                const current = formData.jenisPekerjaan || [];
+                                                const isSelected = current.includes(type);
+                                                const next = isSelected ? current.filter(t => t !== type) : [...current, type];
+                                                setFormData({ ...formData, jenisPekerjaan: next });
+                                            }}
+                                                className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all border-2 ${(formData.jenisPekerjaan || []).includes(type) ? 'bg-black text-white border-black shadow-md' : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-300'}`}>
+                                                {type}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                                 {(formData.jenisPekerjaan || []).length > 0 && (
                                     <textarea placeholder="Deskripsi keluhan / detail pekerjaan..." value={formData.keluhan || ''} onChange={(e) => setFormData({ ...formData, keluhan: e.target.value })}
@@ -667,11 +694,11 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                         <div className="w-full lg:w-56 shrink-0 space-y-4">
                             <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4">
                                 <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider text-center mb-3">Estimasi Durasi</label>
-                                <div className="flex items-center justify-center gap-1">
+                                <div className="flex items-center justify-center gap-1.5">
                                     <TimeInput label="Jam" value={formData.jam} max={23} onChange={(val) => setFormData({ ...formData, jam: val })} />
-                                    <span className="text-zinc-300 font-bold text-lg">:</span>
+                                    <span className="text-zinc-300 font-bold text-lg shrink-0">:</span>
                                     <TimeInput label="Menit" value={formData.menit} max={59} onChange={(val) => setFormData({ ...formData, menit: val })} />
-                                    <span className="text-zinc-300 font-bold text-lg">:</span>
+                                    <span className="text-zinc-300 font-bold text-lg shrink-0">:</span>
                                     <TimeInput label="Detik" value={formData.detik} max={59} onChange={(val) => setFormData({ ...formData, detik: val })} />
                                 </div>
                                 <div className="mt-3 pt-3 border-t border-zinc-200 flex justify-between items-center">
@@ -725,13 +752,15 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     'working': 'bg-blue-600 text-white',
                                     'waiting': 'bg-amber-500 text-white',
                                     'completed': 'bg-emerald-500 text-white',
-                                    'menginap': 'bg-purple-700 text-white'
+                                    'menginap': 'bg-purple-700 text-white',
+                                    'menunggu_konfirmasi': 'bg-emerald-500 text-white'
                                 };
                                 const isOvernight = item.status === 'menginap';
                                 const cd = getCooldownSisa(item.calledAt);
                                 const inCooldown = cd > 0;
+                                const isKonfirmasi = item.status === 'menunggu_konfirmasi';
                                 return (
-                                    <div key={index} className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-sm space-y-4">
+                                    <div key={index} className={`border rounded-2xl p-4 shadow-sm space-y-4 ${isKonfirmasi ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-zinc-200'}`}>
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-white text-[10px] font-black shadow-md shrink-0">
@@ -781,10 +810,17 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                             }} className={`col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 ${inCooldown ? 'bg-amber-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}>
                                                 {inCooldown ? <span className="text-[11px] font-black">{cd}s</span> : <Megaphone size={16} />}
                                             </button>
-                                            <button onClick={() => handleComplete(item)} disabled={isLoadingProcess || (item.status !== 'working' && item.status !== 'waiting' && item.status !== 'menginap')}
-                                                className={`col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 ${isLoadingProcess ? 'bg-zinc-400 cursor-not-allowed' : 'bg-emerald-400/80 hover:bg-black'}`}>
-                                                {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <Check size={16} strokeWidth={4} />}
-                                            </button>
+                                            {isKonfirmasi ? (
+                                                <button onClick={() => handleConfirmCompletion(item)} disabled={isLoadingProcess}
+                                                    className="col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 bg-emerald-600 hover:bg-emerald-700">
+                                                    {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <CheckCircle size={16} />}
+                                                </button>
+                                            ) : (
+                                                <button onClick={() => handleComplete(item)} disabled={isLoadingProcess || (item.status !== 'working' && item.status !== 'waiting' && item.status !== 'menginap')}
+                                                    className={`col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 ${isLoadingProcess ? 'bg-zinc-400 cursor-not-allowed' : 'bg-emerald-400/80 hover:bg-black'}`}>
+                                                    {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <Check size={16} strokeWidth={4} />}
+                                                </button>
+                                            )}
                                             <button onClick={() => {
                                                 if (item.status === 'menginap') handleCancelOvernight(item);
                                                 else setShowOvernightModal(item);
@@ -824,11 +860,13 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                             'working': 'bg-blue-600 text-white shadow-md',
                                             'waiting': 'bg-amber-500 text-white shadow-md',
                                             'completed': 'bg-emerald-500 text-white shadow-md',
-                                            'menginap': 'bg-purple-700 text-white shadow-md'
+                                            'menginap': 'bg-purple-700 text-white shadow-md',
+                                            'menunggu_konfirmasi': 'bg-emerald-500 text-white shadow-md'
                                         };
                                         const isOvernight = item.status === 'menginap';
+                                        const isKonfirmasi = item.status === 'menunggu_konfirmasi';
                                         return (
-                                            <tr key={index} className="hover:bg-zinc-50/50 transition-all border-l-4 border-transparent hover:border-black duration-200 group border-b border-zinc-100 border-dashed">
+                                            <tr key={index} className={`transition-all border-l-4 duration-200 group border-b border-zinc-100 border-dashed ${isKonfirmasi ? 'bg-emerald-50/80 border-emerald-400 hover:bg-emerald-100/80' : 'hover:bg-zinc-50/50 border-transparent hover:border-black'}`}>
                                                     <td className="px-6 py-5">
                                                     <div className="flex items-center gap-4">
                                                         <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-white text-[10px] font-black shadow-md">
@@ -924,6 +962,17 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                                 </button>
                                                             );
                                                         })()}
+                                                        {isKonfirmasi ? (
+                                                            <button 
+                                                                onClick={() => handleConfirmCompletion(item)} 
+                                                                disabled={isLoadingProcess}
+                                                                className="p-3 min-w-[44px] min-h-[44px] text-white rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center bg-emerald-600 hover:bg-emerald-700" 
+                                                                title="Konfirmasi selesai"
+                                                            >
+                                                                {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <CheckCircle size={18} />}
+                                                            </button>
+                                                        ) : (
+                                                            <>
                                                         {(item.status === 'working' || item.status === 'waiting' || item.status === 'menginap') && (
                                                             <button 
                                                                 onClick={() => handleComplete(item)} 
@@ -945,6 +994,8 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                                 </button>
                                                             )
                                                         )}
+                                                        </>
+                                                        )}
                                                          <button onClick={() => editItem(item)} className="p-3 min-w-[44px] min-h-[44px] bg-white text-zinc-400 border border-zinc-200 rounded-xl hover:bg-black hover:text-white transition-all shadow-sm flex items-center justify-center" title="Edit Data Unit">
                                                             <Edit3 size={16} />
                                                         </button>
@@ -960,10 +1011,10 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                             </tbody>
                         </table>
                     </div>
-                        {queue.some(q => q.estimasi < 0 && q.status !== 'completed' && q.status !== 'menginap') && (
+                        {queue.some(q => q.estimasi < 0 && q.status !== 'completed' && q.status !== 'menginap' && q.status !== 'menunggu_konfirmasi') && (
                             <div className="shrink-0 bg-black text-white px-6 py-3 flex items-center justify-center gap-3 animate-slide-up relative z-40">
                                 <AlertCircle size={16} className="animate-bounce" />
-                                <span className="text-[10px] font-black uppercase tracking-widest text-white">Sistem Alert: {queue.filter(q => q.estimasi < 0 && q.status !== 'completed' && q.status !== 'menginap').length} unit melewati batas waktu.</span>
+                                <span className="text-[10px] font-black uppercase tracking-widest text-white">Sistem Alert: {queue.filter(q => q.estimasi < 0 && q.status !== 'completed' && q.status !== 'menginap' && q.status !== 'menunggu_konfirmasi').length} unit melewati batas waktu.</span>
                             </div>
                         )}
                     </div>

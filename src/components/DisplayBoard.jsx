@@ -69,26 +69,26 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
    return (
       <div className={`bg-white rounded-xl border-2 shadow-sm overflow-hidden flex flex-col group/card hover:border-zinc-300 transition-all ${isScheduled ? 'border-dashed border-zinc-200 opacity-80' : 'border-zinc-100'}`}>
          {/* Color bar - Standard Hex for TV */}
-         <div 
-           className="h-1 w-full shrink-0" 
-           style={{ backgroundColor: isScheduled ? '#d4d4d8' : isWorking ? '#3b82f6' : isMenginap ? '#a855f7' : '#ef4444' }} 
+         <div
+            className="h-1 w-full shrink-0"
+            style={{ backgroundColor: isScheduled ? '#d4d4d8' : isWorking ? '#3b82f6' : isMenginap ? '#a855f7' : '#ef4444' }}
          />
 
          <div className="px-4 py-3 flex flex-col gap-2.5">
             <div className="flex items-center justify-between">
                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span 
-                    className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1 text-white shadow-sm"
-                    style={{ backgroundColor: (item.category === 'Booking' || item.category === 'Booking (Late)') ? '#dc2626' : '#4b5563' }}
+                  <span
+                     className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1 text-white shadow-sm"
+                     style={{ backgroundColor: (String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? '#dc2626' : '#4b5563' }}
                   >
-                     {(item.category === 'Booking' || item.category === 'Booking (Late)') ? <Bookmark size={9} fill="white" /> : <Zap size={9} fill="white" />}
+                     {(String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? <Bookmark size={9} fill="white" /> : <Zap size={9} fill="white" />}
                      {item.category}
                   </span>
-                  <span 
-                    className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider text-white shadow-sm"
-                    style={{ backgroundColor: isScheduled ? '#dc2626' : isWorking ? '#2563eb' : isMenginap ? '#9333ea' : '#ef4444' }}
+                  <span
+                     className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider text-white shadow-sm"
+                     style={{ backgroundColor: isScheduled ? '#dc2626' : isWorking ? '#2563eb' : isMenginap ? '#9333ea' : '#ef4444' }}
                   >
-                     {isScheduled ? `○ BOOKING ${item.jam} WIB` : isWorking ? '● PROSES WIP' : isMenginap ? '● MENGINAP' : '● ANTRIAN'}
+                     {isScheduled ? `○ BOOKING ${item.jam} WIB` : isWorking ? '● PROSES' : isMenginap ? '● MENGINAP' : '● ANTRIAN'}
                   </span>
                </div>
                {!isScheduled && (
@@ -137,9 +137,9 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
 
             <div className="flex items-center gap-3 pt-2 border-t border-zinc-100">
                <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                  <div 
-                    className="w-6 h-6 rounded-lg flex items-center justify-center text-white text-[9px] font-black shrink-0 shadow-sm" 
-                    style={{ backgroundColor: (isScheduled && item.category !== 'Reguler (Late)') ? '#dc2626' : '#1e40af' }}
+                  <div
+                     className="w-6 h-6 rounded-lg flex items-center justify-center text-white text-[9px] font-black shrink-0 shadow-sm"
+                     style={{ backgroundColor: (isScheduled && item.category !== 'Reguler (Late)') ? '#dc2626' : '#1e40af' }}
                   >
                      {(isScheduled && item.category !== 'Reguler (Late)') ? 'CS' : 'SA'}
                   </div>
@@ -201,7 +201,7 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
          </div>
       </div>
    );
-}; 
+};
 
 const CarouselCol = ({ title, data, colorClass, icon: Icon, formatTime, setSelectedUnit, user, onStartWork, onComplete, subtitle, displayCount = DISPLAY_COUNT }) => {
    const [idx, setIdx] = useState(0);
@@ -251,7 +251,7 @@ const CarouselCol = ({ title, data, colorClass, icon: Icon, formatTime, setSelec
             )}
          </div>
          <div className="flex flex-col gap-4" key={idx}>
-            {visibleItems.map((item, i) => item ? ( <QueueCard key={item.id} item={item} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} /> ) : ( <div key={`empty-${i}`} className="h-[200px] rounded-2xl border-2 border-dashed border-zinc-50 opacity-20 hidden md:block" /> ) )}
+            {visibleItems.map((item, i) => item ? (<QueueCard key={item.id} item={item} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />) : (<div key={`empty-${i}`} className="h-[200px] rounded-2xl border-2 border-dashed border-zinc-50 opacity-20 hidden md:block" />))}
          </div>
       </div>
    );
@@ -308,21 +308,21 @@ const CompletedCarousel = ({ data, formatTime, setSelectedUnit }) => {
          </div>
          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-8 relative z-10" key={idx}>
             {visibleItems.map((item, i) => item ? (
-                  <div key={item.id} onClick={() => setSelectedUnit(item)} className="bg-white rounded-xl md:rounded-2xl p-3 md:p-6 shadow-xl border-4 border-white/50 group/card cursor-pointer hover:bg-white hover:scale-[1.02] transition-all flex flex-col items-center justify-center h-full min-h-[100px] md:min-h-[130px]">
-                     <h2 className="text-2xl md:text-5xl font-black text-black font-mono tracking-tighter mb-1 uppercase truncate w-full text-center leading-none">{item.bk}</h2>
-                     <p className="text-[10px] md:text-xs font-black text-black/40 uppercase tracking-[0.3em] truncate w-full text-center mt-1 md:mt-2 leading-none border-t border-zinc-100 pt-2 md:pt-3">{item.tipe}</p>
-                     <div className="flex items-center gap-2 md:gap-3 mt-2 md:mt-4 bg-emerald-500/10 px-3 md:px-4 py-1.5 md:py-2 rounded-full border border-emerald-500/20">
-                        <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="text-[8px] md:text-[10px] font-black text-emerald-600 uppercase tracking-widest whitespace-nowrap leading-none">
-                           Selesai Pukul {new Date(parseInt(item.targetTime || item.target_time || item.id)).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                        </span>
-                     </div>
+               <div key={item.id} onClick={() => setSelectedUnit(item)} className="bg-white rounded-xl md:rounded-2xl p-3 md:p-6 shadow-xl border-4 border-white/50 group/card cursor-pointer hover:bg-white hover:scale-[1.02] transition-all flex flex-col items-center justify-center h-full min-h-[100px] md:min-h-[130px]">
+                  <h2 className="text-2xl md:text-5xl font-black text-black font-mono tracking-tighter mb-1 uppercase truncate w-full text-center leading-none">{item.bk}</h2>
+                  <p className="text-[10px] md:text-xs font-black text-black/40 uppercase tracking-[0.3em] truncate w-full text-center mt-1 md:mt-2 leading-none border-t border-zinc-100 pt-2 md:pt-3">{item.tipe}</p>
+                  <div className="flex items-center gap-2 md:gap-3 mt-2 md:mt-4 bg-emerald-500/10 px-3 md:px-4 py-1.5 md:py-2 rounded-full border border-emerald-500/20">
+                     <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-emerald-500 animate-pulse" />
+                     <span className="text-[8px] md:text-[10px] font-black text-emerald-600 uppercase tracking-widest whitespace-nowrap leading-none">
+                        Selesai Pukul {new Date(parseInt(item.targetTime || item.target_time || item.id)).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                     </span>
                   </div>
-               ) : (
-                  <div key={`empty-${i}`} className="bg-white/5 rounded-xl md:rounded-2xl border-2 border-dashed border-white/20 h-full min-h-[100px] md:min-h-[130px] flex items-center justify-center">
-                     <p className="text-[10px] md:text-xs font-bold text-white/10 uppercase tracking-[0.2em] whitespace-nowrap">Belum ada data</p>
-                  </div>
-               ))}
+               </div>
+            ) : (
+               <div key={`empty-${i}`} className="bg-white/5 rounded-xl md:rounded-2xl border-2 border-dashed border-white/20 h-full min-h-[100px] md:min-h-[130px] flex items-center justify-center">
+                  <p className="text-[10px] md:text-xs font-bold text-white/10 uppercase tracking-[0.2em] whitespace-nowrap">Belum ada data</p>
+               </div>
+            ))}
          </div>
       </div>
    );
@@ -333,14 +333,14 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
    const [audioUnlocked, setAudioUnlocked] = useState(false);
    const [lastNotifiedId, setLastNotifiedId] = useState(null);
    const [notificationToast, setNotificationToast] = useState(null);
-   
+
    // Monitor rawHistory to show visual notification on the board itself
    useEffect(() => {
       if (rawHistory.length === 0) return;
       const latest = rawHistory[0];
       // Only notify for items completed in the last 10 seconds to avoid old data toast
       const isNew = (Date.now() - (parseInt(latest.targetTime || latest.target_time) || 0)) < 10000;
-      
+
       if (latest && latest.id !== lastNotifiedId && isNew) {
          setLastNotifiedId(latest.id);
          setNotificationToast(latest);
@@ -360,34 +360,34 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
          const { supabase } = await import('../utils/supabaseClient');
          sb = supabase;
          channel = supabase
-           .channel('display-calls')
-           .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'antrian', filter: 'is_called=eq.true' }, (payload) => {
-              const item = payload.new;
-              if (item && item.is_called && !announcedIdsRef.current.has(item.id)) {
-                 announcedIdsRef.current.add(item.id);
-                 const queueNum = item.queue_number || 0;
-                 const counter = item.counter || 0;
-                 const plat = item.noPlat || '';
-                 setCallAnnouncement({ queueNumber: queueNum, counter, bk: plat, id: item.id });
+            .channel('display-calls')
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'antrian', filter: 'is_called=eq.true' }, (payload) => {
+               const item = payload.new;
+               if (item && item.is_called && !announcedIdsRef.current.has(item.id)) {
+                  announcedIdsRef.current.add(item.id);
+                  const queueNum = item.queue_number || 0;
+                  const counter = item.counter || 0;
+                  const plat = item.noPlat || '';
+                  setCallAnnouncement({ queueNumber: queueNum, counter, bk: plat, id: item.id });
 
-                 const text = queueNum > 0
-                    ? `Nomor antrian A ${queueNum}, silahkan menuju counter ${counter}`
-                    : `${plat}, silahkan menuju counter ${counter}`;
+                  const text = queueNum > 0
+                     ? `Nomor antrian A ${queueNum}, silahkan menuju counter ${counter}`
+                     : `${plat}, silahkan menuju counter ${counter}`;
 
-                 if ('speechSynthesis' in window) {
-                    window.speechSynthesis.cancel();
-                    const utterance = new SpeechSynthesisUtterance(text);
-                    utterance.lang = 'id-ID';
-                    utterance.rate = 0.85;
-                    utterance.pitch = 1;
-                    utterance.volume = 1;
-                    window.speechSynthesis.speak(utterance);
-                 }
+                  if ('speechSynthesis' in window) {
+                     window.speechSynthesis.cancel();
+                     const utterance = new SpeechSynthesisUtterance(text);
+                     utterance.lang = 'id-ID';
+                     utterance.rate = 0.85;
+                     utterance.pitch = 1;
+                     utterance.volume = 1;
+                     window.speechSynthesis.speak(utterance);
+                  }
 
-                 setTimeout(() => setCallAnnouncement(null), 10000);
-              }
-           })
-           .subscribe();
+                  setTimeout(() => setCallAnnouncement(null), 10000);
+               }
+            })
+            .subscribe();
       };
       initSub();
       return () => { if (channel && sb) sb.removeChannel(channel); };
@@ -395,7 +395,7 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
 
    const [displayConfig, setDisplayConfig] = useState({ slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 });
    useEffect(() => {
-      fetchBookingConfig().then(setDisplayConfig).catch(() => {});
+      fetchBookingConfig().then(setDisplayConfig).catch(() => { });
    }, []);
    const { slotCount: maxCount, gapMinutes, startHour, startMinute, slotCapacity: slotCapacityDisplay } = displayConfig;
    const dynamicJamPilihan = generateSlots(maxCount, gapMinutes, startHour, startMinute);
@@ -424,7 +424,7 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
             const [jamStr, menitStr] = timeStr.split(':');
             const scheduledTime = new Date();
             scheduledTime.setHours(parseInt(jamStr), parseInt(menitStr), 0, 0);
-            
+
             // Periksa jika sudah lewat 15 menit dari jam booking
             const diffInMinutes = (new Date() - scheduledTime) / (1000 * 60);
 
@@ -433,8 +433,8 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
             } else {
                todayBookings.push({ ...b, category: 'Booking' });
             }
-         } catch (e) { 
-            todayBookings.push({ ...b, category: 'Booking' }); 
+         } catch (e) {
+            todayBookings.push({ ...b, category: 'Booking' });
          }
       });
 
@@ -446,10 +446,11 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
          const cat = (i.category || '').toLowerCase();
          return (cat === 'reguler' || cat === 'reguler (late)' || !cat) && s !== 'menginap' && s !== 'completed';
       });
-      
+
       const arrivedBooking = processedQueue.filter(i => {
          const s = (i.status || '').toLowerCase();
-         return i.category === 'Booking' && s !== 'menginap' && s !== 'completed';
+         const cat = (i.category || '').toLowerCase();
+         return cat === 'booking' && s !== 'menginap' && s !== 'completed';
       });
 
       const arrivedMenginap = processedQueue.filter(i => (i.status || '').toLowerCase() === 'menginap');
@@ -460,18 +461,42 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
          return String(a.jam || '').localeCompare(String(b.jam || ''));
       });
 
-      // --- DEDUPLIKASI KETAT (Satu unit hanya boleh di satu kolom & Hilang jika Selesai) ---
       // 0. Ambil semua BK yang sudah SELESAI hari ini (dari history)
       const finishedPlates = new Set(
          rawHistory
             .filter(h => {
                const s = (h.status || '').toLowerCase();
-               // Cek jika ID atau Waktu Selesai menunjukkan hari ini
-               const todayStr = new Date().toDateString();
-               try {
-                  const itemDate = new Date(parseInt(h.id) < 2000000000 ? parseInt(h.id) * 1000 : parseInt(h.id));
-                  return itemDate.toDateString() === todayStr || s === 'completed';
-               } catch (e) { return s === 'completed'; }
+               if (s !== 'completed') return false;
+
+               const now = new Date();
+               now.setHours(0, 0, 0, 0);
+
+               const checkDate = (val) => {
+                  if (!val) return false;
+                  try {
+                     let d;
+                     if (typeof val === 'number' || (typeof val === 'string' && /^\d+$/.test(val))) {
+                        const n = parseInt(val);
+                        d = (n < 2000000000) ? new Date(n * 1000) : new Date(n);
+                     } else if (typeof val === 'string') {
+                        if (val.includes('/')) {
+                           const parts = val.split(/[ ,]/)[0].split('/');
+                           if (parts.length === 3) d = new Date(parts[2], parts[1] - 1, parts[0]);
+                        } else if (val.includes('-')) {
+                           const parts = val.split(/[ T]/)[0].split('-');
+                           if (parts.length === 3) {
+                              if (parts[0].length === 4) d = new Date(parts[0], parts[1] - 1, parts[2]);
+                              else d = new Date(parts[2], parts[1] - 1, parts[0]);
+                           }
+                        } else { d = new Date(val); }
+                     } else { d = new Date(val); }
+                     if (!d || isNaN(d.getTime())) return false;
+                     d.setHours(0, 0, 0, 0);
+                     return d.getTime() === now.getTime();
+                  } catch (e) { return false; }
+               };
+
+               return [h.waktuSelesai, h.waktu_selesai, h.targetTime, h.target_time, h.completedAt, h.updatedAt, h.id].some(checkDate);
             })
             .map(i => (i.bk || '').replace(/\s+/g, '').toUpperCase())
       );
@@ -482,12 +507,13 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
       // 2. Filter Booking agar tidak menampilkan mobil yang sedang Menginap atau sudah Selesai
       const finalBooking = mergedBooking.filter(i => {
          const sanitizedBK = (i.bk || '').replace(/\s+/g, '').toUpperCase();
-         return !menginapPlates.has(sanitizedBK) && !finishedPlates.has(sanitizedBK);
+         const isScheduledItem = !i.status || i.status === 'accepted' || i.status === 'waiting confirm';
+         if (isScheduledItem && finishedPlates.has(sanitizedBK)) return false;
+         return !menginapPlates.has(sanitizedBK);
       });
 
-      // 3. Ambil semua BK yang sudah ada di Booking, Menginap, atau History untuk membersihkan Reguler
+      // 3. Ambil semua BK yang sudah ada di Booking atau Menginap untuk membersihkan Reguler
       const occupiedPlates = new Set([
-         ...Array.from(finishedPlates),
          ...Array.from(menginapPlates),
          ...finalBooking.map(i => (i.bk || '').replace(/\s+/g, '').toUpperCase())
       ]);
@@ -495,8 +521,6 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
       // 4. Pastikan daftar Reguler bersih dari unit yang sudah ada di Booking atau Menginap
       const finalReguler = sortQueue([...arrivedReguler, ...movedToReguler]).filter(i => {
          const sanitizedBK = (i.bk || '').replace(/\s+/g, '').toUpperCase();
-         // Jangan tampilkan jika plat sudah ada di kolom lain 
-         // ATAU jika unit aslinya sudah ditandai menginap/selesai
          return !occupiedPlates.has(sanitizedBK);
       });
 
@@ -561,26 +585,6 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
 
    return (
       <div className="w-full h-full bg-white flex flex-col overflow-hidden font-sans select-none transition-colors duration-500">
-         {/* Floating Notification Toast for TV */}
-         {notificationToast && (
-            <div className="fixed top-10 left-1/2 -translate-x-1/2 z-[100] animate-modal-in pointer-events-none">
-               <div className="bg-emerald-600 text-white px-10 py-6 rounded-[2.5rem] shadow-[0_20px_60px_rgba(5,150,105,0.4)] border-4 border-white flex items-center gap-6">
-                  <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center animate-bounce">
-                     <Zap size={32} fill="white" />
-                  </div>
-                  <div>
-                     <p className="text-sm font-black uppercase tracking-[0.3em] text-emerald-100 mb-1">Unit Telah Selesai</p>
-                     <h2 className="text-4xl font-black font-mono tracking-tighter uppercase">{notificationToast.bk}</h2>
-                  </div>
-                  <div className="ml-4 pl-6 border-l border-white/20 flex flex-col items-center">
-                     <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-emerald-600 animate-pulse">
-                        <Activity size={24} />
-                     </div>
-                     <span className="text-[10px] font-black mt-1 uppercase">Playing Sound</span>
-                  </div>
-               </div>
-            </div>
-         )}
 
          {/* Call Announcement */}
          {callAnnouncement && (
@@ -632,34 +636,34 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
                <div className="hidden md:block h-12 w-px bg-zinc-100" />
                <div className="flex flex-col items-end">
                   <ClockDisplay className="text-3xl md:text-4xl font-black tracking-tighter text-zinc-900 tabular-nums leading-none" />
-                  
+
                </div>
             </div>
          </header>
 
          <main className="flex-1 overflow-y-auto px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3 custom-scrollbar pb-[72px] md:pb-4">
-             <CompletedCarousel data={todayCompleted} formatTime={formatTime} setSelectedUnit={setSelectedUnit} />
-             <div className="bg-white rounded-2xl border-2 border-zinc-100 p-4">
-                <div className="flex items-center gap-2 mb-3">
-                   <CalendarDays size={16} className="text-zinc-600" />
-                   <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Slot Availability</span>
-                   <span className="ml-auto text-[10px] font-black text-zinc-400">{categories.remainingSlots} Slot Tersisa</span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                   {dynamicJamPilihan.map((slot) => {
-                      const todayStr = new Date().toLocaleDateString('en-CA');
-                      const occupied = bookings.filter(b => isSameDate(b.tanggal, todayStr) && b.jam === slot && (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'waiting' || b.status === 'working')).length;
-                      const full = occupied >= slotCapacityDisplay;
-                      return (
-                         <div key={slot} className={`px-3 py-1.5 rounded-lg border text-[9px] font-black tabular-nums ${full ? 'bg-red-50 border-red-200 text-red-600' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
-                            {slot} <span className="opacity-50">|</span> {occupied}/{slotCapacityDisplay}
-                         </div>
-                      );
-                   })}
-                </div>
-             </div>
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-4 min-h-0">
-               <CarouselCol title="Booking" data={categories.booking} colorClass="bg-red-600" icon={Bookmark} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} subtitle={( <div className="flex flex-col mt-0.5"><div className="flex items-center gap-1.5 overflow-hidden"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" /><span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest truncate">{categories.booking.length} Unit Antrian</span></div></div> )} />
+            <CompletedCarousel data={todayCompleted} formatTime={formatTime} setSelectedUnit={setSelectedUnit} />
+            <div className="bg-white rounded-2xl border-2 border-zinc-100 p-4">
+               <div className="flex items-center gap-2 mb-3">
+                  <CalendarDays size={16} className="text-zinc-600" />
+                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Slot Availability</span>
+                  <span className="ml-auto text-[10px] font-black text-zinc-400">{categories.remainingSlots} Slot Tersisa</span>
+               </div>
+               <div className="flex flex-wrap gap-1.5">
+                  {dynamicJamPilihan.map((slot) => {
+                     const todayStr = new Date().toLocaleDateString('en-CA');
+                     const occupied = bookings.filter(b => isSameDate(b.tanggal, todayStr) && b.jam === slot && (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'waiting' || b.status === 'working')).length;
+                     const full = occupied >= slotCapacityDisplay;
+                     return (
+                        <div key={slot} className={`px-3 py-1.5 rounded-lg border text-[9px] font-black tabular-nums ${full ? 'bg-red-50 border-red-200 text-red-600' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
+                           {slot} <span className="opacity-50">|</span> {occupied}/{slotCapacityDisplay}
+                        </div>
+                     );
+                  })}
+               </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-4 min-h-0">
+               <CarouselCol title="Booking" data={categories.booking} colorClass="bg-red-600" icon={Bookmark} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} subtitle={(<div className="flex flex-col mt-0.5"><div className="flex items-center gap-1.5 overflow-hidden"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" /><span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest truncate">{categories.booking.length} Unit Antrian</span></div></div>)} />
                <CarouselCol title="Reguler" data={categories.reguler} colorClass="bg-zinc-800" icon={Zap} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />
                <CarouselCol title="Menginap" data={categories.menginap} colorClass="bg-purple-600" icon={Moon} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />
             </div>
@@ -726,9 +730,9 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
                            <div className="bg-zinc-900 p-8 rounded-3xl text-center relative overflow-hidden"><div className="absolute inset-0 bg-zinc-800/20" /><p className="text-[11px] font-black text-white/30 uppercase tracking-widest mb-4 relative z-10">Countdown</p><p className="text-5xl font-black text-white tracking-widest tabular-nums relative z-10">{liveUnit.status === 'working' ? formatTime(liveUnit.estimasi) : '--:--:--'}</p><div className={`mt-4 px-6 py-2 rounded-full inline-block text-[10px] font-black uppercase tracking-widest relative z-10 ${liveUnit.status === 'working' ? 'bg-blue-600 text-white' : 'bg-white/5 text-white/30'}`}>{liveUnit.status === 'working' ? 'Aktif Diproses' : liveUnit.status === 'menginap' ? 'Menginap' : 'Menunggu Antrian'}</div></div>
                            {user?.role?.toLowerCase() === 'mekanik' && (
                               <div className="flex flex-col gap-3">
-                                 {liveUnit.status === 'waiting' && (!liveUnit.mechanicName || liveUnit.mechanicName === user.name) && ( <button onClick={() => onStartWork(liveUnit)} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"><Zap size={18} fill="white" /> Mulai Pekerjaan</button> )}
-                                 {liveUnit.status === 'menginap' && (!liveUnit.mechanicName || liveUnit.mechanicName === user.name) && ( <button onClick={() => onStartWork(liveUnit)} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-200 transition-all active:scale-95 flex items-center justify-center gap-2"><Zap size={18} fill="white" /> Lanjutkan Pekerjaan</button> )}
-                                 {liveUnit.status === 'working' && liveUnit.mechanicName === user.name && ( <button onClick={() => onComplete(liveUnit)} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-200 transition-all active:scale-95 flex items-center justify-center gap-2"><CheckCircle size={18} /> Selesai Pekerjaan</button> )}
+                                 {liveUnit.status === 'waiting' && (!liveUnit.mechanicName || liveUnit.mechanicName === user.name) && (<button onClick={() => onStartWork(liveUnit)} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"><Zap size={18} fill="white" /> Mulai Pekerjaan</button>)}
+                                 {liveUnit.status === 'menginap' && (!liveUnit.mechanicName || liveUnit.mechanicName === user.name) && (<button onClick={() => onStartWork(liveUnit)} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-200 transition-all active:scale-95 flex items-center justify-center gap-2"><Zap size={18} fill="white" /> Lanjutkan Pekerjaan</button>)}
+                                 {liveUnit.status === 'working' && liveUnit.mechanicName === user.name && (<button onClick={() => onComplete(liveUnit)} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-200 transition-all active:scale-95 flex items-center justify-center gap-2"><CheckCircle size={18} /> Selesai Pekerjaan</button>)}
                               </div>
                            )}
                            {liveUnit.menginap_reason && (

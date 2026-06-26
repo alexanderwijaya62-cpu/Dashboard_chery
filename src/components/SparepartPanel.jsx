@@ -615,7 +615,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible, se
                         <h1 className="text-3xl font-black tracking-tighter uppercase italic flex items-center gap-4 text-black">
                             {activeTab === 'input' ? 'Order Management' : 
                              activeTab === 'quotation' ? 'Quotation Hub' : 
-                             activeTab === 'profit' ? 'Profit Analysis' :
+                             activeTab === 'profit' ? 'Stock Predictor' :
                              activeTab === 'predict' ? 'Stock Predictor' :
                              'Logistics Monitor'}
                             <div className="h-2 w-2 bg-black rounded-full animate-pulse"></div>
@@ -964,22 +964,16 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible, se
                             </div>
                         </div>
                     )}
-                    {/* TAB: ANALYSIS & QUOTATION */}
+                    {/* TAB: PREDICTOR (replaces old profit/analysis) */}
                     {activeTab === 'profit' && (
-                        <div className="flex-1 animate-fade-in pb-32">
-                           <ProfitDashboard />
+                        <div className="flex-1 overflow-hidden pb-32">
+                            <SparepartPredictor />
                         </div>
                     )}
 
                     {activeTab === 'quotation' && (
                         <div className="flex-1 animate-fade-in h-full">
                             <QuotationSPA onClose={() => setActiveTab('view')} />
-                        </div>
-                    )}
-
-                    {activeTab === 'predict' && (
-                        <div className="flex-1 overflow-hidden">
-                            <SparepartPredictor />
                         </div>
                     )}
                 </div>

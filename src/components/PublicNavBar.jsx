@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, Calendar, Truck, LogIn, LogOut, Menu, X, User } from 'lucide-react';
+import { Home, Calendar, LogIn, LogOut, Menu, X, User } from 'lucide-react';
 import { getNavItems } from '../utils/navConfig';
 
 /**
@@ -80,7 +80,6 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout }) => {
   const publicNavItems = [
     { id: 'home', icon: Home, label: 'Home', page: 'display', ariaLabel: 'Home Display' },
     { id: 'booking', icon: Calendar, label: 'Booking', page: 'booking-public', ariaLabel: 'Booking Service' },
-    { id: 'tracking', icon: Truck, label: 'Tracking', page: 'tracking-public', ariaLabel: 'Tracking Pengiriman' },
   ];
 
   // Bottom nav items (mobile) — includes Dashboard/Login as 4th item

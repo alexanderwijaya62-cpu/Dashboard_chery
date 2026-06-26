@@ -73,7 +73,7 @@ export const NAV_CONFIG = {
     { id: 'sparepart-input', icon: Plus, label: 'Input Order', page: 'sparepart', ariaLabel: 'Input Order' },
     { id: 'sparepart-view', icon: Search, label: 'Order List', page: 'sparepart-view', ariaLabel: 'Order List' },
     { id: 'sparepart-quotation', icon: FileText, label: 'Quotations', page: 'sparepart-quotation', ariaLabel: 'Quotations' },
-    { id: 'sparepart-profit', icon: TrendingUp, label: 'Analysis', page: 'sparepart-profit', ariaLabel: 'Analysis' },
+    { id: 'sparepart-profit', icon: Layers, label: 'Predictor', page: 'sparepart-profit', ariaLabel: 'Stock Predictor' },
     // { id: 'sparepart-predict', icon: Layers, label: 'Stock Predictor', page: 'sparepart-predict', ariaLabel: 'Stock Predictor' },
   ],
   owner: [

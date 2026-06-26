@@ -56,7 +56,7 @@ export default function SparepartPredictor() {
     setIsLoading(true);
     setError(null);
     try {
-      const { data, error: err } = await db.select('sparepart_revenue', { range: { from: 0, to: 999999 }, order: { column: 'Tgl', ascending: false } });
+      const { data, error: err } = await db.select('sparepart_revenue', { range: { from: 0, to: 99999 }, order: { column: 'Tgl', ascending: false } });
       if (err) throw err;
       setRecords(data || []);
     } catch (err) {
@@ -310,11 +310,12 @@ export default function SparepartPredictor() {
     const withDate = filteredRecords.map(r => ({ ...r, _parsed: parseDate(r.Tgl) }));
     const monthSet = new Set();
     const grouped = {};
+    let minYear = 9999, maxYear = 0, minMonth = 12, maxMonth = 1;
 
     withDate.forEach(r => {
-      const key = (r.PartName || r.PartNo || 'Unknown').trim();
+      const key = (r.PartNo || r.PartName || 'Unknown').trim();
       if (!grouped[key]) {
-        grouped[key] = { partName: key, partNo: r.PartNo || '', total: 0, count: 0, months: {} };
+        grouped[key] = { partName: (r.PartName || '').trim(), partNo: (r.PartNo || '').trim(), total: 0, count: 0, months: {} };
       }
       const qty = parseFloat(r.Qty) || 0;
       grouped[key].total += qty;
@@ -323,12 +324,36 @@ export default function SparepartPredictor() {
         const ms = r._parsed.monthStr;
         monthSet.add(ms);
         grouped[key].months[ms] = (grouped[key].months[ms] || 0) + qty;
+        if (r._parsed.year < minYear || (r._parsed.year === minYear && r._parsed.month < minMonth)) {
+          minYear = r._parsed.year; minMonth = r._parsed.month;
+        }
+        if (r._parsed.year > maxYear || (r._parsed.year === maxYear && r._parsed.month > maxMonth)) {
+          maxYear = r._parsed.year; maxMonth = r._parsed.month;
+        }
       }
     });
 
-    const sortedMonths = [...monthSet].sort();
-    const monthCount = sortedMonths.length || 1;
+    // Generate semua bulan dari min ke max
+    const allMonths = [];
+    if (minYear < 9999) {
+      let cur = new Date(minYear, minMonth, 1);
+      const end = new Date(maxYear, maxMonth, 1);
+      while (cur <= end) {
+        const ms = `${String(cur.getMonth() + 1).padStart(2, '0')}/${cur.getFullYear()}`;
+        allMonths.push(ms);
+        cur.setMonth(cur.getMonth() + 1);
+      }
+    }
+
+    const monthCount = allMonths.length || 1;
     let result = Object.values(grouped);
+
+    // Isi 0 untuk bulan yang tidak punya data
+    result.forEach(item => {
+      allMonths.forEach(m => {
+        if (!item.months[m]) item.months[m] = 0;
+      });
+    });
 
     if (sortBy === 'total_desc') result.sort((a, b) => b.total - a.total);
     else if (sortBy === 'total_asc') result.sort((a, b) => a.total - b.total);
@@ -342,7 +367,7 @@ export default function SparepartPredictor() {
       reorderPoint: Math.round(item.total / monthCount * 2),
     }));
 
-    return { pivot: result, months: sortedMonths, totalRecords: withDate.length, monthCount };
+    return { pivot: result, months: allMonths, totalRecords: withDate.length, monthCount };
   }, [filteredRecords, sortBy]);
 
   const totalPages = Math.ceil(pivotData.pivot.length / pageSize);
@@ -612,7 +637,7 @@ export default function SparepartPredictor() {
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-zinc-100">
-                                    {filteredRecords.filter(r => (r.PartName || r.PartNo || 'Unknown').trim() === item.partName).map((r, j) => (
+                                    {filteredRecords.filter(r => (r.PartNo || '').trim() === item.partNo).map((r, j) => (
                                       <tr key={j} className="hover:bg-white">
                                         <td className="px-3 py-1.5 text-zinc-600 whitespace-nowrap">{r.Tgl || '-'}</td>
                                         <td className="px-3 py-1.5 font-mono font-bold text-zinc-800 whitespace-nowrap">{r.NoTransaksi || '-'}</td>

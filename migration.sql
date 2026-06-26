@@ -36,6 +36,11 @@ ALTER TABLE public.booking ADD COLUMN IF NOT EXISTS keperluanService TEXT DEFAUL
 ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "sessionId" TEXT DEFAULT '';
 
 -- ============================================================
+-- #7: Tambah kolom waktuSelesai di antrian untuk tracking waktu mechanic selesai
+-- ============================================================
+ALTER TABLE public.antrian ADD COLUMN IF NOT EXISTS "waktuSelesai" TEXT DEFAULT '';
+
+-- ============================================================
 -- #3: Tambah kolom di antrian untuk no-show tracking
 -- ============================================================
 ALTER TABLE public.antrian ADD COLUMN IF NOT EXISTS queue_number INTEGER DEFAULT 0;
