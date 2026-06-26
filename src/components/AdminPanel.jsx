@@ -587,12 +587,17 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                         <button key={type} onClick={() => {
                                             const current = formData.jenisPekerjaan || [];
                                             const isSelected = current.includes(type);
-                                            setFormData({
-                                                ...formData,
-                                                jenisPekerjaan: isSelected
-                                                    ? current.filter(t => t !== type)
-                                                    : [...current, type]
-                                            });
+                                            const isFS = ['FS1', 'FS2', 'FS3'].includes(type);
+                                            let next;
+                                            if (isFS) {
+                                                // FS1/FS2/FS3 are mutually exclusive
+                                                const nonFS = current.filter(t => !['FS1', 'FS2', 'FS3'].includes(t));
+                                                next = isSelected ? nonFS : [...nonFS, type];
+                                            } else {
+                                                // Keluhan & Update Software: normal toggle
+                                                next = isSelected ? current.filter(t => t !== type) : [...current, type];
+                                            }
+                                            setFormData({ ...formData, jenisPekerjaan: next });
                                         }}
                                             className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all border-2 ${(formData.jenisPekerjaan || []).includes(type) ? 'bg-black text-white border-black shadow-md' : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-300'}`}>
                                             {type}
