@@ -983,7 +983,9 @@ const App = () => {
 
         const tTime = parseInt(item.target_time || item.targetTime);
         if (item.status === 'working' && tTime > 0) {
-          diff = Math.max(0, Math.floor((tTime - now) / 1000));
+          const estDef = parseInt(item.estimasiDefault) || 1800;
+          const workStart = tTime - (estDef * 1000);
+          diff = Math.max(0, Math.floor((now - workStart) / 1000));
         }
 
         return { ...item, estimasi: diff };
@@ -1481,13 +1483,23 @@ const App = () => {
 
     setIsLoadingProcess(true);
     try {
-      const now = new Date().toISOString();
+      const now = new Date();
+      const nowISO = now.toISOString();
+
+      // Hitung lama pengerjaan aktual
+      const tTime = parseInt(item.target_time || item.targetTime);
+      const estDef = parseInt(item.estimasiDefault) || 0;
+      let elapsedSeconds = 0;
+      if (tTime > 0 && estDef > 0) {
+        const workStart = tTime - (estDef * 1000);
+        elapsedSeconds = Math.max(0, Math.floor((Date.now() - workStart) / 1000));
+      }
 
       // Update antrian status to 'menunggu_konfirmasi' — stay in queue
       const { error: updateError } = await db.update('antrian', {
         status: 'menunggu_konfirmasi',
-        waktuSelesai: now,
-        estimasiDefault: 0
+        waktuSelesai: nowISO,
+        estimasiDefault: elapsedSeconds
       }, { eq: { id: item.id } });
 
       if (updateError) {
@@ -1502,7 +1514,7 @@ const App = () => {
 
       // Optimistic update + immediate re-fetch
       setQueue(prev => prev.map(q =>
-        q.id === item.id ? { ...q, status: 'menunggu_konfirmasi', waktuSelesai: now } : q
+        q.id === item.id ? { ...q, status: 'menunggu_konfirmasi', waktuSelesai: nowISO, estimasiDefault: elapsedSeconds } : q
       ));
       fetchQueueRef.current();
 
