@@ -490,6 +490,8 @@ const App = () => {
   }, []);
 
   // Debounce fetchQueue: hanya eksekusi sekali dalam 2 detik
+  const userRef = useRef(user);
+  userRef.current = user;
   const fetchQueueRef = useRef(fetchQueue);
   fetchQueueRef.current = fetchQueue;
   const fetchTimerRef = useRef(null);
@@ -502,20 +504,20 @@ const App = () => {
 
   // Sinkronisasi dengan Supabase Realtime
   useEffect(() => {
-    fetchQueue(); // Ambil data pertama kali
+    if (userRef.current) fetchQueue();
 
     const antrianSubscription = supabase
       .channel('antrian-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'antrian' }, (payload) => {
         if (payload.eventType === 'UPDATE' && payload.new?.status === payload.old?.status && payload.new?.is_called === payload.old?.is_called) return;
-        debouncedFetchQueue();
+        if (userRef.current) debouncedFetchQueue();
       })
       .subscribe();
 
     const historySubscription = supabase
       .channel('history-changes')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'history' }, () => {
-        debouncedFetchQueue();
+        if (userRef.current) debouncedFetchQueue();
       })
       .subscribe();
 
@@ -523,7 +525,7 @@ const App = () => {
       .channel('booking-changes-global')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'booking' }, (payload) => {
         if (payload.eventType === 'UPDATE' && payload.new?.status === payload.old?.status) return;
-        debouncedFetchQueue();
+        if (userRef.current) debouncedFetchQueue();
       })
       .subscribe();
 
