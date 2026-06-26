@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import { db } from '../utils/dbClient';
+import { supabase } from '../utils/supabaseClient';
 import { pushSubscribe, pushUnsubscribe } from '../utils/pushClient';
 
 const HISTORY_CACHE_KEY = 'chery_history_cache';

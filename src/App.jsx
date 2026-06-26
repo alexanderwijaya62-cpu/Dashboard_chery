@@ -1486,7 +1486,8 @@ const App = () => {
       // Update antrian status to 'menunggu_konfirmasi' — stay in queue
       const { error: updateError } = await db.update('antrian', {
         status: 'menunggu_konfirmasi',
-        waktuSelesai: now
+        waktuSelesai: now,
+        estimasiDefault: 0
       }, { eq: { id: item.id } });
 
       if (updateError) {
