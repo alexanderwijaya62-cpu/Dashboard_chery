@@ -334,6 +334,15 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
    const [lastNotifiedId, setLastNotifiedId] = useState(null);
    const [notificationToast, setNotificationToast] = useState(null);
 
+   // Back button closes modal instead of navigating away
+   useEffect(() => {
+      if (!selectedUnit) return;
+      window.history.pushState({ modal: true }, '');
+      const onBack = () => { setSelectedUnit(null); };
+      window.addEventListener('popstate', onBack);
+      return () => window.removeEventListener('popstate', onBack);
+   }, [selectedUnit]);
+
    // Monitor rawHistory to show visual notification on the board itself
    useEffect(() => {
       if (rawHistory.length === 0) return;

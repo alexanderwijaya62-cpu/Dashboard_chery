@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AlertCircle, Send, ArrowLeft, MessageCircle, CheckCircle, ImagePlus, X } from 'lucide-react';
 import { db } from '../utils/dbClient';
 
@@ -15,6 +15,13 @@ const CustomerComplaint = ({ user, onBack }) => {
   const [images, setImages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    window.history.pushState({ page: 'customer-complaint' }, '');
+    const handler = () => { if (typeof onBack === 'function') onBack(); };
+    window.addEventListener('popstate', handler);
+    return () => window.removeEventListener('popstate', handler);
+  }, [onBack]);
 
   const handleImageAdd = (e) => {
     const files = Array.from(e.target.files || []);
