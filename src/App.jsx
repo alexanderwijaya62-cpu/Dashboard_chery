@@ -2025,10 +2025,11 @@ const App = () => {
   // Check if on a dashboard page (not public)
   const publicPages = ['display', 'booking-public', 'login', 'register'];
   const isOnDashboard = user && !publicPages.includes(currentPage);
-  const hasSidebarItems = user && getNavItems(user.role?.toLowerCase()).length > 0;
+  const sidebarItemsCount = user ? getNavItems(user.role?.toLowerCase()).length : 0;
+  const showMobileTopBar = isOnDashboard && sidebarItemsCount > 1;
 
   return (
-    <div className={`bg-[#F2F2F7] text-zinc-900 font-sans tracking-tight antialiased h-screen flex flex-col relative transition-colors duration-500 overflow-hidden ${showNavbar ? 'pb-[64px] md:pb-0' : ''} ${isOnDashboard && hasSidebarItems ? 'pt-14 md:pt-0' : ''}`}>
+    <div className={`bg-[#F2F2F7] text-zinc-900 font-sans tracking-tight antialiased h-screen flex flex-col relative transition-colors duration-500 overflow-hidden ${showNavbar ? 'pb-[64px] md:pb-0' : ''} ${showMobileTopBar ? 'pt-14 md:pt-0' : ''}`}>
 
       {/* Universal Navigation - same navbar for all pages (public & logged in) */}
       {showNavbar && (

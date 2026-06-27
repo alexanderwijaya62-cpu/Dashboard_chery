@@ -389,15 +389,15 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
     completed: 'Selesai',
     s: 'Selesai'
   };
-  const statusColors = {
-    waiting: 'bg-zinc-100 text-zinc-600 border-zinc-200',
-    working: 'bg-blue-50 text-blue-600 border-blue-200',
-    istirahat: 'bg-orange-50 text-orange-600 border-orange-200',
-    menginap: 'bg-purple-50 text-purple-600 border-purple-200',
-    menunggu_konfirmasi: 'bg-emerald-50 text-emerald-600 border-emerald-200',
-    selesai: 'bg-emerald-50 text-emerald-600 border-emerald-200',
-    completed: 'bg-emerald-50 text-emerald-600 border-emerald-200',
-    s: 'bg-emerald-50 text-emerald-600 border-emerald-200'
+  const cardStatusStyles = {
+    waiting: 'bg-white/10 text-zinc-300 border border-white/10',
+    working: 'bg-blue-500/20 text-blue-300 border border-blue-500/30',
+    istirahat: 'bg-orange-500/20 text-orange-300 border border-orange-500/30',
+    menginap: 'bg-purple-500/20 text-purple-300 border border-purple-500/30',
+    menunggu_konfirmasi: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
+    selesai: 'bg-white/20 text-white border border-white/30',
+    completed: 'bg-white/20 text-white border border-white/30',
+    s: 'bg-white/20 text-white border border-white/30'
   };
 
   return (
@@ -544,7 +544,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
                     </div>
                   </div>
                   <div className="mt-3">
-                    <div className={`inline-flex px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${statusColors[myQueue.status]?.replace('text-zinc-600', 'text-white').replace('text-blue-600', 'text-blue-300').replace('text-orange-600', 'text-orange-300').replace('text-purple-600', 'text-purple-300') || 'bg-white/10 text-zinc-300'}`}>
+                    <div className={`inline-flex px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${cardStatusStyles[myQueue.status] || 'bg-white/10 text-zinc-300'}`}>
                       {statusLabels[myQueue.status] || myQueue.status}
                     </div>
                   </div>
