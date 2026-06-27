@@ -97,8 +97,8 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout }) => {
   const publicPagesList = ['display', 'booking-public', 'tracking-public', 'login', 'register'];
   const isOnDashboard = user && !publicPagesList.includes(currentPage);
 
-  // Show mobile top bar only when on dashboard
-  const showMobileTopBar = isOnDashboard && sidebarItems.length > 0;
+  // Show mobile top bar only when on dashboard and there are multiple pages to navigate
+  const showMobileTopBar = isOnDashboard && sidebarItems.length > 1;
 
   // Sembunyikan bottom nav di halaman login/register
   const hideMobileNav = currentPage === 'login' || currentPage === 'register';

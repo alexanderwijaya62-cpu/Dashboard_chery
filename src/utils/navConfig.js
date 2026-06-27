@@ -92,7 +92,6 @@ export const NAV_CONFIG = {
   ],
   customer: [
     { id: 'customer-home', icon: Home, label: 'Dashboard', page: 'customer', ariaLabel: 'Dashboard Saya' },
-    { id: 'customer-booking', icon: Calendar, label: 'Booking Service', page: 'booking-public', ariaLabel: 'Booking Service' },
   ],
   display: [],
   warranty: [

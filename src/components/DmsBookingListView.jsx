@@ -4,6 +4,7 @@ import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import BookingSettings from './BookingSettings';
 import { db } from '../utils/dbClient';
+import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
 
 const STATUS_STYLES = {
   'Baru': { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200' },
@@ -623,10 +624,17 @@ function RescheduleModal({ booking, onClose, onSubmit }) {
   const [time, setTime] = useState('');
   const [alasan, setAlasan] = useState('');
   const [loading, setLoading] = useState(false);
+  const [holidays, setHolidays] = useState([]);
+
+  useEffect(() => { fetchHolidays().then(setHolidays); }, []);
 
   const handleSubmit = async () => {
     if (!date || !time) {
       Toastify({ text: 'Pilih tanggal dan jam baru!', background: 'orange' }).showToast();
+      return;
+    }
+    if (isHolidayOrSunday(date, holidays)) {
+      Toastify({ text: 'Tidak bisa reschedule di hari libur atau Minggu!', background: 'red' }).showToast();
       return;
     }
     setLoading(true);

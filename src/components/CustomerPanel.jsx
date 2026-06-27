@@ -50,11 +50,15 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
     JSON.parse(localStorage.getItem('chery_voice_enabled') || 'true')
   );
 
+  const [completedInfo, setCompletedInfo] = useState(null);
+  const lastQueueRef = useRef(null);
+  const completedShownRef = useRef(false);
+
   const formatQueueLabel = (queueNumber, category) => {
     if (!queueNumber || queueNumber === 0) return '';
     return category === 'Booking' ? `Booking ${queueNumber}` : `Reguler ${queueNumber}`;
   };
-  const calledHandledRef = useRef(new Set());
+  const lastCallAtRef = useRef({});
   const confirmedCallsRef = useRef(new Set(
     JSON.parse(sessionStorage.getItem('confirmed_calls') || '[]')
   ));
@@ -107,7 +111,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
         const { data, error } = await db.select('antrian', {
           select: '*',
           eq: { bk: user.plat_bk.toUpperCase().replace(/\s+/g, '') },
-          in: { status: ['waiting', 'working', 'istirahat', 'menginap', 'menunggu_konfirmasi'] },
+          in: { status: ['waiting', 'working', 'istirahat', 'menginap', 'menunggu_konfirmasi', 'selesai', 'completed', 's'] },
           order: { column: 'id', ascending: false },
           limit: 1
         });
@@ -116,6 +120,14 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
           const item = data[0];
           const queueNum = item.queue_number || 0;
           const counter = item.counter || 0;
+          setCompletedInfo(null);
+          completedShownRef.current = false;
+          lastQueueRef.current = {
+            queueNumber: queueNum,
+            bk: item.bk,
+            tipe: item.tipe || item.tipeMobil,
+            category: item.category
+          };
           setMyQueue({
             queueNumber: queueNum,
             bk: item.bk,
@@ -127,8 +139,9 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
             category: item.category
           });
           fetchQueueInfo(queueNum);
-          if (item.is_called && !calledHandledRef.current.has(item.id)) {
-            calledHandledRef.current.add(item.id);
+          const callKey = item.id + '-' + (item.called_at || '');
+          if (item.is_called && lastCallAtRef.current[item.id] !== callKey) {
+            lastCallAtRef.current[item.id] = callKey;
             setCalledItem({
               id: item.id,
               queueNumber: queueNum,
@@ -138,7 +151,13 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
             });
           }
         } else {
-          setMyQueue(null);
+          const today = new Date().toDateString();
+          if (!completedShownRef.current) {
+            completedShownRef.current = true;
+            setCompletedInfo({ ...lastQueueRef.current, bk: user.plat_bk, time: Date.now(), day: today });
+          } else {
+            setMyQueue(null);
+          }
         }
       } catch (err) {
         console.error(err);
@@ -156,9 +175,20 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
       }, (payload) => {
         try {
           fetchMyQueue();
-          if (payload.new && payload.new.is_called && !calledHandledRef.current.has(payload.new.id)) {
-            calledHandledRef.current.add(payload.new.id);
-            setCalledItem({ id: payload.new.id, queueNumber: payload.new.queue_number || 0, counter: payload.new.counter || 0, bk: payload.new.bk || '', category: payload.new.category || 'Reguler' });
+          if (payload.eventType === 'DELETE') {
+            if (!completedShownRef.current) {
+              completedShownRef.current = true;
+              const today = new Date().toDateString();
+              setCompletedInfo({ ...lastQueueRef.current, bk: user.plat_bk, time: Date.now(), day: today });
+            }
+            return;
+          }
+          if (payload.new && payload.new.is_called) {
+            const callKey = payload.new.id + '-' + (payload.new.called_at || '');
+            if (lastCallAtRef.current[payload.new.id] !== callKey) {
+              lastCallAtRef.current[payload.new.id] = callKey;
+              setCalledItem({ id: payload.new.id, queueNumber: payload.new.queue_number || 0, counter: payload.new.counter || 0, bk: payload.new.bk || '', category: payload.new.category || 'Reguler' });
+            }
           }
         } catch (e) {
           console.error('Realtime call handler error:', e);
@@ -170,13 +200,33 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
         }
       });
 
-    const pollInterval = setInterval(() => {
-      fetchMyQueue();
-    }, 5000);
+    // Polling 30 detik — cuma update "sedang dilayani" & "antrian di depan"
+    // (data sendiri udah realtime via subscription)
+    let pollInterval = setInterval(() => {
+      if (!document.hidden) {
+        fetchMyQueue();
+        if (completedShownRef.current && completedInfo?.day !== new Date().toDateString()) {
+          setCompletedInfo(null);
+          completedShownRef.current = false;
+        }
+      }
+    }, 30000);
+
+    const onVisibility = () => {
+      if (!document.hidden) {
+        clearInterval(pollInterval);
+        fetchMyQueue();
+        pollInterval = setInterval(() => {
+          if (!document.hidden) fetchMyQueue();
+        }, 30000);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
       supabase.removeChannel(subscription);
       clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [user.plat_bk]);
 
@@ -334,14 +384,20 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
     working: 'Sedang Dikerjakan',
     istirahat: 'Istirahat',
     menginap: 'Menginap',
-    menunggu_konfirmasi: 'Menunggu Konfirmasi Admin'
+    menunggu_konfirmasi: 'Menunggu Konfirmasi Admin',
+    selesai: 'Selesai',
+    completed: 'Selesai',
+    s: 'Selesai'
   };
   const statusColors = {
     waiting: 'bg-zinc-100 text-zinc-600 border-zinc-200',
     working: 'bg-blue-50 text-blue-600 border-blue-200',
     istirahat: 'bg-orange-50 text-orange-600 border-orange-200',
     menginap: 'bg-purple-50 text-purple-600 border-purple-200',
-    menunggu_konfirmasi: 'bg-emerald-50 text-emerald-600 border-emerald-200'
+    menunggu_konfirmasi: 'bg-emerald-50 text-emerald-600 border-emerald-200',
+    selesai: 'bg-emerald-50 text-emerald-600 border-emerald-200',
+    completed: 'bg-emerald-50 text-emerald-600 border-emerald-200',
+    s: 'bg-emerald-50 text-emerald-600 border-emerald-200'
   };
 
   return (
@@ -370,68 +426,9 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
         </div>
       )}
 
-      {/* Header */}
-      <header className="bg-white border-b border-zinc-200 px-6 py-6 sticky top-0 z-40 backdrop-blur-md bg-white/80">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-black rounded-2xl flex items-center justify-center shadow-lg">
-              <Car size={24} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-black tracking-tight text-black">Halo, {user.name}</h1>
-              <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest flex items-center gap-2">
-                {user.plat_bk} <span className="w-1 h-1 bg-zinc-200 rounded-full"></span> {user.vin || 'No VIN'}
-              </p>
-            </div>
-          </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={async () => {
-                const next = !voiceEnabled;
-                setVoiceEnabled(next);
-                localStorage.setItem('chery_voice_enabled', JSON.stringify(next));
 
-                if (next) {
-                  const ok = await pushSubscribe(user.plat_bk);
-                  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-                  if (!ok && isIOS) {
-                    Toastify({
-                      text: '💡 Aktifkan notifikasi: Buka Safari → Share → Add to Home Screen',
-                      duration: 6000,
-                      gravity: 'bottom',
-                      position: 'center',
-                      style: { background: '#1e3a5f', borderRadius: '12px', fontWeight: '700' }
-                    }).showToast();
-                  }
-                  if ("Notification" in window && Notification.permission === "default") {
-                    Notification.requestPermission();
-                  }
-                } else {
-                  pushUnsubscribe(user.plat_bk);
-                }
-              }}
-              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90 ${voiceEnabled ? 'bg-emerald-50 text-emerald-500' : 'bg-zinc-100 text-zinc-400'}`}
-              title={voiceEnabled ? 'Suara Nyala' : 'Suara Mati'}
-            >
-              <Megaphone size={18} />
-            </button>
-            <div className={`px-3 md:px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-2 ${isVerified ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-orange-50 text-orange-600 border border-orange-100'}`}>
-              {isVerified ? <ShieldCheck size={12} /> : <ShieldAlert size={12} />}
-              <span className="hidden sm:inline">{isVerified ? 'Terverifikasi' : 'Menunggu Verifikasi'}</span>
-            </div>
-            <button
-              onClick={() => { pushUnsubscribe(user.plat_bk); handleLogout(); }}
-              className="w-10 h-10 bg-red-50 hover:bg-red-100 text-red-500 rounded-full flex items-center justify-center transition-all active:scale-90"
-              title="Logout"
-            >
-              <LogOut size={18} />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-4xl mx-auto p-6 space-y-6">
+      <main className="max-w-4xl mx-auto p-6 pt-6 md:pt-8 space-y-6">
         {/* Called Notification Banner */}
         {calledItem && calledItem.id && !dismissedNotif && !confirmedCallsRef.current.has(calledItem.id) && (
           <div className="bg-blue-600 text-white p-6 rounded-[2rem] shadow-xl border-2 border-blue-400">
@@ -473,7 +470,42 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
                   Hubungi admin untuk melengkapi data plat nomor kendaraan Anda.
                 </p>
               </div>
-            ) : !myQueue ? (
+            ) : !myQueue ? (completedInfo && completedInfo.day === new Date().toDateString()) ? (
+              <div className="bg-emerald-600 text-white p-6 rounded-[2rem] shadow-xl relative overflow-hidden h-full">
+                <div className="absolute inset-0 bg-gradient-to-br from-emerald-500 to-emerald-700 pointer-events-none" />
+                <div className="relative z-10">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-8 h-8 bg-white/10 rounded-xl flex items-center justify-center">
+                      <ShieldCheck size={16} className="text-white" />
+                    </div>
+                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Status Antrian Anda</span>
+                  </div>
+                  {completedInfo.queueNumber > 0 && (
+                    <div className="mb-3">
+                      <p className="text-[9px] text-zinc-400 font-black uppercase tracking-widest mb-1">Nomor Antrian</p>
+                      <p className="text-5xl md:text-6xl font-black font-mono tracking-tight text-white">
+                        {formatQueueLabel(completedInfo.queueNumber, completedInfo.category)}
+                      </p>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-3 flex-wrap mt-3">
+                    <div className="bg-white/10 px-3 py-1.5 rounded-xl">
+                      <p className="text-[8px] text-zinc-400 font-black uppercase tracking-widest">Plat</p>
+                      <p className="text-base font-black text-white">{completedInfo.bk}</p>
+                    </div>
+                    <div className="bg-white/10 px-3 py-1.5 rounded-xl">
+                      <p className="text-[8px] text-zinc-400 font-black uppercase tracking-widest">Tipe</p>
+                      <p className="text-base font-black text-white">{completedInfo.tipe || '-'}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <span className="inline-flex px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Selesai
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
               <div className="bg-white border border-zinc-100 rounded-[2rem] p-8 text-center shadow-sm">
                 <div className="w-16 h-16 bg-zinc-50 rounded-full flex items-center justify-center mx-auto mb-4 text-zinc-300">
                   <Clock size={32} />
@@ -484,8 +516,8 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
                 </p>
               </div>
             ) : (
-              <div className="bg-black text-white p-6 rounded-[2rem] shadow-xl relative overflow-hidden h-full">
-                <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-black pointer-events-none" />
+              <div className={`${['selesai', 'completed', 's'].includes(myQueue.status) ? 'bg-emerald-600 text-white' : 'bg-black text-white'} p-6 rounded-[2rem] shadow-xl relative overflow-hidden h-full`}>
+                <div className={`absolute inset-0 pointer-events-none ${['selesai', 'completed', 's'].includes(myQueue.status) ? 'bg-gradient-to-br from-emerald-500 to-emerald-700' : 'bg-gradient-to-br from-zinc-800 to-black'}`} />
                 <div className="relative z-10">
                   <div className="flex items-center gap-2 mb-4">
                     <div className="w-8 h-8 bg-white/10 rounded-xl flex items-center justify-center">

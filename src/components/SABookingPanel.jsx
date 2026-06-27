@@ -5,6 +5,7 @@ import "toastify-js/src/toastify.css";
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
 import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
+import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
 
 const daysInMonth = (month, year) => new Date(year, month + 1, 0).getDate();
 const startDayOfMonth = (month, year) => new Date(year, month, 1).getDay();
@@ -32,6 +33,9 @@ export default function SABookingPanel() {
   const [currentCalMonth, setCurrentCalMonth] = useState(new Date());
   const [slotConfig, setSlotConfig] = useState({ count: 4, gap: 30, startH: 8, startM: 30, capacity: 1 });
   const [bookings, setBookings] = useState([]);
+  const [holidays, setHolidays] = useState([]);
+
+  useEffect(() => { fetchHolidays().then(setHolidays); }, []);
 
   const calendarGrid = useMemo(() => {
     const month = currentCalMonth.getMonth();
@@ -156,6 +160,10 @@ export default function SABookingPanel() {
     e.preventDefault();
     if (!formData.jam || !formData.atasNama) {
       Toastify({ text: "Harap isi jam dan nama booking!", background: "orange" }).showToast();
+      return;
+    }
+    if (isHolidayOrSunday(formData.tanggal, holidays)) {
+      Toastify({ text: "Tidak bisa booking di hari libur atau Minggu!", background: "red" }).showToast();
       return;
     }
     setIsSubmitting(true);
@@ -341,8 +349,8 @@ export default function SABookingPanel() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8 flex-1 overflow-y-auto lg:overflow-hidden h-full">
-              <div className="space-y-4 flex flex-col h-full lg:border-r border-zinc-100 lg:pr-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8 flex-1 min-h-0 h-full overflow-hidden">
+              <div className="space-y-4 flex flex-col h-full lg:border-r border-zinc-100 lg:pr-6 overflow-y-auto min-h-0">
                 <h3 className="text-[11px] font-black uppercase tracking-widest text-zinc-900 flex items-center gap-3">
                   <div className="w-6 h-6 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">1</div> Pilih Tanggal
                 </h3>
@@ -362,11 +370,12 @@ export default function SABookingPanel() {
                       if (!item.currentMonth) return <div key={idx} className="aspect-[4/5] opacity-5"><div className="w-full h-full border border-dashed border-zinc-200 rounded-xl"></div></div>;
                       const isActive = formData.tanggal === item.date;
                       const isPast = isPastDate(item.date);
-                      const isSun = isSunday(item.date);
+                      const isHoliday = isHolidayOrSunday(item.date, holidays);
+                      const isDisabled = isPast || isHoliday;
                       return (
-                        <button key={idx} type="button" disabled={isPast || isSun}
+                        <button key={idx} type="button" disabled={isDisabled}
                           onClick={() => setFormData({ ...formData, tanggal: item.date, jam: '' })}
-                          className={`relative aspect-[4/5] rounded-xl flex flex-col items-center justify-center transition-all border-2 ${isPast || isSun ? 'bg-zinc-100/30 border-transparent text-zinc-200 cursor-not-allowed opacity-20' :
+                          className={`relative aspect-[4/5] rounded-xl flex flex-col items-center justify-center transition-all border-2 ${isDisabled ? 'bg-zinc-100/30 border-transparent text-zinc-200 cursor-not-allowed opacity-20' :
                             isActive ? 'bg-black border-black text-white shadow-lg z-10 scale-110' : 'bg-white border-zinc-100 text-zinc-800 hover:border-zinc-400'
                           }`}
                         >
@@ -402,7 +411,7 @@ export default function SABookingPanel() {
                 </div>
               </div>
 
-              <div className="space-y-6 flex flex-col h-full lg:border-r border-zinc-100 lg:pr-6">
+              <div className="space-y-6 flex flex-col h-full lg:border-r border-zinc-100 lg:pr-6 overflow-y-auto min-h-0">
                 {isManual ? (
                   <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
                     <div className="flex items-center gap-2 text-[9px] font-black uppercase text-amber-700 tracking-wider mb-3">
@@ -449,7 +458,7 @@ export default function SABookingPanel() {
                 </form>
               </div>
 
-              <div className="space-y-6 flex flex-col h-full bg-zinc-50/50 p-4 md:p-6 lg:border-l border-zinc-100">
+              <div className="space-y-6 flex flex-col h-full bg-zinc-50/50 p-4 md:p-6 lg:border-l border-zinc-100 overflow-y-auto min-h-0">
                 <h3 className="text-[11px] font-black uppercase tracking-widest text-zinc-900 flex items-center gap-3">
                   <div className="w-6 h-6 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">3</div> Konfirmasi
                 </h3>

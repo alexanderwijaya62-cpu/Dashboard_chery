@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS public.antrian (
     "Tanggal" TEXT,
     jam INTEGER,
     "noTelp" TEXT,
+    "pendingExtra" JSONB DEFAULT NULL,
+    "elapsedSeconds" INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -69,6 +71,8 @@ CREATE TABLE IF NOT EXISTS public.history (
     "Tanggal" TEXT,
     jam INTEGER,
     "noTelp" TEXT,
+    "pendingExtra" JSONB DEFAULT NULL,
+    "elapsedSeconds" INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 

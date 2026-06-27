@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
 import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
+import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
 import CroBookingPanel from './CroBookingPanel';
 import HolidaySettings from './HolidaySettings';
 
@@ -459,6 +460,7 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
 
                     // SYNC: Future cro entries → booking table (block slots)
                     try {
+                        const _holidays = await fetchHolidays();
                         const today = new Date();
                         today.setHours(0, 0, 0, 0);
                         const config = await fetchBookingConfig();
@@ -471,7 +473,7 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
                                 if (parts.length === 3) {
                                     const dateStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
                                     const d = new Date(dateStr + 'T00:00:00');
-                                    if (d >= today) {
+                                    if (d >= today && !isHolidayOrSunday(dateStr, _holidays)) {
                                         const jam = slots[i % slots.length];
                                         const bookingId = Date.now() + i + Math.floor(Math.random() * 10000);
                                         await db.insert('booking', {

@@ -31,6 +31,16 @@ ALTER TABLE public.booking ADD COLUMN IF NOT EXISTS namaCustomer TEXT DEFAULT ''
 ALTER TABLE public.booking ADD COLUMN IF NOT EXISTS keperluanService TEXT DEFAULT '';
 
 -- ============================================================
+-- Z1: Tambah kolom pendingExtra dan elapsedSeconds di antrian & history
+-- ============================================================
+ALTER TABLE public.antrian ADD COLUMN IF NOT EXISTS "pendingExtra" JSONB DEFAULT NULL;
+ALTER TABLE public.antrian ADD COLUMN IF NOT EXISTS "elapsedSeconds" INTEGER DEFAULT 0;
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS "pendingExtra" JSONB DEFAULT NULL;
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS "elapsedSeconds" INTEGER DEFAULT 0;
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS menginap_reason TEXT DEFAULT '';
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS jam INTEGER;
+
+-- ============================================================
 -- K1: Tambah kolom sessionId di customers untuk auth
 -- ============================================================
 ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS "sessionId" TEXT DEFAULT '';

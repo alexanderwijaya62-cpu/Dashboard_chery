@@ -7,6 +7,7 @@ import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
 import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
 import PublicBooking from './PublicBooking';
+import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
 
 const CAR_MODELS = [
     "OMODA 5", "OMODA 5 EV", "OMODA 5 GT", "CHERY C5", "CHERY C5 CSH",
@@ -24,7 +25,7 @@ const normalizeJam = (j) => {
     return `${h}.${m}`;
 };
 
-const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, clearQueue, editItem, handleSave, handleCancelEdit, formData, setFormData, isEditing, setIsEditing, errorMessage, isLoadingProcess, formatTime, handleComplete, handleConfirmCompletion, handleSetOvernight, handleCancelOvernight, breakSettings, setBreakSettings, handleAddTask, handleRemoveTask, handleToggleTask, playNotificationSound, handleCallQueue, activeTab: activeTabProp, callCooldown = 120 }) => {
+const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, clearQueue, editItem, handleSave, handleCancelEdit, formData, setFormData, isEditing, setIsEditing, errorMessage, isLoadingProcess, formatTime, handleComplete, handleConfirmCompletion, handleSetOvernight, handleCancelOvernight, breakSettings, setBreakSettings, handleAddTask, handleRemoveTask, handleToggleTask, playNotificationSound, handleCallQueue, activeTab: activeTabProp, callCooldown = 120, onApproveExtension, onRejectExtension }) => {
     const [bookingConfigState, setBookingConfigState] = useState({ slotCount: 8, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 });
     const [currentDay, setCurrentDay] = useState(new Date().toDateString());
     const [adminCounter, setAdminCounter] = useState(() => {
@@ -293,6 +294,10 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
         setActiveTab(activeTabProp);
       }
     }, [activeTabProp]);
+
+    const [holidays, setHolidays] = useState([]);
+
+    useEffect(() => { fetchHolidays().then(setHolidays); }, []);
 
     const [bookingSearchTerm, setBookingSearchTerm] = useState('');
     const [bookingDateFilter, setBookingDateFilter] = useState('');
@@ -742,6 +747,32 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                         <button onClick={clearQueue} className="text-sm md:text-[8px] font-black text-zinc-400 hover:text-black uppercase tracking-widest px-4 py-2 min-h-[44px] md:min-h-0 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-all border border-transparent">Reset Antrian</button>
                     </div>
 
+                    {/* Mobile Extension Requests */}
+                    {queue.filter(q => q.status === 'request_extension').length > 0 && (
+                        <div className="md:hidden bg-amber-50 border-2 border-amber-200 rounded-2xl mx-4 p-4 space-y-2">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-2">
+                                <Clock size={14} /> Request Tambah Waktu
+                            </p>
+                            {queue.filter(q => q.status === 'request_extension').map(req => {
+                                const extraData = req.pendingExtra ? (typeof req.pendingExtra === 'string' ? JSON.parse(req.pendingExtra) : req.pendingExtra) : null;
+                                const extraDuration = extraData?.duration || 1800;
+                                const extraReason = extraData?.reason || req.menginap_reason?.replace('[TAMBAH WAKTU] ', '') || '';
+                                return (
+                                    <div key={req.id} className="flex items-center justify-between gap-3 bg-white rounded-xl p-3 border border-amber-100">
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-black text-zinc-900">{req.bk} +{Math.floor(extraDuration / 60)}m</p>
+                                            <p className="text-[8px] font-bold text-zinc-500 truncate">{extraReason}</p>
+                                        </div>
+                                        <div className="flex gap-1.5 shrink-0">
+                                            <button onClick={() => onApproveExtension(req, extraDuration, extraReason)} className="px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[8px] uppercase tracking-widest">Setujui</button>
+                                            <button onClick={() => onRejectExtension(req)} className="px-3 py-2 bg-red-500 text-white rounded-xl font-black text-[8px] uppercase tracking-widest">Tolak</button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
                     {/* Mobile Queue Cards */}
                     <div className="md:hidden space-y-3 p-4">
                         {queue.length === 0 ? (
@@ -752,8 +783,9 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     'working': 'bg-blue-600 text-white',
                                     'waiting': 'bg-amber-500 text-white',
                                     'completed': 'bg-emerald-500 text-white',
+                                    'menunggu_konfirmasi': 'bg-amber-400 text-white',
                                     'menginap': 'bg-purple-700 text-white',
-                                    'menunggu_konfirmasi': 'bg-emerald-500 text-white'
+                                    'request_extension': 'bg-amber-600 text-white',
                                 };
                                 const isOvernight = item.status === 'menginap';
                                 const cd = getCooldownSisa(item.calledAt);
@@ -861,7 +893,8 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                             'waiting': 'bg-amber-500 text-white shadow-md',
                                             'completed': 'bg-emerald-500 text-white shadow-md',
                                             'menginap': 'bg-purple-700 text-white shadow-md',
-                                            'menunggu_konfirmasi': 'bg-emerald-500 text-white shadow-md'
+                                            'menunggu_konfirmasi': 'bg-emerald-500 text-white shadow-md',
+                                            'request_extension': 'bg-amber-600 text-white shadow-md'
                                         };
                                         const isOvernight = item.status === 'menginap';
                                         const isKonfirmasi = item.status === 'menunggu_konfirmasi';
@@ -1074,6 +1107,40 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                         </div>
                     </div>
 
+                    {/* EXTENSION REQUESTS BANNER */}
+                    {queue.filter(q => q.status === 'request_extension').length > 0 && (
+                        <div className="shrink-0 bg-amber-50 border-2 border-amber-200 rounded-2xl mx-4 md:mx-0 md:rounded-none md:border-t-0 md:border-l-0 md:border-r-0 px-4 md:px-8 py-4 space-y-2">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-2">
+                                <Clock size={14} /> Request Tambah Waktu
+                            </p>
+                            {queue.filter(q => q.status === 'request_extension').map(req => {
+                                const extraData = req.pendingExtra ? (typeof req.pendingExtra === 'string' ? JSON.parse(req.pendingExtra) : req.pendingExtra) : null;
+                                const extraDuration = extraData?.duration || 1800;
+                                const extraReason = extraData?.reason || req.menginap_reason?.replace('[TAMBAH WAKTU] ', '') || '';
+                                return (
+                                    <div key={req.id} className="flex items-center justify-between gap-4 bg-white rounded-xl p-3 border border-amber-100">
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-black text-zinc-900">{req.bk} — <span className="text-amber-600">+{Math.floor(extraDuration / 60)} menit</span></p>
+                                            <p className="text-[9px] font-bold text-zinc-500 truncate">{extraReason}</p>
+                                        </div>
+                                        <div className="flex gap-2 shrink-0">
+                                            <button onClick={() => onApproveExtension(req, extraDuration, extraReason)}
+                                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-[9px] uppercase tracking-widest transition-all"
+                                            >
+                                                Setujui
+                                            </button>
+                                            <button onClick={() => onRejectExtension(req)}
+                                                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest transition-all"
+                                            >
+                                                Tolak
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
                     <div className="flex-1 bg-white border-2 border-zinc-100 rounded-[2rem] md:rounded-[3rem] shadow-2xl overflow-hidden flex flex-col">
                         <div className="overflow-x-auto overflow-y-auto flex-1 custom-scrollbar">
                             <table className="w-full text-left border-collapse">
@@ -1271,6 +1338,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     <button 
                                         onClick={async () => {
                                             if(!createBookingForm.noPlat || !createBookingForm.tipeMobil) return Toastify({text: "Plat dan Tipe Wajib Diisi", background: "red"}).showToast();
+                                            if (isHolidayOrSunday(createBookingForm.tanggal, holidays)) return Toastify({text: "Tidak bisa booking di hari libur atau Minggu!", background: "red"}).showToast();
                                             const { error: insertError } = await db.insert('booking', [{
                                                 id: Date.now() + Math.floor(Math.random() * 1000),
                                                 ...createBookingForm,

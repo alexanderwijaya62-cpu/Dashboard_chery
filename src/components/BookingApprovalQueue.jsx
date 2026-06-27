@@ -4,8 +4,13 @@ import { db } from '../utils/dbClient';
 import { supabase } from '../utils/supabaseClient';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
+import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
 
 export default function BookingApprovalQueue({ user, setCurrentPage }) {
+  const [holidays, setHolidays] = useState([]);
+
+  useEffect(() => { fetchHolidays().then(setHolidays); }, []);
+
   const [pendingBookings, setPendingBookings] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -113,6 +118,10 @@ export default function BookingApprovalQueue({ user, setCurrentPage }) {
 
   // Accept Booking Action
   const handleAcceptBooking = async (booking, bypassWarning = false) => {
+    if (isHolidayOrSunday(booking.tanggal, holidays)) {
+      Toastify({ text: `Tidak bisa menyetujui: ${booking.tanggal} adalah hari libur atau Minggu!`, background: "red" }).showToast();
+      return;
+    }
     const cleanPlat = booking.noPlat.toUpperCase().replace(/\s+/g, '');
     const dmsInfo = dmsDataMap[cleanPlat];
 

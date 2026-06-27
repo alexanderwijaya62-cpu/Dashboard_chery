@@ -337,10 +337,14 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
    // Back button closes modal instead of navigating away
    useEffect(() => {
       if (!selectedUnit) return;
+      window.__modalOpen = true;
       window.history.pushState({ modal: true }, '');
       const onBack = () => { setSelectedUnit(null); };
       window.addEventListener('popstate', onBack);
-      return () => window.removeEventListener('popstate', onBack);
+      return () => {
+         window.__modalOpen = false;
+         window.removeEventListener('popstate', onBack);
+      };
    }, [selectedUnit]);
 
    // Monitor rawHistory to show visual notification on the board itself

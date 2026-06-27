@@ -192,6 +192,40 @@ const App = () => {
     return () => window.removeEventListener('click', handler);
   }, [unlockAudio]);
 
+  const [pageStack, setPageStack] = useState([]);
+  const [animDir, setAnimDir] = useState('forward');
+
+  const navigate = useCallback((page) => {
+    if (page === currentPage) return;
+    setAnimDir('forward');
+    setPageStack(prev => [...prev, currentPage]);
+    setCurrentPage(page);
+    localStorage.setItem('chery_current_page', page);
+    window.history.pushState({ page }, '');
+  }, [currentPage]);
+
+  const goBack = useCallback(() => {
+    if (pageStack.length === 0) return;
+    setAnimDir('backward');
+    const prev = pageStack[pageStack.length - 1];
+    setPageStack(prev => prev.slice(0, -1));
+    setCurrentPage(prev);
+    localStorage.setItem('chery_current_page', prev);
+  }, [pageStack]);
+
+  // Intercept browser back button (skip if modal is open)
+  useEffect(() => {
+    const handler = () => {
+      if (window.__modalOpen) return;
+      if (pageStack.length > 0) {
+        window.history.pushState(null, '', window.location.href);
+        goBack();
+      }
+    };
+    window.addEventListener('popstate', handler);
+    return () => window.removeEventListener('popstate', handler);
+  }, [pageStack, goBack]);
+
   // Refs
 
   // --- 2. EFFECTS & LOGIC ---
@@ -396,10 +430,10 @@ const App = () => {
     };
   }, []);
 
-  // Auto Logout setelah 1 hari (Reset setiap jam 24:00)
+  // Auto Logout setelah 1 hari — cek tiap 30 detik + pas tab di-focus
   useEffect(() => {
     const checkDailyLogout = () => {
-      const today = new Date().toDateString(); // e.g. "Wed Apr 15 2026"
+      const today = new Date().toDateString();
       const storedDate = localStorage.getItem('chery_last_login_date');
 
       if (user && storedDate && storedDate !== today) {
@@ -420,9 +454,15 @@ const App = () => {
     };
 
     checkDailyLogout();
-    // Cek setiap jam untuk memastikan jika aplikasi dibiarkan terbuka melewati tengah malam
-    const interval = setInterval(checkDailyLogout, 3600000);
-    return () => clearInterval(interval);
+    const interval = setInterval(checkDailyLogout, 30000);
+    window.addEventListener('focus', checkDailyLogout);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) checkDailyLogout();
+    });
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', checkDailyLogout);
+    };
   }, [user]);
 
   // Persist User & Session
@@ -522,20 +562,20 @@ const App = () => {
 
   // Sinkronisasi dengan Supabase Realtime
   useEffect(() => {
-    if (userRef.current) fetchQueue();
+    if (userRef.current && userRef.current.role !== 'customer') fetchQueue();
 
     const antrianSubscription = supabase
       .channel('antrian-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'antrian' }, (payload) => {
         if (payload.eventType === 'UPDATE' && payload.new?.status === payload.old?.status && payload.new?.is_called === payload.old?.is_called) return;
-        if (userRef.current) debouncedFetchQueue();
+        if (userRef.current && userRef.current.role !== 'customer') debouncedFetchQueue();
       })
       .subscribe();
 
     const historySubscription = supabase
       .channel('history-changes')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'history' }, () => {
-        if (userRef.current) debouncedFetchQueue();
+        if (userRef.current && userRef.current.role !== 'customer') debouncedFetchQueue();
       })
       .subscribe();
 
@@ -543,7 +583,7 @@ const App = () => {
       .channel('booking-changes-global')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'booking' }, (payload) => {
         if (payload.eventType === 'UPDATE' && payload.new?.status === payload.old?.status) return;
-        if (userRef.current) debouncedFetchQueue();
+        if (userRef.current && userRef.current.role !== 'customer') debouncedFetchQueue();
       })
       .subscribe();
 
@@ -797,7 +837,7 @@ const App = () => {
       // 1. Otomatis set 'menginap' untuk antrean dari hari-hari sebelumnya
       const prevDayItems = queue.filter(q => {
          const isTodayItem = isToday(parseInt(q.id));
-         return !isTodayItem && q.status !== 'menginap' && q.status !== 'completed' && q.status !== 'menunggu_konfirmasi';
+         return !isTodayItem && q.status !== 'menginap' && q.status !== 'working' && q.status !== 'istirahat' && q.status !== 'completed' && q.status !== 'menunggu_konfirmasi' && q.status !== 'request_extension';
       });
 
       if (prevDayItems.length > 0) {
@@ -860,8 +900,8 @@ const App = () => {
 
       if (targetStatus) {
         const toUpdateFiltered = queue.filter(q => {
-          if (targetStatus === 'menginap') return q.status !== 'menginap' && q.status !== 'completed';
-          if (targetStatus === 'istirahat') return q.status === 'working';
+          if (targetStatus === 'menginap') return q.status !== 'menginap' && q.status !== 'working' && q.status !== 'completed' && q.status !== 'menunggu_konfirmasi' && q.status !== 'request_extension';
+          if (targetStatus === 'istirahat') return q.status === 'working' || q.status === 'request_extension';
           return false;
         });
 
@@ -978,21 +1018,30 @@ const App = () => {
   const fullProcessedQueue = useMemo(() => {
     return queue
       .map(item => {
-        // Gunakan estimasiDefault yang sudah di-map di atas
-        let diff = parseInt(item.estimasiDefault) || 0;
+        let remaining = 0;
 
         const tTime = parseInt(item.target_time || item.targetTime);
+        const estDef = parseInt(item.estimasiDefault) || 0;
+
         if (item.status === 'working' && tTime > 0) {
-          const estDef = parseInt(item.estimasiDefault) || 1800;
-          const workStart = tTime - (estDef * 1000);
-          diff = Math.max(0, Math.floor((now - workStart) / 1000));
+          // COUNTDOWN: remaining time from targetTime
+          remaining = Math.max(0, Math.ceil((tTime - now) / 1000));
+        } else if (item.status === 'menunggu_konfirmasi') {
+          // Show actual elapsed work time, fallback ke stored estimasiDefault
+          remaining = parseInt(item.elapsedSeconds) || estDef;
+        } else if (item.status === 'request_extension') {
+          // Paused countdown while waiting admin approval
+          remaining = Math.max(0, estDef);
+        } else {
+          // waiting, istirahat, menginap: show stored remaining time
+          remaining = estDef;
         }
 
-        return { ...item, estimasi: diff };
+        return { ...item, estimasi: remaining };
       })
       .sort((a, b) => {
         // Prioritas Status: Sedang Dikerjakan (Working) paling atas
-        const priorityScore = { menunggu_konfirmasi: 1, working: 2, istirahat: 3, waiting: 4, menginap: 5 };
+        const priorityScore = { menunggu_konfirmasi: 1, working: 2, request_extension: 3, istirahat: 4, waiting: 5, menginap: 6 };
         const scoreA = priorityScore[a.status] || 99;
         const scoreB = priorityScore[b.status] || 99;
 
@@ -1254,6 +1303,102 @@ const App = () => {
     }
   };
 
+  // Mekanik minta tambahan waktu → pending admin approval
+  const handleRequestExtension = async (item, extraSeconds, reason) => {
+    if (isLoadingProcess) return;
+    setIsLoadingProcess(true);
+    try {
+      const payload = {
+        pendingExtra: JSON.stringify({ duration: extraSeconds, reason, mechanic: user?.name || '', requestedAt: Date.now() }),
+        status: 'request_extension'
+      };
+      const { error } = await db.update('antrian', payload, { eq: { id: item.id } });
+      if (error) {
+        if (error.code === 'PGRST204') {
+          // Kolom pendingExtra belum ada — simplify: just store reason in menginap_reason
+          await db.update('antrian', {
+            status: 'request_extension',
+            menginap_reason: `[TAMBAH WAKTU] ${extraSeconds} detik - ${reason}`
+          }, { eq: { id: item.id } });
+        } else {
+          throw error;
+        }
+      }
+      setQueue(prev => prev.map(q =>
+        q.id === item.id ? { ...q, ...payload } : q
+      ));
+      Toastify({
+        text: `⏳ Request tambah waktu ${Math.floor(extraSeconds / 60)} menit dikirim ke admin!`,
+        background: '#f59e0b'
+      }).showToast();
+    } catch (err) {
+      console.error(err);
+      Toastify({ text: '❌ Gagal kirim request tambah waktu', background: '#ef4444' }).showToast();
+    } finally {
+      setIsLoadingProcess(false);
+    }
+  };
+
+  // Admin approve tambah waktu
+  const handleApproveExtension = async (item, extraSeconds, reason) => {
+    if (isLoadingProcess) return;
+    setIsLoadingProcess(true);
+    try {
+      const currentRemaining = parseInt(item.estimasiDefault) || 0;
+      const newDuration = currentRemaining + extraSeconds;
+      const newTargetTime = Date.now() + (newDuration * 1000);
+      const payload = {
+        status: 'working',
+        estimasiDefault: newDuration,
+        targetTime: newTargetTime,
+        pendingExtra: null,
+        menginap_reason: ''
+      };
+      await db.update('antrian', payload, { eq: { id: item.id } });
+      setQueue(prev => prev.map(q =>
+        q.id === item.id ? { ...q, ...payload } : q
+      ));
+      Toastify({
+        text: `✅ Tambah waktu ${Math.floor(extraSeconds / 60)} menit disetujui!`,
+        background: '#10b981'
+      }).showToast();
+    } catch (err) {
+      console.error(err);
+      Toastify({ text: '❌ Gagal approve extension', background: '#ef4444' }).showToast();
+    } finally {
+      setIsLoadingProcess(false);
+    }
+  };
+
+  // Admin reject tambah waktu
+  const handleRejectExtension = async (item) => {
+    if (isLoadingProcess) return;
+    setIsLoadingProcess(true);
+    try {
+      // Kembalikan ke working dengan sisa waktu yg ada
+      const remaining = parseInt(item.estimasiDefault) || 0;
+      const targetTime = remaining > 0 ? Date.now() + (remaining * 1000) : Date.now();
+      const payload = {
+        status: 'working',
+        targetTime: targetTime,
+        pendingExtra: null,
+        menginap_reason: ''
+      };
+      await db.update('antrian', payload, { eq: { id: item.id } });
+      setQueue(prev => prev.map(q =>
+        q.id === item.id ? { ...q, ...payload } : q
+      ));
+      Toastify({
+        text: '❌ Request tambah waktu ditolak admin',
+        background: '#ef4444'
+      }).showToast();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoadingProcess(false);
+    }
+  };
+
   const handleStartWork = async (item) => {
     if (!user || user.role?.toLowerCase() !== 'mekanik' || isLoadingProcess) return;
 
@@ -1481,29 +1626,41 @@ const App = () => {
 
     if (!window.confirm(`Selesaikan pengerjaan unit ${item.bk}?`)) return;
 
-    setIsLoadingProcess(true);
+      setIsLoadingProcess(true);
     try {
       const now = new Date();
       const nowISO = now.toISOString();
 
-      // Hitung lama pengerjaan aktual
+      // Hitung sisa waktu (remaining) — jangan timpa estimasiDefault biar display konsisten
       const tTime = parseInt(item.target_time || item.targetTime);
       const estDef = parseInt(item.estimasiDefault) || 0;
+      const remainingAtComplete = tTime > 0 ? Math.max(0, Math.ceil((tTime - Date.now()) / 1000)) : estDef;
+
+      // Hitung lama pengerjaan aktual untuk riwayat
       let elapsedSeconds = 0;
       if (tTime > 0 && estDef > 0) {
-        const workStart = tTime - (estDef * 1000);
-        elapsedSeconds = Math.max(0, Math.floor((Date.now() - workStart) / 1000));
+        elapsedSeconds = Math.max(0, estDef - remainingAtComplete);
       }
 
       // Update antrian status to 'menunggu_konfirmasi' — stay in queue
-      const { error: updateError } = await db.update('antrian', {
+      // estimasiDefault diisi elapsedSeconds (durasi aktual) untuk display admin
+      const updatePayload = {
         status: 'menunggu_konfirmasi',
         waktuSelesai: nowISO,
-        estimasiDefault: elapsedSeconds
-      }, { eq: { id: item.id } });
+        estimasiDefault: elapsedSeconds || remainingAtComplete,
+        elapsedSeconds: elapsedSeconds
+      };
+
+      const { error: updateError } = await db.update('antrian', updatePayload, { eq: { id: item.id } });
 
       if (updateError) {
-        throw new Error(`Database Error (Update Antrian): ${updateError.message}`);
+        if (updateError.code === 'PGRST204') {
+          // Kolom elapsedSeconds belum ada — coba tanpa
+          delete updatePayload.elapsedSeconds;
+          await db.update('antrian', updatePayload, { eq: { id: item.id } });
+        } else {
+          throw new Error(`Database Error (Update Antrian): ${updateError.message}`);
+        }
       }
 
       Toastify({
@@ -1514,7 +1671,7 @@ const App = () => {
 
       // Optimistic update + immediate re-fetch
       setQueue(prev => prev.map(q =>
-        q.id === item.id ? { ...q, status: 'menunggu_konfirmasi', waktuSelesai: nowISO, estimasiDefault: elapsedSeconds } : q
+        q.id === item.id ? { ...q, status: 'menunggu_konfirmasi', waktuSelesai: nowISO, estimasiDefault: remainingAtComplete } : q
       ));
       fetchQueueRef.current();
 
@@ -1542,18 +1699,25 @@ const App = () => {
       const now = new Date();
       const jakartaNow = new Date(now.getTime() + (7 * 3600000));
 
-      const itemIdNum = parseInt(item.id);
-      const waktuMasukMs = itemIdNum < 2000000000 ? itemIdNum * 1000 : itemIdNum;
-      const waktuMasukDate = new Date(waktuMasukMs);
-      const waktuSelesaiDate = now;
-
-      const selisihMs = waktuSelesaiDate.getTime() - waktuMasukDate.getTime();
-      const selisihMenit = Math.max(0, Math.round(selisihMs / 60000));
-      const jamKerja = Math.floor(selisihMenit / 60);
-      const menitKerja = selisihMenit % 60;
-      const jarakWaktuStr = jamKerja > 0
-        ? `${jamKerja} jam ${menitKerja} menit`
-        : `${menitKerja} menit`;
+      // Gunakan elapsedSeconds kalo ada (hasil dari timer countdown)
+      const elapsedSec = parseInt(item.elapsedSeconds) || 0;
+      let jarakWaktuStr = '-';
+      if (elapsedSec > 0) {
+        const j = Math.floor(elapsedSec / 3600);
+        const m = Math.floor((elapsedSec % 3600) / 60);
+        jarakWaktuStr = j > 0 ? `${j} jam ${m} menit` : `${m} menit`;
+      } else {
+        // Fallback: hitung dari id (waktu dibuat)
+        const itemIdNum = parseInt(item.id);
+        const waktuMasukMs = itemIdNum < 2000000000 ? itemIdNum * 1000 : itemIdNum;
+        const waktuMasukDate = new Date(waktuMasukMs);
+        const waktuSelesaiDate = item.waktuSelesai ? new Date(item.waktuSelesai) : now;
+        const selisihMs = waktuSelesaiDate.getTime() - waktuMasukDate.getTime();
+        const selisihMenit = Math.max(0, Math.round(selisihMs / 60000));
+        const jamKerja = Math.floor(selisihMenit / 60);
+        const menitKerja = selisihMenit % 60;
+        jarakWaktuStr = jamKerja > 0 ? `${jamKerja} jam ${menitKerja} menit` : `${menitKerja} menit`;
+      }
 
       const namaBulan = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
       const bulanStr = namaBulan[now.getMonth()];
@@ -1570,6 +1734,14 @@ const App = () => {
         const s = checklist.map(t => `${t.completed ? '✅' : '❌'} ${t.text}`).join('\n');
         historyKeluhan = (historyKeluhan ? historyKeluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + s;
       }
+
+      // Hitung waktuMasuk dari item.id (timestamp creation)
+      const itemIdNum = parseInt(item.id);
+      const waktuMasukMs = itemIdNum < 2000000000 ? itemIdNum * 1000 : itemIdNum;
+      const waktuMasukISO = new Date(waktuMasukMs).toISOString();
+      // Pakai waktuSelesai dari item (disimpan pas mechanic klik selesai) atau now
+      const waktuSelesaiPakai = item.waktuSelesai || now.toISOString();
+
       let historyAttempt = {
         id: item.id, 
         bk: item.bk || '', 
@@ -1580,28 +1752,24 @@ const App = () => {
         category: item.category || 'Reguler',
         addedby: item.addedBy || user?.name || '',
         checklist: item.checklist || [],
-        waktuMasuk: waktuMasukDate.toISOString(),
-        waktuSelesai: now.toISOString(),
+        waktuMasuk: waktuMasukISO,
+        waktuSelesai: waktuSelesaiPakai,
         "Jarak Waktu": jarakWaktuStr,
         estimasidefault: item.estimasiDefault || 0,
         targetTime: item.targetTime || 0,
+        elapsedSeconds: elapsedSec || 0,
         Tanggal: tanggalIndo,
         Bulan: bulanStr,
         noTelp: item.noTelp || '',
         jam: item.jam || null,
         menginap_reason: item.menginap_reason || ''
       };
+      let historyError = null;
       for (let i = 0; i < 5; i++) {
         const { error: e } = await db.insert('history', historyAttempt);
-        if (e) {
-          console.error("Gagal insert history:", e);
-          Toastify({ 
-            text: `❌ Gagal Simpan Riwayat: ${e.message} (Code: ${e.code})`, 
-            duration: 10000, 
-            style: { background: "#dc2626", borderRadius: "12px", fontWeight: "900" } 
-          }).showToast();
-        }
-        if (!e || e.code === '23505') { historyAttempt = null; break; }
+        if (!e || e.code === '23505') { historyAttempt = null; historyError = null; break; }
+        historyError = e;
+        console.error("Gagal insert history (retry " + (i+1) + "):", e);
         if (e.code === '22P02' && historyAttempt.bk !== undefined) {
           const { bk: _, ...rest } = historyAttempt;
           historyAttempt = rest;
@@ -1624,8 +1792,16 @@ const App = () => {
       if (historyAttempt) {
         const { error: last } = await db.insert('history', { id: item.id, status: 'completed' });
         if (last && last.code !== '23505') {
-          throw new Error(`Database Error (History): ${last.message}`);
+          historyError = last;
         }
+      }
+      if (historyError) {
+        Toastify({ 
+          text: `❌ Gagal Simpan Riwayat: ${historyError.message} (Code: ${historyError.code})`, 
+          duration: 10000, 
+          style: { background: "#dc2626", borderRadius: "12px", fontWeight: "900" } 
+        }).showToast();
+        throw new Error(`Database Error (History): ${historyError.message}`);
       }
 
       // 2. Delete from antrian
@@ -1873,7 +2049,8 @@ const App = () => {
       )}
 
       {/* Render Pages - Full screen scrollable area */}
-      <main className={`flex-1 overflow-y-auto overflow-x-hidden ${showNavbar ? 'md:ml-[220px]' : ''}`}>
+      <main className={`flex-1 flex flex-col overflow-y-auto overflow-x-hidden ${showNavbar ? 'md:ml-[220px]' : ''}`}>
+      <div key={currentPage} className={`w-full flex-1 min-h-0 ${animDir === 'forward' ? 'animate-slideInRight' : 'animate-slideInLeft'}`}>
       {currentPage === 'display' && (
         <DisplayBoard
           processedQueue={processedQueue}
@@ -1901,8 +2078,8 @@ const App = () => {
           Logout
         </button>
       )}
-      {currentPage === 'login' && <LoginPage loginForm={loginForm} setLoginForm={setLoginForm} handleLogin={handleLogin} errorMessage={errorMessage} setCurrentPage={setCurrentPage} />}
-      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleConfirmCompletion={handleConfirmCompletion} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} handleCallQueue={handleCallQueue} activeTab="dashboard" callCooldown={callCooldownRef.current} />}
+      {currentPage === 'login' && <LoginPage loginForm={loginForm} setLoginForm={setLoginForm} handleLogin={handleLogin} errorMessage={errorMessage} setCurrentPage={navigate} />}
+      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleConfirmCompletion={handleConfirmCompletion} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} handleCallQueue={handleCallQueue} activeTab="dashboard" callCooldown={callCooldownRef.current} onApproveExtension={handleApproveExtension} onRejectExtension={handleRejectExtension} />}
       {currentPage === 'admin-booking' && <CroBookingPanel user={user} />}
       {currentPage === 'admin-wo' && <WarrantyWorkOrderPage />}
       {currentPage === 'mechanic' && (
@@ -1919,35 +2096,36 @@ const App = () => {
           onToggleTask={handleToggleTask}
           onSetOvernight={handleSetOvernight}
           onCancelOvernight={handleCancelOvernight}
+          onRequestExtension={handleRequestExtension}
         />
       )}
-      {currentPage === 'sparepart' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="input" />}
-      {currentPage === 'sparepart-view' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="view" />}
-      {currentPage === 'sparepart-quotation' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="quotation" />}
-      {currentPage === 'sparepart-profit' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="profit" />}
-      {/* {currentPage === 'sparepart-predict' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={setCurrentPage} activeTab="predict" />} */}
+      {currentPage === 'sparepart' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={navigate} activeTab="input" />}
+      {currentPage === 'sparepart-view' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={navigate} activeTab="view" />}
+      {currentPage === 'sparepart-quotation' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={navigate} activeTab="quotation" />}
+      {currentPage === 'sparepart-profit' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={navigate} activeTab="profit" />}
+      {/* {currentPage === 'sparepart-predict' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={navigate} activeTab="predict" />} */}
       {currentPage === 'quotation' && <QuotationSPA />}
       {currentPage === 'booking_manager' && <BookingManager user={user} handleLogout={handleLogout} isNavbarVisible={true} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />}
       {currentPage === 'cro' && (
-        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="belum" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="belum" setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
       )}
       {currentPage === 'cro-sudah' && (
-        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="sudah" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="sudah" setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
       )}
       {currentPage === 'cro-freeservice' && (
-        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="free_service" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="free_service" setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
       )}
       {currentPage === 'cro-laporan' && (
-        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="laporan" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="laporan" setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
       )}
       {currentPage === 'cro-booking' && (
-        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="booking" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="booking" setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
       )}
       {currentPage === 'cro-booking-approval' && (
-        <BookingApprovalQueue user={user} setCurrentPage={setCurrentPage} />
+        <BookingApprovalQueue user={user} setCurrentPage={navigate} />
       )}
       {currentPage === 'cro-holidays' && (
-        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="holidays" setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+        <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="holidays" setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
       )}
       {currentPage === 'cro-csi' && (
         <CsiResult />
@@ -1959,42 +2137,42 @@ const App = () => {
       {currentPage === 'sa-booking' && <SABookingPanel />}
       {currentPage === 'booking-settings' && <BookingSettings />}
       {currentPage === 'promo' && <PromosiSparepart />}
-      {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="performance" />}
-      {currentPage === 'manager-financial' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="financial" />}
-      {currentPage === 'manager-wo' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="wo_tracking" />}
-      {currentPage === 'manager-vehicles' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="vehicles" />}
-      {currentPage === 'manager-cro' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="cro_history" />}
-      {currentPage === 'manager-holidays' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="holidays" />}
-      {currentPage === 'manager-staff' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={setCurrentPage} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="staff" />}
+      {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="performance" />}
+      {currentPage === 'manager-financial' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="financial" />}
+      {currentPage === 'manager-wo' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="wo_tracking" />}
+      {currentPage === 'manager-vehicles' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="vehicles" />}
+      {currentPage === 'manager-cro' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="cro_history" />}
+      {currentPage === 'manager-holidays' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="holidays" />}
+      {currentPage === 'manager-staff' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="staff" />}
       {currentPage === 'owner' && user?.role === 'owner' && (
-        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="monitoring" />
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="monitoring" />
       )}
       {currentPage === 'owner-workshop' && user?.role === 'owner' && (
-        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="workshop" />
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="workshop" />
       )}
       {currentPage === 'owner-dms' && user?.role === 'owner' && (
-        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="dms_search" />
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="dms_search" />
       )}
       {currentPage === 'owner-warranty' && user?.role === 'owner' && (
-        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="warranty_search" />
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="warranty_search" />
       )}
       {currentPage === 'owner-parts' && user?.role === 'owner' && (
-        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="part_orders" />
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="part_orders" />
       )}
       {currentPage === 'owner-users' && user?.role === 'owner' && (
-        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="users" />
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="users" />
       )}
       {currentPage === 'owner-sound' && user?.role === 'owner' && (
-        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="notification_sound" />
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="notification_sound" />
       )}
       {currentPage === 'owner-sparepart-cost' && user?.role === 'owner' && (
-        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="sparepart_cost" />
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="sparepart_cost" />
       )}
       {currentPage === 'owner-deleted' && user?.role === 'owner' && (
-        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={setCurrentPage} activeTab="deleted_bookings" />
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="deleted_bookings" />
       )}
       {currentPage === 'stock-comparison' && (
-        <StockComparison user={user} setCurrentPage={setCurrentPage} />
+        <StockComparison user={user} setCurrentPage={navigate} />
       )}
       {currentPage === 'warranty' && <WarrantyHub activeTab="dashboard" />}
       {currentPage === 'warranty-wo' && <WarrantyHub activeTab="wo" />}
@@ -2002,7 +2180,7 @@ const App = () => {
       {currentPage === 'warranty-proforma' && <ProformaInvoice />}
       {currentPage === 'register' && (
         <RegisterPage 
-          setCurrentPage={setCurrentPage} 
+          setCurrentPage={navigate} 
           setErrorMessage={setErrorMessage} 
           errorMessage={errorMessage} 
         />
@@ -2011,16 +2189,21 @@ const App = () => {
         !user.plat_bk ? (
           <CustomerProfile user={user} setUser={setUser} />
         ) : (
-          <CustomerPanel user={user} handleLogout={handleLogout} setCurrentPage={setCurrentPage} />
+          <CustomerPanel user={user} handleLogout={handleLogout} setCurrentPage={navigate} />
         )
       )}
       {currentPage === 'customer-complaint' && user?.role === 'customer' && user?.plat_bk && (
-        <CustomerComplaint user={user} onBack={() => setCurrentPage('customer')} />
+        <CustomerComplaint user={user} onBack={goBack} />
       )}
 
+      </div>
       </main>
 
       <style>{`
+        @keyframes slideInRight { from { transform: translateX(100%); opacity: 0.5; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes slideInLeft { from { transform: translateX(-100%); opacity: 0.5; } to { transform: translateX(0); opacity: 1; } }
+        .animate-slideInRight { animation: slideInRight 0.35s cubic-bezier(0.4, 0, 0.2, 1); }
+        .animate-slideInLeft { animation: slideInLeft 0.35s cubic-bezier(0.4, 0, 0.2, 1); }
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }

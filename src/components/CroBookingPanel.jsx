@@ -5,6 +5,7 @@ import "toastify-js/src/toastify.css";
 import DmsBookingListView from './DmsBookingListView';
 import { db } from '../utils/dbClient';
 import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
+import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
 
 const TIPE_MOBIL = [
     "Tiggo 5x", "Tiggo Cross", "Tiggo Cross Csh", "Tiggo 7", "Tiggo 8 Pro",
@@ -60,6 +61,9 @@ export default function CroBookingPanel({ user }) {
     const [foundVehicle, setFoundVehicle] = useState(null);
     const [searchError, setSearchError] = useState('');
     const [isManual, setIsManual] = useState(false);
+    const [holidays, setHolidays] = useState([]);
+
+    useEffect(() => { fetchHolidays().then(setHolidays); }, []);
 
     // Form State
     const [formData, setFormData] = useState({
@@ -170,6 +174,11 @@ export default function CroBookingPanel({ user }) {
 
         if (!formData.jam || !formData.atasNama) {
             Toastify({ text: "Harap isi jam dan nama booking!", background: "orange" }).showToast();
+            return;
+        }
+
+        if (isHolidayOrSunday(formData.tanggal, holidays)) {
+            Toastify({ text: "Tidak bisa booking di hari libur atau Minggu!", background: "red" }).showToast();
             return;
         }
 
@@ -397,11 +406,12 @@ export default function CroBookingPanel({ user }) {
                                                         if (!item.currentMonth) return <div key={idx} className="aspect-[4/5] opacity-5"><div className="w-full h-full border border-dashed border-zinc-200 rounded-xl"></div></div>;
                                                         const isActive = formData.tanggal === item.date;
                                                         const isPast = new Date(item.date) < new Date().setHours(0, 0, 0, 0);
-                                                        const isSunday = new Date(item.date).getDay() === 0;
+                                                        const isHoliday = isHolidayOrSunday(item.date, holidays);
+                                                        const isDisabled = isPast || isHoliday;
                                                         return (
-                                                            <button key={idx} type="button" disabled={isPast || isSunday}
+                                                            <button key={idx} type="button" disabled={isDisabled}
                                                                 onClick={() => setFormData({ ...formData, tanggal: item.date, jam: '' })}
-                                                                className={`relative aspect-[4/5] rounded-xl flex flex-col items-center justify-center transition-all border-2 ${isPast || isSunday ? 'bg-zinc-100/30 border-transparent text-zinc-200 cursor-not-allowed opacity-20' :
+                                                                className={`relative aspect-[4/5] rounded-xl flex flex-col items-center justify-center transition-all border-2 ${isDisabled ? 'bg-zinc-100/30 border-transparent text-zinc-200 cursor-not-allowed opacity-20' :
                                                                     isActive ? 'bg-black border-black text-white shadow-lg z-10 scale-110' : 'bg-white border-zinc-100 text-zinc-800 hover:border-zinc-400'
                                                                 }`}
                                                             >

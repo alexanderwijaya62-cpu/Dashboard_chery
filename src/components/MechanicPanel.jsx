@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { User, CheckCircle, Calendar, Key, AlertCircle, TrendingUp, CheckCircle2, Eye, EyeOff, Zap, Shield, Clock, Activity, FileText, X, Search } from 'lucide-react';
 import { db } from '../utils/dbClient';
 
-const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = [], queue = [], onStartWork, onComplete, onToggleTask, formatTime, onSetOvernight, onCancelOvernight }) => {
+const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = [], queue = [], onStartWork, onComplete, onToggleTask, formatTime, onSetOvernight, onCancelOvernight, onRequestExtension }) => {
     const [history, setHistory] = useState([]);
     const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '', confirmPassword: '' });
     const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
@@ -20,6 +20,12 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
     // Speech-to-Text & Overnight States
     const [overnightReason, setOvernightReason] = useState('');
     const [isListening, setIsListening] = useState(false);
+
+    // Extension Request States
+    const [showExtensionModal, setShowExtensionModal] = useState(false);
+    const [extendingUnit, setExtendingUnit] = useState(null);
+    const [extraMinutes, setExtraMinutes] = useState(30);
+    const [extraReason, setExtraReason] = useState('');
 
     const handleSpeech = () => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -100,7 +106,7 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
     }, [user, rawHistory]);
 
     const myActiveJobs = useMemo(() => {
-        return queue.filter(item => item.status === 'working' && item.mechanicName === user?.name);
+        return queue.filter(item => (item.status === 'working' || item.status === 'request_extension') && item.mechanicName === user?.name);
     }, [queue, user]);
 
     const availableQueue = useMemo(() => {
@@ -219,30 +225,60 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                                             </div>
                                         </div>
 
-                                        <div className="bg-zinc-900 border-2 border-black text-white p-5 rounded-3xl mb-5 text-center shadow-xl">
-                                            <p className="text-[9px] font-black uppercase tracking-widest opacity-40 mb-1">Estimasi Timer</p>
-                                            <p className="text-4xl font-black tracking-[0.2em] tabular-nums">{formatTime(item.estimasi)}</p>
-                                        </div>
+                                        {item.estimasi === 0 ? (
+                                            <div className="bg-red-600 border-2 border-red-700 text-white p-4 rounded-3xl mb-4 text-center shadow-xl animate-pulse">
+                                                <p className="text-[9px] font-black uppercase tracking-widest opacity-60 mb-1">WAKTU HABIS</p>
+                                                <p className="text-3xl font-black tracking-[0.2em] tabular-nums">00:00:00</p>
+                                            </div>
+                                        ) : (
+                                            <div className={`border-2 text-white p-5 rounded-3xl mb-5 text-center shadow-xl ${item.estimasi < 300 ? 'bg-orange-600 border-orange-700' : 'bg-zinc-900 border-black'}`}>
+                                                <p className="text-[9px] font-black uppercase tracking-widest opacity-40 mb-1">Estimasi Timer</p>
+                                                <p className={`text-4xl font-black tracking-[0.2em] tabular-nums ${item.estimasi < 300 ? 'animate-pulse' : ''}`}>{formatTime(item.estimasi)}</p>
+                                            </div>
+                                        )}
 
-                                        <div className="flex gap-3">
+                                        <div className="flex gap-2">
                                             <button
                                                 onClick={() => setSelectedUnit(item)}
                                                 className="flex-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-900 py-4 min-h-[44px] rounded-xl font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 border border-zinc-200 shadow-sm"
                                             >
-                                                <FileText size={16} className="text-black" /> Detail & Tasks
+                                                <FileText size={16} className="text-black" /> Detail
                                             </button>
-                                            <button
-                                                onClick={async () => {
-                                                    setIsLoadingProcess(true);
-                                                    try { await onComplete(item); } catch(e) {}
-                                                    setIsLoadingProcess(false);
-                                                }}
-                                                disabled={isLoadingProcess}
-                                                className={`flex-1 py-4 min-h-[44px] rounded-xl font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 border-2 ${isLoadingProcess ? 'bg-zinc-200 border-zinc-300 text-zinc-300 cursor-not-allowed' : 'bg-black hover:bg-zinc-800 text-white shadow-lg border-black'}`}
-                                            >
-                                                {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><CheckCircle2 size={16} /> Selesai</>}
-                                            </button>
+                                            {item.estimasi === 0 ? (
+                                                <>
+                                                    <button onClick={async () => { setIsLoadingProcess(true); try { await onComplete(item); } catch(e) {} setIsLoadingProcess(false); }}
+                                                        disabled={isLoadingProcess}
+                                                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-4 min-h-[44px] rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 border-2 border-emerald-700 shadow-lg"
+                                                    >
+                                                        <CheckCircle2 size={16} /> Selesai
+                                                    </button>
+                                                    <button onClick={() => { setExtendingUnit(item); setExtraMinutes(30); setExtraReason(''); setShowExtensionModal(true); }}
+                                                        className="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-4 min-h-[44px] rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 border-2 border-amber-700 shadow-lg"
+                                                    >
+                                                        <Clock size={16} /> Tambah Waktu
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <button onClick={async () => { setIsLoadingProcess(true); try { await onComplete(item); } catch(e) {} setIsLoadingProcess(false); }}
+                                                    disabled={isLoadingProcess}
+                                                    className={`flex-1 py-4 min-h-[44px] rounded-xl font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 border-2 ${isLoadingProcess ? 'bg-zinc-200 border-zinc-300 text-zinc-300 cursor-not-allowed' : 'bg-black hover:bg-zinc-800 text-white shadow-lg border-black'}`}
+                                                >
+                                                    {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><CheckCircle2 size={16} /> Selesai</>}
+                                                </button>
+                                            )}
                                         </div>
+                                        {item.estimasi === 0 && (
+                                            <button onClick={async () => {
+                                                const r = prompt('Alasan menginap (opsional):');
+                                                setIsLoadingProcess(true);
+                                                try { await onSetOvernight(item, r || ''); } catch(e) {}
+                                                setIsLoadingProcess(false);
+                                            }}
+                                                className="w-full mt-2 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                                            >
+                                                <Shield size={14} /> Set Menginap
+                                            </button>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -500,7 +536,7 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                                     ) : liveUnit.checklist.map(task => (
                                         <button
                                             key={task.id}
-                                            disabled={liveUnit.status !== 'working'}
+                                            disabled={liveUnit.status !== 'working' && liveUnit.status !== 'request_extension'}
                                             onClick={() => onToggleTask(liveUnit, task.id)}
                                             className={`w-full flex items-center gap-4 p-6 md:p-8 rounded-[2rem] transition-all border-2 shadow-sm ${
                                                 task.completed 
@@ -518,13 +554,13 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                                             }`}>{task.text}</span>
                                         </button>
                                     ))}
-                                    {liveUnit.status !== 'working' && (liveUnit.checklist || []).length > 0 && (
+                                    {liveUnit.status !== 'working' && liveUnit.status !== 'request_extension' && (liveUnit.checklist || []).length > 0 && (
                                         <p className="text-center text-[10px] font-black text-zinc-400 mt-6 bg-zinc-50 py-4 rounded-2xl border border-zinc-100 uppercase tracking-widest">Status: Menunggu dimulai</p>
                                     )}
                                 </div>
 
                                 {/* OVERNIGHT / MENGINAP FORM (SPEECH TO TEXT) */}
-                                {liveUnit.status === 'working' && (
+                                {(liveUnit.status === 'working' || liveUnit.status === 'request_extension') && (
                                     <div className="mt-8 pt-8 border-t border-zinc-100 space-y-4">
                                         <h4 className="text-[10px] font-black uppercase text-zinc-400 tracking-widest ml-1 flex items-center gap-2">
                                             <div className="w-1.5 h-1.5 bg-purple-500 rounded-full"></div> Tandai Menginap (Overnight)
@@ -581,6 +617,58 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                     </div>
                 );
             })()}
+
+            {/* EXTENSION REQUEST MODAL */}
+            {showExtensionModal && extendingUnit && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4" onClick={() => setShowExtensionModal(false)}>
+                    <div className="bg-white rounded-[2rem] w-full max-w-md shadow-2xl p-6 border border-zinc-100 animate-fade-in" onClick={e => e.stopPropagation()}>
+                        <h3 className="text-lg font-black mb-2">Tambah Waktu</h3>
+                        <p className="text-[10px] font-bold text-zinc-400 mb-6">Unit {extendingUnit.bk} — Waktu habis, ajukan tambahan waktu ke admin</p>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 ml-1">Tambahan Waktu (menit)</label>
+                                <div className="flex gap-2 mt-2">
+                                    {[15, 30, 45, 60, 90, 120].map(m => (
+                                        <button key={m} type="button" onClick={() => setExtraMinutes(m)}
+                                            className={`flex-1 py-3 rounded-xl font-black text-xs border-2 transition-all ${extraMinutes === m ? 'bg-black text-white border-black' : 'bg-white text-zinc-400 border-zinc-200 hover:border-zinc-400'}`}
+                                        >
+                                            {m < 60 ? `${m}m` : `${m/60}j`}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 ml-1">Alasan Tambah Waktu</label>
+                                <textarea value={extraReason} onChange={e => setExtraReason(e.target.value)}
+                                    placeholder="Contoh: nunggu sparepart, pengerjaan butuh waktu tambahan..."
+                                    rows={3}
+                                    className="w-full mt-2 bg-zinc-50 border border-zinc-200 rounded-2xl p-4 text-sm font-bold text-zinc-900 focus:border-black outline-none transition-all resize-none"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 mt-6">
+                            <button onClick={() => setShowExtensionModal(false)}
+                                className="flex-1 py-4 rounded-xl border-2 border-zinc-200 text-zinc-500 font-black text-[10px] uppercase tracking-widest hover:bg-zinc-50 transition-all"
+                            >
+                                Batal
+                            </button>
+                            <button onClick={async () => {
+                                if (!extraReason.trim()) { alert('Harap isi alasan tambah waktu!'); return; }
+                                setShowExtensionModal(false);
+                                await onRequestExtension(extendingUnit, extraMinutes * 60, extraReason.trim());
+                                setExtendingUnit(null);
+                            }}
+                                disabled={isLoadingProcess}
+                                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg disabled:opacity-40"
+                            >
+                                {isLoadingProcess ? 'Mengirim...' : 'Kirim Request'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* SETTINGS MODAL */}
             {selectedUnit === 'settings' && (
