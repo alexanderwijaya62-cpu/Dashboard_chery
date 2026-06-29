@@ -9,7 +9,7 @@ import {
 import Toastify from 'toastify-js';
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
-import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL, GATE } from '../utils/config';
+import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL } from '../utils/config';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -279,7 +279,6 @@ export default function OwnerPanel({
     setIsPartOrdersLoading(true);
     try {
       const resp = await fetch(`${CHERY_DMS_URL}?endpoint=part_orders&pageIndex=${page}&pageSize=10${searchCode ? `&orderCode=${searchCode}` : ''}`, {
-        headers: { 'x-api-key': GATE }
       });
       const result = await resp.json();
       const payload = result?.payload?.content || [];
@@ -297,7 +296,6 @@ export default function OwnerPanel({
     setIsPartOrderDetailLoading(true);
     try {
       const resp = await fetch(`${CHERY_DMS_URL}?endpoint=part_order_detail&orderId=${orderId}`, {
-        headers: { 'x-api-key': GATE }
       });
       const result = await resp.json();
       if (result && result.payload) {
@@ -503,7 +501,6 @@ export default function OwnerPanel({
     try {
       // Step 1: Try searching by CODE first
       let resp = await fetch(`${CHERY_DMS_URL}?pageSize=${dmsPageSize}&status=1&pageIndex=${pageIndex}&code=${encodeURIComponent(query)}`, {
-        headers: { 'x-api-key': GATE }
       });
       let result = await resp.json();
       let dmsData = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);
@@ -512,8 +509,7 @@ export default function OwnerPanel({
       // Step 2: If no results by CODE, try searching by NAME
       if (dmsData.length === 0) {
         resp = await fetch(`${CHERY_DMS_URL}?pageSize=${dmsPageSize}&status=1&pageIndex=${pageIndex}&name=${encodeURIComponent(query)}`, {
-          headers: { 'x-api-key': GATE }
-        });
+          });
         result = await resp.json();
         dmsData = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);
         total = result.payload?.totalElements || dmsData.length;
@@ -569,14 +565,12 @@ export default function OwnerPanel({
     setIsCostLoading(true);
     try {
       let resp = await fetch(`${CHERY_DMS_URL}?pageSize=50&status=1&pageIndex=0&code=${encodeURIComponent(query)}`, {
-        headers: { 'x-api-key': GATE }
       });
       let result = await resp.json();
       let data = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);
       if (data.length === 0) {
         resp = await fetch(`${CHERY_DMS_URL}?pageSize=50&status=1&pageIndex=0&name=${encodeURIComponent(query)}`, {
-          headers: { 'x-api-key': GATE }
-        });
+          });
         result = await resp.json();
         data = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);
       }
@@ -601,8 +595,7 @@ export default function OwnerPanel({
       Toastify({ text: 'Menarik data & menyiapkan Excel...', background: '#3b82f6', duration: 5000 }).showToast();
       while (true) {
         const resp = await fetch(`${CHERY_DMS_URL}?pageSize=${pageSize}&status=1&pageIndex=${page}`, {
-          headers: { 'x-api-key': GATE }
-        });
+          });
         const result = await resp.json();
         const data = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);
         const total = result.payload?.totalElements || 0;
@@ -747,8 +740,8 @@ export default function OwnerPanel({
   const fetchEpcImages = async (partCode) => {
     if (!epcmToken || !partCode) return;
     try {
-      const searchUrl = `${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/search/fastSearch/part?keywordNumber=${partCode.trim()}&page=1&pageSize=100`)}`;
-      const resp = await fetch(searchUrl);
+      const searchUrl = `${CHERY_EPC_URL}?path=${encodeURIComponent(`/api/rest/search/fastSearch/part?keywordNumber=${partCode.trim()}&page=1&pageSize=100`)}`;
+      const resp = await fetch(searchUrl, { headers: { 'token': epcmToken } });
       const result = await resp.json();
       
       // Robust data extraction
@@ -824,8 +817,8 @@ export default function OwnerPanel({
     setIsEpcTesting(true);
     try {
       // Cek dengan pencarian dummy (Part T11-2901010 biasanya ada)
-      const testUrl = `${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent('/api/rest/search/fastSearch/part?keywordNumber=T11-2901010&page=1&pageSize=1')}`;
-      const resp = await fetch(testUrl);
+      const testUrl = `${CHERY_EPC_URL}?path=${encodeURIComponent('/api/rest/search/fastSearch/part?keywordNumber=T11-2901010&page=1&pageSize=1')}`;
+      const resp = await fetch(testUrl, { headers: { 'token': epcmToken } });
       const result = await resp.json();
       
       if (result.success === false) {
@@ -1031,7 +1024,7 @@ export default function OwnerPanel({
       
       const resp = await fetch(`${CHERY_DMS_URL}?endpoint=claims_query&pageIndex=${pageIndex}&pageSize=${effectivePageSize}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': GATE },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
       const result = await resp.json();
@@ -1062,7 +1055,6 @@ export default function OwnerPanel({
 
     try {
       const resp = await fetch(`${CHERY_DMS_URL}?endpoint=claim_detail&claimId=${id}`, {
-        headers: { 'x-api-key': GATE }
       });
       const result = await resp.json();
       const payload = result.payload || {};
@@ -1094,7 +1086,7 @@ export default function OwnerPanel({
         const isCommentUpdated = (oldComment && oldComment !== '') && (oldComment !== newComment) && (newComment && newComment.trim() !== '') && !isAutomaticPass;
         
         if (isCommentUpdated && isAlreadyReviewed) {
-          console.log(`[DMS Update Detected] Claim ${id} comment changed from "${oldComment}" to "${newComment}". Unreviewing.`);
+          console.log(`[DMS Update] Claim ${id} comment changed.`);
           setReviewedClaims(prevRev => {
             const nextRev = prevRev.filter(item => item !== id);
             localStorage.setItem('chery_reviewed_claims', JSON.stringify(nextRev));

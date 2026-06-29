@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ClockDisplay from './ClockDisplay';
-import { Bookmark, Zap, Car, Instagram, CheckCircle, Clock, Moon, FileText, X, Activity, CalendarDays, ArrowRight, ChevronLeft, ChevronRight, Megaphone } from 'lucide-react';
+import { Bookmark, Zap, Car, Instagram, CheckCircle, Clock, Moon, FileText, X, Activity, CalendarDays, ArrowRight, ChevronLeft, ChevronRight, Megaphone, Droplets } from 'lucide-react';
 import cheryLogo from '../assets/cherylogo.png';
 import orientalLogo from '../assets/oriental.jpeg';
 import { QRCodeSVG } from 'qrcode.react';
@@ -156,7 +156,39 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                      </div>
                   </>
                )}
-            </div>
+             </div>
+
+            {/* Status Banner */}
+            {!isScheduled && (() => {
+               const bannerMap = {
+                  'waiting': { bg: '#d97706', icon: 'Clock', label: 'MENUNGGU ANTRIAN PEKERJAAN', sub: item.cuci_required ? '+ Cuci Mobil' : '' },
+                  'working': { bg: '#2563eb', icon: 'Zap', label: `SEDANG DIKERJAKAN`, sub: item.mechanicName || '' },
+                  'menunggu_cuci': { bg: '#0d9488', icon: 'Droplets', label: 'MENUNGGU ANTRIAN CUCI', sub: '' },
+                  'sedang_dicuci': { bg: '#0891b2', icon: 'Droplets', label: 'SEDANG DICUCI', sub: formatTime(item.estimasi) },
+                'request_extension': { bg: '#d97706', icon: 'Clock', label: 'MENUNGGU APPROVAL TAMBAH WAKTU', sub: '' },
+                'menunggu_konfirmasi': { bg: '#f59e0b', icon: 'Clock', label: 'MENUNGGU KONFIRMASI ADMIN', sub: '' },
+                };
+               const cfg = bannerMap[item.status];
+               if (!cfg) return null;
+               return (
+                  <div className="mt-2 px-4 py-3 rounded-2xl border-2 border-white/30 shadow-2xl ring-4"
+                       style={{ backgroundColor: cfg.bg, '--tw-ring-color': cfg.bg + '40' }}>
+                     <div className="flex items-center gap-2 mb-1 text-white/70">
+                        {item.status === 'menunggu_cuci' || item.status === 'sedang_dicuci' ? (
+                           <Droplets size={12} fill="currentColor" />
+                        ) : item.status === 'working' ? (
+                           <Zap size={12} fill="currentColor" />
+                        ) : (
+                           <Clock size={12} />
+                        )}
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em]">{cfg.label}</span>
+                     </div>
+                     {cfg.sub && (
+                        <p className="text-[13px] font-black text-white leading-tight uppercase font-mono">{cfg.sub}</p>
+                     )}
+                  </div>
+               );
+            })()}
 
             {isMenginap && item.menginap_reason && (
                <div className="mt-2 px-4 py-3 bg-[#9333ea] rounded-2xl border-2 border-white/30 shadow-2xl ring-4 ring-purple-500/20">
@@ -172,7 +204,7 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
 
             {user?.role?.toLowerCase() === 'mekanik' && (
                <div className="pt-2 border-t border-zinc-50">
-                  {item.status === 'waiting' && (!item.mechanicName || item.mechanicName === user.name) && (
+                  {item.status === 'waiting' && (!item.mechanicName || item.mechanicName.split(',').includes(user.name)) && (
                      <button
                         onClick={(e) => { e.stopPropagation(); onStartWork(item); }}
                         className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-500/20 active:scale-95 transition-all flex items-center justify-center gap-2 min-h-[44px]"
@@ -180,7 +212,7 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                         <Zap size={14} fill="white" /> Mulai Pekerjaan
                      </button>
                   )}
-                  {item.status === 'menginap' && (!item.mechanicName || item.mechanicName === user.name) && (
+                  {item.status === 'menginap' && (!item.mechanicName || item.mechanicName.split(',').includes(user.name)) && (
                      <button
                         onClick={(e) => { e.stopPropagation(); onStartWork(item); }}
                         className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-orange-500/20 active:scale-95 transition-all flex items-center justify-center gap-2 min-h-[44px]"
@@ -188,7 +220,7 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                         <Zap size={14} fill="white" /> Lanjutkan Pekerjaan
                      </button>
                   )}
-                  {isWorking && item.mechanicName === user.name && (
+                  {isWorking && item.mechanicName && item.mechanicName.split(',').includes(user.name) && (
                      <button
                         onClick={(e) => { e.stopPropagation(); onComplete(item); }}
                         className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-emerald-500/20 active:scale-95 transition-all flex items-center justify-center gap-2 min-h-[44px]"
@@ -376,12 +408,14 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
             .channel('display-calls')
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'antrian', filter: 'is_called=eq.true' }, (payload) => {
                const item = payload.new;
-               if (item && item.is_called && !announcedIdsRef.current.has(item.id)) {
-                  announcedIdsRef.current.add(item.id);
-                  const queueNum = item.queue_number || 0;
-                  const counter = item.counter || 0;
-                  const plat = item.noPlat || '';
-                  setCallAnnouncement({ queueNumber: queueNum, counter, bk: plat, id: item.id });
+                if (item && item.is_called) {
+                   const callKey = item.id + '-' + (item.called_at || '');
+                   if (announcedIdsRef.current.has(callKey)) return;
+                   announcedIdsRef.current.add(callKey);
+                   const queueNum = item.queue_number || 0;
+                   const counter = item.counter || 0;
+                   const plat = item.noPlat || '';
+                   setCallAnnouncement({ queueNumber: queueNum, counter, bk: plat, id: item.id });
 
                   const text = queueNum > 0
                      ? `Nomor antrian A ${queueNum}, silahkan menuju counter ${counter}`
@@ -656,25 +690,7 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
 
          <main className="flex-1 overflow-y-auto px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3 custom-scrollbar pb-[72px] md:pb-4">
             <CompletedCarousel data={todayCompleted} formatTime={formatTime} setSelectedUnit={setSelectedUnit} />
-            <div className="bg-white rounded-2xl border-2 border-zinc-100 p-4">
-               <div className="flex items-center gap-2 mb-3">
-                  <CalendarDays size={16} className="text-zinc-600" />
-                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Slot Availability</span>
-                  <span className="ml-auto text-[10px] font-black text-zinc-400">{categories.remainingSlots} Slot Tersisa</span>
-               </div>
-               <div className="flex flex-wrap gap-1.5">
-                  {dynamicJamPilihan.map((slot) => {
-                     const todayStr = new Date().toLocaleDateString('en-CA');
-                     const occupied = bookings.filter(b => isSameDate(b.tanggal, todayStr) && b.jam === slot && (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'waiting' || b.status === 'working')).length;
-                     const full = occupied >= slotCapacityDisplay;
-                     return (
-                        <div key={slot} className={`px-3 py-1.5 rounded-lg border text-[9px] font-black tabular-nums ${full ? 'bg-red-50 border-red-200 text-red-600' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
-                           {slot} <span className="opacity-50">|</span> {occupied}/{slotCapacityDisplay}
-                        </div>
-                     );
-                  })}
-               </div>
-            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-4 min-h-0">
                <CarouselCol title="Booking" data={categories.booking} colorClass="bg-red-600" icon={Bookmark} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} subtitle={(<div className="flex flex-col mt-0.5"><div className="flex items-center gap-1.5 overflow-hidden"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" /><span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest truncate">{categories.booking.length} Unit Antrian</span></div></div>)} />
                <CarouselCol title="Reguler" data={categories.reguler} colorClass="bg-zinc-800" icon={Zap} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />
@@ -720,11 +736,29 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
                                  <p className="text-2xl font-black text-emerald-900">{getTimeOut(liveUnit)}</p>
                               </div>
                            </div>
-                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div className="bg-zinc-50 p-5 rounded-2xl border border-zinc-100 flex-1"><p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Service Advisor</p><p className="text-lg font-black text-zinc-900 uppercase">{liveUnit.addedBy || '—'}</p></div>
-                              <div className="bg-zinc-50 p-5 rounded-2xl border border-zinc-100 flex-1"><p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Mekanik</p><p className="text-lg font-black text-blue-600 uppercase">{liveUnit.mechanicName || 'Belum ditugaskan'}</p></div>
-                           </div>
-                           <div className="p-6 bg-zinc-50 rounded-2xl border border-zinc-100">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                               <div className="bg-zinc-50 p-5 rounded-2xl border border-zinc-100 flex-1"><p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Service Advisor</p><p className="text-lg font-black text-zinc-900 uppercase">{liveUnit.addedBy || '—'}</p></div>
+                               <div className="bg-zinc-50 p-5 rounded-2xl border border-zinc-100 flex-1"><p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Mekanik</p><p className="text-lg font-black text-blue-600 uppercase">{liveUnit.mechanicName || 'Belum ditugaskan'}</p></div>
+                            </div>
+                            {/* Modal Status Banner */}
+                            {(() => {
+                               const banMap = {
+                                  'waiting': { bg: '#d97706', label: 'MENUNGGU ANTRIAN PEKERJAAN' },
+                                  'working': { bg: '#2563eb', label: 'SEDANG DIKERJAKAN' },
+                                  'request_extension': { bg: '#d97706', label: 'MENUNGGU APPROVAL TAMBAH WAKTU' },
+                                  'menunggu_cuci': { bg: '#0d9488', label: 'MENUNGGU ANTRIAN CUCI' },
+                                  'sedang_dicuci': { bg: '#0891b2', label: 'SEDANG DICUCI' },
+                                  'menunggu_konfirmasi': { bg: '#f59e0b', label: 'MENUNGGU KONFIRMASI ADMIN' },
+                               };
+                               const bc = banMap[liveUnit.status];
+                               if (!bc) return null;
+                               return (
+                                  <div className="px-5 py-4 rounded-2xl border-2 border-white/30 shadow-2xl" style={{ backgroundColor: bc.bg }}>
+                                     <p className="text-xs font-black text-white uppercase tracking-[0.2em] text-center">{bc.label}</p>
+                                  </div>
+                               );
+                            })()}
+                            <div className="p-6 bg-zinc-50 rounded-2xl border border-zinc-100">
                               <h4 className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Activity size={14} className="text-black" /> Keluhan Utama</h4>
                               <p className="text-lg font-bold text-zinc-900 leading-tight">"{liveUnit.keluhan || 'Tidak ada catatan keluhan'}"</p>
                            </div>
@@ -743,9 +777,9 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
                            <div className="bg-zinc-900 p-8 rounded-3xl text-center relative overflow-hidden"><div className="absolute inset-0 bg-zinc-800/20" /><p className="text-[11px] font-black text-white/30 uppercase tracking-widest mb-4 relative z-10">Countdown</p><p className="text-5xl font-black text-white tracking-widest tabular-nums relative z-10">{liveUnit.status === 'working' ? formatTime(liveUnit.estimasi) : '--:--:--'}</p><div className={`mt-4 px-6 py-2 rounded-full inline-block text-[10px] font-black uppercase tracking-widest relative z-10 ${liveUnit.status === 'working' ? 'bg-blue-600 text-white' : 'bg-white/5 text-white/30'}`}>{liveUnit.status === 'working' ? 'Aktif Diproses' : liveUnit.status === 'menginap' ? 'Menginap' : 'Menunggu Antrian'}</div></div>
                            {user?.role?.toLowerCase() === 'mekanik' && (
                               <div className="flex flex-col gap-3">
-                                 {liveUnit.status === 'waiting' && (!liveUnit.mechanicName || liveUnit.mechanicName === user.name) && (<button onClick={() => onStartWork(liveUnit)} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"><Zap size={18} fill="white" /> Mulai Pekerjaan</button>)}
-                                 {liveUnit.status === 'menginap' && (!liveUnit.mechanicName || liveUnit.mechanicName === user.name) && (<button onClick={() => onStartWork(liveUnit)} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-200 transition-all active:scale-95 flex items-center justify-center gap-2"><Zap size={18} fill="white" /> Lanjutkan Pekerjaan</button>)}
-                                 {liveUnit.status === 'working' && liveUnit.mechanicName === user.name && (<button onClick={() => onComplete(liveUnit)} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-200 transition-all active:scale-95 flex items-center justify-center gap-2"><CheckCircle size={18} /> Selesai Pekerjaan</button>)}
+                                  {liveUnit.status === 'waiting' && (!liveUnit.mechanicName || liveUnit.mechanicName.split(',').includes(user.name)) && (<button onClick={() => onStartWork(liveUnit)} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"><Zap size={18} fill="white" /> Mulai Pekerjaan</button>)}
+                                  {liveUnit.status === 'menginap' && (!liveUnit.mechanicName || liveUnit.mechanicName.split(',').includes(user.name)) && (<button onClick={() => onStartWork(liveUnit)} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-200 transition-all active:scale-95 flex items-center justify-center gap-2"><Zap size={18} fill="white" /> Lanjutkan Pekerjaan</button>)}
+                                 {liveUnit.status === 'working' && liveUnit.mechanicName && liveUnit.mechanicName.split(',').includes(user.name) && (<button onClick={() => onComplete(liveUnit)} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-200 transition-all active:scale-95 flex items-center justify-center gap-2"><CheckCircle size={18} /> Selesai Pekerjaan</button>)}
                               </div>
                            )}
                            {liveUnit.menginap_reason && (

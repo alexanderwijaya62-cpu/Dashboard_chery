@@ -72,6 +72,19 @@ export default function PublicBooking({ user }) {
     const [formData, setFormData] = useState({
         jam: '', noPlat: '', namaCustomer: '', noTelp: '', keluhan: ''
     });
+    const [selectedFS, setSelectedFS] = useState([]);
+
+    const getCombinedKeluhan = () => {
+        const fsParts = [...selectedFS];
+        const hasKeluhan = formData.keluhan.trim().length > 0;
+        if (fsParts.length > 0 && hasKeluhan) {
+            return `${fsParts.join(' + ')}: ${formData.keluhan.trim()}`;
+        } else if (fsParts.length > 0) {
+            return fsParts.join(' + ');
+        }
+        return formData.keluhan || '';
+    };
+
     const [userIP, setUserIP] = useState('');
     const [showWarningModal, setShowWarningModal] = useState(false);
     const [pendingBookJam, setPendingBookJam] = useState('');
@@ -112,11 +125,8 @@ export default function PublicBooking({ user }) {
             if (error) throw error;
 
             let merged = Array.isArray(supabaseData) ? [...supabaseData] : [];
-            saveCache(merged);
-            setBookings(merged);
-            setIsSlotsReady(true);
 
-            // DMS fetch in background — tidak blocking render
+            // === Fetch DMS internal booking (blocking — biar ga double book) ===
             try {
                 const now = new Date();
                 const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
@@ -149,12 +159,14 @@ export default function PublicBooking({ user }) {
                         };
                     }).filter(Boolean).filter(b => b.tanggal >= dateStr);
                     merged = [...merged, ...dmsBookings];
-                    saveCache(merged);
-                    setBookings(merged);
                 }
             } catch (dmsErr) {
                 console.warn('Gagal fetch DMS bookings:', dmsErr);
             }
+
+            saveCache(merged);
+            setBookings(merged);
+            setIsSlotsReady(true);
         } catch (e) {
             console.error('Gagal fetch booking:', e);
             setIsSlotsReady(true); // tetap tampilkan UI meskipun error
@@ -180,7 +192,7 @@ export default function PublicBooking({ user }) {
             .on('postgres_changes',
                 { event: '*', schema: 'public', table: 'booking', filter: 'status=neq.declined' },
                 (payload) => {
-                    console.log('Change received in Public Booking!', payload);
+        
                     fetchBookings(true);
                 }
             )
@@ -302,7 +314,7 @@ export default function PublicBooking({ user }) {
             atas_nama_booking: formData.namaCustomer,
             no_telp_booking: formData.noTelp,
             janji_datang: `${selectedDate}T${(formData.jam || '08.30').replace('.', ':')}`,
-            keluhan: formData.keluhan || '-',
+            keluhan: getCombinedKeluhan() || '-',
             booking_via: 'Web-Public',
             booking_via_personal: bookingPerson,
             km: 0
@@ -397,7 +409,7 @@ export default function PublicBooking({ user }) {
         try {
             // 1. CEK DMS DULU
             let dmsSynced = false;
-            let dmsBookingStatus = 'waiting_approval';
+            let dmsBookingStatus = 'accepted';
             let dmsBookingVia = user ? `Booking via: ${user.name}` : 'Web-Public';
 
             const vehicleData = await checkDmsVehicle(cleanPlat);
@@ -405,7 +417,6 @@ export default function PublicBooking({ user }) {
                 const dmsOk = await createDmsBooking(vehicleData);
                 if (dmsOk) {
                     dmsSynced = true;
-                    dmsBookingStatus = 'accepted';
                     dmsBookingVia = 'Web-Public (Synced DMS)';
                 }
             }
@@ -421,7 +432,7 @@ export default function PublicBooking({ user }) {
                 namaCustomer: formData.namaCustomer,
                 bookingVia: dmsBookingVia,
                 noTelp: formData.noTelp,
-                keperluanService: formData.keluhan,
+                keperluanService: getCombinedKeluhan(),
                 ip_address: userIP,
                 status: dmsBookingStatus
             });
@@ -456,13 +467,14 @@ export default function PublicBooking({ user }) {
             }
 
             if (dmsSynced) {
-                Toastify({ text: '✅ Booking berhasil! Data kendaraan ditemukan di DMS & langsung aktif.', style: { background: 'green' } }).showToast();
+                Toastify({ text: '✅ Booking berhasil & tersinkronisasi ke DMS!', style: { background: 'green' } }).showToast();
             } else {
-                Toastify({ text: '✅ Booking berhasil dikirim! Menunggu konfirmasi admin.', style: { background: 'green' } }).showToast();
+                Toastify({ text: '✅ Booking berhasil! Silakan datang sesuai jadwal.', style: { background: 'green' } }).showToast();
             }
 
             setIsBookingMode(false);
             setFormData({ jam: '', noPlat: '', namaCustomer: '', noTelp: '', keluhan: '' });
+            setSelectedFS([]);
             fetchBookings();
         } catch (err) {
             console.error('Booking error:', err);
@@ -534,7 +546,26 @@ export default function PublicBooking({ user }) {
             </header>
 
             {/* RESPONSIVE LAYOUT */}
-            <div className="flex-1 w-full max-w-6xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col lg:flex-row gap-6">
+            <div className="flex-1 w-full max-w-6xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col lg:flex-row gap-6 relative">
+
+                {!isSlotsReady && (
+                    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-zinc-50/80 backdrop-blur-sm rounded-[2rem]">
+                        <div className="bg-white rounded-[2rem] shadow-2xl border border-zinc-200 p-8 md:p-12 flex flex-col items-center gap-4 animate-fade-in">
+                            <div className="w-16 h-16 bg-zinc-900 rounded-2xl flex items-center justify-center shadow-lg">
+                                <CalendarIcon className="text-white w-8 h-8 animate-pulse" />
+                            </div>
+                            <div className="text-center">
+                                <p className="text-sm font-black text-zinc-900 uppercase tracking-[0.2em]">Memuat Data Booking</p>
+                                <p className="text-[10px] font-bold text-zinc-400 mt-2">Mohon tunggu sebentar...</p>
+                            </div>
+                            <div className="flex gap-1.5 mt-2">
+                                <div className="w-2.5 h-2.5 bg-zinc-900 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                                <div className="w-2.5 h-2.5 bg-zinc-900 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                                <div className="w-2.5 h-2.5 bg-zinc-900 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* KIRI/ATAS: CALENDAR SELECTOR */}
                 <div className="w-full lg:w-[420px] shrink-0 bg-white rounded-[2rem] border-2 border-dashed border-zinc-300 shadow-sm flex flex-col overflow-hidden relative">
@@ -731,6 +762,22 @@ export default function PublicBooking({ user }) {
                                                 <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Nomor Polisi (BK)</label>
                                                 <input required type="text" value={formData.noPlat} onChange={e => setFormData({ ...formData, noPlat: e.target.value.toUpperCase().replace(/\s+/g, '') })}
                                                     className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase placeholder:text-zinc-600" placeholder="BK 1234 AB" />
+                                            </div>
+                                            <div className="space-y-2 md:space-y-3">
+                                                <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Free Service</label>
+                                                <div className="flex gap-2">
+                                                    {['FS1', 'FS2', 'FS3'].map(fs => (
+                                                        <button key={fs} type="button" onClick={() => setSelectedFS(prev => prev.includes(fs) ? prev.filter(f => f !== fs) : [...prev, fs])}
+                                                            className={`flex-1 py-3 md:py-4 rounded-xl font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all border-2 ${
+                                                                selectedFS.includes(fs)
+                                                                    ? 'bg-white text-black border-white shadow-lg'
+                                                                    : 'bg-[#2A2A2A] text-zinc-400 border-white/5 hover:border-white/30'
+                                                            }`}
+                                                        >
+                                                            {fs}
+                                                        </button>
+                                                    ))}
+                                                </div>
                                             </div>
                                             <div className="space-y-2 md:space-y-3">
                                                 <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Keluhan / Catatan</label>

@@ -103,19 +103,17 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
     fetchData();
   }, [fetchData]);
 
+  // Fetch ALL local Supabase bookings (not just manual ones)
+  // so that every internal booking appears in the CRO view.
   useEffect(() => {
     (async () => {
       try {
         const { data } = await db.select('booking', {
-          order: { column: 'createdAt', ascending: false },
-          or: [
-            { op: 'ilike', column: 'bookingVia', value: '%Manual%' },
-            { op: 'ilike', column: 'bookingVia', value: '%Local Approved%' }
-          ]
+          order: { column: 'createdAt', ascending: false }
         });
         setSupabaseData(data || []);
       } catch (e) {
-        console.error('Gagal fetch manual bookings:', e);
+        console.error('Gagal fetch local bookings:', e);
       }
     })();
   }, [refreshTrigger]);

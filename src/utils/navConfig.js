@@ -94,6 +94,9 @@ export const NAV_CONFIG = {
     { id: 'customer-home', icon: Home, label: 'Dashboard', page: 'customer', ariaLabel: 'Dashboard Saya' },
   ],
   display: [],
+  foreman: [
+    { id: 'foreman-monitor', icon: Wrench, label: 'Foreman', page: 'foreman', ariaLabel: 'Foreman Panel' },
+  ],
   warranty: [
     { id: 'warranty-dashboard', icon: BarChart2,   label: 'Dashboard',        page: 'warranty',          ariaLabel: 'Warranty Dashboard' },
     { id: 'warranty-wo',        icon: ShieldCheck, label: 'Work Order',       page: 'warranty-wo',       ariaLabel: 'Warranty Work Order' },
@@ -114,6 +117,7 @@ export const DEFAULT_PAGES = {
   mekanik: 'mechanic',
   customer: 'customer',
   display: 'display',
+  foreman: 'foreman',
   warranty: 'warranty',
 };
 

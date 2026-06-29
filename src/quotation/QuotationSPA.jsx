@@ -25,7 +25,7 @@ import {
   RefreshCw,
   Key
 } from 'lucide-react';
-import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL, GATE } from '../utils/config';
+import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL } from '../utils/config';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -92,8 +92,8 @@ export default function QuotationSPA({ onClose }) {
   const fetchEpcImages = async (partCode) => {
     if (!epcmToken || !partCode) return;
     try {
-      const searchUrl = `${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/search/fastSearch/part?keywordNumber=${partCode}&page=1&pageSize=5`)}`;
-      const resp = await fetch(searchUrl);
+      const searchUrl = `${CHERY_EPC_URL}?path=${encodeURIComponent(`/api/rest/search/fastSearch/part?keywordNumber=${partCode}&page=1&pageSize=5`)}`;
+      const resp = await fetch(searchUrl, { headers: { 'token': epcmToken } });
       
       // If token expired (often returns 401 or a specific JSON success:false)
       if (resp.status === 401 || resp.status === 403) {
@@ -135,9 +135,7 @@ export default function QuotationSPA({ onClose }) {
     setIsSearching(true);
     try {
       // Use EXACT URL from OwnerPanel
-      const resp = await fetch(`${CHERY_DMS_URL}?pageSize=10&status=1&code=${encodeURIComponent(code)}`, {
-        headers: { 'x-api-key': GATE }
-      });
+      const resp = await fetch(`${CHERY_DMS_URL}?pageSize=10&status=1&code=${encodeURIComponent(code)}`);
       const result = await resp.json();
       const dmsData = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);
       setMasterParts(dmsData);

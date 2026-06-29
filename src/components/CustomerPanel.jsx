@@ -142,13 +142,17 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
           const callKey = item.id + '-' + (item.called_at || '');
           if (item.is_called && lastCallAtRef.current[item.id] !== callKey) {
             lastCallAtRef.current[item.id] = callKey;
-            setCalledItem({
-              id: item.id,
-              queueNumber: queueNum,
-              counter: counter,
-              bk: item.bk,
-              category: item.category
-            });
+            if (!confirmedCallsRef.current.has(item.id)) {
+              confirmedCallsRef.current.delete(item.id);
+              sessionStorage.setItem('confirmed_calls', JSON.stringify([...confirmedCallsRef.current]));
+              setCalledItem({
+                id: item.id,
+                queueNumber: queueNum,
+                counter: counter,
+                bk: item.bk,
+                category: item.category
+              });
+            }
           }
         } else {
           const today = new Date().toDateString();
@@ -187,7 +191,11 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
             const callKey = payload.new.id + '-' + (payload.new.called_at || '');
             if (lastCallAtRef.current[payload.new.id] !== callKey) {
               lastCallAtRef.current[payload.new.id] = callKey;
-              setCalledItem({ id: payload.new.id, queueNumber: payload.new.queue_number || 0, counter: payload.new.counter || 0, bk: payload.new.bk || '', category: payload.new.category || 'Reguler' });
+              if (!confirmedCallsRef.current.has(payload.new.id)) {
+                confirmedCallsRef.current.delete(payload.new.id);
+                sessionStorage.setItem('confirmed_calls', JSON.stringify([...confirmedCallsRef.current]));
+                setCalledItem({ id: payload.new.id, queueNumber: payload.new.queue_number || 0, counter: payload.new.counter || 0, bk: payload.new.bk || '', category: payload.new.category || 'Reguler' });
+              }
             }
           }
         } catch (e) {
@@ -306,7 +314,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
         }).showToast();
       } catch (e) { }
 
-      const timer = setTimeout(() => setCalledItem(null), 15000);
+      const timer = setTimeout(() => { setCalledItem(null); setDismissedNotif(true); }, 120000);
       return () => clearTimeout(timer);
     } catch (e) {
       console.error('Called notification error:', e);
@@ -455,6 +463,67 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
             </div>
           </div>
         )}
+
+      {/* Header */}
+      <header className="bg-white border-b border-zinc-200 px-6 py-6 sticky top-0 z-40 backdrop-blur-md bg-white/80">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-black rounded-2xl flex items-center justify-center shadow-lg">
+              <Car size={24} className="text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-black tracking-tight text-black">Halo, {user.name}</h1>
+              <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest flex items-center gap-2">
+                {user.plat_bk} <span className="w-1 h-1 bg-zinc-200 rounded-full"></span> {user.vin || 'No VIN'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                const next = !voiceEnabled;
+                setVoiceEnabled(next);
+                localStorage.setItem('chery_voice_enabled', JSON.stringify(next));
+
+                if (next) {
+                  const ok = await pushSubscribe(user.plat_bk);
+                  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+                  if (!ok && isIOS) {
+                    Toastify({
+                      text: '💡 Aktifkan notifikasi: Buka Safari → Share → Add to Home Screen',
+                      duration: 6000,
+                      gravity: 'bottom',
+                      position: 'center',
+                      style: { background: '#1e3a5f', borderRadius: '12px', fontWeight: '700' }
+                    }).showToast();
+                  }
+                  if ("Notification" in window && Notification.permission === "default") {
+                    Notification.requestPermission();
+                  }
+                } else {
+                  pushUnsubscribe(user.plat_bk);
+                }
+              }}
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90 ${voiceEnabled ? 'bg-emerald-50 text-emerald-500' : 'bg-zinc-100 text-zinc-400'}`}
+              title={voiceEnabled ? 'Suara Nyala' : 'Suara Mati'}
+            >
+              <Megaphone size={18} />
+            </button>
+            <div className={`px-3 md:px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-2 ${isVerified ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-orange-50 text-orange-600 border border-orange-100'}`}>
+              {isVerified ? <ShieldCheck size={12} /> : <ShieldAlert size={12} />}
+              <span className="hidden sm:inline">{isVerified ? 'Terverifikasi' : 'Menunggu Verifikasi'}</span>
+            </div>
+            <button
+              onClick={() => { pushUnsubscribe(user.plat_bk); handleLogout(); }}
+              className="w-10 h-10 bg-red-50 hover:bg-red-100 text-red-500 rounded-full flex items-center justify-center transition-all active:scale-90"
+              title="Logout"
+            >
+              <LogOut size={18} />
+            </button>
+          </div>
+        </div>
+      </header>
 
         {/* Top Row: Queue + Vehicle Data */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

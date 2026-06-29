@@ -1,5 +1,5 @@
 const WA_BASE_URL = import.meta.env.VITE_WA_API_URL || 'http://localhost:3000';
-const WA_KEY = import.meta.env.VITE_WA_KEY || 'ELLA-WA-PRO-2026';
+const WA_KEY = import.meta.env.VITE_WA_KEY;
 const WA_INSTANCE = import.meta.env.VITE_WA_INSTANCE || 'default';
 
 async function sendMessage(payload) {

@@ -8,9 +8,7 @@ import {
 import ReactApexChart from 'react-apexcharts';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
-import { CSI_PROXY_URL, GATE } from '../utils/config';
-
-const FEISHU_CSI_RESULT_SHARE_TOKEN = 'shrcnw2XQ2tFdIyI6iIcfGqJTv0';
+import { CSI_PROXY_URL } from '../utils/config';
 
 const CSI_SUMMARY = {
   dealerCode: '10007901',
@@ -36,34 +34,34 @@ const CSI_SUMMARY = {
 
 const SURVEY_RESPONDENTS = [
   {
-    id: 'rec27tmjbKH95d', name: 'Edy Gunawan', product: 'J6', vin: 'MF7GB27B8SJ001916',
+    id: 'rec_sample_01', name: 'Responden Satu', product: 'J6', vin: 'MF7GB27B8SJ000000',
     q1: 1, q2: 2, q3: 2, q4: 4, q5: 1, q6: 2, q7: 2, overall: 5, recommend: 7,
-    comment: 'tingkatkan jumlah bengkel service di daerah kota dan cari sales counter/ advisor yang pengalaman seperti Toyota'
+    comment: 'contoh komentar responden satu'
   },
   {
-    id: 'rec27yTSDU5c1z', name: 'Ecy suriyani', product: 'OMODA E5', vin: 'MF7ED27B8RJ001683',
+    id: 'rec_sample_02', name: 'Responden Dua', product: 'OMODA E5', vin: 'MF7ED27B8RJ000000',
     q1: 5, q2: 5, q3: 3, q4: 3, q5: 3, q6: 3, q7: 3, overall: 8, recommend: 9,
-    comment: 'Pengadaan suku cadang supaya ready setiap saat karena populasi mobil Chery sudah sangat banyak, dan tingkatkan skill dan pengetahuan mekanik terhadap produk Chery yang tergolong sudah canggih.'
+    comment: 'contoh komentar responden dua'
   },
   {
-    id: 'rec27yTWZmcvG0', name: 'TONI PARASIAN', product: 'Tiggo 8 Pro', vin: 'MF7CD24B8NJ000054',
+    id: 'rec_sample_03', name: 'Responden Tiga', product: 'Tiggo 8 Pro', vin: 'MF7CD24B8NJ000000',
     q1: 5, q2: 5, q3: 4, q4: 5, q5: 4, q6: 5, q7: 4, overall: 9, recommend: 9,
-    comment: 'Semoga kedepannya semakin lebih baik'
+    comment: 'contoh komentar responden tiga'
   },
   {
-    id: 'rec27AfckfuoLk', name: 'Edy Susanto', product: 'OMODA 5', vin: 'MF7ED21B8PJ000199',
+    id: 'rec_sample_04', name: 'Responden Empat', product: 'OMODA 5', vin: 'MF7ED21B8PJ000000',
     q1: 5, q2: 5, q3: 5, q4: 5, q5: 4, q6: 5, q7: 5, overall: 8, recommend: 6,
-    comment: 'saya konsumen luar kota (6 jam perjalanan darat) jadi pemeriksaan kerusakan harus berulang kali ke bengkel resmi CHERY jadi sangat merepotkan belum lagi kesalahan deteksi kerusakan yang harus berulang kali ke bengkel resmi (6 jam)'
+    comment: 'contoh komentar responden empat'
   },
   {
-    id: 'rec27C2KtBD0qH', name: 'Edy Wijaya', product: 'Tiggo Cross', vin: 'MF7AD21B8SJ003623',
+    id: 'rec_sample_05', name: 'Responden Lima', product: 'Tiggo Cross', vin: 'MF7AD21B8SJ000000',
     q1: 5, q2: 5, q3: 5, q4: 5, q5: 5, q6: 5, q7: 5, overall: 10, recommend: 10,
     comment: ''
   },
   {
-    id: 'rec27C3clUl3j2', name: 'Budiman', product: 'Tiggo Cross', vin: 'MF7AD21B8SJ002651',
+    id: 'rec_sample_06', name: 'Responden Enam', product: 'Tiggo Cross', vin: 'MF7AD21B8SJ000001',
     q1: 1, q2: 1, q3: 4, q4: 1, q5: 1, q6: 1, q7: 5, overall: 5, recommend: 10,
-    comment: 'mekanikkuskiluran'
+    comment: 'contoh komentar responden enam'
   }
 ];
 
@@ -95,7 +93,7 @@ export default function CsiResult() {
     setLiveSummary(null);
     try {
       const body = {
-        shareToken: FEISHU_CSI_RESULT_SHARE_TOKEN,
+        view: 'results',
         page_size: 200,
       };
 
@@ -103,7 +101,6 @@ export default function CsiResult() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': GATE,
         },
         body: JSON.stringify(body),
       });

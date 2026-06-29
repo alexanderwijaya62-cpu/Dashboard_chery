@@ -16,9 +16,16 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { shareToken, filter, offset } = req.body || {};
+  const { view, filter, offset, shareToken: bodyShareToken } = req.body || {};
+  const shareToken = bodyShareToken || (
+    view === 'customers'
+      ? process.env.FEISHU_CUSTOMERS_SHARE_TOKEN
+      : view === 'results'
+        ? process.env.FEISHU_CSI_RESULT_SHARE_TOKEN
+        : null
+  );
   if (!shareToken) {
-    return res.status(400).json({ error: 'shareToken is required' });
+    return res.status(400).json({ error: 'shareToken or view is required' });
   }
 
   const FEISHU_BASE = process.env.FEISHU_BASE_URL || 'https://my-ichery.feishu.cn';

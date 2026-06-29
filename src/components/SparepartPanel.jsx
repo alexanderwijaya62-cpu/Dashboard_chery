@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
-import { CHERY_DMS_URL, GATE } from '../utils/config';
+import { CHERY_DMS_URL } from '../utils/config';
 
 const normalize = (s) => String(s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 
@@ -264,9 +264,7 @@ export default function SparepartPanel({ user, handleLogout, isNavbarVisible, se
         setIsDmsLoading(true);
         try {
             // Search from DMS
-            const resp = await fetch(`${CHERY_DMS_URL}/search?q=${q}`, {
-                headers: { 'x-api-key': GATE }
-            });
+            const resp = await fetch(`${CHERY_DMS_URL}/search?q=${q}`);
             const result = await resp.json();
             
             const dmsData = result.data || result.items || (Array.isArray(result) ? result : []);

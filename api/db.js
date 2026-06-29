@@ -175,6 +175,18 @@ export default async function handler(req, res) {
 
     switch (action) {
       case 'select': {
+        // Whitelist kolom untuk customers select publik
+        if (table === 'customers' && isPublic) {
+          const allowed = ['no_hp', 'status', 'id', 'no_bk', 'nama'];
+          const requested = data?.select || '*';
+          if (requested === '*') {
+            data = { ...data, select: allowed.join(',') };
+          } else {
+            const cols = requested.split(',').map(c => c.trim());
+            const filtered = cols.filter(c => allowed.includes(c));
+            data = { ...data, select: filtered.length > 0 ? filtered.join(',') : 'id' };
+          }
+        }
         const headOnly = data?.head === true;
         q = q.select(data?.select || '*', { count: 'exact', head: headOnly });
         if (!headOnly) {
@@ -214,13 +226,19 @@ export default async function handler(req, res) {
             });
           }
         }
-        // H1: Whitelist kolom untuk booking publik
+        // Whitelist kolom untuk booking publik
         if (table === 'booking' && action === 'insert' && isPublic) {
-          const allowed = ['id', 'noUrut', 'tanggal', 'jam', 'noPlat', 'namaCustomer', 'noTelp', 'keperluanService', 'ip_address', 'bookingVia', 'tipeMobil', 'status'];
-          const safe = {};
-          const raw = data?.values || data;
-          for (const k of allowed) { if (raw[k] !== undefined) safe[k] = raw[k]; }
-          q = q.insert(safe);
+          const bAllowed = ['id', 'noUrut', 'tanggal', 'jam', 'noPlat', 'namaCustomer', 'noTelp', 'keperluanService', 'ip_address', 'bookingVia', 'tipeMobil', 'status'];
+          const bSafe = {};
+          const bRaw = data?.values || data;
+          for (const k of bAllowed) { if (bRaw[k] !== undefined) bSafe[k] = bRaw[k]; }
+          q = q.insert(bSafe);
+        } else if (table === 'customers' && action === 'insert' && isPublic) {
+          const cAllowed = ['id', 'no_hp', 'password', 'nama', 'no_bk', 'status', 'otp', 'otp_expires_at'];
+          const cSafe = {};
+          const cRaw = data?.values || data;
+          for (const k of cAllowed) { if (cRaw[k] !== undefined) cSafe[k] = cRaw[k]; }
+          q = q.insert(cSafe);
         } else {
           q = q.insert(data?.values || data);
         }
@@ -228,10 +246,10 @@ export default async function handler(req, res) {
         break;
       }
       case 'update': {
-        // K2: Whitelist kolom untuk customers update publik
+        // Whitelist kolom untuk customers update publik
         let updateValues = data?.values || data;
         if (table === 'customers' && isPublic) {
-          const allowed = ['nama', 'no_bk', 'vin', 'password'];
+          const allowed = ['nama', 'no_bk', 'vin', 'status', 'otp', 'otp_expires_at', 'password'];
           const safe = {};
           for (const k of allowed) { if (updateValues[k] !== undefined) safe[k] = updateValues[k]; }
           updateValues = safe;

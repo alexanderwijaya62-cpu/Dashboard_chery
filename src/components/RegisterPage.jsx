@@ -5,7 +5,7 @@ import { WA_BASE_URL, WA_INSTANCE } from '../utils/waClient';
 import cheryLogo from '../assets/cherylogo.png';
 import orientalLogo from '../assets/oriental.jpeg';
 
-const WA_BOT_NUMBER = import.meta.env.VITE_WA_BOT_NUMBER || '628888512596';
+const WA_BOT_NUMBER = import.meta.env.VITE_WA_BOT_NUMBER;
 const OTP_DURATION = 300; // 5 menit (detik)
 const RESEND_COOLDOWN = 60; // 1 menit (detik)
 const REGISTRATION_STATE_KEY = 'chery_registration_state';
@@ -103,7 +103,6 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
     }
     saveRegistrationState({
       phone,
-      password,
       step,
       otpCode,
       otpVerified,
@@ -257,7 +256,7 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
           try {
             await db.insert('notifications', {
               type: 'new_registration',
-              message: `Pelanggan mendaftar ulang (pending): ${phone}, OTP: ${otp}`,
+              message: `Pelanggan mendaftar ulang (pending): ${phone}`,
               target_role: 'owner',
               read: false
             });
@@ -299,7 +298,7 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
       try {
         await db.insert('notifications', {
           type: 'new_registration',
-          message: `Pelanggan baru mendaftar: ${phone}, OTP: ${otp}`,
+              message: `Pelanggan baru mendaftar: ${phone}`,
           target_role: 'owner',
           read: false
         });
@@ -337,7 +336,7 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
 
       await db.insert('notifications', {
         type: 'otp_resend',
-        message: `Pelanggan minta OTP baru: ${phone}, OTP: ${otp}`,
+        message: `Pelanggan minta OTP baru: ${phone}`,
         target_role: 'owner',
         read: false
       }).catch(() => {});

@@ -21,6 +21,8 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
     const [overnightReason, setOvernightReason] = useState('');
     const [isListening, setIsListening] = useState(false);
 
+    const [alasanMenginapUnit, setAlasanMenginapUnit] = useState(null);
+
     // Extension Request States
     const [showExtensionModal, setShowExtensionModal] = useState(false);
     const [extendingUnit, setExtendingUnit] = useState(null);
@@ -95,7 +97,7 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
         }
 
         const myHistory = targetHistory
-            .filter(item => item.mechanicName === user.name)
+            .filter(item => item.mechanicName && item.mechanicName.split(',').includes(user.name))
             .map(item => ({
                 ...item,
                 completedAt: item.completedAt || item.timestamp || parseInt(item.id) || Date.now()
@@ -106,17 +108,18 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
     }, [user, rawHistory]);
 
     const myActiveJobs = useMemo(() => {
-        return queue.filter(item => (item.status === 'working' || item.status === 'request_extension') && item.mechanicName === user?.name);
+        return queue.filter(item => (item.status === 'working' || item.status === 'request_extension') && item.mechanicName && item.mechanicName.split(',').includes(user?.name));
     }, [queue, user]);
+
+    const isMyJob = (item) => {
+        if (!item.mechanicName) return true;
+        return item.mechanicName.split(',').includes(user?.name);
+    };
 
     const availableQueue = useMemo(() => {
         return queue.filter(item => {
-            if (item.status === 'waiting') {
-                return !item.mechanicName || item.mechanicName === user?.name;
-            }
-            if (item.status === 'menginap') {
-                return !item.mechanicName || item.mechanicName === user?.name;
-            }
+            if (item.status === 'waiting') return isMyJob(item);
+            if (item.status === 'menginap') return isMyJob(item);
             return false;
         });
     }, [queue, user]);
@@ -215,7 +218,14 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                                             <div>
                                                 <span className="bg-black text-white text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest mb-2 inline-block shadow-sm">{item.category}</span>
                                                 <h3 className="text-4xl font-black text-zinc-900 tracking-tighter leading-none mb-1 font-mono">{item.bk}</h3>
-                                                <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest leading-none">{item.tipe}</p>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest leading-none">{item.tipe}</p>
+                                                    {item.cuci_required && (
+                                                        <span className="bg-teal-100 text-teal-800 text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest border border-teal-300 flex items-center gap-1">
+                                                            🧼 Cuci
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
                                             <div className="text-right">
                                                 <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest leading-none mb-1">Target Selesai</p>
@@ -237,48 +247,67 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                                             </div>
                                         )}
 
-                                        <div className="flex gap-2">
-                                            <button
-                                                onClick={() => setSelectedUnit(item)}
-                                                className="flex-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-900 py-4 min-h-[44px] rounded-xl font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 border border-zinc-200 shadow-sm"
-                                            >
-                                                <FileText size={16} className="text-black" /> Detail
-                                            </button>
-                                            {item.estimasi === 0 ? (
+                                        {(() => {
+                                            const jakartaOffset = 7 * 60;
+                                            const localOffset = new Date().getTimezoneOffset();
+                                            const jakartaTime = new Date(Date.now() + (jakartaOffset + localOffset) * 60000);
+                                            const currentHour = jakartaTime.getHours();
+                                            const isAfter5PM = currentHour >= 17;
+                                            return (
                                                 <>
-                                                    <button onClick={async () => { setIsLoadingProcess(true); try { await onComplete(item); } catch(e) {} setIsLoadingProcess(false); }}
-                                                        disabled={isLoadingProcess}
-                                                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-4 min-h-[44px] rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 border-2 border-emerald-700 shadow-lg"
-                                                    >
-                                                        <CheckCircle2 size={16} /> Selesai
-                                                    </button>
-                                                    <button onClick={() => { setExtendingUnit(item); setExtraMinutes(30); setExtraReason(''); setShowExtensionModal(true); }}
-                                                        className="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-4 min-h-[44px] rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 border-2 border-amber-700 shadow-lg"
-                                                    >
-                                                        <Clock size={16} /> Tambah Waktu
-                                                    </button>
+                                                    <div className="flex gap-2">
+                                                        <button onClick={() => setSelectedUnit(item)}
+                                                            className="flex-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-900 py-4 min-h-[44px] rounded-xl font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 border border-zinc-200 shadow-sm"
+                                                        >
+                                                            <FileText size={16} className="text-black" /> Task
+                                                        </button>
+                                                        {item.estimasi === 0 ? (
+                                                            <>
+                                                                <button onClick={async () => { setIsLoadingProcess(true); try { await onComplete(item); } catch(e) {} setIsLoadingProcess(false); }}
+                                                                    disabled={isLoadingProcess}
+                                                                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-4 min-h-[44px] rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 border-2 border-emerald-700 shadow-lg"
+                                                                >
+                                                                    <CheckCircle2 size={16} /> Selesai
+                                                                </button>
+                                                                <button onClick={() => { setExtendingUnit(item); setExtraMinutes(30); setExtraReason(''); setShowExtensionModal(true); }}
+                                                                    className="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-4 min-h-[44px] rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 border-2 border-amber-700 shadow-lg"
+                                                                >
+                                                                    <Clock size={16} /> Tambah Waktu
+                                                                </button>
+                                                            </>
+                                                        ) : (
+                                                            <button onClick={async () => { setIsLoadingProcess(true); try { await onComplete(item); } catch(e) {} setIsLoadingProcess(false); }}
+                                                                disabled={isLoadingProcess}
+                                                                className={`flex-1 py-4 min-h-[44px] rounded-xl font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 border-2 ${isLoadingProcess ? 'bg-zinc-200 border-zinc-300 text-zinc-300 cursor-not-allowed' : 'bg-black hover:bg-zinc-800 text-white shadow-lg border-black'}`}
+                                                            >
+                                                                {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><CheckCircle2 size={16} /> Selesai</>}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                    {isAfter5PM && (
+                                                        <div className="flex gap-2 mt-2">
+                                                            <button onClick={async () => {
+                                                                setIsLoadingProcess(true);
+                                                                try { await onSetOvernight(item, ''); } catch(e) {}
+                                                                setIsLoadingProcess(false);
+                                                            }}
+                                                                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                                                            >
+                                                                <Shield size={14} /> Set Menginap
+                                                            </button>
+                                                            <button onClick={() => {
+                                                                setOvernightReason(item.menginap_reason || '');
+                                                                setAlasanMenginapUnit(item);
+                                                            }}
+                                                                className="flex-1 bg-white hover:bg-zinc-50 text-purple-700 py-3 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 border-2 border-purple-200"
+                                                            >
+                                                                <Activity size={14} /> Alasan Menginap
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </>
-                                            ) : (
-                                                <button onClick={async () => { setIsLoadingProcess(true); try { await onComplete(item); } catch(e) {} setIsLoadingProcess(false); }}
-                                                    disabled={isLoadingProcess}
-                                                    className={`flex-1 py-4 min-h-[44px] rounded-xl font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 border-2 ${isLoadingProcess ? 'bg-zinc-200 border-zinc-300 text-zinc-300 cursor-not-allowed' : 'bg-black hover:bg-zinc-800 text-white shadow-lg border-black'}`}
-                                                >
-                                                    {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><CheckCircle2 size={16} /> Selesai</>}
-                                                </button>
-                                            )}
-                                        </div>
-                                        {item.estimasi === 0 && (
-                                            <button onClick={async () => {
-                                                const r = prompt('Alasan menginap (opsional):');
-                                                setIsLoadingProcess(true);
-                                                try { await onSetOvernight(item, r || ''); } catch(e) {}
-                                                setIsLoadingProcess(false);
-                                            }}
-                                                className="w-full mt-2 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-                                            >
-                                                <Shield size={14} /> Set Menginap
-                                            </button>
-                                        )}
+                                            );
+                                        })()}
                                     </div>
                                 ))}
                             </div>
@@ -311,13 +340,16 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                                                 <div className={`w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex items-center justify-center text-white shadow-lg shrink-0 ${item.status === 'menginap' ? 'bg-zinc-900' : 'bg-black'}`}>
                                                     {item.status === 'menginap' ? <Shield size={18} fill="white" /> : <Zap size={18} fill="white" />}
                                                 </div>
-                                                <div className="min-w-0">
-                                                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                                                        <h4 className="text-lg md:text-xl font-black text-zinc-900 font-mono leading-none tracking-tight">{item.bk}</h4>
-                                                        <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest ${item.status === 'menginap' ? 'bg-zinc-100 text-zinc-400 border border-zinc-200' : 'bg-zinc-100 text-black border border-black'}`}>{item.status === 'menginap' ? 'Menginap' : item.category}</span>
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                                            <h4 className="text-lg md:text-xl font-black text-zinc-900 font-mono leading-none tracking-tight">{item.bk}</h4>
+                                                            <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest ${item.status === 'menginap' ? 'bg-zinc-100 text-zinc-400 border border-zinc-200' : 'bg-zinc-100 text-black border border-black'}`}>{item.status === 'menginap' ? 'Menginap' : item.category}</span>
+                                                            {item.cuci_required && (
+                                                                <span className="bg-teal-50 text-teal-700 text-[7px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-widest border border-teal-200 flex items-center gap-0.5">🧼 Cuci</span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-[9px] md:text-[10px] font-black text-zinc-400 uppercase tracking-widest leading-none">{item.tipe}</p>
                                                     </div>
-                                                    <p className="text-[9px] md:text-[10px] font-black text-zinc-400 uppercase tracking-widest leading-none">{item.tipe}</p>
-                                                </div>
                                             </div>
 
                                             <div className="flex items-center gap-4 sm:border-l sm:pl-8 border-zinc-100">
@@ -559,64 +591,74 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                                     )}
                                 </div>
 
-                                {/* OVERNIGHT / MENGINAP FORM (SPEECH TO TEXT) */}
-                                {(liveUnit.status === 'working' || liveUnit.status === 'request_extension') && (
-                                    <div className="mt-8 pt-8 border-t border-zinc-100 space-y-4">
-                                        <h4 className="text-[10px] font-black uppercase text-zinc-400 tracking-widest ml-1 flex items-center gap-2">
-                                            <div className="w-1.5 h-1.5 bg-purple-500 rounded-full"></div> Tandai Menginap (Overnight)
-                                        </h4>
-                                        <div className="space-y-2">
-                                            <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest ml-1">Alasan Menginap (Tekan Mic Untuk Bicara)</label>
-                                            <div className="relative">
-                                                <textarea 
-                                                    value={overnightReason}
-                                                    onChange={(e) => setOvernightReason(e.target.value)}
-                                                    placeholder="Contoh: nunggu sparepart, pengerjaan belum selesai..." 
-                                                    rows={3}
-                                                    className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl p-5 pr-16 text-sm font-bold text-black focus:outline-none focus:border-zinc-950 resize-none placeholder:text-zinc-300"
-                                                />
-                                                <button 
-                                                    type="button"
-                                                    onClick={handleSpeech}
-                                                    className={`absolute right-4 bottom-4 w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
-                                                        isListening 
-                                                            ? 'bg-red-500 text-white animate-pulse shadow-lg shadow-red-200' 
-                                                            : 'bg-zinc-100 text-zinc-400 hover:text-black hover:bg-zinc-200'
-                                                    }`}
-                                                    title="Bicara (Bahasa Indonesia)"
-                                                >
-                                                    <Activity size={20} />
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <button 
-                                            type="button"
-                                            onClick={async () => {
-                                                if (!overnightReason.trim()) {
-                                                    alert("Silakan isi alasan menginap.");
-                                                    return;
-                                                }
-                                                setIsLoadingProcess(true);
-                                                try {
-                                                    await onSetOvernight(liveUnit, overnightReason.trim());
-                                                    setSelectedUnit(null);
-                                                    setOvernightReason('');
-                                                } catch (e) {
-                                                    console.error("Gagal men-set overnight:", e);
-                                                }
-                                                setIsLoadingProcess(false);
-                                            }}
-                                            className="w-full bg-purple-600 hover:bg-purple-700 text-white py-5 rounded-2xl font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all active:scale-95 shadow-md flex items-center justify-center gap-2"
-                                        >
-                                            Set Unit Menginap
-                                        </button>
-                                    </div>
-                                )}
+
                             </div>
                         </div>
                     </div>
                 );
             })()}
+
+            {/* ALASAN MENGINAP MODAL */}
+            {alasanMenginapUnit && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4" onClick={() => { setAlasanMenginapUnit(null); setOvernightReason(''); }}>
+                    <div className="bg-white rounded-[2rem] w-full max-w-md shadow-2xl p-6 border border-zinc-100 animate-fade-in" onClick={e => e.stopPropagation()}>
+                        <h3 className="text-lg font-black mb-2">Alasan Menginap</h3>
+                        <p className="text-[10px] font-bold text-zinc-400 mb-6">Unit {alasanMenginapUnit.bk} — Masukkan alasan unit di-set menginap</p>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest ml-1 mb-2">Alasan Menginap (Tekan Mic Untuk Bicara)</label>
+                                <div className="relative">
+                                    <textarea
+                                        value={overnightReason}
+                                        onChange={(e) => setOvernightReason(e.target.value)}
+                                        placeholder="Contoh: nunggu sparepart, pengerjaan belum selesai..."
+                                        rows={4}
+                                        className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl p-5 pr-16 text-sm font-bold text-black focus:outline-none focus:border-zinc-950 resize-none placeholder:text-zinc-300"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleSpeech}
+                                        className={`absolute right-4 bottom-4 w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
+                                            isListening
+                                                ? 'bg-red-500 text-white animate-pulse shadow-lg shadow-red-200'
+                                                : 'bg-zinc-100 text-zinc-400 hover:text-black hover:bg-zinc-200'
+                                        }`}
+                                        title="Bicara (Bahasa Indonesia)"
+                                    >
+                                        <Activity size={20} />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex gap-3 mt-6">
+                            <button onClick={() => { setAlasanMenginapUnit(null); setOvernightReason(''); }}
+                                className="flex-1 py-4 rounded-xl border-2 border-zinc-200 text-zinc-500 font-black text-[10px] uppercase tracking-widest hover:bg-zinc-50 transition-all"
+                            >
+                                Batal
+                            </button>
+                            <button onClick={async () => {
+                                if (!overnightReason.trim()) {
+                                    alert("Silakan isi alasan menginap.");
+                                    return;
+                                }
+                                setIsLoadingProcess(true);
+                                try {
+                                    await onSetOvernight(alasanMenginapUnit, overnightReason.trim());
+                                    setAlasanMenginapUnit(null);
+                                    setOvernightReason('');
+                                } catch (e) {
+                                    console.error("Gagal menyimpan alasan menginap:", e);
+                                }
+                                setIsLoadingProcess(false);
+                            }}
+                                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 shadow-md flex items-center justify-center gap-2"
+                            >
+                                <Shield size={16} /> Simpan Alasan
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* EXTENSION REQUEST MODAL */}
             {showExtensionModal && extendingUnit && (

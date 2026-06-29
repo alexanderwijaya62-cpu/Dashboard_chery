@@ -80,7 +80,9 @@ export default async function handler(req, res) {
     }
 
     // Route: ?path=... → EPC proxy
-    const { path, token } = req.query;
+    const path = req.query.path;
+    // Token: prefer header, fallback to query param (backward compat)
+    const token = req.headers['token'] || req.headers['authorization']?.replace('Bearer ', '') || req.query.token;
     if (!path) {
         return res.status(400).json({ error: "Missing path parameter" });
     }

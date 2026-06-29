@@ -53,7 +53,7 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/api': {
-        target: 'https://cherymedan.web.id',
+        target: 'https://www.cherymedan.web.id',
         changeOrigin: true,
         secure: false
       }

@@ -1,8 +1,9 @@
 ﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { User, Plus, Edit3, Bookmark, Zap, AlertCircle, CheckCircle2, Trash2, Check, Moon, X, Clock, Activity, UserCog, FileText, PlusCircle, CheckCircle, Trash, Search, ChevronDown, Car, ShieldCheck, Info, Megaphone } from 'lucide-react';
+import { User, Plus, Edit3, Bookmark, Zap, AlertCircle, CheckCircle2, Trash2, Check, Moon, X, Clock, Activity, UserCog, FileText, PlusCircle, CheckCircle, Trash, Search, ChevronDown, Car, ShieldCheck, Info, Megaphone, Upload, Download, Loader, Database, Droplets } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import TimeInput from './TimeInput';
+import * as XLSX from 'xlsx';
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
 import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
@@ -25,7 +26,7 @@ const normalizeJam = (j) => {
     return `${h}.${m}`;
 };
 
-const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, clearQueue, editItem, handleSave, handleCancelEdit, formData, setFormData, isEditing, setIsEditing, errorMessage, isLoadingProcess, formatTime, handleComplete, handleConfirmCompletion, handleSetOvernight, handleCancelOvernight, breakSettings, setBreakSettings, handleAddTask, handleRemoveTask, handleToggleTask, playNotificationSound, handleCallQueue, activeTab: activeTabProp, callCooldown = 120, onApproveExtension, onRejectExtension }) => {
+const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, clearQueue, editItem, handleSave, handleCancelEdit, formData, setFormData, isEditing, setIsEditing, errorMessage, isLoadingProcess, formatTime, handleComplete, handleConfirmCompletion, handleSetOvernight, handleCancelOvernight, breakSettings, setBreakSettings, handleAddTask, handleRemoveTask, handleToggleTask, playNotificationSound, handleCallQueue, activeTab: activeTabProp, callCooldown = 120, onApproveExtension, onRejectExtension, handleStartCuci, handleCompleteCuci }) => {
     const [bookingConfigState, setBookingConfigState] = useState({ slotCount: 8, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 });
     const [currentDay, setCurrentDay] = useState(new Date().toDateString());
     const [adminCounter, setAdminCounter] = useState(() => {
@@ -119,11 +120,26 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
     };
 
     const [rawBookings, setRawBookings] = useState([]);
+    const [dmsTodayBookings, setDmsTodayBookings] = useState([]);
+    const [dmsMasterBookings, setDmsMasterBookings] = useState([]);
 
     const normalizeBK = useCallback((bk) => (bk || '').replace(/\s+/g, '').toUpperCase(), []);
 
     const cleanupPastBookings = useCallback(async () => {
         // No longer delete past bookings — they are kept for audit trail
+    }, []);
+
+    const fetchDmsToday = useCallback(async () => {
+        try {
+            const today = new Date().toLocaleDateString('en-CA');
+            const res = await fetch(`/api/chery_dms?endpoint=booking-data&draw=1&start=0&length=200&datefrom=${today}&dateto=${today}&_=${Date.now()}`);
+            const json = await res.json();
+            if (json.data && Array.isArray(json.data)) {
+                setDmsTodayBookings(json.data);
+            }
+        } catch (e) {
+            console.warn('Gagal fetch DMS hari ini:', e);
+        }
     }, []);
 
     const fetchBookings = useCallback(async () => {
@@ -136,8 +152,45 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
             const { data, error } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, status, bookingVia, vin, noTelp, noUrut', gte: { tanggal: dateStr } });
             if (error) throw error;
             if (Array.isArray(data)) setRawBookings(data);
+
+            // === Fetch DMS internal bookings for master table ===
+            try {
+                const today = new Date().toLocaleDateString('en-CA');
+                const dmsRes = await fetch(`/api/chery_dms?endpoint=booking-data&draw=1&start=0&length=500&datefrom=${dateStr}&dateto=${today}&_=${Date.now()}`);
+                if (dmsRes.ok) {
+                    const dmsJson = await dmsRes.json();
+                    if (Array.isArray(dmsJson.data)) {
+                        const normalized = dmsJson.data.map(b => {
+                            const janji = b.janji_datang || '';
+                            const parts = janji.split(' ');
+                            const tgl = parts[0] || '';
+                            const jamRaw = parts[1] || '00:00';
+                            const jam = jamRaw.replace(':', '.');
+                            const sBooking = (b.status_booking || '').toLowerCase();
+                            if (['batal', 'expired', 'declined'].includes(sBooking)) return null;
+                            return {
+                                id: `dms_${b.no_booking || b.id || Math.random()}`,
+                                _isDms: true,
+                                tanggal: tgl,
+                                jam,
+                                noPlat: b.no_polisi || '',
+                                namaCustomer: b.nama_pelanggan || '',
+                                tipeMobil: b.nama_kendaraan || '',
+                                keperluanService: '',
+                                status: 'accepted',
+                                bookingVia: b.booking_via || 'DMS Internal',
+                                vin: b.no_chassis || '',
+                                noTelp: b.no_telp_booking || '',
+                            };
+                        }).filter(Boolean).filter(b => b.tanggal >= dateStr);
+                        setDmsMasterBookings(normalized);
+                    }
+                }
+            } catch (dmsErr) {
+                console.warn('Gagal fetch DMS master bookings:', dmsErr);
+            }
         } catch (e) {
-            console.error('Gagal fetch booking dari Supabase:', e);
+            console.error('Gagal fetch booking:', e);
         }
     }, [cleanupPastBookings]);
 
@@ -149,6 +202,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
     // 1. Subscribe ONLY ONCE on mount
     useEffect(() => {
         fetchBookings();
+        fetchDmsToday();
         const bookingSub = supabase
             .channel('admin-booking-realtime')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'booking' }, () => {
@@ -157,7 +211,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
             .subscribe();
 
         return () => { supabase.removeChannel(bookingSub); };
-    }, [fetchBookings]);
+    }, [fetchBookings, fetchDmsToday]);
 
     // 2. Process data locally when rawBookings, queue, or rawHistory change
     // Get config slot count for showing all slots
@@ -171,13 +225,50 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
             if (now !== currentDay) {
                 setCurrentDay(now);
                 fetchBookings();
+                fetchDmsToday();
             }
         }, 60000); // Check every minute
         return () => clearInterval(interval);
-    }, [currentDay, fetchBookings]);
+    }, [currentDay, fetchBookings, fetchDmsToday]);
+
+    // Normalize DMS bookings to match Supabase format and merge
+    const mergedTodayBookings = useMemo(() => {
+        const todayStr = new Date().toLocaleDateString('en-CA');
+        const isSameDay = (d1, d2) => {
+            const getStr = (d) => {
+                if (!d) return "";
+                if (d instanceof Date) return d.toLocaleDateString('en-CA');
+                const s = String(d).split(/[T ]/)[0];
+                if (s.includes('-') && s.length === 10) return s; 
+                const dt = new Date(d);
+                return isNaN(dt.getTime()) ? s : dt.toLocaleDateString('en-CA');
+            };
+            return getStr(d1) === getStr(d2);
+        };
+
+        const normalizedDms = dmsTodayBookings.map(row => ({
+            id: row.id_booking || `dms-${Date.now()}-${Math.random()}`,
+            tanggal: row.janji_datang?.split(' ')[0] || todayStr,
+            jam: row.janji_datang?.split(' ')[1]?.slice(0, 5).replace(':', '.') || '08.00',
+            noPlat: row.no_polisi || '-',
+            namaCustomer: row.nama_pelanggan || '-',
+            tipeMobil: row.nama_kendaraan || '-',
+            keperluanService: row.keluhan || '-',
+            status: row.status_booking === 'Batal' ? 'cancelled' : 'accepted',
+            bookingVia: row.booking_via || 'DMS Internal',
+            vin: row.no_chassis || '',
+            noTelp: row.no_telp_booking || '',
+            noUrut: 0,
+            _source: 'dms'
+        }));
+
+        // Merge: DMS bookings first (so Supabase ones take priority if duplicate)
+        const allForToday = [...normalizedDms, ...rawBookings];
+        return allForToday;
+    }, [dmsTodayBookings, rawBookings]);
 
     const todayBookings = useMemo(() => {
-        if (!Array.isArray(rawBookings)) return [];
+        if (!Array.isArray(mergedTodayBookings)) return [];
         
         const activePlates = new Set(queue.map(q => normalizeBK(q.bk)));
         const historyPlatesToday = new Set(
@@ -202,8 +293,8 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
         };
 
         // Get all booked entries for today
-        const bookedEntries = rawBookings
-            .filter(b => isSameDay(b.tanggal, todayStr) && b.status !== 'completed' && b.status !== 'declined' && b.status !== 'deleted')
+        const bookedEntries = mergedTodayBookings
+            .filter(b => isSameDay(b.tanggal, todayStr) && b.status !== 'completed' && b.status !== 'declined' && b.status !== 'deleted' && b.status !== 'cancelled')
             .map(b => {
                 const plat = normalizeBK(b.noPlat);
                 const isArrived = activePlates.has(plat) || historyPlatesToday.has(plat);
@@ -305,9 +396,16 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
     const [editingBooking, setEditingBooking] = useState(null);
     const [isCreateBookingModalOpen, setIsCreateBookingModalOpen] = useState(false);
     const [createBookingForm, setCreateBookingForm] = useState({ tanggal: new Date().toISOString().split('T')[0], jam: '08.30', namaCustomer: '', noTelp: '', tipeMobil: '', noPlat: '', keperluanService: 'Service', vin: '' });
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [isImporting, setIsImporting] = useState(false);
+
+    const allMasterBookings = useMemo(() => {
+        // Merge: DMS first, Supabase second (DMS flagged, Supabase for edit/delete)
+        return [...dmsMasterBookings, ...rawBookings];
+    }, [dmsMasterBookings, rawBookings]);
 
     const filteredMasterBookings = useMemo(() => {
-        return rawBookings
+        return allMasterBookings
             .filter(b => {
                 const searchStr = `${b.namaCustomer} ${b.noPlat} ${b.vin} ${b.keperluanService}`.toLowerCase();
                 const matchesSearch = searchStr.includes(bookingSearchTerm.toLowerCase());
@@ -315,7 +413,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                 return matchesSearch && matchesDate;
             })
             .sort((a,b) => new Date(b.tanggal) - new Date(a.tanggal));
-    }, [rawBookings, bookingSearchTerm, bookingDateFilter]);
+    }, [allMasterBookings, bookingSearchTerm, bookingDateFilter]);
 
     const fetchVehicleByPlate = async (plat) => {
         if (!plat || plat.length < 3) return;
@@ -584,6 +682,21 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                 </div>
                             </div>
 
+                            {/* Row: Cuci Mobil */}
+                            <div className="flex items-center gap-3 bg-teal-50 border-2 border-teal-200 rounded-2xl px-5 py-4">
+                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${formData.cuci ? 'bg-teal-600' : 'bg-zinc-200'}`}>
+                                    <Droplets size={20} className={formData.cuci ? 'text-white' : 'text-zinc-400'} />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-sm font-black text-teal-800 uppercase tracking-tight block leading-tight">Cuci Mobil</label>
+                                    <p className="text-[9px] font-bold text-teal-600/70">{formData.cuci ? 'Akan dicuci setelah servis' : 'Tidak perlu cuci'}</p>
+                                </div>
+                                <button onClick={() => setFormData({ ...formData, cuci: !formData.cuci })}
+                                    className={`relative w-14 h-7 rounded-full transition-all border-2 ${formData.cuci ? 'bg-teal-600 border-teal-700' : 'bg-zinc-100 border-zinc-200'}`}>
+                                    <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-all ${formData.cuci ? 'left-[30px]' : 'left-0.5'}`} />
+                                </button>
+                            </div>
+
                             {/* Row: Jenis Pekerjaan */}
                             <div>
                                 <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">Jenis Pekerjaan</label>
@@ -762,6 +875,10 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                         <div className="flex-1 min-w-0">
                                             <p className="text-xs font-black text-zinc-900">{req.bk} +{Math.floor(extraDuration / 60)}m</p>
                                             <p className="text-[8px] font-bold text-zinc-500 truncate">{extraReason}</p>
+                                            <p className="text-[7px] font-black text-zinc-400 mt-0.5">
+                                                <span className="text-amber-600">{req.mechanicName || '-'}</span>
+                                                {extraData?.mechanic && extraData.mechanic !== req.mechanicName && <span className="text-zinc-400"> via Foreman ({extraData.mechanic})</span>}
+                                            </p>
                                         </div>
                                         <div className="flex gap-1.5 shrink-0">
                                             <button onClick={() => onApproveExtension(req, extraDuration, extraReason)} className="px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[8px] uppercase tracking-widest">Setujui</button>
@@ -770,6 +887,34 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     </div>
                                 );
                             })}
+                        </div>
+                    )}
+                    {/* Desktop Extension Requests */}
+                    {queue.filter(q => q.status === 'request_extension').length > 0 && (
+                        <div className="hidden md:block bg-amber-50 border-b-2 border-amber-200 px-6 py-3 space-y-2">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-2">
+                                <Clock size={14} /> Request Tambah Waktu
+                            </p>
+                            <div className="flex flex-wrap gap-3">
+                                {queue.filter(q => q.status === 'request_extension').map(req => {
+                                    const extraData = req.pendingExtra ? (typeof req.pendingExtra === 'string' ? JSON.parse(req.pendingExtra) : req.pendingExtra) : null;
+                                    const extraDuration = extraData?.duration || 1800;
+                                    const extraReason = extraData?.reason || req.menginap_reason?.replace('[TAMBAH WAKTU] ', '') || '';
+                                    return (
+                                        <div key={req.id} className="flex items-center gap-3 bg-white rounded-xl px-4 py-2 border border-amber-200 shadow-sm">
+                                            <div className="flex items-center gap-2 text-xs font-black text-zinc-900">
+                                                <span>{req.bk}</span>
+                                                <span className="text-amber-600">+{Math.floor(extraDuration / 60)}m</span>
+                                            </div>
+                                            <span className="text-[9px] font-bold text-zinc-500 truncate max-w-[200px]">{extraReason}</span>
+                                            <div className="flex gap-1.5 shrink-0">
+                                                <button onClick={() => onApproveExtension(req, extraDuration, extraReason)} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-black text-[8px] uppercase tracking-widest transition-all">Setujui</button>
+                                                <button onClick={() => onRejectExtension(req)} className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg font-black text-[8px] uppercase tracking-widest transition-all">Tolak</button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     )}
 
@@ -1044,6 +1189,67 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                             </tbody>
                         </table>
                     </div>
+
+                    {/* Cuci Queue Section */}
+                    {queue.filter(q => q.status === 'menunggu_cuci' || q.status === 'sedang_dicuci').length > 0 && (
+                        <div className="shrink-0 bg-gradient-to-r from-teal-50 to-cyan-50 border-t-2 border-teal-200 px-6 py-4">
+                            <div className="flex items-center gap-3 mb-3">
+                                <div className="w-7 h-7 bg-teal-600 rounded-lg flex items-center justify-center">
+                                    <Droplets size={14} className="text-white" />
+                                </div>
+                                <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-teal-800">Antrian Cuci Mobil</h4>
+                                <span className="text-[8px] font-bold text-teal-600 bg-white px-3 py-1 rounded-full border border-teal-200">
+                                    {queue.filter(q => q.status === 'menunggu_cuci').length} Tunggu / {queue.filter(q => q.status === 'sedang_dicuci').length} Dicuci
+                                </span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {queue.filter(q => q.status === 'menunggu_cuci' || q.status === 'sedang_dicuci')
+                                    .sort((a, b) => (a.queueNumber || 0) - (b.queueNumber || 0))
+                                    .map((item, idx) => {
+                                        const isDicuci = item.status === 'sedang_dicuci';
+                                        const cuciAntrian = queue.filter(q => q.status === 'menunggu_cuci' && (q.queueNumber || 0) < (item.queueNumber || 0)).length + 1;
+                                        return (
+                                            <div key={item.id} className={`flex items-center gap-3 px-4 py-3 rounded-2xl border-2 shadow-sm transition-all ${isDicuci ? 'bg-cyan-100 border-cyan-300 shadow-cyan-200/30' : 'bg-white border-teal-200'}`}>
+                                                <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white font-black text-[11px] ${isDicuci ? 'bg-cyan-600' : 'bg-teal-500'}`}>
+                                                    <Droplets size={16} fill="white" />
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-black text-sm text-black uppercase">{item.bk}</span>
+                                                        <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-wider text-white ${isDicuci ? 'bg-cyan-600' : 'bg-teal-500'}`}>
+                                                            {isDicuci ? 'SEDANG DICUCI' : `ANTRIAN #${cuciAntrian}`}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-3 mt-0.5">
+                                                        <span className="text-[8px] font-bold text-zinc-500">Cuci Ke-{cuciAntrian}</span>
+                                                        {isDicuci && (
+                                                            <span className={`text-[9px] font-black tabular-nums ${item.estimasi < 120 ? 'text-red-600 animate-pulse' : 'text-cyan-700'}`}>
+                                                                ⏱ {formatTime(item.estimasi)}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-1.5 ml-auto">
+                                                    {item.status === 'menunggu_cuci' && handleStartCuci && (
+                                                        <button onClick={() => handleStartCuci(item)}
+                                                            className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-sm transition-all active:scale-95">
+                                                            Mulai Cuci
+                                                        </button>
+                                                    )}
+                                                    {item.status === 'sedang_dicuci' && handleCompleteCuci && (
+                                                        <button onClick={() => handleCompleteCuci(item)}
+                                                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-sm transition-all active:scale-95">
+                                                            Selesai Cuci
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                            </div>
+                        </div>
+                    )}
+
                         {queue.some(q => q.estimasi < 0 && q.status !== 'completed' && q.status !== 'menginap' && q.status !== 'menunggu_konfirmasi') && (
                             <div className="shrink-0 bg-black text-white px-6 py-3 flex items-center justify-center gap-3 animate-slide-up relative z-40">
                                 <AlertCircle size={16} className="animate-bounce" />
@@ -1122,6 +1328,10 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                         <div className="flex-1 min-w-0">
                                             <p className="text-xs font-black text-zinc-900">{req.bk} — <span className="text-amber-600">+{Math.floor(extraDuration / 60)} menit</span></p>
                                             <p className="text-[9px] font-bold text-zinc-500 truncate">{extraReason}</p>
+                                            <p className="text-[8px] font-black text-zinc-400 mt-0.5">
+                                                <span className="text-amber-600">{req.mechanicName || '-'}</span>
+                                                {extraData?.mechanic && extraData.mechanic !== req.mechanicName && <span className="text-zinc-400"> via Foreman ({extraData.mechanic})</span>}
+                                            </p>
                                         </div>
                                         <div className="flex gap-2 shrink-0">
                                             <button onClick={() => onApproveExtension(req, extraDuration, extraReason)}
@@ -1212,6 +1422,12 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                             </td>
                                             <td className="px-8 py-8">
                                                 <div className="flex items-center justify-end gap-3">
+                                                    {b._isDms ? (
+                                                        <span className="bg-zinc-900 text-white px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center gap-2 shadow-md">
+                                                            <Database size={14} /> DMS
+                                                        </span>
+                                                    ) : (
+                                                        <>
                                                     <button 
                                                         onClick={() => {
                                                             setEditingBooking(b);
@@ -1237,6 +1453,8 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                     >
                                                         <Trash2 size={16} />
                                                     </button>
+                                                    </>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -1275,7 +1493,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                 const allSlots = generateSlots(slotCount, gapInline, startInlineH, startInlineM);
                                                 
                                                 return allSlots.map(s => {
-                                                    const bookingsAtSlot = rawBookings.filter(b => {
+                                                    const bookingsAtSlot = allMasterBookings.filter(b => {
                                                         const isDateSame = b.tanggal === createBookingForm.tanggal;
                                                         const isJamSame = normalizeJam(b.jam) === normalizeJam(s);
                                                         const isActive = b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed';
@@ -1344,9 +1562,10 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                 ...createBookingForm,
                                                 noPlat: createBookingForm.noPlat.toUpperCase().replace(/\s+/g, ''),
                                                 status: 'accepted',
-                                                bookingVia: `ADMIN / ${user?.name || 'Authorized'}`
+                                                bookingVia: `ADMIN / ${user?.name || 'Authorized'}`,
+                                                createdAt: new Date().toISOString(),
                                             }]);
-                                            if (insertError) Toastify({ text: "Gagal membuat booking!", background: "red" }).showToast();
+                                            if (insertError) Toastify({ text: `Gagal membuat booking: ${insertError.message}`, background: "red", duration: 5000 }).showToast();
                                             else { Toastify({ text: "Booking berhasil dibuat!", background: "zinc-900" }).showToast(); setIsCreateBookingModalOpen(false); fetchBookings(); }
                                         }}
                                         className="flex-[2] py-4 md:py-5 min-h-[44px] bg-black text-white rounded-[1.5rem] font-black text-sm md:text-xs uppercase shadow-2xl shadow-zinc-300 hover:bg-zinc-800 transition-all flex items-center justify-center gap-3"
@@ -1395,7 +1614,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                 const allSlots = generateSlots(slotCount, gapInline, startInlineH, startInlineM);
                                                 
                                                 return allSlots.map(s => {
-                                                    const bookingsAtThisTime = rawBookings.filter(b => 
+                                                    const bookingsAtThisTime = allMasterBookings.filter(b => 
                                                         b.id !== editingBooking.id && // Exclude CURRENT booking being edited
                                                         b.tanggal === editingBooking.tanggal && 
                                                         normalizeJam(b.jam) === normalizeJam(s) &&

@@ -11,7 +11,7 @@ import {
   Download,
   Filter
 } from 'lucide-react';
-import { CHERY_DMS_URL, GATE } from '../utils/config';
+import { CHERY_DMS_URL } from '../utils/config';
 import * as XLSX from 'xlsx';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
@@ -36,9 +36,7 @@ export default function ProfitDashboard() {
       
       setIsLoading(true);
       try {
-        const resp = await fetch(`${CHERY_DMS_URL}/search?q=${searchTerm}`, {
-          headers: { 'x-api-key': GATE }
-        });
+        const resp = await fetch(`${CHERY_DMS_URL}/search?q=${searchTerm}`);
         const result = await resp.json();
         const dmsData = result.data || result.items || (Array.isArray(result) ? result : []);
         

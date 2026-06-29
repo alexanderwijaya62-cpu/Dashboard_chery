@@ -4,7 +4,7 @@ import { Button } from '@heroui/react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 
-import { GATE, GAS_URL, GAS_USERS_URL, IS_MAINTENANCE } from './utils/config';
+import { GAS_URL, GAS_USERS_URL, IS_MAINTENANCE } from './utils/config';
 import { db } from './utils/dbClient';
 import { supabase } from './utils/supabaseClient';
 
@@ -16,6 +16,7 @@ import AdminPanel from './components/AdminPanel';
 import PromosiSparepart from './components/PromosiSparepart';
 import QuotationSPA from './quotation/QuotationSPA';
 import MechanicPanel from './components/MechanicPanel';
+import ForemanPanel from './components/ForemanPanel';
 import SparepartPanel from './components/SparepartPanel';
 import FollowupPanel from './components/FollowupPanel';
 import ManagerPanel from './components/ManagerPanel';
@@ -54,9 +55,7 @@ const customFetch = (url, options = {}) => {
   const isGAS = url.includes('script.google.com');
   const headers = { ...options.headers };
 
-  if (!isGAS) {
-    headers["x-api-key"] = GATE;
-  }
+  // x-api-key dihapus — tidak divalidasi oleh server
 
   return fetch(url, {
     ...options,
@@ -143,7 +142,7 @@ const App = () => {
   const [queue, setQueue] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [now, setNow] = useState(Date.now());
-  const [formData, setFormData] = useState({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', jenisPekerjaan: [], keluhan: '', mechanicName: '', checklist: [] });
+  const [formData, setFormData] = useState({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', jenisPekerjaan: [], keluhan: '', mechanicName: '', checklist: [], cuci: false });
   const [isEditing, setIsEditing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
@@ -310,7 +309,7 @@ const App = () => {
         const u = JSON.parse(savedUser);
         if (u && u.role) {
           const role = u.role.toLowerCase();
-          const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner'].includes(role) ? '/staff' : 
+          const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner', 'foreman'].includes(role) ? '/staff' : 
                             (role === 'customer' ? '/customer' : '/karyawan');
           window.history.replaceState({}, '', targetUrl);
           window.location.reload();
@@ -352,7 +351,7 @@ const App = () => {
     if (path === '/staff' || path === '/' || path === '/display') {
         if (role === 'display' && path === '/display') {
           setCurrentPage('display');
-        } else if (['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty'].includes(role)) {
+        } else if (['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty', 'foreman'].includes(role)) {
           const allowedPages = {
             admin: ['admin', 'admin-booking', 'admin-wo', 'promo', 'display', 'booking-public', 'sa-booking'],
             manager: ['manager', 'manager-financial', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'display', 'booking-public'],
@@ -360,6 +359,7 @@ const App = () => {
             sparepart: ['sparepart', 'sparepart-view', 'sparepart-quotation', 'sparepart-profit', 'quotation', 'display', 'booking-public', 'stock-comparison'],
             owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-sparepart-cost', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'display', 'booking-public', 'stock-comparison'],
             warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-proforma'],
+            foreman: ['foreman'],
           };
 
           if (savedPage && allowedPages[role]?.includes(savedPage)) {
@@ -394,11 +394,11 @@ const App = () => {
       if (savedPage && (
         (role === 'mekanik' && savedPage === 'mechanic') ||
         (role === 'customer' && (savedPage === 'customer' || savedPage === 'booking-public' || savedPage === 'customer-complaint')) ||
-        (['admin', 'manager', 'cro', 'sparepart', 'owner'].includes(role))
+        (['admin', 'manager', 'cro', 'sparepart', 'owner', 'foreman'].includes(role))
       )) {
         setCurrentPage(savedPage);
       } else {
-        setCurrentPage(role === 'mekanik' ? 'mechanic' : (role === 'customer' ? 'customer' : (role === 'cro' ? 'cro' : role)));
+        setCurrentPage(role === 'mekanik' ? 'mechanic' : (role === 'customer' ? 'customer' : (role === 'cro' ? 'cro' : (role === 'foreman' ? 'foreman' : role))));
       }
     }
   }, []);
@@ -1208,6 +1208,7 @@ const App = () => {
       checklist: formData.checklist || [],
       menginap_reason: formData.menginap_reason || '',
       noTelp: formData.noTelp || '',
+      cuci_required: formData.cuci || false,
     };
 
     const mechanicValue = formData.mechanicName || '';
@@ -1238,18 +1239,28 @@ const App = () => {
 
     try {
       if (isEditing) {
-        // Try updating antrian first
-        const { error, data: updatedRows } = await db.update('antrian', updates, { eq: { id: formData.id } });
+        let updateError, updatedRows;
+        ({ error: updateError, data: updatedRows } = await db.update('antrian', updates, { eq: { id: formData.id } }));
+        if (updateError && updateError.code === 'PGRST204') {
+          delete updates.cuci_required;
+          ({ error: updateError, data: updatedRows } = await db.update('antrian', updates, { eq: { id: formData.id } }));
+        }
 
-        if (!error && (!updatedRows || updatedRows.length === 0)) {
+        if (!updateError && (!updatedRows || updatedRows.length === 0)) {
           const historyUpdates = { ...updates };
           delete historyUpdates.checklist;
           delete historyUpdates.targetTime;
           delete historyUpdates.menginap_reason;
           const { error: hError } = await db.update('history', historyUpdates, { eq: { id: formData.id } });
-          if (hError) throw hError;
-        } else if (error) {
-          throw error;
+          if (hError && hError.code === 'PGRST204') {
+            delete historyUpdates.cuci_required;
+            const { error: hRetry } = await db.update('history', historyUpdates, { eq: { id: formData.id } });
+            if (hRetry) throw hRetry;
+          } else if (hError) {
+            throw hError;
+          }
+        } else if (updateError) {
+          throw updateError;
         }
       } else {
         const { data: maxQueue } = await db.select('antrian', {
@@ -1261,10 +1272,18 @@ const App = () => {
         updates.queue_number = maxNum + 1;
 
         const { error } = await db.insert('antrian', updates);
-        if (error) throw error;
+        if (error) {
+          if (error.code === 'PGRST204') {
+            delete updates.cuci_required;
+            const { error: retryError } = await db.insert('antrian', updates);
+            if (retryError) throw retryError;
+          } else {
+            throw error;
+          }
+        }
       }
 
-      setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '', mechanicName: '', checklist: [], menginap_reason: '' });
+      setFormData({ id: null, bk: '', tipe: '', jam: 0, menit: 30, detik: 0, category: 'Reguler', keluhan: '', mechanicName: '', checklist: [], menginap_reason: '', cuci: false });
       setIsEditing(false);
       fetchQueueRef.current();
     } catch (error) {
@@ -1402,8 +1421,8 @@ const App = () => {
   const handleStartWork = async (item) => {
     if (!user || user.role?.toLowerCase() !== 'mekanik' || isLoadingProcess) return;
 
-    if (item.status === 'menginap' && item.mechanicName && item.mechanicName !== user.name) {
-      alert("Hanya mekanik yang mengerjakan sebelumnya yang bisa melanjutkan! Jika belum ada penugasan, silakan hubungi Admin.");
+    if (item.status === 'menginap' && item.mechanicName && !item.mechanicName.split(',').includes(user.name)) {
+      alert("Hanya mekanik yang ditugaskan yang bisa melanjutkan! Silakan hubungi Foreman/Admin.");
       return;
     }
 
@@ -1412,14 +1431,19 @@ const App = () => {
     const estimasiDefaultInt = parseInt(item.estimasiDefault) || 1800;
     const targetTime = Date.now() + (estimasiDefaultInt * 1000);
 
+    // If foreman already assigned mechanics, keep the original mechanicName list
+    const updatePayload = {
+      status: 'working',
+      targetTime: targetTime,
+      is_called: false
+    };
+    if (!item.mechanicName) {
+      updatePayload.mechanicName = user.name;
+    }
+
     try {
-      await db.update('antrian', {
-        status: 'working',
-        targetTime: targetTime,
-        mechanicName: user.name
-      }, { eq: { id: item.id } });
-      // Update local state immediately without waiting for Realtime
-      setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'working', targetTime: targetTime, mechanicName: user.name } : q));
+      await db.update('antrian', updatePayload, { eq: { id: item.id } });
+      setQueue(prev => prev.map(q => q.id === item.id ? { ...q, ...updatePayload } : q));
       fetchQueueRef.current();
     } catch (err) {
       console.error(err);
@@ -1642,36 +1666,42 @@ const App = () => {
         elapsedSeconds = Math.max(0, estDef - remainingAtComplete);
       }
 
-      // Update antrian status to 'menunggu_konfirmasi' — stay in queue
-      // estimasiDefault diisi elapsedSeconds (durasi aktual) untuk display admin
+      // If cuci required → go to cuci queue instead of konfirmasi
+      const isCuci = item.cuci_required === true;
       const updatePayload = {
-        status: 'menunggu_konfirmasi',
+        status: isCuci ? 'menunggu_cuci' : 'menunggu_konfirmasi',
         waktuSelesai: nowISO,
         estimasiDefault: elapsedSeconds || remainingAtComplete,
         elapsedSeconds: elapsedSeconds
       };
+      if (isCuci) {
+        updatePayload.cuci_mulai = '';
+        updatePayload.cuci_queue = 0;
+      }
 
       const { error: updateError } = await db.update('antrian', updatePayload, { eq: { id: item.id } });
 
       if (updateError) {
         if (updateError.code === 'PGRST204') {
-          // Kolom elapsedSeconds belum ada — coba tanpa
           delete updatePayload.elapsedSeconds;
-          await db.update('antrian', updatePayload, { eq: { id: item.id } });
+          delete updatePayload.cuci_mulai;
+          delete updatePayload.cuci_queue;
+          const { error: retryError } = await db.update('antrian', updatePayload, { eq: { id: item.id } });
+          if (retryError) throw retryError;
         } else {
           throw new Error(`Database Error (Update Antrian): ${updateError.message}`);
         }
       }
 
       Toastify({
-        text: `⏳ ${item.bk} selesai dikerjakan — Menunggu konfirmasi admin`,
+        text: isCuci ? `🚗 ${item.bk} selesai dikerjakan — Menunggu antrian cuci` : `⏳ ${item.bk} selesai dikerjakan — Menunggu konfirmasi admin`,
         duration: 4000,
-        style: { background: "linear-gradient(135deg, #f59e0b, #d97706)", borderRadius: "12px", fontWeight: "900" }
+        style: { background: isCuci ? "linear-gradient(135deg, #0d9488, #0f766e)" : "linear-gradient(135deg, #f59e0b, #d97706)", borderRadius: "12px", fontWeight: "900" }
       }).showToast();
 
       // Optimistic update + immediate re-fetch
       setQueue(prev => prev.map(q =>
-        q.id === item.id ? { ...q, status: 'menunggu_konfirmasi', waktuSelesai: nowISO, estimasiDefault: remainingAtComplete } : q
+        q.id === item.id ? { ...q, status: isCuci ? 'menunggu_cuci' : 'menunggu_konfirmasi', waktuSelesai: nowISO, estimasiDefault: remainingAtComplete, cuci_required: isCuci } : q
       ));
       fetchQueueRef.current();
 
@@ -1880,6 +1910,64 @@ const App = () => {
     }
   };
 
+  const handleStartCuci = async (item) => {
+    if (isLoadingProcess) return;
+    if (!window.confirm(`Mulai pencucian untuk ${item.bk}?`)) return;
+    setIsLoadingProcess(true);
+    try {
+      const cuciDurasi = 30 * 60; // 30 menit
+      const targetTime = Date.now() + (cuciDurasi * 1000);
+      const cuciPayload = {
+        status: 'sedang_dicuci',
+        cuci_mulai: new Date().toISOString(),
+        targetTime: targetTime,
+        estimasiDefault: cuciDurasi,
+      };
+      const { error } = await db.update('antrian', cuciPayload, { eq: { id: item.id } });
+      if (error) {
+        if (error.code === 'PGRST204') {
+          delete cuciPayload.cuci_mulai;
+          const { error: retryError } = await db.update('antrian', cuciPayload, { eq: { id: item.id } });
+          if (retryError) throw retryError;
+        } else {
+          throw error;
+        }
+      }
+      setQueue(prev => prev.map(q =>
+        q.id === item.id ? { ...q, status: 'sedang_dicuci', cuci_mulai: new Date().toISOString(), targetTime, estimasiDefault: cuciDurasi } : q
+      ));
+      fetchQueueRef.current();
+      Toastify({ text: `🧽 ${item.bk} sedang dicuci`, background: "#0d9488", borderRadius: "12px", fontWeight: "900" }).showToast();
+    } catch (err) {
+      Toastify({ text: `❌ Gagal mulai cuci: ${err.message}`, background: "#dc2626", borderRadius: "12px" }).showToast();
+    } finally {
+      setIsLoadingProcess(false);
+    }
+  };
+
+  const handleCompleteCuci = async (item) => {
+    if (isLoadingProcess) return;
+    if (!window.confirm(`Selesaikan pencucian ${item.bk}?`)) return;
+    setIsLoadingProcess(true);
+    try {
+      const now = new Date().toISOString();
+      const { error } = await db.update('antrian', {
+        status: 'menunggu_konfirmasi',
+        waktuSelesai: now,
+      }, { eq: { id: item.id } });
+      if (error) throw error;
+      setQueue(prev => prev.map(q =>
+        q.id === item.id ? { ...q, status: 'menunggu_konfirmasi', waktuSelesai: now } : q
+      ));
+      fetchQueueRef.current();
+      Toastify({ text: `✅ ${item.bk} selesai dicuci — Menunggu konfirmasi admin`, background: "#059669", borderRadius: "12px", fontWeight: "900" }).showToast();
+    } catch (err) {
+      Toastify({ text: `❌ Gagal selesai cuci: ${err.message}`, background: "#dc2626", borderRadius: "12px" }).showToast();
+    } finally {
+      setIsLoadingProcess(false);
+    }
+  };
+
   const handleCallQueue = async (item, counterNum) => {
     if (isLoadingProcess) return;
 
@@ -1967,7 +2055,8 @@ const App = () => {
       detik: item.estimasi % 60,
       mechanicName: item.mechanicName || '',
       checklist: item.checklist || [],
-      menginap_reason: item.menginap_reason || ''
+      menginap_reason: item.menginap_reason || '',
+      cuci: item.cuci_required || false,
     });
     setIsEditing(true);
   };
@@ -2080,7 +2169,7 @@ const App = () => {
         </button>
       )}
       {currentPage === 'login' && <LoginPage loginForm={loginForm} setLoginForm={setLoginForm} handleLogin={handleLogin} errorMessage={errorMessage} setCurrentPage={navigate} />}
-      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleConfirmCompletion={handleConfirmCompletion} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} handleCallQueue={handleCallQueue} activeTab="dashboard" callCooldown={callCooldownRef.current} onApproveExtension={handleApproveExtension} onRejectExtension={handleRejectExtension} />}
+      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleConfirmCompletion={handleConfirmCompletion} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} handleCallQueue={handleCallQueue} activeTab="dashboard" callCooldown={callCooldownRef.current} onApproveExtension={handleApproveExtension} onRejectExtension={handleRejectExtension} handleStartCuci={handleStartCuci} handleCompleteCuci={handleCompleteCuci} />}
       {currentPage === 'admin-booking' && <CroBookingPanel user={user} />}
       {currentPage === 'admin-wo' && <WarrantyWorkOrderPage />}
       {currentPage === 'mechanic' && (
@@ -2098,6 +2187,17 @@ const App = () => {
           onSetOvernight={handleSetOvernight}
           onCancelOvernight={handleCancelOvernight}
           onRequestExtension={handleRequestExtension}
+        />
+      )}
+      {currentPage === 'foreman' && (
+        <ForemanPanel
+          user={user}
+          handleLogout={handleLogout}
+          queue={fullProcessedQueue}
+          formatTime={formatTime}
+          onComplete={handleComplete}
+          onRequestExtension={handleRequestExtension}
+          isLoadingProcess={isLoadingProcess}
         />
       )}
       {currentPage === 'sparepart' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={navigate} activeTab="input" />}

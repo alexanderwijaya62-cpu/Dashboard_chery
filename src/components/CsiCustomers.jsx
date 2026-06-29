@@ -6,9 +6,7 @@ import {
 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
-import { CSI_PROXY_URL, GATE } from '../utils/config';
-
-const FEISHU_CUSTOMERS_SHARE_TOKEN = 'shrcnisfoFIuULuCRmFBG310qDb';
+import { CSI_PROXY_URL } from '../utils/config';
 
 const SENT_STATUS_LABEL = {
   optjRRw2sJ: { label: 'Success', color: 'bg-green-100 text-green-700' },
@@ -142,7 +140,7 @@ export default function CsiCustomers() {
       ];
 
       const body = {
-        shareToken: FEISHU_CUSTOMERS_SHARE_TOKEN,
+        view: 'customers',
         filter: JSON.stringify({
           conditions: filterConditions,
           conjunction: 'and',
@@ -153,7 +151,6 @@ export default function CsiCustomers() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': GATE,
         },
         body: JSON.stringify(body),
       });

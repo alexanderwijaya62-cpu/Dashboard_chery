@@ -1,4 +1,4 @@
-const GATE = import.meta.env.VITE_GATE || 'chery-gate-2024';
+const GATE = import.meta.env.VITE_GATE;
 export { GATE };
 export const GAS_URL = "/api/gas";
 export const GAS_USERS_URL = "/api/gas_users";

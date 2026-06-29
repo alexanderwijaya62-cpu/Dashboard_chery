@@ -46,11 +46,44 @@ export default function CroBookingPanel({ user }) {
             try {
                 const yesterday = new Date();
                 yesterday.setDate(yesterday.getDate() - 1);
+                const dateStr = yesterday.toISOString().split('T')[0];
                 const { data } = await db.select('booking', {
                     select: 'id, tanggal, jam, status',
-                    gte: { tanggal: yesterday.toISOString().split('T')[0] }
+                    gte: { tanggal: dateStr }
                 });
-                if (Array.isArray(data)) setBookings(data);
+                let merged = Array.isArray(data) ? [...data] : [];
+
+                // === Fetch DMS internal bookings ===
+                try {
+                    const now = new Date();
+                    const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+                    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+                    const to = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-${String(nextMonth.getDate()).padStart(2, '0')}`;
+                    const dmsRes = await fetch(`/api/chery_dms?endpoint=booking-data&datefrom=${from}&dateto=${to}&length=500`);
+                    if (dmsRes.ok) {
+                        const dmsJson = await dmsRes.json();
+                        const dmsEntries = (dmsJson.data || []).map(b => {
+                            const janji = b.janji_datang || '';
+                            const parts = janji.split(' ');
+                            const tgl = parts[0] || '';
+                            const jamRaw = parts[1] || '00:00';
+                            const jam = jamRaw.replace(':', '.');
+                            const sBooking = (b.status_booking || '').toLowerCase();
+                            if (['batal', 'expired', 'declined'].includes(sBooking)) return null;
+                            return {
+                                id: `dms_${b.no_booking || b.id || Math.random()}`,
+                                tanggal: tgl,
+                                jam,
+                                status: 'accepted',
+                            };
+                        }).filter(Boolean).filter(b => b.tanggal >= dateStr);
+                        merged = [...merged, ...dmsEntries];
+                    }
+                } catch (dmsErr) {
+                    console.warn('Gagal fetch DMS bookings:', dmsErr);
+                }
+
+                setBookings(merged);
             } catch (_) {}
         })();
     }, [refreshTrigger]);
@@ -186,6 +219,7 @@ export default function CroBookingPanel({ user }) {
         try {
             if (isManual) {
                 const { error } = await db.insert('booking', {
+                    id: Date.now() + Math.floor(Math.random() * 1000),
                     tanggal: formData.tanggal,
                     jam: formData.jam,
                     noPlat: formData.noPolisi,
@@ -193,64 +227,90 @@ export default function CroBookingPanel({ user }) {
                     noTelp: formData.noTelp,
                     tipeMobil: formData.modelKendaraan || '-',
                     keperluanService: formData.keluhan || '-',
-                    status: 'waiting confirm',
+                    status: 'accepted',
                     bookingVia: 'CRO Booking (Manual)',
                     createdAt: new Date().toISOString(),
                 });
                 if (error) throw error;
-                Toastify({ text: "Booking BERHASIL ditambahkan ke sistem!", background: "green" }).showToast();
+                Toastify({ text: "Booking BERHASIL!", background: "green" }).showToast();
                 resetModal();
                 return;
             }
-            const targetJam = formData.jam.replace('.', ':') + ':00';
-            const janjiDatang = `${formData.tanggal} ${targetJam}`;
+            // === ALWAYS save to Supabase first ===
+            const vehiclePlate = foundVehicle?.no_polisi || formData.noPolisi;
+            const vehicleModel = foundVehicle?.nama_kendaraan || foundVehicle?.model_kendaraan || formData.modelKendaraan || '-';
 
-            const postData = {
-                id_kendaraan: foundVehicle.id_kendaraan || '',
-                no_polisi: foundVehicle.no_polisi,
-                nama_kendaraan: foundVehicle.nama_kendaraan || foundVehicle.model_kendaraan || '',
-                no_chassis: foundVehicle.no_chassis || '',
-                atas_nama_booking: formData.atasNama,
-                no_telp_booking: formData.noTelp,
-                janji_datang: janjiDatang,
-                keluhan: formData.keluhan || '-',
-                booking_via: 'WA CS Service / CRO',
-                km: formData.km || '0'
-            };
-
-            const formDataBody = new URLSearchParams();
-            Object.entries(postData).forEach(([k, v]) => formDataBody.set(k, v));
-
-            const res = await fetch('/api/chery_dms?endpoint=booking-create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: formDataBody.toString()
+            const { data: inserted, error: insertErr } = await db.insert('booking', {
+                id: Date.now() + Math.floor(Math.random() * 1000),
+                tanggal: formData.tanggal,
+                jam: formData.jam,
+                noPlat: vehiclePlate,
+                namaCustomer: formData.atasNama,
+                noTelp: formData.noTelp,
+                tipeMobil: vehicleModel,
+                keperluanService: formData.keluhan || '-',
+                status: 'accepted',
+                bookingVia: 'CRO Booking',
+                createdAt: new Date().toISOString(),
             });
+            if (insertErr) throw insertErr;
 
-            const json = await res.json();
-            if (json.success) {
-                try {
-                    await db.insert('booking', {
-                        tanggal: formData.tanggal,
-                        jam: formData.jam,
-                        noPlat: formData.noPolisi,
-                        namaCustomer: formData.atasNama,
-                        noTelp: formData.noTelp,
-                        tipeMobil: formData.modelKendaraan || '-',
-                        keperluanService: formData.keluhan || '-',
-                        status: 'accepted',
-                        bookingVia: 'CRO Booking (DMS Synced)',
-                        createdAt: new Date().toISOString(),
-                    });
-                } catch (localErr) {
-                    console.error('Gagal simpan DMS booking lokal:', localErr);
+            const bookingId = Array.isArray(inserted) ? inserted[0]?.id : inserted?.id;
+
+            // === Sync ke DMS sebagai bonus ===
+            let dmsSynced = false;
+            try {
+                const targetJam = formData.jam.replace('.', ':') + ':00';
+                const janjiDatang = `${formData.tanggal} ${targetJam}`;
+
+                const postData = {
+                    id_kendaraan: foundVehicle.id_kendaraan || '',
+                    no_polisi: foundVehicle.no_polisi,
+                    nama_kendaraan: foundVehicle.nama_kendaraan || foundVehicle.model_kendaraan || '',
+                    no_chassis: foundVehicle.no_chassis || '',
+                    atas_nama_booking: formData.atasNama,
+                    no_telp_booking: formData.noTelp,
+                    janji_datang: janjiDatang,
+                    keluhan: formData.keluhan || '-',
+                    booking_via: 'WA CS Service / CRO',
+                    km: formData.km || '0'
+                };
+
+                const formDataBody = new URLSearchParams();
+                Object.entries(postData).forEach(([k, v]) => formDataBody.set(k, v));
+
+                const res = await fetch('/api/chery_dms?endpoint=booking-create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formDataBody.toString()
+                });
+
+                const json = await res.json();
+                if (json.success) {
+                    dmsSynced = true;
+                } else {
+                    console.warn('DMS booking-create gagal:', json.message);
                 }
-                Toastify({ text: "Booking BERHASIL ditambahkan!", background: "green" }).showToast();
-                resetModal();
-                setRefreshTrigger(prev => prev + 1);
-            } else {
-                throw new Error(json.message || "Gagal menyimpan booking di DMS");
+            } catch (syncErr) {
+                console.warn('DMS sync error:', syncErr);
             }
+
+            // === Update bookingVia jika DMS berhasil ===
+            if (bookingId && dmsSynced) {
+                await db.update('booking', {
+                    bookingVia: 'CRO Booking (DMS Synced)'
+                }, { eq: { id: bookingId } });
+            }
+
+            Toastify({
+                text: dmsSynced
+                    ? 'Booking BERHASIL & tersinkronisasi ke DMS!'
+                    : 'Booking BERHASIL!',
+                background: 'green',
+                duration: 5000
+            }).showToast();
+            resetModal();
+            setRefreshTrigger(prev => prev + 1);
         } catch (err) {
             Toastify({ text: `ERROR: ${err.message}`, background: "red", duration: 5000 }).showToast();
         } finally {
