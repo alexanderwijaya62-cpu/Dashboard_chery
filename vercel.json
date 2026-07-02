@@ -10,6 +10,7 @@
     { "src": "api/csi-proxy.js", "use": "@vercel/node", "config": { "maxDuration": 15 } },
     { "src": "api/dhl_tracking.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },
     { "src": "api/notify.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },
+    { "src": "api/tts.js", "use": "@vercel/node", "config": { "maxDuration": 15 } },
     { "src": "package.json", "use": "@vercel/static-build", "config": { "framework": "vite" } }
   ],
   "rewrites": [
@@ -29,6 +30,7 @@
     { "source": "/api/csi-proxy", "destination": "/api/csi-proxy.js" },
     { "source": "/api/dhl_tracking", "destination": "/api/dhl_tracking.js" },
     { "source": "/api/notify", "destination": "/api/notify.js" },
+    { "source": "/api/tts", "destination": "/api/tts.js" },
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"

@@ -38,6 +38,8 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout }) => {
       customer: 'customer',
       display: 'display',
       warranty: 'warranty',
+      foreman: 'foreman',
+      security: 'security',
     };
     return map[role?.toLowerCase()] || 'login';
   };

@@ -42,6 +42,7 @@ import WarrantyDashboard from './components/WarrantyDashboard';
 import WarrantySearch from './components/WarrantySearch';
 import WarrantyHub, { WarrantyWorkOrderPage } from './components/WarrantyHub';
 import ProformaInvoice from './components/ProformaInvoice';
+import SecurityPanel from './components/SecurityPanel';
 import { getNavItems } from './utils/navConfig';
 
 // Helper sanitasi untuk mencegah "Injection" atau karakter berbahaya
@@ -107,14 +108,14 @@ const isToday = (time) => {
 const App = () => {
   // --- 1. STATE DEFINITIONS ---
   const [currentPage, setCurrentPage] = useState(() => {
-    return localStorage.getItem('chery_current_page') || 'login';
+        return sessionStorage.getItem('chery_current_page') || 'login';
   });
   const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem('chery_auth_user');
+        const savedUser = sessionStorage.getItem('chery_auth_user');
     return savedUser ? JSON.parse(savedUser) : null;
   });
   const [sessionId, setSessionId] = useState(() => {
-    return localStorage.getItem('chery_session_id') || null;
+    return sessionStorage.getItem('chery_session_id') || null;
   });
   const [lastLoginDate, setLastLoginDate] = useState(() => {
     return localStorage.getItem('chery_last_login_date') || null;
@@ -199,7 +200,7 @@ const App = () => {
     setAnimDir('forward');
     setPageStack(prev => [...prev, currentPage]);
     setCurrentPage(page);
-    localStorage.setItem('chery_current_page', page);
+    sessionStorage.setItem('chery_current_page', page);
     window.history.pushState({ page }, '');
   }, [currentPage]);
 
@@ -209,7 +210,7 @@ const App = () => {
     const prev = pageStack[pageStack.length - 1];
     setPageStack(prev => prev.slice(0, -1));
     setCurrentPage(prev);
-    localStorage.setItem('chery_current_page', prev);
+    sessionStorage.setItem('chery_current_page', prev);
   }, [pageStack]);
 
   // Intercept browser back button (skip if modal is open)
@@ -229,7 +230,7 @@ const App = () => {
 
   // --- 2. EFFECTS & LOGIC ---
   useEffect(() => {
-    localStorage.setItem('chery_current_page', currentPage);
+    sessionStorage.setItem('chery_current_page', currentPage);
   }, [currentPage]);
 
   // Update Location & Coordinates whenever App loads with a user
@@ -273,8 +274,8 @@ const App = () => {
     // Always clear local session and redirect, regardless of network outcome
     setUser(null);
     setSessionId(null);
-    localStorage.removeItem('chery_auth_user');
-    localStorage.removeItem('chery_session_id');
+    sessionStorage.removeItem('chery_auth_user');
+    sessionStorage.removeItem('chery_session_id');
     setCurrentPage('login');
     window.history.pushState({}, '', '/login');
 
@@ -300,7 +301,7 @@ const App = () => {
   // Handle Pseudo-Routing ( Guards & Redirects )
   useEffect(() => {
     const path = window.location.pathname.toLowerCase();
-    const savedUser = localStorage.getItem('chery_auth_user');
+    const savedUser = sessionStorage.getItem('chery_auth_user');
 
     // 1. PUBLIC ROUTES — hanya login yang bisa diakses tanpa auth
     const publicPaths = ['/login', '/register'];
@@ -309,7 +310,7 @@ const App = () => {
         const u = JSON.parse(savedUser);
         if (u && u.role) {
           const role = u.role.toLowerCase();
-          const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner', 'foreman'].includes(role) ? '/staff' : 
+          const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner', 'foreman', 'security'].includes(role) ? '/staff' : 
                             (role === 'customer' ? '/customer' : '/karyawan');
           window.history.replaceState({}, '', targetUrl);
           window.location.reload();
@@ -344,22 +345,28 @@ const App = () => {
       return;
     }
 
-    const savedPage = localStorage.getItem('chery_current_page');
+    const savedPage = sessionStorage.getItem('chery_current_page');
     const role = u.role.toLowerCase();
+
+    // Map public paths to pages
+    if (path === '/booking') { setCurrentPage('booking-public'); return; }
+    if (path === '/tracking') { setCurrentPage('tracking-public'); return; }
 
     // Specific path mapping
     if (path === '/staff' || path === '/' || path === '/display') {
-        if (role === 'display' && path === '/display') {
+        if (role === 'display') {
+          if (path !== '/display') window.history.replaceState({}, '', '/display');
           setCurrentPage('display');
-        } else if (['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty', 'foreman'].includes(role)) {
+        } else if (['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty', 'foreman', 'security'].includes(role)) {
           const allowedPages = {
             admin: ['admin', 'admin-booking', 'admin-wo', 'promo', 'display', 'booking-public', 'sa-booking'],
             manager: ['manager', 'manager-financial', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'display', 'booking-public'],
             cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-booking-approval', 'cro-holidays', 'cro-csi', 'cro-customers', 'display', 'booking-public', 'sa-booking', 'booking-settings'],
-            sparepart: ['sparepart', 'sparepart-view', 'sparepart-quotation', 'sparepart-profit', 'quotation', 'display', 'booking-public', 'stock-comparison'],
+            sparepart: ['sparepart', 'sparepart-view', 'sparepart-profit', 'quotation', 'display', 'booking-public', 'stock-comparison'],
             owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-sparepart-cost', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'display', 'booking-public', 'stock-comparison'],
             warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-proforma'],
-            foreman: ['foreman'],
+            foreman: ['foreman', 'booking-public', 'display'],
+            security: ['security', 'display', 'booking-public'],
           };
 
           if (savedPage && allowedPages[role]?.includes(savedPage)) {
@@ -380,7 +387,10 @@ const App = () => {
           setCurrentPage('mechanic');
         }
     } else if (path === '/karyawan') {
-      if (role === 'mekanik') {
+      if (role === 'display') {
+        window.history.replaceState({}, '', '/display');
+        setCurrentPage('display');
+      } else if (role === 'mekanik') {
         setCurrentPage('mechanic');
       } else {
         window.history.replaceState({}, '', '/staff');
@@ -388,17 +398,22 @@ const App = () => {
       }
     } else {
       // If path is unknown but logged in, send to their role's default page or respect saved page
-      const defaultPath = ['mekanik'].includes(role) ? '/karyawan' : (role === 'customer' ? '/customer' : '/staff');
-      window.history.replaceState({}, '', defaultPath);
-
-      if (savedPage && (
-        (role === 'mekanik' && savedPage === 'mechanic') ||
-        (role === 'customer' && (savedPage === 'customer' || savedPage === 'booking-public' || savedPage === 'customer-complaint')) ||
-        (['admin', 'manager', 'cro', 'sparepart', 'owner', 'foreman'].includes(role))
-      )) {
-        setCurrentPage(savedPage);
+      if (role === 'display') {
+        window.history.replaceState({}, '', '/display');
+        setCurrentPage('display');
       } else {
-        setCurrentPage(role === 'mekanik' ? 'mechanic' : (role === 'customer' ? 'customer' : (role === 'cro' ? 'cro' : (role === 'foreman' ? 'foreman' : role))));
+        const defaultPath = ['mekanik'].includes(role) ? '/karyawan' : (role === 'customer' ? '/customer' : '/staff');
+        window.history.replaceState({}, '', defaultPath);
+
+        if (savedPage && (
+          (role === 'mekanik' && savedPage === 'mechanic') ||
+          (role === 'customer' && (savedPage === 'customer' || savedPage === 'booking-public' || savedPage === 'customer-complaint')) ||
+          (['admin', 'manager', 'cro', 'sparepart', 'owner', 'foreman', 'security'].includes(role))
+        )) {
+          setCurrentPage(savedPage);
+        } else {
+          setCurrentPage(role === 'mekanik' ? 'mechanic' : (role === 'customer' ? 'customer' : (role === 'cro' ? 'cro' : (role === 'foreman' ? 'foreman' : (role === 'security' ? 'security' : role)))));
+        }
       }
     }
   }, []);
@@ -467,13 +482,13 @@ const App = () => {
 
   // Persist User & Session
   useEffect(() => {
-    if (user) localStorage.setItem('chery_auth_user', JSON.stringify(user));
-    else localStorage.removeItem('chery_auth_user');
+    if (user) sessionStorage.setItem('chery_auth_user', JSON.stringify(user));
+    else sessionStorage.removeItem('chery_auth_user');
   }, [user]);
 
   useEffect(() => {
-    if (sessionId) localStorage.setItem('chery_session_id', sessionId);
-    else localStorage.removeItem('chery_session_id');
+    if (sessionId) sessionStorage.setItem('chery_session_id', sessionId);
+    else sessionStorage.removeItem('chery_session_id');
   }, [sessionId]);
 
   const fetchQueue = React.useCallback(async () => {
@@ -600,18 +615,27 @@ const App = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Periodic polling — pastikan display selalu fresh meski Realtime delay
+  useEffect(() => {
+    if (currentPage !== 'display') return;
+    const interval = setInterval(() => {
+      fetchQueueRef.current();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [currentPage]);
+
   // Simpan status user ke LocalStorage
   useEffect(() => {
-    localStorage.setItem('chery_auth_user', JSON.stringify(user));
+    sessionStorage.setItem('chery_auth_user', JSON.stringify(user));
     if (!user) {
-      localStorage.removeItem('chery_session_id');
+      sessionStorage.removeItem('chery_session_id');
       setSessionId(null);
     }
   }, [user]);
 
   useEffect(() => {
     if (sessionId) {
-      localStorage.setItem('chery_session_id', sessionId);
+      sessionStorage.setItem('chery_session_id', sessionId);
     }
   }, [sessionId]);
 
@@ -1119,12 +1143,13 @@ const App = () => {
                 json.role?.toLowerCase() === 'owner' ? 'owner' : 
                   json.role?.toLowerCase() === 'customer' ? 'customer' :
                     json.role?.toLowerCase() === 'display' ? 'display' :
-                    json.role?.toLowerCase() === 'warranty' ? 'warranty' : 'admin';
+                    json.role?.toLowerCase() === 'warranty' ? 'warranty' :
+                    json.role?.toLowerCase() === 'foreman' ? 'foreman' :
+                    json.role?.toLowerCase() === 'security' ? 'security' : 'admin';
 
-        const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner'].includes(json.role?.toLowerCase()) ? '/staff' : 
+        const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty', 'foreman', 'security'].includes(json.role?.toLowerCase()) ? '/staff' : 
                           (json.role?.toLowerCase() === 'customer' ? '/customer' : 
-                            (json.role?.toLowerCase() === 'display' ? '/display' :
-                              (json.role?.toLowerCase() === 'warranty' ? '/staff' : '/karyawan')));
+                            (json.role?.toLowerCase() === 'display' ? '/display' : '/karyawan'));
         window.history.pushState({}, '', targetUrl);
 
         setCurrentPage(targetPage);
@@ -1214,17 +1239,27 @@ const App = () => {
     const mechanicValue = formData.mechanicName || '';
     const addedByValue = user?.name || user?.username || 'System';
 
-    if (isEditing) {
-      updates.id = formData.id;
-      if (formData.status === 'working') {
-        const newTargetTime = Date.now() + (totalSeconds * 1000);
-        updates.targetTime = newTargetTime;
-        updates.estimasiDefault = totalSeconds;
-      } else {
-        updates.estimasiDefault = totalSeconds;
-        updates.targetTime = 0;
-      }
-      updates.mechanicName = mechanicValue;
+      if (isEditing) {
+        updates.id = formData.id;
+        if (formData.status === 'working') {
+          const newTargetTime = Date.now() + (totalSeconds * 1000);
+          updates.targetTime = newTargetTime;
+          updates.estimasiDefault = totalSeconds;
+        } else {
+          updates.estimasiDefault = totalSeconds;
+          updates.targetTime = 0;
+        }
+        updates.mechanicName = mechanicValue;
+        // SA confirm → maju ke foreman
+        if (formData.status === 'menunggu_sa' || formData.status === 'menunggu_foreman') {
+          if (!formData.nama_sa) {
+            updates.nama_sa = user?.name || user?.username || 'System';
+          }
+        }
+        if (formData.status === 'menunggu_sa') {
+          updates.status = 'menunggu_foreman';
+          updates.nama_sa = user?.name || user?.username || 'System';
+        }
     } else {
       updates.id = Date.now();
       updates.status = 'waiting';
@@ -1243,6 +1278,7 @@ const App = () => {
         ({ error: updateError, data: updatedRows } = await db.update('antrian', updates, { eq: { id: formData.id } }));
         if (updateError && updateError.code === 'PGRST204') {
           delete updates.cuci_required;
+          delete updates.nama_sa;
           ({ error: updateError, data: updatedRows } = await db.update('antrian', updates, { eq: { id: formData.id } }));
         }
 
@@ -1265,6 +1301,7 @@ const App = () => {
       } else {
         const { data: maxQueue } = await db.select('antrian', {
           select: 'queue_number',
+          eq: { category: updates.category },
           order: { column: 'queue_number', ascending: false },
           limit: 1
         });
@@ -1296,11 +1333,18 @@ const App = () => {
   };
 
   const deleteItem = async (id) => {
-    if (isLoadingProcess) return;
+    if (isLoadingProcess) {
+      Toastify({ text: "⏳ Proses lain sedang berjalan, tunggu sebentar...", style: { background: "#f59e0b", borderRadius: "12px" } }).showToast();
+      return;
+    }
     setIsLoadingProcess(true);
     try {
-      await db.delete('antrian', { eq: { id } });
-      await db.delete('history', { eq: { id } });
+      await Promise.all([
+        db.delete('antrian', { eq: { id } }),
+        db.delete('history', { eq: { id } })
+      ]);
+      setQueue(prev => prev.filter(q => q.id !== id));
+      setRawHistory(prev => prev.filter(h => h.id !== id));
     } catch (err) {
       console.error(err);
     } finally {
@@ -1419,9 +1463,10 @@ const App = () => {
   };
 
   const handleStartWork = async (item) => {
-    if (!user || user.role?.toLowerCase() !== 'mekanik' || isLoadingProcess) return;
+    const role = user?.role?.toLowerCase();
+    if (!user || (role !== 'mekanik' && role !== 'foreman') || isLoadingProcess) return;
 
-    if (item.status === 'menginap' && item.mechanicName && !item.mechanicName.split(',').includes(user.name)) {
+    if (role === 'mekanik' && item.status === 'menginap' && item.mechanicName && !item.mechanicName.split(',').includes(user.name)) {
       alert("Hanya mekanik yang ditugaskan yang bisa melanjutkan! Silakan hubungi Foreman/Admin.");
       return;
     }
@@ -2125,7 +2170,7 @@ const App = () => {
         <PublicNavBar
           user={user}
           currentPage={currentPage}
-          onNavigate={setCurrentPage}
+          onNavigate={navigate}
           onLogout={handleLogout}
         />
       )}
@@ -2195,6 +2240,7 @@ const App = () => {
           handleLogout={handleLogout}
           queue={fullProcessedQueue}
           formatTime={formatTime}
+          onStartWork={handleStartWork}
           onComplete={handleComplete}
           onRequestExtension={handleRequestExtension}
           isLoadingProcess={isLoadingProcess}
@@ -2279,6 +2325,12 @@ const App = () => {
       {currentPage === 'warranty-wo' && <WarrantyHub activeTab="wo" />}
       {currentPage === 'warranty-search' && <WarrantyHub activeTab="search" />}
       {currentPage === 'warranty-proforma' && <ProformaInvoice />}
+      {currentPage === 'security' && (
+        <SecurityPanel
+          user={user}
+          handleLogout={handleLogout}
+        />
+      )}
       {currentPage === 'register' && (
         <RegisterPage 
           setCurrentPage={navigate} 

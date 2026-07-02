@@ -4,12 +4,12 @@ async function request({ table, action, data, filters }) {
   let authUsername = '';
   let authSessionId = '';
   try {
-    const savedUser = localStorage.getItem('chery_auth_user');
+    const savedUser = sessionStorage.getItem('chery_auth_user');
     if (savedUser) {
       const userObj = JSON.parse(savedUser);
       authUsername = userObj.username || '';
     }
-    authSessionId = localStorage.getItem('chery_session_id') || '';
+    authSessionId = sessionStorage.getItem('chery_session_id') || '';
   } catch (e) {
     console.warn('Gagal membaca sesi dari localStorage:', e);
   }

@@ -112,8 +112,7 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
     }, [queue, user]);
 
     const isMyJob = (item) => {
-        if (!item.mechanicName) return true;
-        return item.mechanicName.split(',').includes(user?.name);
+        return item.mechanicName && item.mechanicName.split(',').includes(user?.name);
     };
 
     const availableQueue = useMemo(() => {

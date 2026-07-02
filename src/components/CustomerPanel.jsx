@@ -253,7 +253,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
       const safeBk = calledItem.bk || '';
       const cat = calledItem.category || 'Reguler';
       const qnFormatted = calledItem.queueNumber > 0
-        ? (cat === 'Booking' ? `B-${String(calledItem.queueNumber).padStart(2, '0')}` : `R-${String(calledItem.queueNumber).padStart(2, '0')}`)
+        ? (cat === 'Booking' ? `B-${String(calledItem.queueNumber).padStart(2, '0')}` : `A-${String(calledItem.queueNumber).padStart(2, '0')}`)
         : safeBk;
       const ttsText = calledItem.queueNumber > 0
         ? (cat === 'Booking'

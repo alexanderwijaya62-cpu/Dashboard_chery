@@ -931,6 +931,8 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     'menunggu_konfirmasi': 'bg-amber-400 text-white',
                                     'menginap': 'bg-purple-700 text-white',
                                     'request_extension': 'bg-amber-600 text-white',
+                                    'menunggu_sa': 'bg-yellow-400 text-black',
+                                    'menunggu_foreman': 'bg-orange-400 text-white',
                                 };
                                 const isOvernight = item.status === 'menginap';
                                 const cd = getCooldownSisa(item.calledAt);
@@ -946,7 +948,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                 <div>
                                                     <div className="flex items-center gap-1.5 flex-wrap">
                                                         {item.queueNumber > 0 && (
-                                                            <span className="text-[9px] font-black bg-zinc-800 text-white px-2 py-0.5 rounded-md">A-{String(item.queueNumber).padStart(3, '0')}</span>
+                                                             <span className="text-[9px] font-black bg-zinc-800 text-white px-2 py-0.5 rounded-md">{item.category === 'Booking' ? `B-${String(item.queueNumber).padStart(3, '0')}` : `A-${String(item.queueNumber).padStart(3, '0')}`}</span>
                                                         )}
                                                         <span className="text-lg font-black text-black uppercase tracking-tight leading-none">{item.bk}</span>
                                                     </div>
@@ -980,6 +982,21 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                             </div>
                                         )}
                                         <div className="grid grid-cols-5 gap-2 pt-1">
+                                            {item.status === 'menunggu_sa' ? (
+                                                <>
+                                                    <button onClick={() => { editItem(item); Toastify({ text: "Lengkapi Tipe & Keluhan, lalu SIMPAN untuk konfirmasi SA", duration: 5000, style: { background: "#d97706", borderRadius: "12px", fontWeight: "900" } }).showToast(); }}
+                                                        className="col-span-2 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 bg-yellow-500 hover:bg-yellow-600 text-[9px] font-black uppercase tracking-wider gap-1">
+                                                        <CheckCircle size={14} /> Konfirmasi SA
+                                                    </button>
+                                                    <button onClick={() => editItem(item)} className="col-span-2 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl transition-all active:scale-95 bg-white text-zinc-400 border border-zinc-200 hover:bg-black hover:text-white">
+                                                        <Edit3 size={16} />
+                                                    </button>
+                                                    <button onClick={() => { if (window.confirm('Hapus antrian ini?')) deleteItem(item.id); }} className="col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl transition-all active:scale-95 bg-white text-zinc-400 border border-zinc-200 hover:bg-black hover:text-white">
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </>
+                                            ) : (
+                                            <>
                                             <button onClick={() => {
                                                 if (!adminCounter) { Toastify({ text: "⚠️ Pilih Counter dulu!", style: { background: "#f59e0b" } }).showToast(); return; }
                                                 if (inCooldown) { Toastify({ text: `⏳ Tunggu ${cd} detik`, duration: 2000, style: { background: "#f59e0b" } }).showToast(); return; }
@@ -1007,9 +1024,11 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                             <button onClick={() => editItem(item)} className="col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl transition-all active:scale-95 bg-white text-zinc-400 border border-zinc-200 hover:bg-black hover:text-white">
                                                 <Edit3 size={16} />
                                             </button>
-                                            <button onClick={() => deleteItem(item.id)} className="col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl transition-all active:scale-95 bg-white text-zinc-400 border border-zinc-200 hover:bg-black hover:text-white">
+                                            <button onClick={() => { if (window.confirm('Hapus antrian ini?')) deleteItem(item.id); }} className="col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl transition-all active:scale-95 bg-white text-zinc-400 border border-zinc-200 hover:bg-black hover:text-white">
                                                 <Trash2 size={16} />
                                             </button>
+                                            </>
+                                            )}
                                         </div>
                                     </div>
                                 );
@@ -1039,7 +1058,9 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                             'completed': 'bg-emerald-500 text-white shadow-md',
                                             'menginap': 'bg-purple-700 text-white shadow-md',
                                             'menunggu_konfirmasi': 'bg-emerald-500 text-white shadow-md',
-                                            'request_extension': 'bg-amber-600 text-white shadow-md'
+                                            'request_extension': 'bg-amber-600 text-white shadow-md',
+                                            'menunggu_sa': 'bg-yellow-400 text-black shadow-md',
+                                            'menunggu_foreman': 'bg-orange-400 text-white shadow-md',
                                         };
                                         const isOvernight = item.status === 'menginap';
                                         const isKonfirmasi = item.status === 'menunggu_konfirmasi';
@@ -1054,7 +1075,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                             <div className="flex items-center gap-2">
                                                                 {item.queueNumber > 0 && (
                                                                     <span className="text-[9px] font-black bg-zinc-800 text-white px-2 py-0.5 rounded-md tracking-wider">
-                                                                        A-{String(item.queueNumber).padStart(3, '0')}
+                                                                        {item.category === 'Booking' ? `B-${String(item.queueNumber).padStart(3, '0')}` : `A-${String(item.queueNumber).padStart(3, '0')}`}
                                                                     </span>
                                                                 )}
                                                                 <span className="text-xl font-black text-black tabular-nums uppercase tracking-tight leading-none">{item.bk}</span>
@@ -1111,6 +1132,21 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                 </td>
                                                 <td className="px-6 py-5 text-right">
                                                     <div className="flex justify-end gap-2.5 opacity-100 lg:opacity-40 group-hover:opacity-100 transition-all duration-300">
+                                                        {item.status === 'menunggu_sa' ? (
+                                                            <>
+                                                            <button onClick={() => { editItem(item); Toastify({ text: "Lengkapi Tipe & Keluhan, lalu SIMPAN untuk konfirmasi SA", duration: 5000, style: { background: "#d97706", borderRadius: "12px", fontWeight: "900" } }).showToast(); }}
+                                                                className="p-3 min-w-[44px] min-h-[44px] bg-yellow-500 hover:bg-yellow-600 text-white rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-wider" title="Konfirmasi SA">
+                                                                <CheckCircle size={14} /> SA
+                                                            </button>
+                                                            <button onClick={() => editItem(item)} className="p-3 min-w-[44px] min-h-[44px] bg-white text-zinc-400 border border-zinc-200 rounded-xl hover:bg-black hover:text-white transition-all shadow-sm flex items-center justify-center" title="Edit Data Unit">
+                                                                <Edit3 size={16} />
+                                                            </button>
+                                            <button onClick={() => { if (window.confirm('Hapus antrian ini?')) deleteItem(item.id); }} className="p-3 min-w-[44px] min-h-[44px] bg-white text-zinc-400 border border-zinc-200 rounded-xl hover:bg-black hover:text-white transition-all shadow-sm flex items-center justify-center" title="Remove Task">
+                                                <Trash2 size={16} />
+                                            </button>
+                                            </>
+                                        ) : (
+                                                        <>
                                                         {(() => {
                                                             const cd = getCooldownSisa(item.calledAt);
                                                             const inCooldown = cd > 0;
@@ -1177,9 +1213,11 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                          <button onClick={() => editItem(item)} className="p-3 min-w-[44px] min-h-[44px] bg-white text-zinc-400 border border-zinc-200 rounded-xl hover:bg-black hover:text-white transition-all shadow-sm flex items-center justify-center" title="Edit Data Unit">
                                                             <Edit3 size={16} />
                                                         </button>
-                                                        <button onClick={() => deleteItem(item.id)} className="p-3 min-w-[44px] min-h-[44px] bg-white text-zinc-400 border border-zinc-200 rounded-xl hover:bg-black hover:text-white transition-all shadow-sm flex items-center justify-center" title="Remove Task">
+                                                        <button onClick={() => { if (window.confirm('Hapus antrian ini?')) deleteItem(item.id); }} className="p-3 min-w-[44px] min-h-[44px] bg-white text-zinc-400 border border-zinc-200 rounded-xl hover:bg-black hover:text-white transition-all shadow-sm flex items-center justify-center" title="Remove Task">
                                                             <Trash2 size={16} />
                                                         </button>
+                                                        </>
+                                                        )}
                                                     </div>
                                                 </td>
                                             </tr>

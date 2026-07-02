@@ -109,6 +109,13 @@ ALTER TABLE public.history ADD COLUMN IF NOT EXISTS mechanicName TEXT DEFAULT ''
 ALTER TABLE public.history ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'Reguler';
 ALTER TABLE public.history ADD COLUMN IF NOT EXISTS addedBy TEXT DEFAULT '';
 
+-- ============================================================
+-- #8: Tambah kolom nama_sa di antrian untuk tracking Service Advisor
+-- ============================================================
+ALTER TABLE public.antrian ADD COLUMN IF NOT EXISTS nama_sa TEXT DEFAULT '';
+ALTER TABLE public.history ADD COLUMN IF NOT EXISTS nama_sa TEXT DEFAULT '';
+ALTER TABLE public.antrian ADD COLUMN IF NOT EXISTS cuci_required BOOLEAN DEFAULT false;
+
 -- Refresh PostgREST schema cache
 NOTIFY pgrst, 'reload schema';
 

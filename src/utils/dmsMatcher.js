@@ -56,6 +56,66 @@ export const findBestMatchingWO = (wos, itemCode, vin, itemMileage, isFree) => {
     if (closest) return closest;
   }
 
-  // 5. Fallback: return the first available work order in the filtered list
+  // 5. Try matching mileage against KM value extracted from perintah field
+  //    (e.g. "SERVICE 20.000KM" -> 20000, "10000KM" -> 10000)
+  if (itemMileage != null && itemMileage !== '') {
+    const targetKm = Number(itemMileage);
+    let closest = null;
+    let minDiff = Infinity;
+    catWos.forEach(w => {
+      const perintah = (w.perintah || '').toUpperCase();
+      const numMatch = perintah.match(/([\d.]+)\s*KM/);
+      if (numMatch) {
+        const parsedKm = parseInt(numMatch[1].replace(/\./g, ''), 10);
+        if (!isNaN(parsedKm)) {
+          const diff = Math.abs(parsedKm - targetKm);
+          if (diff < minDiff && diff <= 2000) {
+            minDiff = diff;
+            closest = w;
+          }
+        }
+      }
+    });
+    if (closest) return closest;
+  }
+
+  // 6. If kategori filter excluded some WOs, retry mileage matching across ALL WOs.
+  //    This handles cases where the correct WO has a different kategori
+  //    (e.g. SERVICE 20.000KM is IKC while the BY item expects IFS).
+  const kategoriActive = catWos.length > 0 && catWos.length < wos.length;
+  if (kategoriActive && itemMileage != null && itemMileage !== '') {
+    const targetKm = Number(itemMileage);
+
+    let closest = null;
+    let minDiff = Infinity;
+    wos.forEach(w => {
+      const diff = Math.abs(Number(w.stand_km || 0) - targetKm);
+      if (diff < minDiff && diff <= 2000) {
+        minDiff = diff;
+        closest = w;
+      }
+    });
+    if (closest) return closest;
+
+    closest = null;
+    minDiff = Infinity;
+    wos.forEach(w => {
+      const perintah = (w.perintah || '').toUpperCase();
+      const numMatch = perintah.match(/([\d.]+)\s*KM/);
+      if (numMatch) {
+        const parsedKm = parseInt(numMatch[1].replace(/\./g, ''), 10);
+        if (!isNaN(parsedKm)) {
+          const diff = Math.abs(parsedKm - targetKm);
+          if (diff < minDiff && diff <= 2000) {
+            minDiff = diff;
+            closest = w;
+          }
+        }
+      }
+    });
+    if (closest) return closest;
+  }
+
+  // 7. Fallback: return the first available work order in the filtered list
   return catWos[0];
 };

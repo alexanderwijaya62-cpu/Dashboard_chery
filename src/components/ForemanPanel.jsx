@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Wrench, User, Clock, CheckCircle2, Droplets, X, Search, Activity, Check, UserPlus, Eye, EyeOff } from 'lucide-react';
+import { Wrench, User, Clock, CheckCircle2, Droplets, X, Search, Activity, Check, UserPlus, Eye, EyeOff, Zap } from 'lucide-react';
 import { db } from '../utils/dbClient';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
@@ -19,6 +19,7 @@ export default function ForemanPanel({
     user,
     handleLogout,
     queue = [],
+    onStartWork,
     onComplete,
     onRequestExtension,
     isLoadingProcess,
@@ -63,7 +64,7 @@ export default function ForemanPanel({
     const unassignedItems = useMemo(() => {
         return queue.filter(item => {
             const noMechanic = !item.mechanicName || item.mechanicName === '';
-            const preWork = item.status === 'waiting' || item.status === 'menginap';
+            const preWork = item.status === 'waiting' || item.status === 'menginap' || item.status === 'menunggu_foreman' || item.status === 'menunggu_sa';
             return noMechanic && preWork;
         });
     }, [queue]);
@@ -137,10 +138,12 @@ export default function ForemanPanel({
         if (selectedMechanics.length === 0 || !assignModal.item) return;
         setIsAssigning(true);
         const mechanicStr = selectedMechanics.join(',');
+        const payload = { mechanicName: mechanicStr };
+        if (assignModal.item.status === 'menunggu_foreman' || assignModal.item.status === 'menunggu_sa') {
+            payload.status = 'waiting';
+        }
         try {
-            const { error } = await db.update('antrian', {
-                mechanicName: mechanicStr
-            }, { eq: { id: assignModal.item.id } });
+            const { error } = await db.update('antrian', payload, { eq: { id: assignModal.item.id } });
             if (error) throw error;
             Toastify({
                 text: `${assignModal.item.bk}  ${selectedMechanics.length} mekanik`,
@@ -203,6 +206,8 @@ export default function ForemanPanel({
             'menunggu_konfirmasi': { label: 'MENUNGGU KONFIRMASI', color: 'bg-emerald-600' },
             'menunggu_cuci': { label: 'ANTRIAN CUCI', color: 'bg-teal-600' },
             'sedang_dicuci': { label: 'SEDANG DICUCI', color: 'bg-cyan-600' },
+            'menunggu_foreman': { label: 'MENUNGGU FOREMAN', color: 'bg-orange-500' },
+            'menunggu_sa': { label: 'MENUNGGU SA', color: 'bg-yellow-500' },
         };
         return statusMap[item.status] || { label: item.status, color: 'bg-zinc-500' };
     };
@@ -283,13 +288,25 @@ export default function ForemanPanel({
                                         </p>
                                     )}
 
-                                    <button
-                                        onClick={() => handleOpenAssign(item)}
-                                        className="w-full py-2.5 bg-black hover:bg-zinc-800 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm"
-                                    >
-                                        <UserPlus size={14} />
-                                        Assign Mekanik
-                                    </button>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => handleOpenAssign(item)}
+                                            className="flex-1 py-2.5 bg-black hover:bg-zinc-800 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm"
+                                        >
+                                            <UserPlus size={14} />
+                                            Assign Mekanik
+                                        </button>
+                                        {(item.status === 'waiting' || item.status === 'menginap') && (
+                                            <button
+                                                onClick={() => onStartWork(item)}
+                                                disabled={isLoadingProcess}
+                                                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-200 text-white disabled:text-zinc-400 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm"
+                                            >
+                                                <Zap size={14} fill="white" />
+                                                {item.status === 'menginap' ? 'Lanjutkan' : 'Mulai'}
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             );
                         })}
@@ -338,24 +355,84 @@ export default function ForemanPanel({
                     </div>
 
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 md:gap-3 mb-4">
-                        {Object.entries(mechanicStats).filter(([name]) => name !== 'Unassigned').map(([name, stats]) => (
-                            <button key={name} onClick={() => setExpandedMechanic(expandedMechanic === name ? null : name)}
-                                className={`relative bg-white border-2 rounded-2xl p-3 md:p-4 text-left transition-all active:scale-95 hover:shadow-md ${expandedMechanic === name ? 'border-black shadow-lg' : 'border-zinc-100 shadow-sm'}`}>
-                                <div className="flex items-center gap-2.5 mb-2">
-                                    <div className={`w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center text-white font-black text-xs ${stats.working > 0 ? 'bg-blue-600' : 'bg-zinc-200 text-zinc-400'}`}>
-                                        <User size={16} />
+                        {Object.entries(mechanicStats).filter(([name]) => name !== 'Unassigned').map(([name, stats]) => {
+                            const mJobs = mechanicJobsMap[name] || [];
+                            const totalJobs = mJobs.length;
+                            const completedJobs = mJobs.filter(j => ['menunggu_konfirmasi', 'menunggu_cuci', 'sedang_dicuci'].includes(j.status)).length;
+                            const activeJobs = mJobs.filter(j => ['working', 'request_extension'].includes(j.status)).length;
+                            const incompleteJobs = totalJobs - completedJobs;
+
+                            let statusColor = 'bg-white border-zinc-100 text-zinc-500 hover:shadow-md';
+                            let nameColor = 'text-black';
+                            let subColor = 'text-zinc-400';
+                            let iconBg = 'bg-zinc-100 text-zinc-400';
+                            let badgeWorking = 'bg-blue-100 text-blue-700';
+                            let badgeWaiting = 'bg-amber-100 text-amber-700';
+
+                            if (totalJobs > 0) {
+                                if (completedJobs === totalJobs) {
+                                    // Selesai semua -> Hijau (Tizen OS compatible vibrant green)
+                                    statusColor = 'bg-[#34C759] border-[#28A745] text-white hover:bg-[#28A745] shadow-sm';
+                                    nameColor = 'text-white';
+                                    subColor = 'text-white/80';
+                                    iconBg = 'bg-white/20 text-white';
+                                    badgeWorking = 'bg-white/20 text-white';
+                                    badgeWaiting = 'bg-white/20 text-white';
+                                } else if (totalJobs === 2 && completedJobs === 1) {
+                                    // Kerjain 2 unit, 1 selesai, 1 belum selesai -> Kuning (Tizen OS compatible vibrant yellow)
+                                    statusColor = 'bg-[#FFCC00] border-[#E6B800] text-black hover:bg-[#FFD60A] shadow-sm';
+                                    nameColor = 'text-black';
+                                    subColor = 'text-black/70';
+                                    iconBg = 'bg-black/10 text-black';
+                                    badgeWorking = 'bg-black/10 text-black';
+                                    badgeWaiting = 'bg-black/10 text-black';
+                                } else if (totalJobs === 2 && completedJobs === 0) {
+                                    // 2 unit masih belum selesai -> Merah (Tizen OS compatible vibrant red)
+                                    statusColor = 'bg-[#FF3B30] border-[#DC3545] text-white hover:bg-[#E02D24] shadow-sm';
+                                    nameColor = 'text-white';
+                                    subColor = 'text-white/80';
+                                    iconBg = 'bg-white/20 text-white';
+                                    badgeWorking = 'bg-white/20 text-white';
+                                    badgeWaiting = 'bg-white/20 text-white';
+                                } else if (activeJobs > 0) {
+                                    // Ada yang sedang dikerjakan -> Biru (Tizen OS compatible vibrant blue)
+                                    statusColor = 'bg-[#007AFF] border-[#0056B3] text-white hover:bg-[#0062CC] shadow-sm';
+                                    nameColor = 'text-white';
+                                    subColor = 'text-white/80';
+                                    iconBg = 'bg-white/20 text-white';
+                                    badgeWorking = 'bg-white/20 text-white';
+                                    badgeWaiting = 'bg-white/20 text-white';
+                                } else {
+                                    // Ada antrian lain (waiting/menginap dsb) -> Merah
+                                    statusColor = 'bg-[#FF3B30] border-[#DC3545] text-white hover:bg-[#E02D24] shadow-sm';
+                                    nameColor = 'text-white';
+                                    subColor = 'text-white/80';
+                                    iconBg = 'bg-white/20 text-white';
+                                    badgeWorking = 'bg-white/20 text-white';
+                                    badgeWaiting = 'bg-white/20 text-white';
+                                }
+                            }
+
+                            return (
+                                <button key={name} onClick={() => setExpandedMechanic(expandedMechanic === name ? null : name)}
+                                    className={`relative border-2 rounded-2xl p-3 md:p-4 text-left transition-all active:scale-95 ${statusColor} ${expandedMechanic === name ? 'ring-2 ring-black border-black shadow-lg scale-[1.02]' : 'shadow-sm'}`}>
+                                    <div className="flex items-center gap-2.5 mb-2">
+                                        <div className={`w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center font-black text-xs ${iconBg}`}>
+                                            <User size={16} />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className={`font-black text-xs md:text-sm truncate leading-tight ${nameColor}`}>{name}</p>
+                                            <p className={`text-[7px] font-bold uppercase tracking-wider ${subColor}`}>{totalJobs} Unit</p>
+                                        </div>
                                     </div>
-                                    <div className="min-w-0">
-                                        <p className="font-black text-xs md:text-sm text-black truncate leading-tight">{name}</p>
-                                        <p className="text-[7px] font-bold text-zinc-400 uppercase tracking-wider">{stats.total} Unit</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {stats.working > 0 && <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black ${badgeWorking}`}>{stats.working} kerja</span>}
+                                        {stats.waiting > 0 && <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black ${badgeWaiting}`}>{stats.waiting} tunggu</span>}
+                                        {completedJobs > 0 && <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black bg-emerald-700/20 text-emerald-100`}>{completedJobs} selesai</span>}
                                     </div>
-                                </div>
-                                <div className="flex gap-1.5">
-                                    {stats.working > 0 && <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-lg text-[8px] font-black">{stats.working} kerja</span>}
-                                    {stats.waiting > 0 && <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-lg text-[8px] font-black">{stats.waiting} tunggu</span>}
-                                </div>
-                            </button>
-                        ))}
+                                </button>
+                            );
+                        })}
                     </div>
 
                     {expandedMechanic && (

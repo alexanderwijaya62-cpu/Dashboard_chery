@@ -33,7 +33,7 @@ import autoTable from 'jspdf-autotable';
 
 export default function QuotationSPA({ onClose }) {
   const currentUser = useMemo(() => {
-    try { return JSON.parse(localStorage.getItem('chery_auth_user') || '{}'); } catch { return {}; }
+    try { return JSON.parse(sessionStorage.getItem('chery_auth_user') || '{}'); } catch { return {}; }
   }, []);
   const [searchTerm, setSearchTerm] = useState('');
   const [masterParts, setMasterParts] = useState([]);

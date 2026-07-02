@@ -8,9 +8,9 @@ import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
 
-const DISPLAY_COUNT = 2; // Default for vertical columns
-const COMPLETED_DISPLAY_COUNT = 2; // Show only 2 completed units per slide
-const SLIDE_INTERVAL = 10000; // 10 seconds per slide
+const DISPLAY_COUNT = 1;
+const COMPLETED_DISPLAY_COUNT = 1;
+const SLIDE_INTERVAL = 2000;
 
 
 
@@ -67,67 +67,66 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
    const isScheduled = !item.status || item.status === 'accepted' || item.status === 'waiting confirm';
 
    return (
-      <div className={`bg-white rounded-xl border-2 shadow-sm overflow-hidden flex flex-col group/card hover:border-zinc-300 transition-all ${isScheduled ? 'border-dashed border-zinc-200 opacity-80' : 'border-zinc-100'}`}>
-         {/* Color bar - Standard Hex for TV */}
+      <div className={`bg-white rounded-2xl border-4 shadow-lg overflow-hidden flex flex-col group/card hover:border-zinc-300 transition-all h-full ${isScheduled ? 'border-dashed border-zinc-300 opacity-80' : 'border-zinc-100'}`}>
          <div
-            className="h-1 w-full shrink-0"
+            className="h-2 w-full shrink-0"
             style={{ backgroundColor: isScheduled ? '#d4d4d8' : isWorking ? '#3b82f6' : isMenginap ? '#a855f7' : '#ef4444' }}
          />
 
-         <div className="px-4 py-3 flex flex-col gap-2.5">
+         <div className="px-6 py-5 flex flex-col gap-3 flex-1">
             <div className="flex items-center justify-between">
-               <div className="flex items-center gap-1.5 flex-wrap">
+               <div className="flex items-center gap-2 flex-wrap">
                   <span
-                     className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1 text-white shadow-sm"
+                     className="px-4 py-1.5 rounded-xl text-2xl font-black uppercase tracking-wider flex items-center gap-2 text-white shadow-md"
                      style={{ backgroundColor: (String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? '#dc2626' : '#4b5563' }}
                   >
-                     {(String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? <Bookmark size={9} fill="white" /> : <Zap size={9} fill="white" />}
+                     {(String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? <Bookmark size={20} fill="white" /> : <Zap size={20} fill="white" />}
                      {item.category}
                   </span>
                   <span
-                     className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider text-white shadow-sm"
+                     className="px-4 py-1.5 rounded-xl text-2xl font-black uppercase tracking-wider text-white shadow-md"
                      style={{ backgroundColor: isScheduled ? '#dc2626' : isWorking ? '#2563eb' : isMenginap ? '#9333ea' : '#ef4444' }}
                   >
                      {isScheduled ? `○ BOOKING ${item.jam} WIB` : isWorking ? '● PROSES' : isMenginap ? '● MENGINAP' : '● ANTRIAN'}
                   </span>
                </div>
                {!isScheduled && (
-                  <button onClick={() => setSelectedUnit(item)} className="p-1.5 text-black hover:text-zinc-600 transition-colors">
-                     <FileText size={16} />
+                  <button onClick={() => setSelectedUnit(item)} className="p-2 text-black hover:text-zinc-600 transition-colors">
+                     <FileText size={28} />
                   </button>
                )}
             </div>
 
-            <div className="py-1">
-               <h3 className="text-4xl font-black tracking-tighter text-black font-mono uppercase leading-none">{item.bk}</h3>
-               <p className="text-[10px] font-black text-black uppercase tracking-widest mt-0.5">{item.tipe || '—'}</p>
+            <div className="py-2 flex-1 flex flex-col justify-center">
+               <h3 className="text-8xl font-black tracking-tighter text-black font-mono uppercase leading-none">{item.bk}</h3>
+               <p className="text-3xl font-black text-black uppercase tracking-widest mt-2">{item.tipe || '—'}</p>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-zinc-50 font-mono">
+            <div className="grid grid-cols-3 gap-4 pt-4 border-t-2 border-zinc-100 font-mono">
                {isMenginap ? (
                   <div className="col-span-3">
-                     <p className="text-[8px] font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1 mb-0.5">
-                        <Moon size={8} className="text-purple-500" /> Alasan Menginap
+                     <p className="text-2xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2 mb-1">
+                        <Moon size={20} className="text-purple-500" /> Alasan Menginap
                      </p>
-                     <p className="text-[11px] font-black text-purple-700 leading-none truncate uppercase">
+                     <p className="text-3xl font-black text-purple-700 leading-none truncate uppercase">
                         {item.menginap_reason || '—'}
                      </p>
                   </div>
                ) : (
                   <>
                      <div>
-                        <p className="text-[8px] font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1 mb-0.5">
-                           <Clock size={8} className={isScheduled ? 'text-zinc-400' : 'text-blue-500'} /> {isScheduled ? 'Jadwal' : 'Datang'}
+                        <p className="text-2xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2 mb-1">
+                           <Clock size={20} className={isScheduled ? 'text-zinc-400' : 'text-blue-500'} /> {isScheduled ? 'Jadwal' : 'Datang'}
                         </p>
-                        <p className="text-sm font-black text-zinc-900 tabular-nums leading-none">{isScheduled ? item.jam : timeIn}</p>
-                        {!isScheduled && <p className="text-[9px] font-bold text-zinc-400 mt-0.5 leading-none">{dateIn}</p>}
+                        <p className="text-4xl font-black text-zinc-900 tabular-nums leading-none">{isScheduled ? item.jam : timeIn}</p>
+                        {!isScheduled && <p className="text-2xl font-bold text-zinc-400 mt-1 leading-none">{dateIn}</p>}
                      </div>
 
                      <div className="col-span-2">
-                        <p className="text-[8px] font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1 mb-0.5">
-                           <Activity size={8} className={isWorking ? 'text-orange-500' : 'text-zinc-300'} /> {isScheduled ? 'Keperluan' : 'Estimasi'}
+                        <p className="text-2xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2 mb-1">
+                           <Activity size={20} className={isWorking ? 'text-orange-500' : 'text-zinc-300'} /> {isScheduled ? 'Keperluan' : 'Estimasi'}
                         </p>
-                        <p className={`text-sm font-black tabular-nums leading-none truncate ${isWorking ? (item.estimasi < 300 ? 'text-red-600 animate-pulse' : 'text-orange-600') : 'text-zinc-500'}`}>
+                        <p className={`text-4xl font-black tabular-nums leading-none truncate ${isWorking ? (item.estimasi < 300 ? 'text-red-600 animate-pulse' : 'text-orange-600') : 'text-zinc-500'}`}>
                            {isScheduled ? (item.keluhan || '-') : isWorking ? formatTime(item.estimasi) : formatTime(parseInt(item.estimasiDefault) || 0)}
                         </p>
                      </div>
@@ -135,30 +134,29 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                )}
             </div>
 
-            <div className="flex items-center gap-3 pt-2 border-t border-zinc-100">
-               <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <div className="flex items-center gap-4 pt-4 border-t-2 border-zinc-200 mt-auto">
+               <div className="flex items-center gap-2 min-w-0 flex-1">
                   <div
-                     className="w-6 h-6 rounded-lg flex items-center justify-center text-white text-[9px] font-black shrink-0 shadow-sm"
+                     className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-2xl font-black shrink-0 shadow-md"
                      style={{ backgroundColor: (isScheduled && item.category !== 'Reguler (Late)') ? '#dc2626' : '#1e40af' }}
                   >
                      {(isScheduled && item.category !== 'Reguler (Late)') ? 'CS' : 'SA'}
                   </div>
-                  <span className="text-[11px] font-black text-zinc-900 uppercase truncate">
-                     {item.category === 'Reguler (Late)' ? '—' : (isScheduled ? (item.addedBy || 'BOOKING ONLINE') : (item.addedBy || '—'))}
+                  <span className="text-2xl font-black text-zinc-900 uppercase truncate">
+                      {item.category === 'Reguler (Late)' ? '—' : (isScheduled ? (item.nama_sa || 'BOOKING ONLINE') : (item.nama_sa || '—'))}
                   </span>
                </div>
                {!isScheduled && (
                   <>
-                     <div className="w-px h-5 bg-zinc-200 shrink-0" />
-                     <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                        <div className="w-6 h-6 rounded-lg bg-[#2563eb] flex items-center justify-center text-white text-[9px] font-black shrink-0 shadow-sm">MK</div>
-                        <span className="text-[11px] font-black text-[#2563eb] uppercase truncate">{item.mechanicName || '—'}</span>
+                     <div className="w-0.5 h-8 bg-zinc-200 shrink-0" />
+                     <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className="w-10 h-10 rounded-xl bg-[#2563eb] flex items-center justify-center text-white text-2xl font-black shrink-0 shadow-md">MK</div>
+                        <span className="text-2xl font-black text-[#2563eb] uppercase truncate">{item.mechanicName || '—'}</span>
                      </div>
                   </>
                )}
              </div>
 
-            {/* Status Banner */}
             {!isScheduled && (() => {
                const bannerMap = {
                   'waiting': { bg: '#d97706', icon: 'Clock', label: 'MENUNGGU ANTRIAN PEKERJAAN', sub: item.cuci_required ? '+ Cuci Mobil' : '' },
@@ -171,61 +169,61 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                const cfg = bannerMap[item.status];
                if (!cfg) return null;
                return (
-                  <div className="mt-2 px-4 py-3 rounded-2xl border-2 border-white/30 shadow-2xl ring-4"
+                  <div className="mt-3 px-6 py-4 rounded-2xl border-4 border-white/30 shadow-2xl ring-4"
                        style={{ backgroundColor: cfg.bg, '--tw-ring-color': cfg.bg + '40' }}>
-                     <div className="flex items-center gap-2 mb-1 text-white/70">
+                     <div className="flex items-center gap-3 mb-1 text-white/70">
                         {item.status === 'menunggu_cuci' || item.status === 'sedang_dicuci' ? (
-                           <Droplets size={12} fill="currentColor" />
+                           <Droplets size={24} fill="currentColor" />
                         ) : item.status === 'working' ? (
-                           <Zap size={12} fill="currentColor" />
+                           <Zap size={24} fill="currentColor" />
                         ) : (
-                           <Clock size={12} />
+                           <Clock size={24} />
                         )}
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em]">{cfg.label}</span>
+                        <span className="text-2xl font-black uppercase tracking-[0.15em]">{cfg.label}</span>
                      </div>
                      {cfg.sub && (
-                        <p className="text-[13px] font-black text-white leading-tight uppercase font-mono">{cfg.sub}</p>
+                        <p className="text-3xl font-black text-white leading-tight uppercase font-mono">{cfg.sub}</p>
                      )}
                   </div>
                );
             })()}
 
             {isMenginap && item.menginap_reason && (
-               <div className="mt-2 px-4 py-3 bg-[#9333ea] rounded-2xl border-2 border-white/30 shadow-2xl ring-4 ring-purple-500/20">
-                  <div className="flex items-center gap-2 mb-1.5 text-white/70">
-                     <Moon size={12} fill="currentColor" />
-                     <span className="text-[10px] font-black uppercase tracking-[0.2em]">Keterangan Menginap</span>
+               <div className="mt-3 px-6 py-4 bg-[#9333ea] rounded-2xl border-4 border-white/30 shadow-2xl ring-4 ring-purple-500/20">
+                  <div className="flex items-center gap-3 mb-2 text-white/70">
+                     <Moon size={24} fill="currentColor" />
+                     <span className="text-2xl font-black uppercase tracking-[0.15em]">Keterangan Menginap</span>
                   </div>
-                  <p className="text-[15px] font-black text-white leading-tight uppercase font-mono italic">
+                  <p className="text-3xl font-black text-white leading-tight uppercase font-mono italic">
                      "{item.menginap_reason}"
                   </p>
                </div>
             )}
 
             {user?.role?.toLowerCase() === 'mekanik' && (
-               <div className="pt-2 border-t border-zinc-50">
+               <div className="pt-3 border-t-2 border-zinc-100">
                   {item.status === 'waiting' && (!item.mechanicName || item.mechanicName.split(',').includes(user.name)) && (
                      <button
                         onClick={(e) => { e.stopPropagation(); onStartWork(item); }}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-500/20 active:scale-95 transition-all flex items-center justify-center gap-2 min-h-[44px]"
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl text-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-500/20 active:scale-95 transition-all flex items-center justify-center gap-3 min-h-[60px]"
                      >
-                        <Zap size={14} fill="white" /> Mulai Pekerjaan
+                        <Zap size={24} fill="white" /> Mulai Pekerjaan
                      </button>
                   )}
                   {item.status === 'menginap' && (!item.mechanicName || item.mechanicName.split(',').includes(user.name)) && (
                      <button
                         onClick={(e) => { e.stopPropagation(); onStartWork(item); }}
-                        className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-orange-500/20 active:scale-95 transition-all flex items-center justify-center gap-2 min-h-[44px]"
+                        className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-xl text-2xl font-black uppercase tracking-widest shadow-xl shadow-orange-500/20 active:scale-95 transition-all flex items-center justify-center gap-3 min-h-[60px]"
                      >
-                        <Zap size={14} fill="white" /> Lanjutkan Pekerjaan
+                        <Zap size={24} fill="white" /> Lanjutkan Pekerjaan
                      </button>
                   )}
                   {isWorking && item.mechanicName && item.mechanicName.split(',').includes(user.name) && (
                      <button
                         onClick={(e) => { e.stopPropagation(); onComplete(item); }}
-                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-emerald-500/20 active:scale-95 transition-all flex items-center justify-center gap-2 min-h-[44px]"
+                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-xl text-2xl font-black uppercase tracking-widest shadow-xl shadow-emerald-500/20 active:scale-95 transition-all flex items-center justify-center gap-3 min-h-[60px]"
                      >
-                        <CheckCircle size={14} /> Selesai Pekerjaan
+                        <CheckCircle size={24} /> Selesai Pekerjaan
                      </button>
                   )}
                </div>
@@ -253,37 +251,41 @@ const CarouselCol = ({ title, data, colorClass, icon: Icon, formatTime, setSelec
    while (visibleItems.length < displayCount) visibleItems.push(null);
 
    return (
-      <div className="flex flex-col bg-white rounded-2xl p-4 md:p-5 border-2 border-dashed border-zinc-200 shadow-sm transition-all hover:shadow-xl h-full">
-         <div className="flex items-center justify-between mb-6 shrink-0 gap-2 px-1">
-            <div className="flex items-center gap-2 min-w-0">
-               <div className={`w-9 h-9 md:w-12 md:h-12 rounded-xl flex items-center justify-center text-white shadow-lg ${colorClass} shrink-0`}>
-                  <Icon size={20} fill="currentColor" />
+      <div className="flex flex-col bg-white rounded-3xl p-5 md:p-6 border-2 border-dashed border-zinc-200 shadow-sm transition-all hover:shadow-xl h-full">
+         <div className="flex items-center justify-between mb-4 shrink-0 gap-2 px-1">
+            <div className="flex items-center gap-3 min-w-0">
+               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center text-white shadow-xl ${colorClass} shrink-0`}>
+                  <Icon size={32} fill="currentColor" />
                </div>
                <div className="min-w-0">
-                  <h3 className="text-sm md:text-2xl font-black text-zinc-900 uppercase tracking-tighter leading-tight truncate">{title}</h3>
+                  <h3 className="text-3xl md:text-5xl font-black text-zinc-900 uppercase tracking-tighter leading-tight truncate">{title}</h3>
                   {subtitle ? subtitle : (
-                     <p className="text-[9px] md:text-sm font-black text-zinc-400 uppercase tracking-widest mt-0.5 flex items-center gap-1 whitespace-nowrap overflow-hidden">
-                        <span className={`w-1.5 h-1.5 rounded-full inline-block shrink-0 ${data.length > 0 ? (colorClass === 'bg-red-600' ? 'bg-red-500 animate-pulse' : 'bg-emerald-500 animate-pulse') : 'bg-zinc-300'}`} />
+                     <p className="text-xl md:text-2xl font-black text-zinc-400 uppercase tracking-widest mt-1 flex items-center gap-2 whitespace-nowrap overflow-hidden">
+                        <span className={`w-2 h-2 rounded-full inline-block shrink-0 ${data.length > 0 ? (colorClass === 'bg-red-600' ? 'bg-red-500 animate-pulse' : 'bg-emerald-500 animate-pulse') : 'bg-zinc-300'}`} />
                         {data.length} unit
                      </p>
                   )}
                </div>
             </div>
             {hasMultiple && (
-               <div className="flex items-center gap-1 bg-zinc-50 p-1 rounded-xl border border-zinc-200 shadow-sm shrink-0">
-                  <button onClick={() => { const newIdx = (idx - 1 + totalStops) % totalStops; goToIdx(newIdx); }} className="p-1 hover:bg-zinc-100 rounded-lg transition-all text-zinc-400 hover:text-zinc-900 active:scale-95"><ChevronLeft size={14} strokeWidth={4} /></button>
-                  <div className="flex flex-col items-center px-1 md:px-2">
-                     <span className="text-[9px] font-black text-zinc-400/80 uppercase tracking-widest leading-none mb-0.5">{idx + 1} / {totalStops}</span>
-                     <div className="hidden sm:flex items-center gap-1 mt-0.5">
-                        {Array.from({ length: Math.min(totalStops, 10) }).map((_, i) => (<button key={i} onClick={() => goToIdx(i)} className={`rounded-full transition-all duration-500 ${i === idx ? 'w-5 h-1 bg-zinc-900' : 'w-1 h-1 bg-zinc-200'}`} />))}
+               <div className="flex items-center gap-2 bg-zinc-50 p-2 rounded-2xl border border-zinc-200 shadow-sm shrink-0">
+                  <button onClick={() => { const newIdx = (idx - 1 + totalStops) % totalStops; goToIdx(newIdx); }} className="p-2 hover:bg-zinc-100 rounded-xl transition-all text-zinc-400 hover:text-zinc-900 active:scale-95"><ChevronLeft size={20} strokeWidth={4} /></button>
+                  <div className="flex flex-col items-center px-2 md:px-3">
+                     <span className="text-lg font-black text-zinc-400/80 uppercase tracking-widest leading-none mb-1">{idx + 1} / {totalStops}</span>
+                     <div className="hidden sm:flex items-center gap-1.5 mt-0.5">
+                        {Array.from({ length: Math.min(totalStops, 10) }).map((_, i) => (<button key={i} onClick={() => goToIdx(i)} className={`rounded-full transition-all duration-500 ${i === idx ? 'w-6 h-1.5 bg-zinc-900' : 'w-1.5 h-1.5 bg-zinc-200'}`} />))}
                      </div>
                   </div>
-                  <button onClick={() => { const newIdx = (idx + 1) % totalStops; goToIdx(newIdx); }} className="p-1 hover:bg-zinc-100 rounded-lg transition-all text-zinc-400 hover:text-zinc-900 active:scale-95"><ChevronRight size={14} strokeWidth={4} /></button>
+                  <button onClick={() => { const newIdx = (idx + 1) % totalStops; goToIdx(newIdx); }} className="p-2 hover:bg-zinc-100 rounded-xl transition-all text-zinc-400 hover:text-zinc-900 active:scale-95"><ChevronRight size={20} strokeWidth={4} /></button>
                </div>
             )}
          </div>
-         <div className="flex flex-col gap-4" key={idx}>
-            {visibleItems.map((item, i) => item ? (<QueueCard key={item.id} item={item} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />) : (<div key={`empty-${i}`} className="h-[200px] rounded-2xl border-2 border-dashed border-zinc-50 opacity-20 hidden md:block" />))}
+         <div className="flex flex-col flex-1" key={idx}>
+            {visibleItems.map((item, i) => item ? (<QueueCard key={item.id} item={item} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />) : (
+               <div key={`empty-${i}`} className="flex-1 rounded-2xl border-4 border-dashed border-zinc-100 opacity-30 flex items-center justify-center">
+                  <p className="text-2xl font-bold text-zinc-300 uppercase tracking-[0.2em]">Belum ada antrian</p>
+               </div>
+            ))}
          </div>
       </div>
    );
@@ -291,14 +293,8 @@ const CarouselCol = ({ title, data, colorClass, icon: Icon, formatTime, setSelec
 
 const CompletedCarousel = ({ data, formatTime, setSelectedUnit }) => {
    const [idx, setIdx] = useState(0);
-   const [displayCount, setDisplayCount] = useState(window.innerWidth < 768 ? 1 : 2);
+   const [displayCount, setDisplayCount] = useState(1);
    const timerRef = useRef(null);
-
-   useEffect(() => {
-      const handleResize = () => { setDisplayCount(window.innerWidth < 768 ? 1 : 2); };
-      window.addEventListener('resize', handleResize);
-      return () => window.removeEventListener('resize', handleResize);
-   }, []);
 
    const totalStops = Math.ceil(data.length / displayCount) || 1;
    const hasMultiple = data.length > displayCount;
@@ -313,46 +309,45 @@ const CompletedCarousel = ({ data, formatTime, setSelectedUnit }) => {
    while (visibleItems.length < displayCount) visibleItems.push(null);
 
    return (
-      <div className="w-full rounded-3xl p-4 md:p-6 shadow-2xl relative overflow-hidden group border-4 border-emerald-500/50 min-h-[220px] md:min-h-[280px] flex flex-col justify-center" style={{ backgroundColor: '#059669' }}>
+      <div className="w-full rounded-3xl p-5 md:p-8 shadow-2xl relative overflow-hidden group border-4 border-emerald-500/50 min-h-[200px] md:min-h-[240px] flex flex-col justify-center" style={{ backgroundColor: '#059669' }}>
          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10" />
-         <div className="flex items-center justify-between mb-4 md:mb-6 relative z-10 gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-               <div className="w-8 h-8 md:w-10 md:h-10 bg-white rounded-lg flex items-center justify-center text-emerald-600 shadow-xl shrink-0"><CheckCircle size={18} /></div>
-               <div className="bg-white/10 px-3 md:px-6 py-1.5 md:py-2 rounded-xl backdrop-blur-md border border-white/10 shrink-0">
-                  <span className="text-xs md:text-xl font-black text-white uppercase tracking-wider md:tracking-widest leading-none">
-                     {data.length} <span className="hidden xs:inline text-emerald-200">UNIT SELESAI</span>
-                     <span className="xs:hidden text-emerald-200 ml-1">SELESAI</span>
+         <div className="flex items-center justify-between mb-4 md:mb-4 relative z-10 gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+               <div className="w-10 h-10 md:w-12 md:h-12 bg-white rounded-xl flex items-center justify-center text-emerald-600 shadow-xl shrink-0"><CheckCircle size={24} /></div>
+               <div className="bg-white/10 px-4 md:px-6 py-2 md:py-2.5 rounded-xl backdrop-blur-md border border-white/10 shrink-0">
+                  <span className="text-xl md:text-3xl font-black text-white uppercase tracking-wider md:tracking-widest leading-none">
+                     {data.length} <span className="text-emerald-200">UNIT SELESAI</span>
                   </span>
                </div>
             </div>
             {hasMultiple && (
-               <div className="flex items-center gap-1 bg-white/10 p-1 rounded-2xl backdrop-blur-md border border-white/10 shadow-xl shrink-0">
-                  <button onClick={(e) => { e.stopPropagation(); setIdx(i => (i - 1 + totalStops) % totalStops); startTimer(); }} className="p-1 hover:bg-white/20 rounded-lg transition-all text-white active:scale-95"><ChevronLeft size={16} strokeWidth={4} /></button>
-                  <div className="flex flex-col items-center px-1 md:px-2">
-                     <span className="text-[9px] md:text-[10px] font-black text-white/80 uppercase tracking-widest leading-none mb-0.5">{idx + 1} / {totalStops}</span>
-                     <div className="hidden sm:flex gap-1 mt-0.5">
-                        {Array.from({ length: Math.min(totalStops, 6) }).map((_, i) => (<button key={i} onClick={(e) => { e.stopPropagation(); setIdx(i); startTimer(); }} className={`h-1 rounded-full transition-all duration-500 ${i === idx ? 'w-4 bg-white' : 'w-1 bg-white/30'}`} />))}
+               <div className="flex items-center gap-1 bg-white/10 p-1.5 rounded-2xl backdrop-blur-md border border-white/10 shadow-xl shrink-0">
+                  <button onClick={(e) => { e.stopPropagation(); setIdx(i => (i - 1 + totalStops) % totalStops); startTimer(); }} className="p-2 hover:bg-white/20 rounded-xl transition-all text-white active:scale-95"><ChevronLeft size={20} strokeWidth={4} /></button>
+                  <div className="flex flex-col items-center px-2 md:px-3">
+                     <span className="text-lg font-black text-white/80 uppercase tracking-widest leading-none mb-1">{idx + 1} / {totalStops}</span>
+                     <div className="hidden sm:flex gap-1.5 mt-0.5">
+                        {Array.from({ length: Math.min(totalStops, 6) }).map((_, i) => (<button key={i} onClick={(e) => { e.stopPropagation(); setIdx(i); startTimer(); }} className={`h-1.5 rounded-full transition-all duration-500 ${i === idx ? 'w-5 bg-white' : 'w-1.5 bg-white/30'}`} />))}
                      </div>
                   </div>
-                  <button onClick={(e) => { e.stopPropagation(); setIdx(i => (i + 1) % totalStops); startTimer(); }} className="p-1 hover:bg-white/20 rounded-lg transition-all text-white active:scale-95"><ChevronRight size={16} strokeWidth={4} /></button>
+                  <button onClick={(e) => { e.stopPropagation(); setIdx(i => (i + 1) % totalStops); startTimer(); }} className="p-2 hover:bg-white/20 rounded-xl transition-all text-white active:scale-95"><ChevronRight size={20} strokeWidth={4} /></button>
                </div>
             )}
          </div>
-         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-8 relative z-10" key={idx}>
+         <div className="flex-1 flex items-stretch relative z-10" key={idx}>
             {visibleItems.map((item, i) => item ? (
-               <div key={item.id} onClick={() => setSelectedUnit(item)} className="bg-white rounded-xl md:rounded-2xl p-3 md:p-6 shadow-xl border-4 border-white/50 group/card cursor-pointer hover:bg-white hover:scale-[1.02] transition-all flex flex-col items-center justify-center h-full min-h-[100px] md:min-h-[130px]">
-                  <h2 className="text-2xl md:text-5xl font-black text-black font-mono tracking-tighter mb-1 uppercase truncate w-full text-center leading-none">{item.bk}</h2>
-                  <p className="text-[10px] md:text-xs font-black text-black/40 uppercase tracking-[0.3em] truncate w-full text-center mt-1 md:mt-2 leading-none border-t border-zinc-100 pt-2 md:pt-3">{item.tipe}</p>
-                  <div className="flex items-center gap-2 md:gap-3 mt-2 md:mt-4 bg-emerald-500/10 px-3 md:px-4 py-1.5 md:py-2 rounded-full border border-emerald-500/20">
-                     <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-emerald-500 animate-pulse" />
-                     <span className="text-[8px] md:text-[10px] font-black text-emerald-600 uppercase tracking-widest whitespace-nowrap leading-none">
+               <div key={item.id} onClick={() => setSelectedUnit(item)} className="flex-1 bg-white rounded-2xl p-6 md:p-8 shadow-xl border-4 border-white/50 group/card cursor-pointer hover:bg-white hover:scale-[1.02] transition-all flex flex-col items-center justify-center min-h-[120px] md:min-h-[150px]">
+                  <h2 className="text-5xl md:text-7xl font-black text-black font-mono tracking-tighter mb-2 uppercase truncate w-full text-center leading-none">{item.bk}</h2>
+                  <p className="text-2xl md:text-3xl font-black text-black/40 uppercase tracking-[0.3em] truncate w-full text-center mt-2 leading-none border-t-2 border-zinc-100 pt-3">{item.tipe}</p>
+                  <div className="flex items-center gap-3 mt-4 bg-emerald-500/10 px-5 py-2.5 rounded-full border-2 border-emerald-500/20">
+                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                     <span className="text-lg md:text-xl font-black text-emerald-600 uppercase tracking-widest whitespace-nowrap leading-none">
                         Selesai Pukul {new Date(parseInt(item.targetTime || item.target_time || item.id)).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })}
                      </span>
                   </div>
                </div>
             ) : (
-               <div key={`empty-${i}`} className="bg-white/5 rounded-xl md:rounded-2xl border-2 border-dashed border-white/20 h-full min-h-[100px] md:min-h-[130px] flex items-center justify-center">
-                  <p className="text-[10px] md:text-xs font-bold text-white/10 uppercase tracking-[0.2em] whitespace-nowrap">Belum ada data</p>
+               <div key={`empty-${i}`} className="flex-1 bg-white/5 rounded-2xl border-4 border-dashed border-white/20 min-h-[120px] md:min-h-[150px] flex items-center justify-center">
+                  <p className="text-xl md:text-2xl font-bold text-white/10 uppercase tracking-[0.2em] whitespace-nowrap">Belum ada data</p>
                </div>
             ))}
          </div>
@@ -394,6 +389,83 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
       }
    }, [rawHistory, lastNotifiedId]);
 
+    const audioCtxRef = useRef(null);
+    const pendingAnnouncementRef = useRef(null);
+
+    const playPendingAnnouncement = () => {
+       const pending = pendingAnnouncementRef.current;
+       if (pending) {
+          pendingAnnouncementRef.current = null;
+          speakAnnouncement(pending);
+       }
+    };
+
+    const handleAudioUnlock = () => {
+        try {
+           const ctx = new (window.AudioContext || window.webkitAudioContext)();
+           ctx.resume();
+           audioCtxRef.current = ctx;
+           // Pre-warm speechSynthesis on some Samsung TV models that may support it
+           try { if ('speechSynthesis' in window) window.speechSynthesis.getVoices(); } catch {}
+           setAudioUnlocked(true);
+           playPendingAnnouncement();
+        } catch (e) {
+           console.warn('Audio unlock failed:', e);
+           setAudioUnlocked(true);
+        }
+     };
+
+     const speakAnnouncement = async (text) => {
+        // 1. Google Translate TTS via proxy (bypasses CORS on Samsung TV)
+        try {
+           const url = `/api/tts?text=${encodeURIComponent(text)}`;
+           const audio = new Audio(url);
+           audio.volume = 1;
+           await audio.play();
+           return;
+        } catch (e) {
+           console.warn('Google TTS play failed:', e);
+        }
+        // 2. Try speechSynthesis (Web Speech API)
+        try {
+           if ('speechSynthesis' in window) {
+              window.speechSynthesis.cancel();
+              const utterance = new SpeechSynthesisUtterance(text);
+              utterance.lang = 'id-ID';
+              utterance.rate = 0.85;
+              utterance.pitch = 1;
+              utterance.volume = 1;
+              window.speechSynthesis.speak(utterance);
+              return;
+           }
+        } catch (e) {
+           console.warn('speechSynthesis failed:', e);
+        }
+        // 3. Fallback: beep via AudioContext (requires user tap to unlock)
+        if (!audioCtxRef.current) {
+           pendingAnnouncementRef.current = text;
+           return;
+        }
+        try {
+           const ctx = audioCtxRef.current;
+           const now = ctx.currentTime;
+           for (let i = 0; i < 3; i++) {
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.type = 'sine';
+              osc.frequency.value = 800;
+              gain.gain.setValueAtTime(0.3, now + i * 0.5);
+              gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.5 + 0.4);
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.start(now + i * 0.5);
+              osc.stop(now + i * 0.5 + 0.4);
+           }
+        } catch (e) {
+           console.warn('Beep fallback also failed:', e);
+        }
+     };
+
    // ── Queue Call Announcement ──
    const [callAnnouncement, setCallAnnouncement] = useState(null);
    const announcedIdsRef = useRef(new Set());
@@ -413,25 +485,18 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
                    if (announcedIdsRef.current.has(callKey)) return;
                    announcedIdsRef.current.add(callKey);
                    const queueNum = item.queue_number || 0;
-                   const counter = item.counter || 0;
-                   const plat = item.noPlat || '';
-                   setCallAnnouncement({ queueNumber: queueNum, counter, bk: plat, id: item.id });
+                    const counter = item.counter || 0;
+                    const plat = item.noPlat || '';
+                    const category = item.category || 'Reguler';
+                    setCallAnnouncement({ queueNumber: queueNum, counter, bk: plat, id: item.id, category });
 
-                  const text = queueNum > 0
-                     ? `Nomor antrian A ${queueNum}, silahkan menuju counter ${counter}`
-                     : `${plat}, silahkan menuju counter ${counter}`;
+                   const text = queueNum > 0
+                      ? `Antrian ${category === 'Booking' ? 'Booking' : 'Reguler'} nomor ${queueNum}, ${plat}, silahkan menuju counter ${counter}`
+                      : `${plat}, silahkan menuju counter ${counter}`;
 
-                  if ('speechSynthesis' in window) {
-                     window.speechSynthesis.cancel();
-                     const utterance = new SpeechSynthesisUtterance(text);
-                     utterance.lang = 'id-ID';
-                     utterance.rate = 0.85;
-                     utterance.pitch = 1;
-                     utterance.volume = 1;
-                     window.speechSynthesis.speak(utterance);
-                  }
+                   if (user?.role?.toLowerCase() === 'display') speakAnnouncement(text);
 
-                  setTimeout(() => setCallAnnouncement(null), 10000);
+                   setTimeout(() => setCallAnnouncement(null), 10000);
                }
             })
             .subscribe();
@@ -491,13 +556,13 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
       const arrivedReguler = processedQueue.filter(i => {
          const s = (i.status || '').toLowerCase();
          const cat = (i.category || '').toLowerCase();
-         return (cat === 'reguler' || cat === 'reguler (late)' || !cat) && s !== 'menginap' && s !== 'completed';
+         return (cat === 'reguler' || cat === 'reguler (late)' || !cat) && s !== 'menginap' && s !== 'completed' && s !== 'menunggu_sa';
       });
 
       const arrivedBooking = processedQueue.filter(i => {
          const s = (i.status || '').toLowerCase();
          const cat = (i.category || '').toLowerCase();
-         return cat === 'booking' && s !== 'menginap' && s !== 'completed';
+         return cat === 'booking' && s !== 'menginap' && s !== 'completed' && s !== 'menunggu_sa';
       });
 
       const arrivedMenginap = processedQueue.filter(i => (i.status || '').toLowerCase() === 'menginap');
@@ -633,66 +698,78 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
    return (
       <div className="w-full h-full bg-white flex flex-col overflow-hidden font-sans select-none transition-colors duration-500">
 
+         {/* Audio Unlock Bar - floating bottom, only for display role */}
+         {!audioUnlocked && user?.role?.toLowerCase() === 'display' && (
+            <div
+               className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[9999] cursor-pointer animate-bounce"
+               onClick={handleAudioUnlock}
+            >
+               <div className="bg-blue-600 text-white px-10 py-5 rounded-full shadow-2xl border-4 border-white/30 flex items-center gap-4">
+                  <Megaphone size={28} fill="white" />
+                  <span className="text-2xl font-black uppercase tracking-wider">Sentuh untuk Aktifkan Suara</span>
+               </div>
+            </div>
+         )}
+
          {/* Call Announcement */}
          {callAnnouncement && (
             <div className="fixed top-10 left-1/2 -translate-x-1/2 z-[100] animate-modal-in pointer-events-none">
-               <div className="bg-blue-600 text-white px-10 py-6 rounded-[2.5rem] shadow-[0_20px_60px_rgba(37,99,235,0.4)] border-4 border-white flex items-center gap-6">
-                  <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center animate-bounce">
-                     <Megaphone size={32} fill="white" />
+               <div className="bg-blue-600 text-white px-12 py-8 rounded-[3rem] shadow-[0_20px_60px_rgba(37,99,235,0.4)] border-4 border-white flex items-center gap-8">
+                  <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center animate-bounce">
+                     <Megaphone size={40} fill="white" />
                   </div>
                   <div>
-                     <p className="text-sm font-black uppercase tracking-[0.3em] text-blue-200 mb-1">Panggilan Antrian</p>
-                     <h2 className="text-4xl font-black font-mono tracking-tighter uppercase">
-                        {callAnnouncement.queueNumber > 0 ? `A-${String(callAnnouncement.queueNumber).padStart(3, '0')}` : callAnnouncement.bk}
+                     <p className="text-2xl font-black uppercase tracking-[0.3em] text-blue-200 mb-1">Panggilan Antrian</p>
+                     <h2 className="text-6xl font-black font-mono tracking-tighter uppercase">
+                        {callAnnouncement.queueNumber > 0 ? `${callAnnouncement.category === 'Booking' ? 'B' : 'A'}-${String(callAnnouncement.queueNumber).padStart(3, '0')}` : callAnnouncement.bk}
                      </h2>
-                     <p className="text-lg font-black text-white mt-1">
+                     <p className="text-2xl font-black text-white mt-2">
                         Silahkan menuju Counter {callAnnouncement.counter}
                      </p>
                   </div>
-                  <div className="ml-4 pl-6 border-l border-white/20 flex flex-col items-center">
-                     <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-blue-600 animate-pulse">
-                        <Megaphone size={24} />
+                  <div className="ml-6 pl-8 border-l-4 border-white/20 flex flex-col items-center">
+                     <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-blue-600 animate-pulse">
+                        <Megaphone size={28} />
                      </div>
-                     <span className="text-[10px] font-black mt-1 uppercase">Memanggil...</span>
+                     <span className="text-lg font-black mt-2 uppercase">Memanggil...</span>
                   </div>
                </div>
             </div>
          )}
 
-         <header className="px-4 md:px-10 py-4 flex justify-between items-center bg-white border-b border-zinc-100 z-50 shrink-0">
-            <div className="flex items-center gap-6 md:gap-14" onDoubleClick={onLogoDoubleClick}>
+         <header className="px-6 md:px-12 py-5 flex justify-between items-center bg-white border-b-2 border-zinc-100 z-50 shrink-0">
+            <div className="flex items-center gap-6 md:gap-16" onDoubleClick={onLogoDoubleClick}>
                <div className="flex items-center gap-5 md:gap-10 bg-white rounded-xl p-1">
-                  <img src={cheryLogo} alt="Chery" className="h-14 md:h-28 object-contain" />
-                  <img src={orientalLogo} alt="Oriental" className="h-14 md:h-28 object-contain" />
+                  <img src={cheryLogo} alt="Chery" className="h-16 md:h-32 object-contain" />
+                  <img src={orientalLogo} alt="Oriental" className="h-16 md:h-32 object-contain" />
                </div>
                <div className="hidden lg:block">
-                  <h1 className="text-3xl font-black tracking-tighter text-black leading-tight">Service <span className="text-black">Dashboard</span></h1>
-                  <p className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.3em]">Chery Oriental – Real-time Monitoring</p>
+                  <h1 className="text-4xl font-black tracking-tighter text-black leading-tight">Service <span className="text-black">Dashboard</span></h1>
+                  <p className="text-lg font-black text-zinc-400 uppercase tracking-[0.3em]">Chery Oriental – Real-time Monitoring</p>
                </div>
             </div>
             <div className="flex items-center gap-3 md:gap-8">
-               <div className="hidden md:flex items-center gap-4 bg-zinc-50 border border-zinc-200 rounded-2xl px-5 py-3 shadow-sm">
+               <div className="hidden md:flex items-center gap-4 bg-zinc-50 border-2 border-zinc-200 rounded-2xl px-6 py-3 shadow-sm">
                   <div className="text-right">
-                     <p className="text-[11px] font-black text-black uppercase tracking-tight leading-none">Booking disini! 👇</p>
-                     <p className="text-[9px] text-zinc-400 font-bold uppercase mt-0.5">Scan QR ini</p>
+                     <p className="text-lg font-black text-black uppercase tracking-tight leading-none">Booking disini! 👇</p>
+                     <p className="text-sm text-zinc-400 font-bold uppercase mt-1">Scan QR ini</p>
                   </div>
-                  <div className="bg-white p-1.5 rounded-xl border border-zinc-200 shadow-sm">
-                     <QRCodeSVG value="https://www.cherymedan.web.id" size={52} level="H" />
+                  <div className="bg-white p-2 rounded-xl border-2 border-zinc-200 shadow-sm">
+                     <QRCodeSVG value="https://www.cherymedan.web.id" size={64} level="H" />
                   </div>
                </div>
-               <div className="hidden md:block h-12 w-px bg-zinc-100" />
+               <div className="hidden md:block h-14 w-0.5 bg-zinc-100" />
                <div className="flex flex-col items-end">
-                  <ClockDisplay className="text-3xl md:text-4xl font-black tracking-tighter text-zinc-900 tabular-nums leading-none" />
-
+                  <ClockDisplay className="text-4xl md:text-5xl font-black tracking-tighter text-zinc-900 tabular-nums leading-none" />
                </div>
             </div>
          </header>
 
-         <main className="flex-1 overflow-y-auto px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3 custom-scrollbar pb-[72px] md:pb-4">
+         <main className="flex-1 overflow-y-auto px-6 py-4 md:px-8 md:py-6 flex flex-col gap-4 custom-scrollbar pb-[80px] md:pb-4">
             <CompletedCarousel data={todayCompleted} formatTime={formatTime} setSelectedUnit={setSelectedUnit} />
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-4 min-h-0">
-               <CarouselCol title="Booking" data={categories.booking} colorClass="bg-red-600" icon={Bookmark} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} subtitle={(<div className="flex flex-col mt-0.5"><div className="flex items-center gap-1.5 overflow-hidden"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" /><span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest truncate">{categories.booking.length} Unit Antrian</span></div></div>)} />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 min-h-0 flex-1">
+               <CarouselCol title="Booking" data={categories.booking} colorClass="bg-red-600" icon={Bookmark} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} subtitle={(<div className="flex flex-col mt-1"><div className="flex items-center gap-2 overflow-hidden"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" /><span className="text-xl font-black text-zinc-400 uppercase tracking-widest truncate">{categories.booking.length} Unit Antrian</span></div></div>)} />
                <CarouselCol title="Reguler" data={categories.reguler} colorClass="bg-zinc-800" icon={Zap} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />
                <CarouselCol title="Menginap" data={categories.menginap} colorClass="bg-purple-600" icon={Moon} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />
             </div>
@@ -737,7 +814,7 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
                               </div>
                            </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                               <div className="bg-zinc-50 p-5 rounded-2xl border border-zinc-100 flex-1"><p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Service Advisor</p><p className="text-lg font-black text-zinc-900 uppercase">{liveUnit.addedBy || '—'}</p></div>
+                               <div className="bg-zinc-50 p-5 rounded-2xl border border-zinc-100 flex-1"><p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Service Advisor</p><p className="text-lg font-black text-zinc-900 uppercase">{liveUnit.nama_sa || '—'}</p></div>
                                <div className="bg-zinc-50 p-5 rounded-2xl border border-zinc-100 flex-1"><p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Mekanik</p><p className="text-lg font-black text-blue-600 uppercase">{liveUnit.mechanicName || 'Belum ditugaskan'}</p></div>
                             </div>
                             {/* Modal Status Banner */}
