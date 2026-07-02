@@ -61,6 +61,8 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
    }
 
    const isWorking = item.status === 'working';
+   const isWashing = item.status === 'sedang_dicuci';
+   const isWorkingOrWashing = isWorking || isWashing;
    const isMenginap = item.status === 'menginap';
    const isWaiting = item.status === 'waiting';
 
@@ -70,7 +72,7 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
       <div className={`bg-white rounded-2xl border-4 shadow-lg overflow-hidden flex flex-col group/card hover:border-zinc-300 transition-all h-full ${isScheduled ? 'border-dashed border-zinc-300 opacity-80' : 'border-zinc-100'}`}>
          <div
             className="h-2 w-full shrink-0"
-            style={{ backgroundColor: isScheduled ? '#d4d4d8' : isWorking ? '#3b82f6' : isMenginap ? '#a855f7' : '#ef4444' }}
+            style={{ backgroundColor: isScheduled ? '#d4d4d8' : isWorking ? '#3b82f6' : isWashing ? '#0891b2' : isMenginap ? '#a855f7' : '#ef4444' }}
          />
 
          <div className="px-6 py-5 flex flex-col gap-3 flex-1">
@@ -85,9 +87,9 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                   </span>
                   <span
                      className="px-4 py-1.5 rounded-xl text-2xl font-black uppercase tracking-wider text-white shadow-md"
-                     style={{ backgroundColor: isScheduled ? '#dc2626' : isWorking ? '#2563eb' : isMenginap ? '#9333ea' : '#ef4444' }}
+                     style={{ backgroundColor: isScheduled ? '#dc2626' : isWorking ? '#2563eb' : isWashing ? '#0891b2' : isMenginap ? '#9333ea' : '#ef4444' }}
                   >
-                     {isScheduled ? `○ BOOKING ${item.jam} WIB` : isWorking ? '● PROSES' : isMenginap ? '● MENGINAP' : '● ANTRIAN'}
+                     {isScheduled ? `○ BOOKING ${item.jam} WIB` : isWorking ? '● PROSES' : isWashing ? '● DICUCI' : isMenginap ? '● MENGINAP' : '● ANTRIAN'}
                   </span>
                </div>
                {!isScheduled && (
@@ -124,10 +126,10 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
 
                      <div className="col-span-2">
                         <p className="text-2xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2 mb-1">
-                           <Activity size={20} className={isWorking ? 'text-orange-500' : 'text-zinc-300'} /> {isScheduled ? 'Keperluan' : 'Estimasi'}
+                           <Activity size={20} className={isWorkingOrWashing ? 'text-orange-500' : 'text-zinc-300'} /> {isScheduled ? 'Keperluan' : 'Estimasi'}
                         </p>
-                        <p className={`text-4xl font-black tabular-nums leading-none truncate ${isWorking ? (item.estimasi < 300 ? 'text-red-600 animate-pulse' : 'text-orange-600') : 'text-zinc-500'}`}>
-                           {isScheduled ? (item.keluhan || '-') : isWorking ? formatTime(item.estimasi) : formatTime(parseInt(item.estimasiDefault) || 0)}
+                        <p className={`text-4xl font-black tabular-nums leading-none truncate ${isWorkingOrWashing ? (item.estimasi < 300 ? 'text-red-600 animate-pulse' : 'text-orange-600') : 'text-zinc-500'}`}>
+                           {isScheduled ? (item.keluhan || '-') : isWorkingOrWashing ? formatTime(item.estimasi) : formatTime(parseInt(item.estimasiDefault) || 0)}
                         </p>
                      </div>
                   </>

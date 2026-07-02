@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { User, Plus, Edit3, Bookmark, Zap, AlertCircle, CheckCircle2, Trash2, Check, Moon, X, Clock, Activity, UserCog, FileText, PlusCircle, CheckCircle, Trash, Search, ChevronDown, Car, ShieldCheck, Info, Megaphone, Upload, Download, Loader, Database, Droplets } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
@@ -1009,6 +1009,11 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                     className="col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 bg-emerald-600 hover:bg-emerald-700">
                                                     {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <CheckCircle size={16} />}
                                                 </button>
+                                            ) : item.status === 'sedang_dicuci' ? (
+                                                <button onClick={() => handleCompleteCuci(item)} disabled={isLoadingProcess}
+                                                    className="col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 bg-cyan-600 hover:bg-cyan-700" title="Selesai Cuci">
+                                                    {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <CheckCircle size={16} />}
+                                                </button>
                                             ) : (
                                                 <button onClick={() => handleComplete(item)} disabled={isLoadingProcess || (item.status !== 'working' && item.status !== 'waiting' && item.status !== 'menginap')}
                                                     className={`col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 ${isLoadingProcess ? 'bg-zinc-400 cursor-not-allowed' : 'bg-emerald-400/80 hover:bg-black'}`}>
@@ -1182,6 +1187,15 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                                 disabled={isLoadingProcess}
                                                                 className="p-3 min-w-[44px] min-h-[44px] text-white rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center bg-emerald-600 hover:bg-emerald-700" 
                                                                 title="Konfirmasi selesai"
+                                                            >
+                                                                {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <CheckCircle size={18} />}
+                                                            </button>
+                                                        ) : item.status === 'sedang_dicuci' ? (
+                                                            <button 
+                                                                onClick={() => handleCompleteCuci(item)} 
+                                                                disabled={isLoadingProcess}
+                                                                className="p-3 min-w-[44px] min-h-[44px] text-white bg-cyan-600 hover:bg-cyan-700 rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center" 
+                                                                title="Selesai Cuci"
                                                             >
                                                                 {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <CheckCircle size={18} />}
                                                             </button>

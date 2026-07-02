@@ -1084,7 +1084,7 @@ const App = () => {
         const tTime = parseInt(item.target_time || item.targetTime);
         const estDef = parseInt(item.estimasiDefault) || 0;
 
-        if (item.status === 'working' && tTime > 0) {
+        if ((item.status === 'working' || item.status === 'sedang_dicuci') && tTime > 0) {
           // COUNTDOWN: remaining time from targetTime
           remaining = Math.max(0, Math.ceil((tTime - now) / 1000));
         } else if (item.status === 'menunggu_konfirmasi') {
