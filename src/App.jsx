@@ -1802,6 +1802,7 @@ const App = () => {
         waktuSelesai: nowISO,
         estimasiDefault: elapsedSeconds || remainingAtComplete,
         elapsedSeconds: elapsedSeconds,
+        is_called: false,
         ...cuciAdditions
       };
 
@@ -1901,25 +1902,23 @@ const App = () => {
 
       let historyAttempt = {
         id: item.id, 
-        bk: item.bk || '', 
-        tipe: item.tipe || '',
-        keluhan: historyKeluhan, 
+        noPlat: item.bk || '', 
+        tipeMobil: item.tipe || '',
+        keluhanDetail: historyKeluhan, 
         status: 'completed',
-        mechanicname: item.mechanicName || '',
+        mechanicName: item.mechanicName || '',
         category: item.category || 'Reguler',
-        addedby: item.addedBy || user?.name || '',
+        addedBy: item.addedBy || user?.name || '',
         checklist: item.checklist || [],
-        waktuMasuk: waktuMasukISO,
         waktuSelesai: waktuSelesaiPakai,
-        "Jarak Waktu": jarakWaktuStr,
-        estimasidefault: item.estimasiDefault || 0,
         targetTime: item.targetTime || 0,
         elapsedSeconds: elapsedSec || 0,
+        estimasiDefault: item.estimasiDefault || 0,
         Tanggal: tanggalIndo,
-        Bulan: bulanStr,
         noTelp: item.noTelp || '',
         jam: item.jam || null,
-        menginap_reason: item.menginap_reason || ''
+        menginap_reason: item.menginap_reason || '',
+        pendingExtra: item.pendingExtra || null
       };
       let historyError = null;
       for (let i = 0; i < 5; i++) {
@@ -2150,7 +2149,10 @@ const App = () => {
       const queueNum = item.queueNumber || item.queue_number || '';
       const plat = item.bk || '';
       const cat = item.category === 'Booking' ? 'Booking' : 'Reguler';
-      const announceText = `Antrian ${cat} nomor ${queueNum}, ${plat}, silahkan menuju counter ${counterNum}`;
+      const isFinished = item.status === 'menunggu_konfirmasi' || item.status === 'completed';
+      const announceText = isFinished
+        ? `${plat} telah selesai, silahkan menuju counter ${counterNum}`
+        : `Antrian ${cat} nomor ${queueNum}, ${plat}, silahkan menuju counter ${counterNum}`;
 
       fetch('/api/notify', {
         method: 'POST',

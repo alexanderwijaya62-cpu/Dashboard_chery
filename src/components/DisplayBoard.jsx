@@ -489,12 +489,14 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
                     const plat = item.noPlat || '';
                     const category = item.category || 'Reguler';
                     setCallAnnouncement({ queueNumber: queueNum, counter, bk: plat, id: item.id, category });
+                    const isFinished = item.status === 'menunggu_konfirmasi' || item.status === 'completed';
+                    const text = isFinished
+                       ? `${plat} telah selesai, silahkan menuju counter ${counter}`
+                       : queueNum > 0
+                          ? `Antrian ${category === 'Booking' ? 'Booking' : 'Reguler'} nomor ${queueNum}, ${plat}, silahkan menuju counter ${counter}`
+                          : `${plat}, silahkan menuju counter ${counter}`;
 
-                   const text = queueNum > 0
-                      ? `Antrian ${category === 'Booking' ? 'Booking' : 'Reguler'} nomor ${queueNum}, ${plat}, silahkan menuju counter ${counter}`
-                      : `${plat}, silahkan menuju counter ${counter}`;
-
-                   if (user?.role?.toLowerCase() === 'display') speakAnnouncement(text);
+                    if (user?.role?.toLowerCase() === 'display') speakAnnouncement(text);
 
                    setTimeout(() => setCallAnnouncement(null), 10000);
                }
