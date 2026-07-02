@@ -101,7 +101,7 @@ export default async function handler(req, res) {
 
       if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
-      const sessionId = crypto.randomUUID();
+      const sessionId = user.role?.toLowerCase() === 'display' ? 'display_global_session' : crypto.randomUUID();
       await supabase.from('users').update({
         sessionId,
         lastLogin: new Date().toLocaleString('id-ID'),
