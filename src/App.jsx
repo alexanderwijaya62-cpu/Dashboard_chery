@@ -663,16 +663,17 @@ const App = () => {
 
   // Simpan status user ke LocalStorage
   useEffect(() => {
-    sessionStorage.setItem('chery_auth_user', JSON.stringify(user));
+    if (user) localStorage.setItem('chery_auth_user', JSON.stringify(user));
+    else localStorage.removeItem('chery_auth_user');
     if (!user) {
-      sessionStorage.removeItem('chery_session_id');
+      localStorage.removeItem('chery_session_id');
       setSessionId(null);
     }
   }, [user]);
 
   useEffect(() => {
     if (sessionId) {
-      sessionStorage.setItem('chery_session_id', sessionId);
+      localStorage.setItem('chery_session_id', sessionId);
     }
   }, [sessionId]);
 
