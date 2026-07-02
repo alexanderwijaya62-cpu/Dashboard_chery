@@ -49,7 +49,7 @@ const CustomerProfile = ({ user, setUser }) => {
       
       const updatedUser = { ...user, ...formData };
       setUser(updatedUser);
-      sessionStorage.setItem('chery_auth_user', JSON.stringify(updatedUser));
+      localStorage.setItem('chery_auth_user', JSON.stringify(updatedUser));
       
       window.location.reload();
     } catch (err) {

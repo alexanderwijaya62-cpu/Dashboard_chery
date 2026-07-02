@@ -108,14 +108,14 @@ const isToday = (time) => {
 const App = () => {
   // --- 1. STATE DEFINITIONS ---
   const [currentPage, setCurrentPage] = useState(() => {
-        return sessionStorage.getItem('chery_current_page') || 'login';
+        return localStorage.getItem('chery_current_page') || 'login';
   });
   const [user, setUser] = useState(() => {
-        const savedUser = sessionStorage.getItem('chery_auth_user');
-    return savedUser ? JSON.parse(savedUser) : null;
+        const savedUser = localStorage.getItem('chery_auth_user');
+    return (savedUser && savedUser !== 'null') ? JSON.parse(savedUser) : null;
   });
   const [sessionId, setSessionId] = useState(() => {
-    return sessionStorage.getItem('chery_session_id') || null;
+    return localStorage.getItem('chery_session_id') || null;
   });
   const [lastLoginDate, setLastLoginDate] = useState(() => {
     return localStorage.getItem('chery_last_login_date') || null;
@@ -200,7 +200,7 @@ const App = () => {
     setAnimDir('forward');
     setPageStack(prev => [...prev, currentPage]);
     setCurrentPage(page);
-    sessionStorage.setItem('chery_current_page', page);
+    localStorage.setItem('chery_current_page', page);
     window.history.pushState({ page }, '');
   }, [currentPage]);
 
@@ -210,7 +210,7 @@ const App = () => {
     const prev = pageStack[pageStack.length - 1];
     setPageStack(prev => prev.slice(0, -1));
     setCurrentPage(prev);
-    sessionStorage.setItem('chery_current_page', prev);
+    localStorage.setItem('chery_current_page', prev);
   }, [pageStack]);
 
   // Intercept browser back button (skip if modal is open)
@@ -230,7 +230,7 @@ const App = () => {
 
   // --- 2. EFFECTS & LOGIC ---
   useEffect(() => {
-    sessionStorage.setItem('chery_current_page', currentPage);
+    localStorage.setItem('chery_current_page', currentPage);
   }, [currentPage]);
 
   // Update Location & Coordinates whenever App loads with a user
@@ -274,8 +274,9 @@ const App = () => {
     // Always clear local session and redirect, regardless of network outcome
     setUser(null);
     setSessionId(null);
-    sessionStorage.removeItem('chery_auth_user');
-    sessionStorage.removeItem('chery_session_id');
+    localStorage.removeItem('chery_auth_user');
+    localStorage.removeItem('chery_session_id');
+    localStorage.removeItem('chery_current_page');
     setCurrentPage('login');
     window.history.pushState({}, '', '/login');
 
@@ -301,7 +302,7 @@ const App = () => {
   // Handle Pseudo-Routing ( Guards & Redirects )
   useEffect(() => {
     const path = window.location.pathname.toLowerCase();
-    const savedUser = sessionStorage.getItem('chery_auth_user');
+    const savedUser = localStorage.getItem('chery_auth_user');
 
     // 1. PUBLIC ROUTES — hanya login yang bisa diakses tanpa auth
     const publicPaths = ['/login', '/register'];
@@ -345,7 +346,7 @@ const App = () => {
       return;
     }
 
-    const savedPage = sessionStorage.getItem('chery_current_page');
+    const savedPage = localStorage.getItem('chery_current_page');
     const role = u.role.toLowerCase();
 
     // Map public paths to pages
@@ -482,14 +483,50 @@ const App = () => {
 
   // Persist User & Session
   useEffect(() => {
-    if (user) sessionStorage.setItem('chery_auth_user', JSON.stringify(user));
-    else sessionStorage.removeItem('chery_auth_user');
+    if (user) localStorage.setItem('chery_auth_user', JSON.stringify(user));
+    else localStorage.removeItem('chery_auth_user');
   }, [user]);
 
   useEffect(() => {
-    if (sessionId) sessionStorage.setItem('chery_session_id', sessionId);
-    else sessionStorage.removeItem('chery_session_id');
+    if (sessionId) localStorage.setItem('chery_session_id', sessionId);
+    else localStorage.removeItem('chery_session_id');
   }, [sessionId]);
+
+  // Sync state between tabs/windows on the same device
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === 'chery_auth_user') {
+        const newUser = e.newValue && e.newValue !== 'null' ? JSON.parse(e.newValue) : null;
+        setUser(newUser);
+        if (!newUser) {
+          setSessionId(null);
+          setCurrentPage('login');
+          window.history.pushState({}, '', '/login');
+        } else {
+          const role = newUser.role?.toLowerCase();
+          const targetPage = role === 'mekanik' ? 'mechanic' :
+            role === 'sparepart' ? 'sparepart' :
+            role === 'cro' ? 'cro' :
+            role === 'manager' ? 'manager' :
+            role === 'owner' ? 'owner' : 
+            role === 'customer' ? 'customer' :
+            role === 'display' ? 'display' :
+            role === 'warranty' ? 'warranty' :
+            role === 'foreman' ? 'foreman' :
+            role === 'security' ? 'security' : 'admin';
+          setCurrentPage(targetPage);
+        }
+      }
+      if (e.key === 'chery_session_id') {
+        setSessionId(e.newValue || null);
+      }
+      if (e.key === 'chery_current_page') {
+        if (e.newValue) setCurrentPage(e.newValue);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const fetchQueue = React.useCallback(async () => {
     try {
