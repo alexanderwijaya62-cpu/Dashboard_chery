@@ -136,14 +136,31 @@ export default function SecurityPanel({ user, handleLogout }) {
   };
 
   const generateQueueNumber = async (category) => {
-    const { data: maxQueue } = await db.select('antrian', {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfTodayMs = startOfToday.getTime();
+
+    const { data: activeItems } = await db.select('antrian', {
       select: 'queue_number',
       eq: { category },
-      order: { column: 'queue_number', ascending: false },
-      limit: 1
+      gte: { id: startOfTodayMs }
     });
-    const maxNum = (maxQueue && maxQueue.length > 0) ? (maxQueue[0].queue_number || 0) : 0;
-    return maxNum + 1;
+
+    const { data: historyItems } = await db.select('history', {
+      select: 'id',
+      eq: { category },
+      gte: { id: startOfTodayMs }
+    });
+
+    const activeCount = activeItems ? activeItems.length : 0;
+    const historyCount = historyItems ? historyItems.length : 0;
+
+    let maxActiveNum = 0;
+    if (activeItems && activeItems.length > 0) {
+      maxActiveNum = Math.max(...activeItems.map(item => item.queue_number || 0));
+    }
+
+    return Math.max(maxActiveNum + 1, activeCount + historyCount + 1);
   };
 
   const formatQueueCode = (category, num) => {

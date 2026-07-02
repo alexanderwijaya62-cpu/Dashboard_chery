@@ -161,10 +161,10 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                const bannerMap = {
                   'waiting': { bg: '#d97706', icon: 'Clock', label: 'MENUNGGU ANTRIAN PEKERJAAN', sub: item.cuci_required ? '+ Cuci Mobil' : '' },
                   'working': { bg: '#2563eb', icon: 'Zap', label: `SEDANG DIKERJAKAN`, sub: item.mechanicName || '' },
-                  'menunggu_cuci': { bg: '#0d9488', icon: 'Droplets', label: 'MENUNGGU ANTRIAN CUCI', sub: '' },
+                  'menunggu_cuci': { bg: '#0d9488', icon: 'Droplets', label: 'MENUNGGU ANTRIAN CUCI', sub: item.washQueueNum ? `Antrean Ke-${item.washQueueNum}` : 'Antrean Cuci' },
                   'sedang_dicuci': { bg: '#0891b2', icon: 'Droplets', label: 'SEDANG DICUCI', sub: formatTime(item.estimasi) },
-                'request_extension': { bg: '#d97706', icon: 'Clock', label: 'MENUNGGU APPROVAL TAMBAH WAKTU', sub: '' },
-                'menunggu_konfirmasi': { bg: '#f59e0b', icon: 'Clock', label: 'MENUNGGU KONFIRMASI ADMIN', sub: '' },
+                  'request_extension': { bg: '#d97706', icon: 'Clock', label: 'MENUNGGU APPROVAL TAMBAH WAKTU', sub: '' },
+                  'menunggu_konfirmasi': { bg: '#f59e0b', icon: 'Clock', label: 'MENUNGGU KONFIRMASI ADMIN', sub: '' },
                 };
                const cfg = bannerMap[item.status];
                if (!cfg) return null;
@@ -514,16 +514,28 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
 
    const sortQueue = (arr) => [...arr].sort((a, b) => {
       const aScore = a.status === 'working' ? 0 : a.status === 'istirahat' ? 1 : 2;
-      const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
+const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
       if (aScore !== bScore) return aScore - bScore;
       return (parseInt(a.id) || 0) - (parseInt(b.id) || 0);
    });
 
    const categories = useMemo(() => {
       const todayStr = new Date().toLocaleDateString('en-CA');
+      const washQueue = processedQueue
+         .filter(i => i.status === 'menunggu_cuci')
+         .sort((a, b) => parseInt(a.id) - parseInt(b.id));
+
+      const queueToUse = processedQueue.map(i => {
+         if (i.status === 'menunggu_cuci') {
+            const idx = washQueue.findIndex(w => w.id === i.id);
+            return { ...i, washQueueNum: idx !== -1 ? idx + 1 : 1 };
+         }
+         return i;
+      });
+
       const todayBookingsRaw = bookings.filter(b => {
          if (!b.tanggal || !isSameDate(b.tanggal, todayStr)) return false;
-         if (processedQueue.some(pq => pq.bk === b.bk)) return false;
+         if (queueToUse.some(pq => pq.bk === b.bk)) return false;
          return true;
       });
 
@@ -553,19 +565,19 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
       const occupiedCount = bookings.filter(b => isSameDate(b.tanggal, todayStr) && (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed')).length;
       const remainingSlots = Math.max(0, (dynamicJamPilihan.length * slotCapacityDisplay) - occupiedCount);
 
-      const arrivedReguler = processedQueue.filter(i => {
+      const arrivedReguler = queueToUse.filter(i => {
          const s = (i.status || '').toLowerCase();
          const cat = (i.category || '').toLowerCase();
          return (cat === 'reguler' || cat === 'reguler (late)' || !cat) && s !== 'menginap' && s !== 'completed' && s !== 'menunggu_sa';
       });
 
-      const arrivedBooking = processedQueue.filter(i => {
+      const arrivedBooking = queueToUse.filter(i => {
          const s = (i.status || '').toLowerCase();
          const cat = (i.category || '').toLowerCase();
          return cat === 'booking' && s !== 'menginap' && s !== 'completed' && s !== 'menunggu_sa';
       });
 
-      const arrivedMenginap = processedQueue.filter(i => (i.status || '').toLowerCase() === 'menginap');
+      const arrivedMenginap = queueToUse.filter(i => (i.status || '').toLowerCase() === 'menginap');
 
       const mergedBooking = [...arrivedBooking, ...todayBookings].sort((a, b) => {
          if (a.status === 'working' && b.status !== 'working') return -1;
@@ -686,8 +698,13 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
    const getTimeOut = (item) => {
       try {
          const tVal = item.targetTime || item.target_time || item.waktuSelesai || item.completedAt || item.updatedAt || item.id;
+         if (!tVal) return '--:--';
+         if (typeof tVal === 'string' && (tVal.includes('T') || tVal.includes('-') || tVal.includes(':')) && isNaN(tVal)) {
+            const date = new Date(tVal);
+            return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+         }
          const n = parseInt(tVal);
-         if (!isNaN(n)) {
+         if (!isNaN(n) && n > 0) {
             const date = (n < 2000000000) ? new Date(n * 1000) : new Date(n);
             return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
          }
@@ -851,7 +868,22 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
                            </div>
                         </div>
                         <div className="flex flex-col gap-5">
-                           <div className="bg-zinc-900 p-8 rounded-3xl text-center relative overflow-hidden"><div className="absolute inset-0 bg-zinc-800/20" /><p className="text-[11px] font-black text-white/30 uppercase tracking-widest mb-4 relative z-10">Countdown</p><p className="text-5xl font-black text-white tracking-widest tabular-nums relative z-10">{liveUnit.status === 'working' ? formatTime(liveUnit.estimasi) : '--:--:--'}</p><div className={`mt-4 px-6 py-2 rounded-full inline-block text-[10px] font-black uppercase tracking-widest relative z-10 ${liveUnit.status === 'working' ? 'bg-blue-600 text-white' : 'bg-white/5 text-white/30'}`}>{liveUnit.status === 'working' ? 'Aktif Diproses' : liveUnit.status === 'menginap' ? 'Menginap' : 'Menunggu Antrian'}</div></div>
+                            <div className="bg-zinc-900 p-8 rounded-3xl text-center relative overflow-hidden">
+                               <div className="absolute inset-0 bg-zinc-800/20" />
+                               <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mb-4 relative z-10">
+                                  {['menunggu_konfirmasi', 'completed', 'menunggu_cuci', 'sedang_dicuci'].includes(liveUnit.status) ? 'Durasi Pengerjaan' : 'Countdown'}
+                               </p>
+                               <p className="text-5xl font-black text-white tracking-widest tabular-nums relative z-10">
+                                  {liveUnit.status === 'working' 
+                                     ? formatTime(liveUnit.estimasi) 
+                                     : ['menunggu_konfirmasi', 'completed', 'menunggu_cuci', 'sedang_dicuci'].includes(liveUnit.status) 
+                                        ? formatTime(liveUnit.estimasiDefault || liveUnit.elapsedSeconds || 0)
+                                        : '--:--:--'}
+                               </p>
+                               <div className={`mt-4 px-6 py-2 rounded-full inline-block text-[10px] font-black uppercase tracking-widest relative z-10 ${liveUnit.status === 'working' ? 'bg-blue-600 text-white' : 'bg-white/5 text-white/30'}`}>
+                                  {liveUnit.status === 'working' ? 'Aktif Diproses' : liveUnit.status === 'menginap' ? 'Menginap' : 'Menunggu Antrian'}
+                               </div>
+                            </div>
                            {user?.role?.toLowerCase() === 'mekanik' && (
                               <div className="flex flex-col gap-3">
                                   {liveUnit.status === 'waiting' && (!liveUnit.mechanicName || liveUnit.mechanicName.split(',').includes(user.name)) && (<button onClick={() => onStartWork(liveUnit)} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"><Zap size={18} fill="white" /> Mulai Pekerjaan</button>)}

@@ -1189,13 +1189,42 @@ const App = () => {
     }
   };
 
+  const generateQueueNumber = async (category) => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfTodayMs = startOfToday.getTime();
 
+    const { data: activeItems } = await db.select('antrian', {
+      select: 'queue_number',
+      eq: { category },
+      gte: { id: startOfTodayMs }
+    });
+
+    const { data: historyItems } = await db.select('history', {
+      select: 'id',
+      eq: { category },
+      gte: { id: startOfTodayMs }
+    });
+
+    const activeCount = activeItems ? activeItems.length : 0;
+    const historyCount = historyItems ? historyItems.length : 0;
+
+    let maxActiveNum = 0;
+    if (activeItems && activeItems.length > 0) {
+      maxActiveNum = Math.max(...activeItems.map(item => item.queue_number || 0));
+    }
+
+    return Math.max(maxActiveNum + 1, activeCount + historyCount + 1);
+  };
 
   const handleSave = async (e) => {
     e.preventDefault();
     if (isLoadingProcess) return;
 
-    const totalSeconds = (parseInt(formData.jam || 0) * 3600) + (parseInt(formData.menit || 0) * 60) + parseInt(formData.detik || 0);
+    let totalSeconds = (parseInt(formData.jam || 0) * 3600) + (parseInt(formData.menit || 0) * 60) + parseInt(formData.detik || 0);
+    if (formData.cuci) {
+      totalSeconds += 1800; // Tambah 30 menit
+    }
 
     // VALIDASI: BK dan Tipe tidak boleh kosong
     if (!formData.bk.trim() || !formData.tipe) {
@@ -1241,6 +1270,7 @@ const App = () => {
 
       if (isEditing) {
         updates.id = formData.id;
+        updates.addedBy = formData.addedBy || addedByValue;
         if (formData.status === 'working') {
           const newTargetTime = Date.now() + (totalSeconds * 1000);
           updates.targetTime = newTargetTime;
@@ -1254,11 +1284,15 @@ const App = () => {
         if (formData.status === 'menunggu_sa' || formData.status === 'menunggu_foreman') {
           if (!formData.nama_sa) {
             updates.nama_sa = user?.name || user?.username || 'System';
+          } else {
+            updates.nama_sa = formData.nama_sa;
           }
+        } else {
+          updates.nama_sa = formData.nama_sa || '';
         }
         if (formData.status === 'menunggu_sa') {
           updates.status = 'menunggu_foreman';
-          updates.nama_sa = user?.name || user?.username || 'System';
+          updates.nama_sa = updates.nama_sa || user?.name || user?.username || 'System';
         }
     } else {
       updates.id = Date.now();
@@ -1299,14 +1333,8 @@ const App = () => {
           throw updateError;
         }
       } else {
-        const { data: maxQueue } = await db.select('antrian', {
-          select: 'queue_number',
-          eq: { category: updates.category },
-          order: { column: 'queue_number', ascending: false },
-          limit: 1
-        });
-        const maxNum = (maxQueue && maxQueue.length > 0) ? (maxQueue[0].queue_number || 0) : 0;
-        updates.queue_number = maxNum + 1;
+        const qNum = await generateQueueNumber(updates.category);
+        updates.queue_number = qNum;
 
         const { error } = await db.insert('antrian', updates);
         if (error) {
@@ -1712,17 +1740,33 @@ const App = () => {
       }
 
       // If cuci required → go to cuci queue instead of konfirmasi
+      // If cuci required → go to cuci queue instead of konfirmasi
       const isCuci = item.cuci_required === true;
+      let finalStatus = 'menunggu_konfirmasi';
+      let cuciAdditions = {};
+
+      if (isCuci) {
+        const isAnyCarWashing = queue.some(q => q.status === 'sedang_dicuci' && q.id !== item.id);
+        if (isAnyCarWashing) {
+          finalStatus = 'menunggu_cuci';
+        } else {
+          finalStatus = 'sedang_dicuci';
+          const cuciDurasi = 30 * 60; // 30 menit
+          cuciAdditions = {
+            cuci_mulai: new Date().toISOString(),
+            targetTime: Date.now() + (cuciDurasi * 1000),
+            estimasiDefault: cuciDurasi
+          };
+        }
+      }
+
       const updatePayload = {
-        status: isCuci ? 'menunggu_cuci' : 'menunggu_konfirmasi',
+        status: finalStatus,
         waktuSelesai: nowISO,
         estimasiDefault: elapsedSeconds || remainingAtComplete,
-        elapsedSeconds: elapsedSeconds
+        elapsedSeconds: elapsedSeconds,
+        ...cuciAdditions
       };
-      if (isCuci) {
-        updatePayload.cuci_mulai = '';
-        updatePayload.cuci_queue = 0;
-      }
 
       const { error: updateError } = await db.update('antrian', updatePayload, { eq: { id: item.id } });
 
@@ -1730,7 +1774,6 @@ const App = () => {
         if (updateError.code === 'PGRST204') {
           delete updatePayload.elapsedSeconds;
           delete updatePayload.cuci_mulai;
-          delete updatePayload.cuci_queue;
           const { error: retryError } = await db.update('antrian', updatePayload, { eq: { id: item.id } });
           if (retryError) throw retryError;
         } else {
@@ -1739,14 +1782,16 @@ const App = () => {
       }
 
       Toastify({
-        text: isCuci ? `🚗 ${item.bk} selesai dikerjakan — Menunggu antrian cuci` : `⏳ ${item.bk} selesai dikerjakan — Menunggu konfirmasi admin`,
+        text: isCuci 
+          ? (finalStatus === 'sedang_dicuci' ? `🚗 ${item.bk} selesai dikerjakan — Sedang dicuci 30 menit` : `🚗 ${item.bk} selesai dikerjakan — Menunggu antrian cuci`) 
+          : `⏳ ${item.bk} selesai dikerjakan — Menunggu konfirmasi admin`,
         duration: 4000,
         style: { background: isCuci ? "linear-gradient(135deg, #0d9488, #0f766e)" : "linear-gradient(135deg, #f59e0b, #d97706)", borderRadius: "12px", fontWeight: "900" }
       }).showToast();
 
       // Optimistic update + immediate re-fetch
       setQueue(prev => prev.map(q =>
-        q.id === item.id ? { ...q, status: isCuci ? 'menunggu_cuci' : 'menunggu_konfirmasi', waktuSelesai: nowISO, estimasiDefault: remainingAtComplete, cuci_required: isCuci } : q
+        q.id === item.id ? { ...q, ...updatePayload } : q
       ));
       fetchQueueRef.current();
 
@@ -1917,9 +1962,7 @@ const App = () => {
 
       // 4. Notify customer
       const plat = item.bk || '';
-      const queueNum = item.queueNumber || item.queue_number || '';
-      const cat = item.category === 'Booking' ? 'Booking' : 'Reguler';
-      const announceText = `Antrian ${cat} nomor ${queueNum}, ${plat}, kendaraan selesai. Silahkan mengambil kendaraan`;
+      const announceText = `${plat} telah selesai, mobil bisa diambil`;
 
       fetch('/api/notify', {
         method: 'POST',
@@ -2001,11 +2044,39 @@ const App = () => {
         waktuSelesai: now,
       }, { eq: { id: item.id } });
       if (error) throw error;
-      setQueue(prev => prev.map(q =>
-        q.id === item.id ? { ...q, status: 'menunggu_konfirmasi', waktuSelesai: now } : q
-      ));
+
+      // Cari mobil berikutnya di antrian cuci (status = menunggu_cuci)
+      const nextInLine = queue
+        .filter(q => q.status === 'menunggu_cuci' && q.id !== item.id)
+        .sort((a, b) => parseInt(a.id) - parseInt(b.id))[0];
+
+      if (nextInLine) {
+        const cuciDurasi = 30 * 60;
+        const targetTime = Date.now() + (cuciDurasi * 1000);
+        const nextPayload = {
+          status: 'sedang_dicuci',
+          cuci_mulai: new Date().toISOString(),
+          targetTime: targetTime,
+          estimasiDefault: cuciDurasi
+        };
+        await db.update('antrian', nextPayload, { eq: { id: nextInLine.id } });
+      }
+
+      setQueue(prev => prev.map(q => {
+        if (q.id === item.id) {
+          return { ...q, status: 'menunggu_konfirmasi', waktuSelesai: now };
+        }
+        if (nextInLine && q.id === nextInLine.id) {
+          const cuciDurasi = 30 * 60;
+          return { ...q, status: 'sedang_dicuci', cuci_mulai: now, targetTime: Date.now() + (cuciDurasi * 1000), estimasiDefault: cuciDurasi };
+        }
+        return q;
+      }));
       fetchQueueRef.current();
       Toastify({ text: `✅ ${item.bk} selesai dicuci — Menunggu konfirmasi admin`, background: "#059669", borderRadius: "12px", fontWeight: "900" }).showToast();
+      if (nextInLine) {
+        Toastify({ text: `🧼 ${nextInLine.bk} otomatis masuk pencucian`, background: "#0d9488", borderRadius: "12px", fontWeight: "900" }).showToast();
+      }
     } catch (err) {
       Toastify({ text: `❌ Gagal selesai cuci: ${err.message}`, background: "#dc2626", borderRadius: "12px" }).showToast();
     } finally {

@@ -35,6 +35,7 @@ export default function ForemanPanel({
     const [assignSearch, setAssignSearch] = useState('');
     const [selectedMechanics, setSelectedMechanics] = useState([]);
     const [isAssigning, setIsAssigning] = useState(false);
+    const [startImmediately, setStartImmediately] = useState(false);
 
     // Monitor toggle
     const [showMonitor, setShowMonitor] = useState(false);
@@ -139,7 +140,12 @@ export default function ForemanPanel({
         setIsAssigning(true);
         const mechanicStr = selectedMechanics.join(',');
         const payload = { mechanicName: mechanicStr };
-        if (assignModal.item.status === 'menunggu_foreman' || assignModal.item.status === 'menunggu_sa') {
+        if (startImmediately) {
+            payload.status = 'working';
+            const estSec = parseInt(assignModal.item.estimasiDefault) || 1800;
+            payload.targetTime = Date.now() + (estSec * 1000);
+            payload.is_called = false;
+        } else if (assignModal.item.status === 'menunggu_foreman' || assignModal.item.status === 'menunggu_sa') {
             payload.status = 'waiting';
         }
         try {
@@ -153,6 +159,7 @@ export default function ForemanPanel({
             setAssignModal({ show: false, item: null });
             setSelectedMechanics([]);
             setAssignSearch('');
+            setStartImmediately(false);
         } catch (e) {
             console.error(e);
             Toastify({ text: 'Gagal assign mekanik', background: '#ef4444' }).showToast();
@@ -165,6 +172,7 @@ export default function ForemanPanel({
         setAssignModal({ show: true, item });
         setSelectedMechanics([]);
         setAssignSearch('');
+        setStartImmediately(false);
     };
 
     const toggleMechanic = (name) => {
@@ -593,7 +601,20 @@ export default function ForemanPanel({
                             )}
                         </div>
 
-                        <div className="flex gap-2 mt-4 shrink-0">
+                        <div className="flex items-center gap-2 mt-4 px-1 shrink-0">
+                            <input 
+                                type="checkbox" 
+                                id="startImmediately" 
+                                checked={startImmediately} 
+                                onChange={e => setStartImmediately(e.target.checked)}
+                                className="w-4 h-4 accent-black rounded border-zinc-300"
+                            />
+                            <label htmlFor="startImmediately" className="text-[10px] font-black text-zinc-600 uppercase tracking-wider cursor-pointer select-none">
+                                Langsung Mulai Pekerjaan
+                            </label>
+                        </div>
+
+                        <div className="flex gap-2 mt-3 shrink-0">
                             <button onClick={() => { setAssignModal({ show: false, item: null }); setSelectedMechanics([]); setAssignSearch(''); }}
                                 className="flex-1 py-3 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95">
                                 Batal
