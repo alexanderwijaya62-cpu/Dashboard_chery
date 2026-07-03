@@ -51,6 +51,40 @@ const getStatus = s => STATUS_MAP[s] || { label: String(s || '-'), bg: 'bg-zinc-
 
 const isFreeService = p => p && FREE_SERVICE_KEYWORDS.some(kw => p.toLowerCase().includes(kw));
 
+const extractKm = (text) => {
+  if (!text) return null;
+  const upper = text.toUpperCase();
+  // 1. Cari pola "angka + KM" (contoh: 20.000KM, 20000 KM, 5.000km)
+  const kmMatch = upper.match(/([\d.]+)\s*KM/);
+  if (kmMatch) return parseInt(kmMatch[1].replace(/\./g, ''), 10);
+  // 2. Cari semua angka dalam teks, ambil yang masuk range mileage (1000-999999)
+  const allNums = [...upper.matchAll(/(\d{1,3}(?:\.\d{3})+|\d+)/g)].map(m => parseInt(m[1].replace(/\./g, ''), 10));
+  const mileageNums = allNums.filter(n => n >= 1000 && n <= 999999);
+  if (mileageNums.length > 0) {
+    // Ambil angka yang paling umum (median) atau yang pertama
+    return mileageNums.sort((a, b) => a - b)[Math.floor(mileageNums.length / 2)];
+  }
+  return null;
+};
+
+const normalizeText = (text) => {
+  if (!text) return '';
+  return text.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+};
+
+const isPekerjaanMatched = (dmsDescription, internalPerintah) => {
+  if (!dmsDescription || !internalPerintah) return null;
+  const dmsKm = extractKm(dmsDescription);
+  const intKm = extractKm(internalPerintah);
+  if (dmsKm != null && intKm != null) {
+    return dmsKm === intKm;
+  }
+  const dmsNorm = normalizeText(dmsDescription);
+  const intNorm = normalizeText(internalPerintah);
+  if (!dmsNorm || !intNorm) return null;
+  return dmsNorm === intNorm || dmsNorm.includes(intNorm) || intNorm.includes(dmsNorm);
+};
+
 const getDefaultRange = () => {
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
@@ -121,6 +155,7 @@ function DetailPage({ settlement, onBack }) {
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [typeFilter, setTypeFilter] = useState('all'); // all | maintain | warranty | adjustment
+  const [matchedOnly, setMatchedOnly] = useState(true);
   const [zoomedImage, setZoomedImage] = useState(null);
   const [contractDetails, setContractDetails] = useState({});
   const [repairContracts, setRepairContracts] = useState({});
@@ -130,21 +165,16 @@ function DetailPage({ settlement, onBack }) {
   const [exportProgress, setExportProgress] = useState(0);
   const [partsCache, setPartsCache] = useState(() => GLOBAL_PROFORMA_CACHE.parts || {});
 
-  // Date range centered around settlementMonth (3-month window: prev, current, next)
+  // Date range: full year of settlementMonth to ensure all WOs are found
   const dateRange = useMemo(() => {
     if (!settlement.settlementMonth) return { from: '', to: '' };
     try {
       const d = new Date(settlement.settlementMonth);
       if (isNaN(d)) return { from: '', to: '' };
       const y = d.getFullYear();
-      const m = d.getMonth();
-      const prev = new Date(y, m - 1, 1);
-      const next = new Date(y, m + 2, 0);
-      const pad = n => String(n).padStart(2, '0');
-      const fmt = date => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
       return {
-        from: fmt(prev),
-        to: fmt(next)
+        from: `${y}-01-01`,
+        to: `${y}-12-31`
       };
     } catch {
       return { from: '', to: '' };
@@ -330,12 +360,11 @@ function DetailPage({ settlement, onBack }) {
         const itemCode = item.code || item.claimCode || '-';
         const vin = item.vin || item.vinCode || item.chassisNo || '';
         const vd = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] || vinData[vin] || { wos: [] };
-
-        let matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
-
         const detail = currentContractDetails[item.id || item.claimId] || {};
         const contract = currentRepairContracts[detail.repairContractId || item.repairContractId] || {};
         const dmsDescription = contract.description || detail.faultDescription || detail.checkMeasureResult || detail.description || item.description || '';
+
+        let matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'), dmsDescription);
 
         let validationStatus = 'Belum Estimasi';
         const woId = matchWO?.id_wo;
@@ -501,6 +530,8 @@ function DetailPage({ settlement, onBack }) {
   // Filter + search (includes perintah from cross-ref optimized with O(1) Map)
   const filteredItems = useMemo(() => {
     return items.filter(item => {
+      if (item._type === 'adjustment') return !matchedOnly;
+
       const itemCode = item.code || item.claimCode || '';
 
       // Category segregation logic (DMS code prefix + internal kategori IFS/IKC)
@@ -544,21 +575,28 @@ function DetailPage({ settlement, onBack }) {
       }
       if (!matchesType) return false;
 
+      const vin = (item.vin || item.vinCode || item.chassisNo || '').toLowerCase();
+      const vd = vinLookupMap.get(vin) || { wos: [], loading: false };
+
+      // matchedOnly: hanya tampilkan item yang sudah matched dengan internal WO
+      if (matchedOnly) {
+        if (vd.loading) return true; // still loading, keep visible
+        if (!vd.wos || vd.wos.length === 0) return false; // no internal WO
+        const matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
+        if (!matchWO || !matchWO.perintah) return false; // no match
+      }
+
       if (search) {
         const q = search.toLowerCase();
-        const vin = (item.vin || item.vinCode || item.chassisNo || '').toLowerCase();
-
-        // O(1) lookup using external findBestMatchingWO function
-        const vd = vinLookupMap.get(vin) || { wos: [] };
-        let matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
+        const vd2 = vinLookupMap.get(vin) || { wos: [] };
+        let matchWO = findBestMatchingWO(vd2.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
         const perintah = matchWO?.perintah || '';
-
         const hay = [itemCode, vin, item.customerName || '', item.productCategoryCode || '', perintah].join(' ').toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [items, typeFilter, search, vinLookupMap]);
+  }, [items, typeFilter, search, vinLookupMap, matchedOnly]);
 
   const totalItemPages = Math.ceil(filteredItems.length / itemsPerPage);
   const pagedItems = useMemo(() => {
@@ -589,7 +627,18 @@ function DetailPage({ settlement, onBack }) {
         processVinQueue();
       })();
     }
-  }, []);
+  }, [dateRange.from, dateRange.to]);
+
+  // ─── Effect 0: Invalidate VIN cache when dateRange changes ────
+  useEffect(() => {
+    Object.keys(GLOBAL_PROFORMA_CACHE.vinCrossRef).forEach(vin => {
+      const entry = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin];
+      if (entry && !entry.loading) {
+        delete GLOBAL_PROFORMA_CACHE.vinCrossRef[vin];
+      }
+    });
+    setVinData({});
+  }, [dateRange.from, dateRange.to]);
 
   // ─── Effect 1: Load VINs from DMS (cross-reference) ────────────
   useEffect(() => {
@@ -750,6 +799,11 @@ function DetailPage({ settlement, onBack }) {
                 <option value="adjustment">Adjustment</option>
               </select>
 
+              <button onClick={() => { setMatchedOnly(prev => !prev); setItemPage(0); }}
+                className={`px-2.5 py-1.5 text-xs font-bold rounded-lg border transition-colors ${matchedOnly ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-300'}`}>
+                {matchedOnly ? '✓ Matched' : 'Matched'}
+              </button>
+
               <select value={itemsPerPage} onChange={e => { setItemsPerPage(Number(e.target.value)); setItemPage(0); }}
                 className="px-2.5 py-1.5 text-xs border border-zinc-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900 font-medium">
                 <option value={10}>10 item / hal</option>
@@ -809,20 +863,20 @@ function DetailPage({ settlement, onBack }) {
 
               const vin = item.vin || item.vinCode || item.chassisNo || '';
               const vd = vinData[vin] || { wos: [], loading: false };
-
-              // Match WO specifically for this item using itemCode / claimCode
-              let matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
-
-              const perintah = matchWO?.perintah || '';
-              const isFree = matchWO ? (matchWO.kategori || '').toUpperCase() === 'IFS' : isFreeService(perintah);
-              const ifsWO = matchWO && (matchWO.kategori || '').toUpperCase() === 'IFS' ? matchWO : null;
-              const ikcWO = matchWO && (matchWO.kategori || '').toUpperCase() === 'IKC' ? matchWO : null;
               const claimId = item.id || item.claimId;
               const detail = contractDetails[claimId] || {};
               const contractId = detail.repairContractId || item.repairContractId;
               const contract = repairContracts[contractId] || {};
               const dmsDescription = contract.description || detail.faultDescription || detail.checkMeasureResult || detail.description || item.description || '';
               const dmsAttachments = detail.attachments || contract.attachments || item.attachments || [];
+
+              // Match WO specifically for this item using itemCode / claimCode + dmsDescription
+              let matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'), dmsDescription);
+
+              const perintah = matchWO?.perintah || '';
+              const isFree = matchWO ? (matchWO.kategori || '').toUpperCase() === 'IFS' : isFreeService(perintah);
+              const ifsWO = matchWO && (matchWO.kategori || '').toUpperCase() === 'IFS' ? matchWO : null;
+              const ikcWO = matchWO && (matchWO.kategori || '').toUpperCase() === 'IKC' ? matchWO : null;
 
               return (
                 <div key={idx} className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
@@ -912,6 +966,24 @@ function DetailPage({ settlement, onBack }) {
                           <p className="text-xs text-zinc-700 whitespace-pre-line">{perintah}</p>
                         </div>
                       )}
+
+                      {/* Match Status */}
+                      {dmsDescription && perintah && (() => {
+                        const matched = isPekerjaanMatched(dmsDescription, perintah);
+                        if (matched === null) return null;
+                        return (
+                          <div className={`rounded-xl px-4 py-2 border flex items-center gap-2 ${matched ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                            {matched ? (
+                              <CheckCircle2 size={14} className="text-emerald-600" />
+                            ) : (
+                              <XCircle size={14} className="text-red-500" />
+                            )}
+                            <span className={`text-[11px] font-bold ${matched ? 'text-emerald-700' : 'text-red-700'}`}>
+                              Pekerjaan {matched ? 'MATCHED' : 'TIDAK MATCH'}
+                            </span>
+                          </div>
+                        );
+                      })()}
 
                       {/* Spare Parts Detail */}
                       {matchWO && partsCache[matchWO.id_wo] && partsCache[matchWO.id_wo].data && partsCache[matchWO.id_wo].data.length > 0 && (

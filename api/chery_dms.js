@@ -981,7 +981,7 @@ export default async function handler(req, res) {
             `&search[value]=${encodeURIComponent(vin)}&search[regex]=false` +
             `&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&_=${Date.now()}`;
 
-        const statusesToFetch = ['Open', 'Closed'];
+        const statusesToFetch = ['Open', 'Ready', 'In Progress', 'Checker', 'Selesai', 'Closed'];
         const allData = [];
         const seenIds = new Set();
 

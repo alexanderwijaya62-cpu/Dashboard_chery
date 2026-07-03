@@ -366,6 +366,14 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
     }, [rawBookings, queue, rawHistory, normalizeBK, allSlots, currentDay]);
 
     const handleConfirmBooking = (booking) => {
+        if (booking.status !== 'accepted') {
+            Toastify({
+                text: `⚠️ Booking ${booking.noPlat} belum dikonfirmasi! Harap konfirmasi booking terlebih dahulu sebelum masuk antrian.`,
+                duration: 5000,
+                style: { background: "#f59e0b", borderRadius: "12px", fontWeight: "900" }
+            }).showToast();
+            return;
+        }
         setFormData({
             ...formData,
             bk: (booking.noPlat || '').toUpperCase().replace(/\s+/g, ''),
@@ -537,9 +545,15 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                 ) : null}
                                             </div>
                                             {!b.isEmpty ? (
+                                                b.status === 'accepted' ? (
                                                 <button onClick={() => !b.isArrived && handleConfirmBooking(b)} className={`w-11 h-11 min-w-[44px] min-h-[44px] rounded-lg transition-all flex items-center justify-center shadow-md active:scale-95 ${b.isArrived ? 'bg-zinc-200 text-zinc-400 cursor-not-allowed' : 'bg-black hover:bg-zinc-700 text-white'}`}>
                                                     <Plus size={16} strokeWidth={4} />
                                                 </button>
+                                                ) : (
+                                                <div className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-lg bg-amber-100 border border-amber-200 flex items-center justify-center cursor-not-allowed" title="Booking perlu dikonfirmasi admin/SA dulu">
+                                                    <AlertCircle size={16} className="text-amber-400" />
+                                                </div>
+                                                )
                                             ) : (
                                                 <div className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-lg bg-zinc-100 border border-dashed border-zinc-200 flex items-center justify-center">
                                                     <Clock size={14} className="text-zinc-300" />
