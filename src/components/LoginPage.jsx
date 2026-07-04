@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { User, Lock, AlertCircle, Eye, EyeOff, Truck } from 'lucide-react';
 import cheryLogo from '../assets/cherylogo.png';
-import orientalLogo from '../assets/oriental.jpeg';
 
 const LoginPage = ({ loginForm, setLoginForm, handleLogin, errorMessage, setCurrentPage }) => {
   const [showPassword, setShowPassword] = useState(false);
@@ -12,7 +11,6 @@ const LoginPage = ({ loginForm, setLoginForm, handleLogin, errorMessage, setCurr
         <div className="text-center mb-10">
           <div className="flex items-center justify-center gap-6 mb-6">
             <img src={cheryLogo} alt="Chery Logo" className="h-20 object-contain" />
-            <img src={orientalLogo} alt="Oriental Logo" className="h-20 object-contain rounded-lg" />
           </div>
           <h2 className="text-2xl font-black tracking-tighter text-black">LOGIN</h2>
           <p className="text-zinc-400 text-sm font-medium mt-1 uppercase tracking-widest">Akses Panel Kontrol</p>

@@ -4,7 +4,6 @@ import Toastify from 'toastify-js';
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
 import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
-import orientalLogo from '../assets/oriental.jpeg';
 import cheryLogo from '../assets/chery.png';
 
 const isSameDate = (dateA, dateB) => {
@@ -707,7 +706,6 @@ export default function PublicBooking({ user }) {
 
                                 <div className="mt-auto px-6 py-8 md:p-8 bg-[#222] border border-white/5 rounded-[2rem] text-center space-y-3 relative overflow-hidden">
                                     <div className="absolute inset-0 bg-zinc-800/5 mix-blend-overlay pointer-events-none"></div>
-                                    <img src={orientalLogo} alt="Chery VIP" className="h-10 mx-auto -mt-2 mb-3 object-contain opacity-90 drop-shadow-xl" />
                                     <h3 className="text-xs md:text-sm font-black text-white uppercase tracking-widest italic relative z-10">Layanan VIP Chery Oriental</h3>
                                     <p className="text-zinc-500 text-[8px] md:text-[9.5px] font-black leading-relaxed max-w-lg mx-auto uppercase tracking-widest relative z-10">
                                         Nikmati fasilitas ruang tunggu premium, WIFI, snack & minuman gratis selama pengerjaan kendaraan Anda berlangsung.

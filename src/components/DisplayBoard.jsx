@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ClockDisplay from './ClockDisplay';
 import { Bookmark, Zap, Car, Instagram, CheckCircle, Clock, Moon, FileText, X, Activity, CalendarDays, ArrowRight, ChevronLeft, ChevronRight, Megaphone, Droplets } from 'lucide-react';
 import cheryLogo from '../assets/cherylogo.png';
-import orientalLogo from '../assets/oriental.jpeg';
 import { QRCodeSVG } from 'qrcode.react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
@@ -766,7 +765,6 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
             <div className="flex items-center gap-6 md:gap-16" onDoubleClick={onLogoDoubleClick}>
                <div className="flex items-center gap-5 md:gap-10 bg-white rounded-xl p-1">
                   <img src={cheryLogo} alt="Chery" className="h-16 md:h-32 object-contain" />
-                  <img src={orientalLogo} alt="Oriental" className="h-16 md:h-32 object-contain" />
                </div>
                <div className="hidden lg:block">
                   <h1 className="text-4xl font-black tracking-tighter text-black leading-tight">Service <span className="text-black">Dashboard</span></h1>

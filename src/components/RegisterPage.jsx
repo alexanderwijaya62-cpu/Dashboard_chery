@@ -3,7 +3,6 @@ import { Phone, ArrowRight, AlertCircle, Eye, EyeOff, Lock, MessageCircle, Shiel
 import { db } from '../utils/dbClient';
 import { WA_BASE_URL, WA_INSTANCE } from '../utils/waClient';
 import cheryLogo from '../assets/cherylogo.png';
-import orientalLogo from '../assets/oriental.jpeg';
 
 const WA_BOT_NUMBER = import.meta.env.VITE_WA_BOT_NUMBER;
 const OTP_DURATION = 300; // 5 menit (detik)
@@ -553,7 +552,6 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
         <div className="text-center mb-10">
           <div className="flex items-center justify-center gap-6 mb-6">
             <img src={cheryLogo} alt="Chery Logo" className="h-16 object-contain" />
-            <img src={orientalLogo} alt="Oriental Logo" className="h-16 object-contain rounded-lg" />
           </div>
           <h2 className="text-2xl font-black tracking-tighter text-zinc-900">DAFTAR PELANGGAN</h2>
           <p className="text-zinc-400 text-xs font-bold mt-2 uppercase tracking-[0.2em]">Chery Oriental Medan</p>
