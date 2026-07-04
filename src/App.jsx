@@ -1351,18 +1351,13 @@ const App = () => {
         }
         updates.mechanicName = mechanicValue;
         // SA confirm → maju ke foreman
-        if (formData.status === 'menunggu_sa' || formData.status === 'menunggu_foreman') {
-          if (!formData.nama_sa) {
-            updates.nama_sa = user?.name || user?.username || 'System';
-          } else {
-            updates.nama_sa = formData.nama_sa;
-          }
+        if (formData.status === 'menunggu_sa') {
+          updates.nama_sa = user?.name || user?.username || 'System';
+          updates.status = 'menunggu_foreman';
+        } else if (formData.status === 'menunggu_foreman') {
+          updates.nama_sa = formData.nama_sa || user?.name || user?.username || 'System';
         } else {
           updates.nama_sa = formData.nama_sa || '';
-        }
-        if (formData.status === 'menunggu_sa') {
-          updates.status = 'menunggu_foreman';
-          updates.nama_sa = updates.nama_sa || user?.name || user?.username || 'System';
         }
     } else {
       updates.id = Date.now();
