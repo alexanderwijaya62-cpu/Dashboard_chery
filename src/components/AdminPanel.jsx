@@ -1003,7 +1003,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                 <div>
                                                     <div className="flex items-center gap-1.5 flex-wrap">
                                                         {item.queueNumber > 0 && (
-                                                             <span className="text-[9px] font-black bg-zinc-800 text-white px-2 py-0.5 rounded-md">{item.category === 'Booking' ? `B-${String(item.queueNumber).padStart(3, '0')}` : `A-${String(item.queueNumber).padStart(3, '0')}`}</span>
+                                                             <span className="text-[9px] font-black bg-zinc-800 text-white px-2 py-0.5 rounded-md">{item.category === 'Booking' ? `B-${String(item.queueNumber).padStart(3, '0')}` : `R-${String(item.queueNumber).padStart(3, '0')}`}</span>
                                                         )}
                                                         <span className="text-lg font-black text-black uppercase tracking-tight leading-none">{item.bk}</span>
                                                     </div>
@@ -1135,7 +1135,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                             <div className="flex items-center gap-2">
                                                                 {item.queueNumber > 0 && (
                                                                     <span className="text-[9px] font-black bg-zinc-800 text-white px-2 py-0.5 rounded-md tracking-wider">
-                                                                        {item.category === 'Booking' ? `B-${String(item.queueNumber).padStart(3, '0')}` : `A-${String(item.queueNumber).padStart(3, '0')}`}
+                                                                        {item.category === 'Booking' ? `B-${String(item.queueNumber).padStart(3, '0')}` : `R-${String(item.queueNumber).padStart(3, '0')}`}
                                                                     </span>
                                                                 )}
                                                                 <span className="text-xl font-black text-black tabular-nums uppercase tracking-tight leading-none">{item.bk}</span>

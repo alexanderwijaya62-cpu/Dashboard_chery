@@ -742,7 +742,7 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
                   <div>
                      <p className="text-2xl font-black uppercase tracking-[0.3em] text-blue-200 mb-1">Panggilan Antrian</p>
                      <h2 className="text-6xl font-black font-mono tracking-tighter uppercase">
-                        {callAnnouncement.queueNumber > 0 ? `${callAnnouncement.category === 'Booking' ? 'B' : 'A'}-${String(callAnnouncement.queueNumber).padStart(3, '0')}` : callAnnouncement.bk}
+                        {callAnnouncement.queueNumber > 0 ? `${callAnnouncement.category === 'Booking' ? 'B' : 'R'}-${String(callAnnouncement.queueNumber).padStart(3, '0')}` : callAnnouncement.bk}
                      </h2>
                      <p className="text-2xl font-black text-white mt-2">
                         Silahkan menuju Counter {callAnnouncement.counter}

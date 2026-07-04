@@ -188,7 +188,7 @@ export default function SecurityPanel({ user, handleLogout }) {
   };
 
   const formatQueueCode = (category, num) => {
-    const prefix = category === 'Booking' ? 'B' : 'A';
+    const prefix = category === 'Booking' ? 'B' : 'R';
     return `${prefix}-${String(num).padStart(3, '0')}`;
   };
 
@@ -421,7 +421,7 @@ export default function SecurityPanel({ user, handleLogout }) {
               antrianList.map(a => {
                 const code = a.category === 'Booking'
                   ? `B-${String(a.queue_number || 0).padStart(3, '0')}`
-                  : `A-${String(a.queue_number || 0).padStart(3, '0')}`;
+                  : `R-${String(a.queue_number || 0).padStart(3, '0')}`;
                 const statusLabels = {
                   'menunggu_sa': 'Menunggu SA',
                   'waiting': 'Menunggu Mekanik',
