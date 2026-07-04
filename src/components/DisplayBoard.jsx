@@ -166,8 +166,9 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                   'menunggu_cuci': { bg: '#0d9488', icon: 'Droplets', label: 'MENUNGGU ANTRIAN CUCI', sub: item.washQueueNum ? `Antrean Ke-${item.washQueueNum}` : 'Antrean Cuci' },
                   'sedang_dicuci': { bg: '#0891b2', icon: 'Droplets', label: 'SEDANG DICUCI', sub: formatTime(item.estimasi) },
                   'request_extension': { bg: '#d97706', icon: 'Clock', label: 'MENUNGGU APPROVAL TAMBAH WAKTU', sub: '' },
-                  'menunggu_konfirmasi': { bg: '#f59e0b', icon: 'Clock', label: 'MENUNGGU KONFIRMASI ADMIN', sub: '' },
-                };
+                   'menunggu_konfirmasi': { bg: '#f59e0b', icon: 'Clock', label: 'MENUNGGU KONFIRMASI ADMIN', sub: '' },
+                   'menunggu_sa': { bg: '#6b7280', icon: 'Clock', label: 'MENUNGGU SA', sub: '' },
+                 };
                const cfg = bannerMap[item.status];
                if (!cfg) return null;
                return (
@@ -572,13 +573,13 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
       const arrivedReguler = queueToUse.filter(i => {
          const s = (i.status || '').toLowerCase();
          const cat = (i.category || '').toLowerCase();
-         return (cat === 'reguler' || cat === 'reguler (late)' || !cat) && s !== 'menginap' && s !== 'completed' && s !== 'menunggu_sa';
+          return (cat === 'reguler' || cat === 'reguler (late)' || !cat) && s !== 'menginap' && s !== 'completed';
       });
 
       const arrivedBooking = queueToUse.filter(i => {
          const s = (i.status || '').toLowerCase();
          const cat = (i.category || '').toLowerCase();
-         return cat === 'booking' && s !== 'menginap' && s !== 'completed' && s !== 'menunggu_sa';
+          return cat === 'booking' && s !== 'menginap' && s !== 'completed';
       });
 
       const arrivedMenginap = queueToUse.filter(i => (i.status || '').toLowerCase() === 'menginap');
@@ -846,8 +847,9 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
                                   'request_extension': { bg: '#d97706', label: 'MENUNGGU APPROVAL TAMBAH WAKTU' },
                                   'menunggu_cuci': { bg: '#0d9488', label: 'MENUNGGU ANTRIAN CUCI' },
                                   'sedang_dicuci': { bg: '#0891b2', label: 'SEDANG DICUCI' },
-                                  'menunggu_konfirmasi': { bg: '#f59e0b', label: 'MENUNGGU KONFIRMASI ADMIN' },
-                               };
+                                   'menunggu_konfirmasi': { bg: '#f59e0b', label: 'MENUNGGU KONFIRMASI ADMIN' },
+                                   'menunggu_sa': { bg: '#6b7280', label: 'MENUNGGU SA' },
+                                };
                                const bc = banMap[liveUnit.status];
                                if (!bc) return null;
                                return (
