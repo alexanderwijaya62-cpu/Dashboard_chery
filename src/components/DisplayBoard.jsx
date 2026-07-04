@@ -168,6 +168,7 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                   'request_extension': { bg: '#d97706', icon: 'Clock', label: 'MENUNGGU APPROVAL TAMBAH WAKTU', sub: '' },
                    'menunggu_konfirmasi': { bg: '#f59e0b', icon: 'Clock', label: 'MENUNGGU KONFIRMASI ADMIN', sub: '' },
                    'menunggu_sa': { bg: '#6b7280', icon: 'Clock', label: 'MENUNGGU SA', sub: '' },
+                   'menunggu_foreman': { bg: '#7c3aed', icon: 'Clock', label: 'MENUNGGU FOREMAN', sub: '' },
                  };
                const cfg = bannerMap[item.status];
                if (!cfg) return null;
@@ -849,6 +850,7 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
                                   'sedang_dicuci': { bg: '#0891b2', label: 'SEDANG DICUCI' },
                                    'menunggu_konfirmasi': { bg: '#f59e0b', label: 'MENUNGGU KONFIRMASI ADMIN' },
                                    'menunggu_sa': { bg: '#6b7280', label: 'MENUNGGU SA' },
+                                   'menunggu_foreman': { bg: '#7c3aed', label: 'MENUNGGU FOREMAN' },
                                 };
                                const bc = banMap[liveUnit.status];
                                if (!bc) return null;
