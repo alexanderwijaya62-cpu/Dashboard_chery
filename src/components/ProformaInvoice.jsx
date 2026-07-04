@@ -828,10 +828,10 @@ function DetailPage({ settlement, onBack }) {
             {/* Pagination top */}
             {totalItemPages > 1 && (
               <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-400">{itemPage * itemsPerPage + 1}ΓÇô{Math.min((itemPage + 1) * itemsPerPage, filteredItems.length)} dari {filteredItems.length}</span>
+                <span className="text-xs text-zinc-400">{itemPage * itemsPerPage + 1}{Math.min((itemPage + 1) * itemsPerPage, filteredItems.length)} dari {filteredItems.length}</span>
                 <div className="flex items-center gap-2">
                   <button onClick={() => setItemPage(p => Math.max(0, p - 1))} disabled={itemPage === 0}
-                    className="px-2.5 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">ΓåÉ Prev</button>
+                    className="px-2.5 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">Prev</button>
                   <span className="text-xs text-zinc-500 font-medium">{itemPage + 1} / {totalItemPages}</span>
                   <button onClick={() => setItemPage(p => Math.min(totalItemPages - 1, p + 1))} disabled={itemPage >= totalItemPages - 1}
                     className="px-2.5 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
@@ -991,14 +991,14 @@ function DetailPage({ settlement, onBack }) {
                           <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1 flex items-center gap-1"><Wrench size={10} /> Detail Sparepart</p>
                           <div className="space-y-1 mt-1.5 text-[11px]">
                             {partsCache[matchWO.id_wo].data.map((part, pIdx) => {
-                               const isValidated = ['Disetujui', 'Dipenuhi', 'VALIDATED'].includes(part.status_permintaan) || ['Disetujui', 'Dipenuhi', 'VALIDATED'].includes(part.status);
+                              const isValidated = ['Disetujui', 'Dipenuhi', 'VALIDATED'].includes(part.status_permintaan) || ['Disetujui', 'Dipenuhi', 'VALIDATED'].includes(part.status);
                               const displayStatus = part.status_permintaan || part.status || '-';
                               return (
                                 <div key={pIdx} className="flex justify-between items-center py-1 border-b border-zinc-100 last:border-0">
                                   <span className="text-zinc-700 font-mono">{part.kode_part} - <span className="font-sans font-medium">{part.nama_part}</span> (x{part.jumlah})</span>
                                   <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border ${isValidated
-                                      ? 'bg-green-50 text-green-700 border-green-200'
-                                      : 'bg-zinc-100 text-zinc-500 border-zinc-200'
+                                    ? 'bg-green-50 text-green-700 border-green-200'
+                                    : 'bg-zinc-100 text-zinc-500 border-zinc-200'
                                     }`}>
                                     {displayStatus}
                                   </span>

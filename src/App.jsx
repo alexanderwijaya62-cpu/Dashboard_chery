@@ -569,7 +569,7 @@ const App = () => {
 
         return {
           id: item.id,
-          bk: item.noPlat || item.no_plat || item.bk,
+          bk: item.noPlat || item.no_plat || item.noplat || item.bk,
           tipe: item.tipeMobil || item.tipe_mobil || item.tipe,
           category: normalizedCategory,
           keluhan: item.keluhanDetail || item.keluhan_detail || item.keluhan,
@@ -753,6 +753,46 @@ const App = () => {
   const lastPlayedRef = React.useRef(0);
   const playedTextsRef = React.useRef(new Set());
 
+  const playChime = () => {
+    try {
+      const ctx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === 'suspended') ctx.resume();
+      const now = ctx.currentTime;
+      // Gentle chime: ascending pentatonic notes
+      const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+      notes.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, now + i * 0.12);
+        gain.gain.linearRampToValueAtTime(0.15, now + i * 0.12 + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.6);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + i * 0.12);
+        osc.stop(now + i * 0.12 + 0.6);
+      });
+    } catch (_) {}
+  };
+
+  const playTTS = (text) => {
+    try {
+      const url = `/api/tts?text=${encodeURIComponent(text)}`;
+      const audio = new Audio(url);
+      audio.volume = 0.8;
+      audio.play().catch(() => {
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = 'id-ID';
+          utterance.rate = 0.85;
+          window.speechSynthesis.speak(utterance);
+        }
+      });
+    } catch (_) {}
+  };
+
   const playNotificationSound = React.useCallback((textOrBk) => {
     if (!isSoundEnabled || !textOrBk || textOrBk === "Unit" || textOrBk === "undefined") return;
 
@@ -764,61 +804,30 @@ const App = () => {
     playedTextsRef.current.add(textOrBk);
     setTimeout(() => playedTextsRef.current.delete(textOrBk), 10000);
 
-    const playBeepInstead = () => {
+    // Play notification sound (custom or gentle chime)
+    if (customSoundUrlRef.current) {
       try {
-        const ctx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)();
-        if (ctx.state === 'suspended') ctx.resume();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = 880;
-        gain.gain.setValueAtTime(0.3, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(ctx.currentTime);
-        osc.stop(ctx.currentTime + 0.5);
-      } catch (_) {}
-    };
-
-    try {
-      const soundUrl = customSoundUrlRef.current || '/notification.mp3';
-      const audio = new Audio(soundUrl);
-      audio.play().then(() => {
-        // Voice Notification (TTS)
-        if ('speechSynthesis' in window) {
-          setTimeout(() => {
-            let speakText = textOrBk;
-            
-            // Logika untuk mendeteksi apakah ini plat nomor atau kalimat utuh
-            // Plat nomor biasanya pendek (< 20 karakter) dan jumlah kata sedikit (<= 4)
-            const words = textOrBk.trim().split(/\s+/);
-            const isPlate = words.length <= 4 && textOrBk.length < 20;
-
-            if (isPlate && !textOrBk.toLowerCase().includes('selesai')) {
-              // Format plat nomor agar dibaca per huruf/angka
-              const formattedBk = textOrBk.toUpperCase().split('').join(' ');
-              speakText = `Antrian selesai. Mobil, ${formattedBk}, telah selesai.`;
-            }
-            
-            const utterance = new SpeechSynthesisUtterance(speakText);
-            utterance.lang = 'id-ID';
-            utterance.rate = 0.9;
-            utterance.pitch = 1;
-            
-            // Hentikan suara lain yang sedang berjalan agar tidak tumpang tindih
-            window.speechSynthesis.cancel();
-            window.speechSynthesis.speak(utterance);
-          }, 1000); // Jeda 1 detik setelah bunyi notifikasi
-        }
-      }).catch(e => {
-        console.warn("Audio autoplay blocked by browser:", e);
-        playBeepInstead();
-      });
-    } catch (e) {
-      console.error("Audio notification error:", e);
-      playBeepInstead();
+        const a = new Audio(customSoundUrlRef.current);
+        a.volume = 0.6;
+        a.play().catch(() => playChime());
+      } catch (_) { playChime(); }
+    } else {
+      playChime();
     }
+
+    // Voice Notification (TTS) using Google TTS proxy
+    setTimeout(() => {
+      let speakText = textOrBk;
+      const words = textOrBk.trim().split(/\s+/);
+      const isPlate = words.length <= 4 && textOrBk.length < 20;
+
+      if (isPlate && !textOrBk.toLowerCase().includes('selesai')) {
+        const formattedBk = textOrBk.toUpperCase().split('').join(' ');
+        speakText = `Antrian selesai. Mobil, ${formattedBk}, telah selesai.`;
+      }
+
+      playTTS(speakText);
+    }, 800);
   }, [isSoundEnabled, unlockAudio]);
 
   const lastNotifCheckRef = React.useRef(0);
@@ -1227,6 +1236,11 @@ const App = () => {
     }
   };
 
+  const getRegulerStartNumber = async () => {
+    const { data } = await db.select('settings', { eq: { key: 'reguler_start_number' }, maybeSingle: true });
+    return data?.value ? parseInt(data.value) : 6;
+  };
+
   const generateQueueNumber = async (category) => {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
@@ -1252,7 +1266,24 @@ const App = () => {
       maxActiveNum = Math.max(...activeItems.map(item => item.queue_number || 0));
     }
 
-    return Math.max(maxActiveNum + 1, activeCount + historyCount + 1);
+    let num = Math.max(maxActiveNum + 1, activeCount + historyCount + 1);
+
+    // Reguler starts from configured start number, after Booking numbers
+    if (category === 'Reguler') {
+      const { data: bookingActive } = await db.select('antrian', {
+        select: 'queue_number',
+        eq: { category: 'Booking' },
+        gte: { id: startOfTodayMs }
+      });
+      let maxBooking = 0;
+      if (bookingActive && bookingActive.length > 0) {
+        maxBooking = Math.max(...bookingActive.map(item => item.queue_number || 0));
+      }
+      const regulerStart = await getRegulerStartNumber();
+      num = Math.max(num, maxBooking + 1, regulerStart);
+    }
+
+    return num;
   };
 
   const handleSave = async (e) => {
@@ -1738,24 +1769,7 @@ const App = () => {
           textAlign: "center"
         }
       }).showToast();
-      try {
-        const a = new Audio('/notification.mp3');
-        a.play().catch(() => {
-          const ctx = audioCtxRef.current;
-          if (ctx) {
-            const osc = ctx.createOscillator();
-            const g = ctx.createGain();
-            osc.type = 'sine';
-            osc.frequency.value = 660;
-            g.gain.setValueAtTime(0.2, ctx.currentTime);
-            g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-            osc.connect(g);
-            g.connect(ctx.destination);
-            osc.start(ctx.currentTime);
-            osc.stop(ctx.currentTime + 0.3);
-          }
-        });
-      } catch (_) {}
+      playChime();
       return;
     }
 
@@ -2153,7 +2167,7 @@ const App = () => {
       const isFinished = item.status === 'menunggu_konfirmasi' || item.status === 'completed';
       const announceText = isFinished
         ? `${plat} telah selesai, silahkan menuju counter ${counterNum}`
-        : `Antrian ${cat} nomor ${queueNum}, ${plat}, silahkan menuju counter ${counterNum}`;
+        : `Antrian ${cat} nomor ${queueNum}, silahkan menuju counter ${counterNum}`;
 
       fetch('/api/notify', {
         method: 'POST',

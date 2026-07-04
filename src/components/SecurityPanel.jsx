@@ -135,6 +135,11 @@ export default function SecurityPanel({ user, handleLogout }) {
     });
   };
 
+  const getRegulerStartNumber = async () => {
+    const { data } = await db.select('settings', { eq: { key: 'reguler_start_number' }, maybeSingle: true });
+    return data?.value ? parseInt(data.value) : 6;
+  };
+
   const generateQueueNumber = async (category) => {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
@@ -160,7 +165,24 @@ export default function SecurityPanel({ user, handleLogout }) {
       maxActiveNum = Math.max(...activeItems.map(item => item.queue_number || 0));
     }
 
-    return Math.max(maxActiveNum + 1, activeCount + historyCount + 1);
+    let num = Math.max(maxActiveNum + 1, activeCount + historyCount + 1);
+
+    // Reguler starts from configured start number, after Booking numbers
+    if (category === 'Reguler') {
+      const { data: bookingActive } = await db.select('antrian', {
+        select: 'queue_number',
+        eq: { category: 'Booking' },
+        gte: { id: startOfTodayMs }
+      });
+      let maxBooking = 0;
+      if (bookingActive && bookingActive.length > 0) {
+        maxBooking = Math.max(...bookingActive.map(item => item.queue_number || 0));
+      }
+      const regulerStart = await getRegulerStartNumber();
+      num = Math.max(num, maxBooking + 1, regulerStart);
+    }
+
+    return num;
   };
 
   const formatQueueCode = (category, num) => {

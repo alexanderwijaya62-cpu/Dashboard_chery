@@ -10,7 +10,7 @@ import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
 
 const DISPLAY_COUNT = 1;
 const COMPLETED_DISPLAY_COUNT = 1;
-const SLIDE_INTERVAL = 2000;
+const SLIDE_INTERVAL = 5000;
 
 
 
@@ -338,7 +338,7 @@ const CompletedCarousel = ({ data, formatTime, setSelectedUnit }) => {
          <div className="flex-1 flex items-stretch relative z-10" key={idx}>
             {visibleItems.map((item, i) => item ? (
                <div key={item.id} onClick={() => setSelectedUnit(item)} className="flex-1 bg-white rounded-2xl p-6 md:p-8 shadow-xl border-4 border-white/50 group/card cursor-pointer hover:bg-white hover:scale-[1.02] transition-all flex flex-col items-center justify-center min-h-[120px] md:min-h-[150px]">
-                  <h2 className="text-5xl md:text-7xl font-black text-black font-mono tracking-tighter mb-2 uppercase truncate w-full text-center leading-none">{item.bk}</h2>
+                   <h2 className="text-5xl md:text-7xl font-black text-black font-mono tracking-tighter mb-2 uppercase truncate w-full text-center leading-none">{item.bk || item.noPlat || item.no_plat || '-'}</h2>
                   <p className="text-2xl md:text-3xl font-black text-black/40 uppercase tracking-[0.3em] truncate w-full text-center mt-2 leading-none border-t-2 border-zinc-100 pt-3">{item.tipe}</p>
                   <div className="flex items-center gap-3 mt-4 bg-emerald-500/10 px-5 py-2.5 rounded-full border-2 border-emerald-500/20">
                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -488,15 +488,15 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
                    announcedIdsRef.current.add(callKey);
                    const queueNum = item.queue_number || 0;
                     const counter = item.counter || 0;
-                    const plat = item.noPlat || '';
+                    const plat = item.noPlat || item.no_plat || item.noplat || item.bk || '';
                     const category = item.category || 'Reguler';
                     setCallAnnouncement({ queueNumber: queueNum, counter, bk: plat, id: item.id, category });
-                    const isFinished = item.status === 'menunggu_konfirmasi' || item.status === 'completed';
-                    const text = isFinished
-                       ? `${plat} telah selesai, silahkan menuju counter ${counter}`
-                       : queueNum > 0
-                          ? `Antrian ${category === 'Booking' ? 'Booking' : 'Reguler'} nomor ${queueNum}, ${plat}, silahkan menuju counter ${counter}`
-                          : `${plat}, silahkan menuju counter ${counter}`;
+                     const isFinished = item.status === 'menunggu_konfirmasi' || item.status === 'completed';
+                     const text = isFinished
+                        ? `${plat} telah selesai, silahkan menuju counter ${counter}`
+                        : queueNum > 0
+                           ? `Antrian ${category === 'Booking' ? 'Booking' : 'Reguler'} nomor ${queueNum}, silahkan menuju counter ${counter}`
+                           : `Antrian, silahkan menuju counter ${counter}`;
 
                     if (user?.role?.toLowerCase() === 'display') speakAnnouncement(text);
 

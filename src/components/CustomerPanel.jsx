@@ -194,7 +194,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
               if (!confirmedCallsRef.current.has(payload.new.id)) {
                 confirmedCallsRef.current.delete(payload.new.id);
                 sessionStorage.setItem('confirmed_calls', JSON.stringify([...confirmedCallsRef.current]));
-                setCalledItem({ id: payload.new.id, queueNumber: payload.new.queue_number || 0, counter: payload.new.counter || 0, bk: payload.new.bk || '', category: payload.new.category || 'Reguler' });
+                setCalledItem({ id: payload.new.id, queueNumber: payload.new.queue_number || 0, counter: payload.new.counter || 0, bk: payload.new.noPlat || payload.new.no_plat || payload.new.noplat || payload.new.bk || '', category: payload.new.category || 'Reguler' });
               }
             }
           }
@@ -257,9 +257,9 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
         : safeBk;
       const ttsText = calledItem.queueNumber > 0
         ? (cat === 'Booking'
-          ? `Antrian Booking nomor ${calledItem.queueNumber}, ${safeBk}`
-          : `Antrian Reguler nomor ${calledItem.queueNumber}, ${safeBk}`)
-        : safeBk;
+          ? `Antrian Booking nomor ${calledItem.queueNumber}, silahkan menuju counter ${calledItem.counter}`
+          : `Antrian Reguler nomor ${calledItem.queueNumber}, silahkan menuju counter ${calledItem.counter}`)
+        : `Antrian, silahkan menuju counter ${calledItem.counter}`;
       const callLabel = calledItem.queueNumber > 0
         ? (cat === 'Booking' ? `Booking ${calledItem.queueNumber}` : `Reguler ${calledItem.queueNumber}`)
         : safeBk;
@@ -294,7 +294,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
         try {
           if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(`${ttsText}, silahkan menuju counter ${calledItem.counter}`);
+            const utterance = new SpeechSynthesisUtterance(ttsText);
             utterance.lang = 'id-ID';
             utterance.rate = 0.85;
             utterance.volume = 1;
