@@ -1378,7 +1378,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
                     </div>
                     <div className="flex-1">
                       <p className="text-[12px] text-zinc-500 mb-2 tracking-[0.3em] font-black uppercase">Status</p>
-                      <p className="text-lg font-black text-white leading-tight">{v.keluhan || '---'}</p>
+                      <p className="text-lg font-black text-white leading-tight whitespace-pre-wrap">{v.keluhan || '---'}</p>
                     </div>
                     <div className="shrink-0"><span className="bg-zinc-900 text-white px-10 py-5 rounded-[1.8rem] text-[11px] shadow-2xl tracking-[0.4em] border-2 border-zinc-700 ">RIWAYAT TERVALIDASI</span></div>
                   </div>

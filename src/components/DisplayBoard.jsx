@@ -129,7 +129,7 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                            <Activity size={20} className={isWorkingOrWashing ? 'text-orange-500' : 'text-zinc-300'} /> {isScheduled ? 'Keperluan' : 'Estimasi'}
                         </p>
                         <p className={`text-4xl font-black tabular-nums leading-none truncate ${isWorkingOrWashing ? (item.estimasi < 300 ? 'text-red-600 animate-pulse' : 'text-orange-600') : 'text-zinc-500'}`}>
-                           {isScheduled ? (item.keluhan || '-') : isWorkingOrWashing ? formatTime(item.estimasi) : formatTime(parseInt(item.estimasiDefault) || 0)}
+                            {isScheduled ? (item.keluhan || '-')?.split('\n').map((l,i,a) => <span key={i}>{l}{i < a.length - 1 ? <br/> : ''}</span>) : isWorkingOrWashing ? formatTime(item.estimasi) : formatTime(parseInt(item.estimasiDefault) || 0)}
                         </p>
                      </div>
                   </>
@@ -862,7 +862,7 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
                             })()}
                             <div className="p-6 bg-zinc-50 rounded-2xl border border-zinc-100">
                               <h4 className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Activity size={14} className="text-black" /> Keluhan Utama</h4>
-                              <p className="text-lg font-bold text-zinc-900 leading-tight">"{liveUnit.keluhan || 'Tidak ada catatan keluhan'}"</p>
+                              <p className="text-lg font-bold text-zinc-900 leading-tight whitespace-pre-wrap">"{liveUnit.keluhan || 'Tidak ada catatan keluhan'}"</p>
                            </div>
                            <div>
                               <h4 className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-4 flex items-center gap-2"><CheckCircle size={14} className="text-emerald-500" /> Progress Pekerjaan</h4>

@@ -291,7 +291,7 @@ export default function ForemanPanel({
                                     </div>
 
                                     {item.keluhan && (
-                                        <p className="text-[9px] font-medium text-zinc-500 mb-2 bg-zinc-50 rounded-xl px-3 py-2 border border-zinc-100 leading-relaxed">
+                                        <p className="text-[9px] font-medium text-zinc-500 mb-2 bg-zinc-50 rounded-xl px-3 py-2 border border-zinc-100 leading-relaxed whitespace-pre-wrap">
                                             {item.keluhan}
                                         </p>
                                     )}

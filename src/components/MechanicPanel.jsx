@@ -550,7 +550,7 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                                     <div className="p-2 bg-black rounded-lg text-white shrink-0"><Activity size={16} /></div>
                                     <div>
                                         <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Keluhan Utama</p>
-                                        <p className="text-base md:text-lg font-bold text-zinc-900 leading-tight italic">"{liveUnit.keluhan || 'Tidak ada catatan keluhan'}"</p>
+                                        <p className="text-base md:text-lg font-bold text-zinc-900 leading-tight italic whitespace-pre-wrap">"{liveUnit.keluhan || 'Tidak ada catatan keluhan'}"</p>
                                     </div>
                                 </div>
 

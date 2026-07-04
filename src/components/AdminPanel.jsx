@@ -1024,7 +1024,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                             </div>
                                         </div>
                                         {item.keluhan && (
-                                            <p className="text-[9px] font-bold text-zinc-500 uppercase truncate">{item.keluhan}</p>
+                                            <p className="text-[9px] font-bold text-zinc-500 whitespace-pre-wrap leading-relaxed">{item.keluhan}</p>
                                         )}
                                         {item.isCalled && (
                                             <div className="text-[9px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 text-center">
@@ -1167,7 +1167,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                             <User size={12} className="text-zinc-400" />
                                                             <span className="text-[10px] font-black uppercase tracking-tight">{item.mechanicName || 'BELUM ASSIGN'}</span>
                                                         </div>
-                                                        <p className="text-[9px] font-bold text-zinc-500 uppercase line-clamp-1 max-w-[200px] leading-relaxed">
+                                                        <p className="text-[9px] font-bold text-zinc-500 whitespace-pre-wrap leading-relaxed max-w-[200px]">
                                                             {item.keluhan || '-'}
                                                         </p>
                                                         {item.checklist && item.checklist.length > 0 && (

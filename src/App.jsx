@@ -1318,9 +1318,17 @@ const App = () => {
       bk: formData.bk.toUpperCase().replace(/\s+/g, ''),
       tipe: formData.tipe,
       category: formData.category,
-      keluhan: (formData.jenisPekerjaan || []).length > 0
-        ? `${(formData.jenisPekerjaan || []).join(' + ')}: ${sanitizeInput(formData.keluhan || '')}`
-        : sanitizeInput(formData.keluhan || ''),
+      keluhan: (() => {
+        const pList = (formData.jenisPekerjaan || []).map(p => {
+          const mileage = ['5.000', '10.000', '15.000', '20.000', '30.000', '40.000', '45.000', '50.000', '60.000'];
+          return mileage.includes(p) ? `Free Service ${p} KM` : p;
+        });
+        const kText = sanitizeInput(formData.keluhan || '').trim();
+        const joined = pList.join('\n');
+        if (!joined && !kText) return '';
+        if (!joined) return kText;
+        return kText ? `${joined}\n${kText}` : joined;
+      })(),
       checklist: formData.checklist || [],
       menginap_reason: formData.menginap_reason || '',
       noTelp: formData.noTelp || '',
