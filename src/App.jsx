@@ -1427,13 +1427,32 @@ const App = () => {
       Toastify({ text: "⏳ Proses lain sedang berjalan, tunggu sebentar...", style: { background: "#f59e0b", borderRadius: "12px" } }).showToast();
       return;
     }
+    // Cari item yang akan dihapus untuk dapat queue_number & category
+    const target = queue.find(q => q.id === id);
     setIsLoadingProcess(true);
     try {
       await Promise.all([
         db.delete('antrian', { eq: { id } }),
         db.delete('history', { eq: { id } })
       ]);
-      setQueue(prev => prev.filter(q => q.id !== id));
+      setQueue(prev => {
+        const filtered = prev.filter(q => q.id !== id);
+        // Renumber: turunkan queue_number item lain dalam kategori yg sama
+        if (target && target.queueNumber) {
+          const deletedNum = target.queueNumber;
+          const updated = filtered.map(q => {
+            if (q.category === target.category && q.queueNumber > deletedNum) {
+              const newNum = q.queueNumber - 1;
+              // Update di DB
+              db.update('antrian', { queue_number: newNum }, { eq: { id: q.id } }).catch(() => {});
+              return { ...q, queueNumber: newNum };
+            }
+            return q;
+          });
+          return updated;
+        }
+        return filtered;
+      });
       setRawHistory(prev => prev.filter(h => h.id !== id));
     } catch (err) {
       console.error(err);
@@ -1973,6 +1992,24 @@ const App = () => {
       if (deleteError) {
         console.error("Antrian Delete Error:", deleteError);
         throw new Error(`Database Error (Antrian): ${deleteError.message}`);
+      }
+
+      // Renumber sisa antrian kategori sama
+      if (item.queueNumber) {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const { data: sisa } = await db.select('antrian', {
+          select: 'id, queue_number',
+          eq: { category: item.category },
+          gte: { id: todayStart.getTime() }
+        });
+        if (sisa) {
+          for (const s of sisa) {
+            if (s.queue_number > item.queueNumber) {
+              await db.update('antrian', { queue_number: s.queue_number - 1 }, { eq: { id: s.id } }).catch(() => {});
+            }
+          }
+        }
       }
 
       // 3. Sync to CRO Table
