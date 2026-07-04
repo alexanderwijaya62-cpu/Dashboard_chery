@@ -1368,6 +1368,7 @@ const App = () => {
       updates.id = Date.now();
       updates.status = 'waiting';
       updates.addedBy = addedByValue;
+      updates.nama_sa = user?.name || user?.username || 'System';
       updates.estimasiDefault = totalSeconds;
       updates.targetTime = 0;
       updates.mechanicName = mechanicValue;
