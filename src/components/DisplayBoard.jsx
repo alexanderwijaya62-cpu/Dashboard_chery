@@ -65,7 +65,8 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
    const isWorkingOrWashing = isWorking || isWashing;
    const isMenginap = item.status === 'menginap';
    const isWaiting = item.status === 'waiting';
-
+   const isIstirahatExpired = item.status === 'istirahat' && (!parseInt(item.estimasiDefault) || parseInt(item.estimasiDefault) <= 0);
+ 
    const isScheduled = !item.status || item.status === 'accepted' || item.status === 'waiting confirm';
 
    return (
@@ -129,7 +130,7 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                            <Activity size={20} className={isWorkingOrWashing ? 'text-orange-500' : 'text-zinc-300'} /> {isScheduled ? 'Keperluan' : 'Estimasi'}
                         </p>
                         <p className={`text-4xl font-black tabular-nums leading-none truncate ${isWorkingOrWashing ? (item.estimasi < 300 ? 'text-red-600 animate-pulse' : 'text-orange-600') : 'text-zinc-500'}`}>
-                            {isScheduled ? (item.keluhan || '-')?.split('\n').map((l,i,a) => <span key={i}>{l}{i < a.length - 1 ? <br/> : ''}</span>) : isWorkingOrWashing ? formatTime(item.estimasi) : formatTime(parseInt(item.estimasiDefault) || 0)}
+                            {isScheduled ? (item.keluhan || '-')?.split('\n').map((l,i,a) => <span key={i}>{l}{i < a.length - 1 ? <br/> : ''}</span>) : isWorkingOrWashing ? formatTime(item.estimasi) : isIstirahatExpired ? 'Menunggu Confirm Customer' : formatTime(parseInt(item.estimasiDefault) || 0)}
                         </p>
                      </div>
                   </>
@@ -169,6 +170,7 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                    'menunggu_konfirmasi': { bg: '#f59e0b', icon: 'Clock', label: 'MENUNGGU KONFIRMASI ADMIN', sub: '' },
                    'menunggu_sa': { bg: '#6b7280', icon: 'Clock', label: 'MENUNGGU SA', sub: '' },
                    'menunggu_foreman': { bg: '#7c3aed', icon: 'Clock', label: 'MENUNGGU FOREMAN', sub: '' },
+                   'istirahat': { bg: '#eab308', icon: 'Clock', label: 'ISTIRAHAT', sub: '' },
                  };
                const cfg = bannerMap[item.status];
                if (!cfg) return null;
@@ -851,6 +853,7 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
                                    'menunggu_konfirmasi': { bg: '#f59e0b', label: 'MENUNGGU KONFIRMASI ADMIN' },
                                    'menunggu_sa': { bg: '#6b7280', label: 'MENUNGGU SA' },
                                    'menunggu_foreman': { bg: '#7c3aed', label: 'MENUNGGU FOREMAN' },
+                                   'istirahat': { bg: '#eab308', label: 'ISTIRAHAT' },
                                 };
                                const bc = banMap[liveUnit.status];
                                if (!bc) return null;

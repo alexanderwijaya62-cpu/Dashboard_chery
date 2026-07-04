@@ -1760,14 +1760,20 @@ const App = () => {
     }
   };
 
-  const handleComplete = async (item) => {
+  const handleComplete = async (item, force = false) => {
     if (isLoadingProcess) return;
+
+    // Auto-complete all tasks if forced by admin/foreman
+    let itemChecklist = Array.isArray(item.checklist) ? item.checklist : [];
+    if (force && itemChecklist.length > 0) {
+      itemChecklist = itemChecklist.map(t => ({ ...t, completed: true }));
+    }
 
     // VALIDASI CHECKLIST: Semua task harus selesai sebelum complete pengerjaan
     const checklist = Array.isArray(item.checklist) ? item.checklist : [];
     const isAllDone = checklist.every(t => t.completed);
 
-    if (checklist.length > 0 && !isAllDone) {
+    if (!force && checklist.length > 0 && !isAllDone) {
       const unfinishedTasks = checklist.filter(t => !t.completed).map(t => t.text || "Tugas tanpa nama");
       const errorText = unfinishedTasks.length > 0
         ? `⚠️ PEKERJAAN BELUM SELESAI: ${unfinishedTasks.join(', ')}`
@@ -1838,6 +1844,7 @@ const App = () => {
         estimasiDefault: elapsedSeconds || remainingAtComplete,
         elapsedSeconds: elapsedSeconds,
         is_called: false,
+        ...(force && itemChecklist.length > 0 ? { checklist: itemChecklist } : {}),
         ...cuciAdditions
       };
 

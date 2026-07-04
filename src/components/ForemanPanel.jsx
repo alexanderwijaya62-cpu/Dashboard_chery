@@ -186,7 +186,7 @@ export default function ForemanPanel({
         if (!window.confirm(`Selesaikan pengerjaan unit ${item.bk} (${item.mechanicName || '-'})?`)) return;
         setCompletingItems(prev => new Set(prev).add(item.id));
         try {
-            await onComplete(item);
+            await onComplete(item, true);
         } finally {
             setCompletingItems(prev => { const next = new Set(prev); next.delete(item.id); return next; });
         }
@@ -216,6 +216,7 @@ export default function ForemanPanel({
             'sedang_dicuci': { label: 'SEDANG DICUCI', color: 'bg-cyan-600' },
             'menunggu_foreman': { label: 'MENUNGGU FOREMAN', color: 'bg-orange-500' },
             'menunggu_sa': { label: 'MENUNGGU SA', color: 'bg-yellow-500' },
+            'istirahat': { label: 'ISTIRAHAT', color: 'bg-yellow-400' },
         };
         return statusMap[item.status] || { label: item.status, color: 'bg-zinc-500' };
     };
@@ -304,7 +305,7 @@ export default function ForemanPanel({
                                             <UserPlus size={14} />
                                             Assign Mekanik
                                         </button>
-                                        {(item.status === 'waiting' || item.status === 'menginap') && (
+                                        {(item.status === 'waiting' || item.status === 'menginap' || item.status === 'istirahat') && (
                                             <button
                                                 onClick={() => onStartWork(item)}
                                                 disabled={isLoadingProcess}
@@ -470,8 +471,8 @@ export default function ForemanPanel({
                                         return (priority[a.status] ?? 99) - (priority[b.status] ?? 99);
                                     }).map(item => {
                                         const badge = getStatusBadge(item);
-                                        const canComplete = ['working', 'request_extension', 'menginap', 'menunggu_cuci'].includes(item.status);
-                                        const canExtend = item.status === 'working' || item.status === 'request_extension';
+                                        const canComplete = ['working', 'request_extension', 'menginap', 'menunggu_cuci', 'istirahat'].includes(item.status);
+                                        const canExtend = item.status === 'working' || item.status === 'request_extension' || item.status === 'istirahat';
                                         const isCompleting = completingItems.has(item.id);
 
                                         return (

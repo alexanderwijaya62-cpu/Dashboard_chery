@@ -983,6 +983,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                     'request_extension': 'bg-amber-600 text-white',
                                     'menunggu_sa': 'bg-yellow-400 text-black',
                                     'menunggu_foreman': 'bg-orange-400 text-white',
+                                    'istirahat': 'bg-yellow-400 text-black',
                                 };
                                 const isOvernight = item.status === 'menginap';
                                 const cd = getCooldownSisa(item.calledAt);
@@ -1011,7 +1012,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                             </div>
                                             <div className={`px-3 py-1.5 rounded-xl text-[8px] font-black uppercase tracking-widest flex items-center gap-1.5 shrink-0 ${statusColors[item.status] || 'bg-zinc-400 text-white'}`}>
                                                 {isOvernight ? <Moon size={10} /> : (item.status === 'working' ? <Clock size={10} className="animate-spin-slow" /> : null)}
-                                                {item.status === 'waiting' ? 'Menunggu' : item.status}
+                                                {item.status === 'waiting' ? 'Menunggu' : item.status === 'istirahat' ? 'Istirahat' : item.status}
                                             </div>
                                         </div>
                                         <div className="flex items-center justify-between text-xs">
@@ -1065,7 +1066,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                     {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <CheckCircle size={16} />}
                                                 </button>
                                             ) : (
-                                                <button onClick={() => handleComplete(item)} disabled={isLoadingProcess || (item.status !== 'working' && item.status !== 'waiting' && item.status !== 'menginap')}
+                                                <button onClick={() => handleComplete(item, true)} disabled={isLoadingProcess || (item.status !== 'working' && item.status !== 'waiting' && item.status !== 'menginap' && item.status !== 'istirahat')}
                                                     className={`col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 ${isLoadingProcess ? 'bg-zinc-400 cursor-not-allowed' : 'bg-emerald-400/80 hover:bg-black'}`}>
                                                     {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <Check size={16} strokeWidth={4} />}
                                                 </button>
@@ -1116,6 +1117,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                             'request_extension': 'bg-amber-600 text-white shadow-md',
                                             'menunggu_sa': 'bg-yellow-400 text-black shadow-md',
                                             'menunggu_foreman': 'bg-orange-400 text-white shadow-md',
+                                            'istirahat': 'bg-yellow-400 text-black shadow-md',
                                         };
                                         const isOvernight = item.status === 'menginap';
                                         const isKonfirmasi = item.status === 'menunggu_konfirmasi';
@@ -1152,7 +1154,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                     <div className="flex justify-center">
                                                         <div className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest min-w-[110px] flex items-center justify-center gap-2 transition-transform ${statusColors[item.status] || 'bg-zinc-100'}`}>
                                                             {isOvernight ? <Moon size={12} fill="white" /> : (item.status === 'working' ? <Clock size={12} className="animate-spin-slow" /> : null)}
-                                                            {item.status === 'waiting' ? 'Menunggu / Kerjakan' : item.status}
+                                                            {item.status === 'waiting' ? 'Menunggu / Kerjakan' : item.status === 'istirahat' ? 'Istirahat' : item.status}
                                                         </div>
                                                     </div>
                                                 </td>
@@ -1251,9 +1253,9 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                             </button>
                                                         ) : (
                                                             <>
-                                                        {(item.status === 'working' || item.status === 'waiting' || item.status === 'menginap') && (
+                                                        {(item.status === 'working' || item.status === 'waiting' || item.status === 'menginap' || item.status === 'istirahat') && (
                                                             <button 
-                                                                onClick={() => handleComplete(item)} 
+                                                                onClick={() => handleComplete(item, true)} 
                                                                 disabled={isLoadingProcess}
                                                                 className={`p-3 min-w-[44px] min-h-[44px] text-white rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center ${isLoadingProcess ? 'bg-zinc-400 cursor-not-allowed' : 'bg-emerald-400/80 hover:bg-black'}`} 
                                                                 title="Selesai pengerjaan"
