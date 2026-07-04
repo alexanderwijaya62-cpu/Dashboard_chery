@@ -791,7 +791,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                         })}
                                     </div>
                                     <div className="flex flex-wrap gap-2 items-center">
-                                        {['Keluhan', 'Update Software'].map(type => (
+                                        {['Keluhan', 'Update Software', 'General Check Up', 'Service 1000km'].map(type => (
                                             <button key={type} onClick={() => {
                                                 const current = formData.jenisPekerjaan || [];
                                                 const isSelected = current.includes(type);

@@ -1910,8 +1910,8 @@ const App = () => {
 
       let historyAttempt = {
         id: item.id, 
-        noPlat: item.bk || '', 
-        tipeMobil: item.tipe || '',
+        bk: item.bk || '', 
+        tipe: item.tipe || '',
         keluhanDetail: historyKeluhan, 
         status: 'completed',
         mechanicName: item.mechanicName || '',
@@ -2273,7 +2273,7 @@ const App = () => {
   }
 
   // Determine if navbars should be shown
-  const showNavbar = currentPage !== 'login' && currentPage !== 'register' && user?.role?.toLowerCase() !== 'display';
+  const showNavbar = currentPage !== 'login' && currentPage !== 'register' && currentPage !== 'customer' && user?.role?.toLowerCase() !== 'display';
   // Check if on a dashboard page (not public)
   const publicPages = ['display', 'booking-public', 'login', 'register'];
   const isOnDashboard = user && !publicPages.includes(currentPage);
@@ -2304,7 +2304,7 @@ const App = () => {
       {/* Render Pages - Full screen scrollable area */}
       <main className={`flex-1 flex flex-col overflow-y-auto overflow-x-hidden ${showNavbar ? 'md:ml-[220px]' : ''}`}>
       <div key={currentPage} className={`w-full flex-1 min-h-0 ${animDir === 'forward' ? 'animate-slideInRight' : 'animate-slideInLeft'}`}>
-      {currentPage === 'display' && (
+      {currentPage === 'display' && user?.role?.toLowerCase() !== 'customer' && (
         <DisplayBoard
           processedQueue={processedQueue}
           queueLength={queue.length}
