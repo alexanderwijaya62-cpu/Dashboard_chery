@@ -14,6 +14,7 @@ export default function SecurityPanel({ user, handleLogout }) {
   const [selectedBookingIds, setSelectedBookingIds] = useState(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const [searchBooking, setSearchBooking] = useState('');
+  const [antrianList, setAntrianList] = useState([]);
 
   const todayStr = new Date().toLocaleDateString('en-CA');
 
@@ -58,7 +59,7 @@ export default function SecurityPanel({ user, handleLogout }) {
         })(),
         (async () => {
           const { data } = await db.select('antrian', {
-            select: 'bk, category, queue_number',
+            select: 'bk, category, queue_number, id, status, tipe',
           });
           const bookingMap = new Map();
           const allPlates = new Set();
@@ -71,6 +72,7 @@ export default function SecurityPanel({ user, handleLogout }) {
           });
           setConfirmedPlates(bookingMap);
           setAllAntrianPlates(allPlates);
+          setAntrianList(data || []);
           return null;
         })(),
       ]);
@@ -405,6 +407,42 @@ export default function SecurityPanel({ user, handleLogout }) {
             )}
           </div>
         )}
+
+        {/* Antrian Status List */}
+        <div className="mt-4 bg-white border-2 border-zinc-200 rounded-2xl p-4">
+          <h3 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-3 flex items-center gap-2">
+            <div className="w-1.5 h-1.5 bg-black rounded-full"></div>
+            Status Antrian ({antrianList.length})
+          </h3>
+          <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
+            {antrianList.length === 0 ? (
+              <p className="text-[10px] font-bold text-zinc-300 text-center py-4">Belum ada antrian hari ini</p>
+            ) : (
+              antrianList.map(a => {
+                const code = a.category === 'Booking'
+                  ? `B-${String(a.queue_number || 0).padStart(3, '0')}`
+                  : `A-${String(a.queue_number || 0).padStart(3, '0')}`;
+                const statusLabels = {
+                  'menunggu_sa': 'Menunggu SA',
+                  'waiting': 'Menunggu Mekanik',
+                  'working': 'Dikerjakan',
+                  'menunggu_foreman': 'Forward ke Foreman',
+                  'menunggu_konfirmasi': 'Menunggu Konfirmasi',
+                  'completed': 'Selesai'
+                };
+                return (
+                  <div key={a.id} className="flex items-center justify-between px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-100">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[10px] font-black text-zinc-900 shrink-0">{code}</span>
+                      <span className="text-[10px] font-bold text-zinc-700 truncate">{(a.bk || '').toUpperCase()}</span>
+                    </div>
+                    <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider shrink-0 ml-2">{statusLabels[a.status] || a.status || '-'}</span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -587,7 +587,8 @@ const App = () => {
           queueNumber: item.queue_number || 0,
           isCalled: item.is_called || false,
           calledAt: item.called_at || null,
-          counter: item.counter || 0
+          counter: item.counter || 0,
+          nama_sa: item.nama_sa || ''
         };
       };
 
@@ -804,16 +805,8 @@ const App = () => {
     playedTextsRef.current.add(textOrBk);
     setTimeout(() => playedTextsRef.current.delete(textOrBk), 10000);
 
-    // Play notification sound (custom or gentle chime)
-    if (customSoundUrlRef.current) {
-      try {
-        const a = new Audio(customSoundUrlRef.current);
-        a.volume = 0.6;
-        a.play().catch(() => playChime());
-      } catch (_) { playChime(); }
-    } else {
-      playChime();
-    }
+    // Play gentle chime notification sound
+    playChime();
 
     // Voice Notification (TTS) using Google TTS proxy
     setTimeout(() => {
