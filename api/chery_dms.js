@@ -510,17 +510,40 @@ async function handleWarrantyEstimasiDetail(req, res) {
 
             let totalPekerjaan = pekerjaan.reduce((s, p) => s + p.total, 0);
 
-            // Find the grand total DPP (tax base before PPN) from the HTML.
-            // DPP = sum of all section DPPs (sparepart + jasa). The LAST DPP value in the document
-            // is the grand total, since sections appear sequentially.
+            // Also scrape spare part totals from detail_part inputs and add to total
+            const sparePartTotalRegex = /name="detail_part\[\d+\]\[total\]"[^>]*value="([^"]+)"/gi;
+            let spMatch;
+            let sparePartTotal = 0;
+            while ((spMatch = sparePartTotalRegex.exec(body)) !== null) {
+                const val = parseInt(spMatch[1].replace(/\./g, ''), 10) || 0;
+                sparePartTotal += val;
+            }
+            // If spare parts found, add to totalPekerjaan (if not already included via DPP)
+            if (sparePartTotal > 0) {
+                // Check if input sum already includes spare parts (some templates may)
+                const approxPekerjaan = pekerjaan.reduce((s, p) => s + p.total, 0);
+                if (totalPekerjaan < sparePartTotal + approxPekerjaan) {
+                    totalPekerjaan = approxPekerjaan + sparePartTotal;
+                }
+            }
+
+            // Find ALL DPP values from the HTML (section summaries + grand total).
+            // Use maximum DPP as final override — grand total DPP = sum of all sections.
             const dppRegex = /DPP[\s\S]{0,100}?Rp\.?\s*([0-9.]+)/gi;
-            let dppMatch, lastDpp = 0;
+            const dppAll = [];
+            let dppMatch;
             while ((dppMatch = dppRegex.exec(body)) !== null) {
                 const val = parseInt(dppMatch[1].replace(/\./g, ''), 10) || 0;
-                if (val > 0) lastDpp = val;
+                if (val > 0) dppAll.push(val);
             }
-            if (lastDpp > totalPekerjaan) {
-                totalPekerjaan = lastDpp;
+            if (dppAll.length > 0) {
+                const maxDpp = Math.max(...dppAll);
+                console.log(`[DEBUG DPP ${id}] found DPP values:`, dppAll, 'max:', maxDpp, 'current total:', totalPekerjaan);
+                if (maxDpp > totalPekerjaan) {
+                    totalPekerjaan = maxDpp;
+                }
+            } else {
+                console.log(`[DEBUG DPP ${id}] NO DPP matches found.`);
             }
 
             const perintah = pekerjaan.map(p => p.nama_pekerjaan).filter(Boolean).join(', ');
