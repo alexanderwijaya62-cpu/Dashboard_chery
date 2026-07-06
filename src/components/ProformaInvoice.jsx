@@ -359,13 +359,13 @@ function DetailPage({ settlement, onBack }) {
         const rowData = {
           'Nomor Proforma Invoice': itemCode,
           'No WO Internal': matchWO ? matchWO.no_wo : '',
-          'Nama': item.customerName || '',
+          'Nama': detail.customerName || item.customerName || '',
           'VIN': vin,
           'Pekerjaan DMS': dmsDescription,
           'Pekerjaan Internal': perintahExport,
           'Status Validasi': validationStatus,
-          'Tipe Mobil': item.productCategoryCode || '',
-          'Nomor Mesin': item.engineCode || '',
+          'Tipe Mobil': detail.productCategoryCode || item.productCategoryCode || '',
+          'Nomor Mesin': detail.engineCode || item.engineCode || '',
           'Total Fee DMS': totalFeeDMS,
           'Total Fee Internal': totalFeeInternal
         };
