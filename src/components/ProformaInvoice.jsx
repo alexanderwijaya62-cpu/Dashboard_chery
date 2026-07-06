@@ -310,6 +310,8 @@ function DetailPage({ settlement, onBack }) {
         setPartsCache(prev => ({ ...prev, ...Object.fromEntries(woArray.map(w => [w, GLOBAL_PROFORMA_CACHE.parts[w]])) }));
       }
 
+      console.log("[EXPORT DEBUG] items count:", items.length, "vinCrossRef keys:", Object.keys(GLOBAL_PROFORMA_CACHE.vinCrossRef).length, "vinData keys:", Object.keys(vinData).length);
+
       const freeServiceRows = [];
       const warrantyRows = [];
 
@@ -327,6 +329,7 @@ function DetailPage({ settlement, onBack }) {
         const dmsDescription = contract.description || detail.faultDescription || detail.checkMeasureResult || detail.description || item.description || '';
 
         let matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'), dmsDescription);
+        console.log("[EXPORT DEBUG] item:", itemCode, "vin:", vin, "wos:", vd.wos?.length, "matchWO:", matchWO?.no_wo || null, "matchWO-id:", matchWO?.id_wo || null);
 
         let validationStatus = 'Belum Estimasi';
         const woId = matchWO?.id_wo;
