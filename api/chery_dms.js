@@ -362,6 +362,16 @@ async function handleWarrantyEstimasiDetail(req, res) {
         const isLoginPage = body.includes('/aftersales/login') ||
                             (body.includes('name="username"') && body.includes('name="password"'));
 
+        // Debug: log raw HTML snippet for first call
+        if (id === '79738' || id === '83022' || id === '83342') {
+          const pekSection = body.match(/pekerjaan[\s\S]{0,5000}/i);
+          console.log(`[DEBUG HTML ${id}] pekerjaan section:`, pekSection ? pekSection[0].substring(0, 3000) : 'NOT FOUND');
+          const totalPekInputs = body.match(/detail_pekerjaan\[\d+\]\[total\]/g);
+          console.log(`[DEBUG HTML ${id}] total input matches:`, totalPekInputs ? totalPekInputs.length : 0);
+          const totalPekTds = body.match(/class="totalPekerjaan"/gi);
+          console.log(`[DEBUG HTML ${id}] totalPekerjaan td count:`, totalPekTds ? totalPekTds.length : 0);
+        }
+
         if (response.status === 302 || response.status === 401 || !isHtml || isLoginPage) {
             warrantyCookie = null;
             attempts++;
@@ -400,7 +410,119 @@ async function handleWarrantyEstimasiDetail(req, res) {
                     });
                 }
             }
-            return res.status(200).json({ parts });
+
+            // Scrape pekerjaan details from detail_pekerjaan[N] inputs (form edit mode)
+            const pekerjaan = [];
+            const inputRegex = /<input[^>]*name="detail_pekerjaan\[(\d+)\]\[(nama_pekerjaan|total)\]"[^>]*>/gi;
+            const inputs = {};
+            let inputMatch;
+            while ((inputMatch = inputRegex.exec(body)) !== null) {
+                const idx = inputMatch[1];
+                const field = inputMatch[2];
+                const fullTag = inputMatch[0];
+                const valMatch = fullTag.match(/value="([^"]*)"/);
+                const val = valMatch ? valMatch[1] : '';
+                if (!inputs[idx]) inputs[idx] = {};
+                inputs[idx][field] = val;
+            }
+            for (const idx of Object.keys(inputs)) {
+                const nama = (inputs[idx].nama_pekerjaan || '').trim();
+                const total = parseInt(inputs[idx].total, 10) || 0;
+                if (total > 0) {
+                    pekerjaan.push({ nama_pekerjaan: nama, total });
+                }
+            }
+
+            // Fallback: scrape from table rows containing disetujuiPekerjaan (read-only view)
+            if (pekerjaan.length === 0) {
+                const rowRegex = /<tr[^>]*>[\s\S]*?disetujuiPekerjaan[\s\S]*?<\/tr>/gi;
+                let trMatch;
+                while ((trMatch = rowRegex.exec(body)) !== null) {
+                    const trHtml = trMatch[0];
+                    const cells = trHtml.match(/<td[^>]*>(?:[\s\S]*?)<\/td>/gi);
+                    if (cells && cells.length >= 7) {
+                        const namaPekerjaan = (cells[2] || '').replace(/<[^>]*>/g, '').trim();
+                        const totalCell = (cells[6] || '').replace(/<[^>]*>/g, '').trim();
+                        const total = parseInt(totalCell.replace(/\./g, ''), 10) || 0;
+                        if (total > 0) {
+                            pekerjaan.push({ nama_pekerjaan: namaPekerjaan, total });
+                        }
+                    }
+                }
+            }
+
+            // Fallback: scrape from table with header containing "Nama Pekerjaan" + "Total"
+            if (pekerjaan.length === 0) {
+                const tableHtml = (body.match(/<table[\s\S]{0,200}?Nama Pekerjaan[\s\S]{0,200}?Total[\s\S]*?<\/table>/i) || [])[0];
+                if (tableHtml) {
+                    const rowRegex = /<tr[^>]*>[\s\S]*?<td[^>]*>(?:[\s\S]*?)<\/td>[\s\S]*?<td[^>]*>(?:[\s\S]*?)<\/td>/gi;
+                    let rMatch;
+                    while ((rMatch = rowRegex.exec(tableHtml)) !== null) {
+                        const rowHtml = rMatch[0];
+                        if (rowHtml.includes('<th')) continue;
+                        const cells = rowHtml.match(/<td[^>]*>(?:[\s\S]*?)<\/td>/gi);
+                        if (cells && cells.length >= 7) {
+                            const namaPekerjaan = (cells[2] || '').replace(/<[^>]*>/g, '').trim();
+                            const totalCell = (cells[6] || '').replace(/<[^>]*>/g, '').trim();
+                            const total = parseInt(totalCell.replace(/\./g, ''), 10) || 0;
+                            if (total > 0) {
+                                pekerjaan.push({ nama_pekerjaan: namaPekerjaan, total });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fallback: scrape "DPP" + Rupiah (tax base = total before PPN)
+            if (pekerjaan.length === 0) {
+                const dppMatch = body.match(/DPP[\s\S]{0,50}?Rp\.?\s*([0-9.]+)/i);
+                if (dppMatch) {
+                    const dppValue = parseInt(dppMatch[1].replace(/\./g, ''), 10) || 0;
+                    if (dppValue > 0) {
+                        pekerjaan.push({ nama_pekerjaan: '', total: dppValue });
+                    }
+                }
+            }
+
+            // Fallback: scrape first "Total" + Rupiah before "PPN"
+            if (pekerjaan.length === 0) {
+                const beforePpn = body.split(/PPN/i)[0] || body;
+                const totalMatch = beforePpn.match(/Total[\s\S]{0,50}?Rp\.?\s*([0-9.]+)/i);
+                if (totalMatch) {
+                    const totalValue = parseInt(totalMatch[1].replace(/\./g, ''), 10) || 0;
+                    if (totalValue > 0) {
+                        pekerjaan.push({ nama_pekerjaan: '', total: totalValue });
+                    }
+                }
+            }
+
+            // Fallback: scrape <td class="totalPekerjaan"> display values (read-only rows)
+            if (pekerjaan.length === 0) {
+                const totalTdRegex = /<td[^>]*class="[^"]*totalPekerjaan[^"]*"[^>]*>\s*([0-9.]+)\s*<\/td>/gi;
+                let tdMatch;
+                while ((tdMatch = totalTdRegex.exec(body)) !== null) {
+                    const total = parseInt(tdMatch[1].replace(/\./g, ''), 10) || 0;
+                    if (total > 0) {
+                        pekerjaan.push({ nama_pekerjaan: '', total });
+                    }
+                }
+            }
+
+            let totalPekerjaan = pekerjaan.reduce((s, p) => s + p.total, 0);
+
+            // Override with DPP (Dasar Pengenaan Pajak) value if it's higher — DPP is the total
+            // of ALL pekerjaan before PPN, may include display-only rows not in input fields.
+            const dppMatch = body.match(/DPP[\s\S]{0,100}?Rp\.?\s*([0-9.]+)/i);
+            if (dppMatch) {
+                const dppValue = parseInt(dppMatch[1].replace(/\./g, ''), 10) || 0;
+                if (dppValue > totalPekerjaan) {
+                    totalPekerjaan = dppValue;
+                }
+            }
+
+            const perintah = pekerjaan.map(p => p.nama_pekerjaan).filter(Boolean).join(', ');
+
+            return res.status(200).json({ parts, pekerjaan, totalPekerjaan, perintah });
         } catch (err) {
             return res.status(500).json({ error: 'Failed to parse parts from HTML', message: err.message });
         }
@@ -981,47 +1103,35 @@ export default async function handler(req, res) {
             `&search[value]=${encodeURIComponent(vin)}&search[regex]=false` +
             `&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&_=${Date.now()}`;
 
-        const statusesToFetch = ['Open', 'Ready', 'In Progress', 'Checker', 'Selesai', 'Closed'];
-        const allData = [];
-        const seenIds = new Set();
-
-        for (const s of statusesToFetch) {
-            const targetUrl = `${BASE}/aftersales/work-order/data?draw=${draw}&start=${start}&length=${length}${columnsConfig}&status=${encodeURIComponent(s)}`;
-            let wAttempts = 0;
-            while (wAttempts < 2) {
-                if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
-                    warrantyCookie = await warrantyLogin();
-                }
-                const response = await fetchWithHttps(targetUrl, {
-                    headers: {
-                        'Cookie': warrantyCookie,
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                        'Referer': `${BASE}/aftersales/work-order`,
-                        'Accept': 'application/json, text/javascript, */*; q=0.01',
-                        'X-Requested-With': 'XMLHttpRequest',
-                    },
-                });
-                const body = await response.text();
-                const isHtml = body.trimStart().startsWith('<');
-                if (response.status === 302 || response.status === 401 || isHtml) {
-                    warrantyCookie = null;
-                    wAttempts++;
-                    continue;
-                }
-                try {
-                    const parsed = JSON.parse(body);
-                    if (parsed.data && Array.isArray(parsed.data)) {
-                        for (const item of parsed.data) {
-                            const itemId = item.id_wo || item.no_wo;
-                            if (!seenIds.has(itemId)) {
-                                seenIds.add(itemId);
-                                allData.push(item);
-                            }
-                        }
-                    }
-                } catch { /* skip */ }
-                break;
+        // Fetch ALL statuses in one request (no status filter = all non-excluded statuses)
+        const targetUrl = `${BASE}/aftersales/work-order/data?draw=${draw}&start=${start}&length=${length}${columnsConfig}&status=`;
+        let wAttempts = 0;
+        let allData = [];
+        while (wAttempts < 2) {
+            if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+                warrantyCookie = await warrantyLogin();
             }
+            const response = await fetchWithHttps(targetUrl, {
+                headers: {
+                    'Cookie': warrantyCookie,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Referer': `${BASE}/aftersales/work-order`,
+                    'Accept': 'application/json, text/javascript, */*; q=0.01',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+            const body = await response.text();
+            const isHtml = body.trimStart().startsWith('<');
+            if (response.status === 302 || response.status === 401 || isHtml) {
+                warrantyCookie = null;
+                wAttempts++;
+                continue;
+            }
+            try {
+                const parsed = JSON.parse(body);
+                allData = parsed.data && Array.isArray(parsed.data) ? parsed.data : [];
+            } catch { /* skip */ }
+            break;
         }
 
         return res.status(200).json({ data: allData });
