@@ -155,7 +155,7 @@ function DetailPage({ settlement, onBack }) {
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [typeFilter, setTypeFilter] = useState('all'); // all | maintain | warranty | adjustment
-  const [matchedOnly, setMatchedOnly] = useState(true);
+
   const [zoomedImage, setZoomedImage] = useState(null);
   const [contractDetails, setContractDetails] = useState({});
   const [repairContracts, setRepairContracts] = useState({});
@@ -191,27 +191,31 @@ function DetailPage({ settlement, onBack }) {
     }
 
     console.log('[DEBUG] handleLoadParts executing fetch for idWo:', idWo);
-    GLOBAL_PROFORMA_CACHE.parts[idWo] = { loading: true, error: null, data: [] };
+    GLOBAL_PROFORMA_CACHE.parts[idWo] = { loading: true, error: null, data: [], pekerjaan: [], totalPekerjaan: 0, totalFeeInternal: 0, perintah: '' };
     setPartsCache(prev => ({
       ...prev,
-      [idWo]: { loading: true, error: null, data: [] }
+      [idWo]: { loading: true, error: null, data: [], pekerjaan: [], totalPekerjaan: 0, totalFeeInternal: 0, perintah: '' }
     }));
 
     try {
       const json = await apiFetch({ endpoint: 'warranty-estimasi-detail', id: idWo });
       const partsData = json.parts || [];
-      console.log('[DEBUG] handleLoadParts fetch success for idWo:', idWo, 'parts count:', partsData.length);
-      GLOBAL_PROFORMA_CACHE.parts[idWo] = { loading: false, error: null, data: partsData };
+      const pekerjaan = json.pekerjaan || [];
+      const totalPekerjaan = json.totalPekerjaan || 0;
+      const perintahEstimasi = json.perintah || '';
+      const totalFeeInternal = totalPekerjaan * 1.11;
+      console.log('[DEBUG] handleLoadParts fetch success for idWo:', idWo, 'parts count:', partsData.length, 'totalPekerjaan:', totalPekerjaan, 'perintah:', perintahEstimasi);
+      GLOBAL_PROFORMA_CACHE.parts[idWo] = { loading: false, error: null, data: partsData, pekerjaan, totalPekerjaan, totalFeeInternal, perintah: perintahEstimasi };
       setPartsCache(prev => ({
         ...prev,
-        [idWo]: { loading: false, error: null, data: partsData }
+        [idWo]: { loading: false, error: null, data: partsData, pekerjaan, totalPekerjaan, totalFeeInternal, perintah: perintahEstimasi }
       }));
     } catch (err) {
       console.error('[DEBUG] handleLoadParts fetch error for idWo:', idWo, err.message);
-      GLOBAL_PROFORMA_CACHE.parts[idWo] = { loading: false, error: err.message, data: [] };
+      GLOBAL_PROFORMA_CACHE.parts[idWo] = { loading: false, error: err.message, data: [], pekerjaan: [], totalPekerjaan: 0, totalFeeInternal: 0, perintah: '' };
       setPartsCache(prev => ({
         ...prev,
-        [idWo]: { loading: false, error: err.message, data: [] }
+        [idWo]: { loading: false, error: err.message, data: [], pekerjaan: [], totalPekerjaan: 0, totalFeeInternal: 0, perintah: '' }
       }));
     }
   }, []);
@@ -271,50 +275,7 @@ function DetailPage({ settlement, onBack }) {
         }
       }
 
-      // 3. Fetch missing claim details in batches
-      const toFetch = items.filter(item => item._type !== 'adjustment' && !contractDetails[item.id || item.claimId]);
-
-      let fetchedCount = 0;
-      const currentContractDetails = { ...contractDetails };
-      const currentRepairContracts = { ...repairContracts };
-
-      if (toFetch.length > 0) {
-        const batchSize = 5;
-        for (let i = 0; i < toFetch.length; i += batchSize) {
-          const batch = toFetch.slice(i, i + batchSize);
-          await Promise.all(
-            batch.map(async (item) => {
-              const itemId = item.id || item.claimId;
-              try {
-                const claimRes = await apiFetch({ endpoint: 'claim_detail', claimId: itemId });
-                const claimPayload = claimRes.payload || claimRes;
-                if (claimPayload) {
-                  currentContractDetails[itemId] = claimPayload;
-
-                  const rcId = claimPayload.repairContractId;
-                  if (rcId && !currentRepairContracts[rcId]) {
-                    try {
-                      const rcRes = await apiFetch({ endpoint: 'repair-contract-detail', id: rcId });
-                      const rcPayload = rcRes.payload || rcRes;
-                      if (rcPayload) {
-                        currentRepairContracts[rcId] = rcPayload;
-                      }
-                    } catch (e) {
-                      console.error("Export: failed to fetch repair contract", rcId, e);
-                    }
-                  }
-                }
-              } catch (e) {
-                console.error("Export: failed to fetch claim detail", itemId, e);
-              }
-            })
-          );
-          fetchedCount += batch.length;
-          setExportProgress(Math.round((fetchedCount / toFetch.length) * 100));
-        }
-      }
-
-      // 4. Fetch missing parts data for all matched work orders
+      // 3. Fetch missing parts data for all matched work orders
       const woIdsToFetch = new Set();
       items.forEach((item) => {
         if (item._type === 'adjustment') return;
@@ -335,19 +296,19 @@ function DetailPage({ settlement, onBack }) {
           clearTimeout(timeoutId);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const json = await res.json();
-          GLOBAL_PROFORMA_CACHE.parts[woArray[i]] = { loading: false, error: null, data: json.parts || [] };
+          const pData = json.parts || [];
+          const pTotal = json.totalPekerjaan || 0;
+          const pPerintah = json.perintah || '';
+          GLOBAL_PROFORMA_CACHE.parts[woArray[i]] = { loading: false, error: null, data: pData, pekerjaan: json.pekerjaan || [], totalPekerjaan: pTotal, totalFeeInternal: pTotal * 1.11, perintah: pPerintah };
         } catch (e) {
           clearTimeout(timeoutId);
           console.error("Export: failed to fetch parts for WO", woArray[i], e);
-          GLOBAL_PROFORMA_CACHE.parts[woArray[i]] = { loading: false, error: e.message, data: [] };
+          GLOBAL_PROFORMA_CACHE.parts[woArray[i]] = { loading: false, error: e.message, data: [], pekerjaan: [], totalPekerjaan: 0, totalFeeInternal: 0, perintah: '' };
         }
       }
       if (woArray.length > 0) {
         setPartsCache(prev => ({ ...prev, ...Object.fromEntries(woArray.map(w => [w, GLOBAL_PROFORMA_CACHE.parts[w]])) }));
       }
-
-      setContractDetails(currentContractDetails);
-      setRepairContracts(currentRepairContracts);
 
       const freeServiceRows = [];
       const warrantyRows = [];
@@ -360,9 +321,7 @@ function DetailPage({ settlement, onBack }) {
         const itemCode = item.code || item.claimCode || '-';
         const vin = item.vin || item.vinCode || item.chassisNo || '';
         const vd = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] || vinData[vin] || { wos: [] };
-        const detail = currentContractDetails[item.id || item.claimId] || {};
-        const contract = currentRepairContracts[detail.repairContractId || item.repairContractId] || {};
-        const dmsDescription = contract.description || detail.faultDescription || detail.checkMeasureResult || detail.description || item.description || '';
+        const dmsDescription = item.description || '';
 
         let matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'), dmsDescription);
 
@@ -385,16 +344,27 @@ function DetailPage({ settlement, onBack }) {
 
         const isFree = itemCode.startsWith('BY');
 
+        const totalFeeDMS = item.totalFee ?? 0;
+        const totalFeeInternal = (matchWO && GLOBAL_PROFORMA_CACHE.parts[matchWO.id_wo])
+          ? (GLOBAL_PROFORMA_CACHE.parts[matchWO.id_wo].totalFeeInternal || 0)
+          : 0;
+
+        const perintahExport = matchWO && GLOBAL_PROFORMA_CACHE.parts[matchWO.id_wo]
+          ? (GLOBAL_PROFORMA_CACHE.parts[matchWO.id_wo].perintah || matchWO.perintah || '')
+          : (matchWO ? matchWO.perintah : '');
+
         const rowData = {
           'Nomor Proforma Invoice': itemCode,
           'No WO Internal': matchWO ? matchWO.no_wo : '',
-          'Nama': detail.customerName || item.customerName || '',
+          'Nama': item.customerName || '',
           'VIN': vin,
           'Pekerjaan DMS': dmsDescription,
-          'Pekerjaan Internal': matchWO ? matchWO.perintah : '',
+          'Pekerjaan Internal': perintahExport,
           'Status Validasi': validationStatus,
-          'Tipe Mobil': detail.productCategoryCode || item.productCategoryCode || '',
-          'Nomor Mesin': detail.engineCode || item.engineCode || ''
+          'Tipe Mobil': item.productCategoryCode || '',
+          'Nomor Mesin': item.engineCode || '',
+          'Total Fee DMS': totalFeeDMS,
+          'Total Fee Internal': totalFeeInternal
         };
 
         if (isFree) {
@@ -530,7 +500,7 @@ function DetailPage({ settlement, onBack }) {
   // Filter + search (includes perintah from cross-ref optimized with O(1) Map)
   const filteredItems = useMemo(() => {
     return items.filter(item => {
-      if (item._type === 'adjustment') return !matchedOnly;
+      if (item._type === 'adjustment') return true;
 
       const itemCode = item.code || item.claimCode || '';
 
@@ -576,15 +546,6 @@ function DetailPage({ settlement, onBack }) {
       if (!matchesType) return false;
 
       const vin = (item.vin || item.vinCode || item.chassisNo || '').toLowerCase();
-      const vd = vinLookupMap.get(vin) || { wos: [], loading: false };
-
-      // matchedOnly: hanya tampilkan item yang sudah matched dengan internal WO
-      if (matchedOnly) {
-        if (vd.loading) return true; // still loading, keep visible
-        if (!vd.wos || vd.wos.length === 0) return false; // no internal WO
-        const matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
-        if (!matchWO || !matchWO.perintah) return false; // no match
-      }
 
       if (search) {
         const q = search.toLowerCase();
@@ -596,7 +557,7 @@ function DetailPage({ settlement, onBack }) {
       }
       return true;
     });
-  }, [items, typeFilter, search, vinLookupMap, matchedOnly]);
+  }, [items, typeFilter, search, vinLookupMap]);
 
   const totalItemPages = Math.ceil(filteredItems.length / itemsPerPage);
   const pagedItems = useMemo(() => {
@@ -675,7 +636,8 @@ function DetailPage({ settlement, onBack }) {
       const vin = item.vin || item.vinCode || item.chassisNo || '';
       const vd = vinData[vin];
       if (vd && vd.wos) {
-        const matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'));
+        const dmsDescEffect = item.description || item.dmsDescription || '';
+        const matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'), dmsDescEffect);
         if (matchWO && matchWO.id_wo) {
           handleLoadParts(matchWO.id_wo);
         }
@@ -694,6 +656,22 @@ function DetailPage({ settlement, onBack }) {
   const mgmtFee = settlement.mgmtFee ?? 0;
   const adjFee = settlement.adjustmentFee ?? 0;
   const refFee = settlement.totalRefusePayFee ?? 0;
+
+  // Aggregate Total Fee Internal dari semua item yang sudah matched
+  const totalFeeInternalSum = useMemo(() => {
+    let sum = 0;
+    items.forEach(item => {
+      const itemCode = item.code || item.claimCode || '';
+      const vin = item.vin || item.vinCode || item.chassisNo || '';
+      const vd = vinData[vin] || { wos: [] };
+      const dmsDesc = item.description || item.dmsDescription || '';
+      const matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'), dmsDesc);
+      if (matchWO && partsCache[matchWO.id_wo] && partsCache[matchWO.id_wo].totalFeeInternal) {
+        sum += partsCache[matchWO.id_wo].totalFeeInternal;
+      }
+    });
+    return sum;
+  }, [items, vinData, partsCache]);
 
   return (
     <div className="flex flex-col h-full bg-zinc-50 overflow-hidden">
@@ -742,9 +720,10 @@ function DetailPage({ settlement, onBack }) {
       </div>
 
       {/* Summary cards */}
-      <div className="px-5 py-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 shrink-0">
+      <div className="px-5 py-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 shrink-0">
         {[
-          { label: 'Total Fee', value: formatRupiah(totalFee), color: 'bg-zinc-900' },
+          { label: 'Total Fee DMS', value: formatRupiah(totalFee), color: 'bg-zinc-900' },
+          { label: 'Total Fee Internal', value: formatRupiah(totalFeeInternalSum), color: totalFeeInternalSum === totalFee && totalFee > 0 ? 'bg-emerald-700' : 'bg-zinc-900' },
           { label: 'Labor Fee', value: formatRupiah(laborFee), color: 'bg-blue-600' },
           { label: 'Material Fee', value: formatRupiah(matFee), color: 'bg-indigo-600' },
           { label: 'Mgmt Fee', value: formatRupiah(mgmtFee), color: 'bg-violet-600' },
@@ -754,6 +733,9 @@ function DetailPage({ settlement, onBack }) {
           <div key={c.label} className={`${c.color} rounded-2xl p-3.5 shadow-sm`}>
             <p className="text-[10px] font-bold uppercase tracking-wider text-white opacity-70">{c.label}</p>
             <p className="text-sm font-black mt-1 text-white leading-tight">{c.value}</p>
+            {c.label === 'Total Fee Internal' && totalFeeInternalSum > 0 && totalFeeInternalSum === totalFee && (
+              <p className="text-[9px] font-bold text-white/80 mt-0.5">(Sama dengan DMS)</p>
+            )}
           </div>
         ))}
       </div>
@@ -799,11 +781,7 @@ function DetailPage({ settlement, onBack }) {
                 <option value="adjustment">Adjustment</option>
               </select>
 
-              <button onClick={() => { setMatchedOnly(prev => !prev); setItemPage(0); }}
-                className={`px-2.5 py-1.5 text-xs font-bold rounded-lg border transition-colors ${matchedOnly ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-300'}`}>
-                {matchedOnly ? '✓ Matched' : 'Matched'}
-              </button>
-
+              
               <select value={itemsPerPage} onChange={e => { setItemsPerPage(Number(e.target.value)); setItemPage(0); }}
                 className="px-2.5 py-1.5 text-xs border border-zinc-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 text-zinc-900 font-medium">
                 <option value={10}>10 item / hal</option>
@@ -873,7 +851,8 @@ function DetailPage({ settlement, onBack }) {
               // Match WO specifically for this item using itemCode / claimCode + dmsDescription
               let matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'), dmsDescription);
 
-              const perintah = matchWO?.perintah || '';
+              const perintahEstimasi = (matchWO && partsCache[matchWO.id_wo] && partsCache[matchWO.id_wo].perintah) || '';
+              const perintah = matchWO?.perintah || perintahEstimasi || '';
               const isFree = matchWO ? (matchWO.kategori || '').toUpperCase() === 'IFS' : isFreeService(perintah);
               const ifsWO = matchWO && (matchWO.kategori || '').toUpperCase() === 'IFS' ? matchWO : null;
               const ikcWO = matchWO && (matchWO.kategori || '').toUpperCase() === 'IKC' ? matchWO : null;
@@ -945,8 +924,23 @@ function DetailPage({ settlement, onBack }) {
                       <p className="text-sm font-semibold text-zinc-800">{item.mileage != null ? Number(item.mileage).toLocaleString('id-ID') + ' km' : '-'}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">Total Fee</p>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">Total Fee DMS</p>
                       <p className="text-sm font-black text-zinc-900">{formatRupiah(item.totalFee)}</p>
+                      {matchWO && partsCache[matchWO.id_wo] && partsCache[matchWO.id_wo].loading && (
+                        <p className="text-[10px] text-zinc-400 mt-1 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Memuat fee internal...</p>
+                      )}
+                      {matchWO && partsCache[matchWO.id_wo] && !partsCache[matchWO.id_wo].loading && !partsCache[matchWO.id_wo].error && (
+                        <>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1 mt-2">Total Fee Internal</p>
+                          <p className="text-sm font-black text-zinc-900">
+                            {partsCache[matchWO.id_wo].totalFeeInternal > 0
+                              ? formatRupiah(partsCache[matchWO.id_wo].totalFeeInternal)
+                              : <span className="text-zinc-400">Tidak ada data</span>
+                            }
+                            {partsCache[matchWO.id_wo].totalFeeInternal > 0 && partsCache[matchWO.id_wo].totalFeeInternal === Number(item.totalFee) && <span className="text-[10px] text-emerald-600 ml-1 font-bold">(Sama)</span>}
+                          </p>
+                        </>
+                      )}
                       {item.totalRefusePayFee > 0 && <p className="text-xs text-red-500 mt-0.5">Refused: {formatRupiah(item.totalRefusePayFee)}</p>}
                     </div>
                   </div>

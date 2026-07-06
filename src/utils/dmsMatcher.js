@@ -53,8 +53,12 @@ export const findBestMatchingWO = (wos, itemCode, vin, itemMileage, isFree, dmsD
       }
     }
 
-    // 2. Kategori match (prefer same kategori but don't require)
-    if (kategori === targetKategori) score += 2000;
+    // 2. Kategori match: BY=IFS, BX=IKC — penalize WRONG kategori heavily
+    if (kategori === targetKategori) {
+      score += 2000;
+    } else if (kategori) {
+      score -= 50000;
+    }
 
     // 3. Mileage matching (no hard tolerance, closer = better)
     if (itemMileage != null && itemMileage !== '') {
@@ -114,5 +118,12 @@ export const findBestMatchingWO = (wos, itemCode, vin, itemMileage, isFree, dmsD
   });
 
   scored.sort((a, b) => b.score - a.score);
-  return scored[0]?.wo || null;
+  const best = scored[0]?.wo || null;
+  if (best) {
+    const bestKategori = (best.kategori || '').trim().toUpperCase();
+    if (bestKategori && bestKategori !== targetKategori) {
+      return null;
+    }
+  }
+  return best;
 };

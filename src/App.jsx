@@ -1942,7 +1942,7 @@ const App = () => {
         id: item.id, 
         bk: item.bk || '', 
         tipe: item.tipe || '',
-        keluhanDetail: historyKeluhan, 
+        keluhan: historyKeluhan, 
         status: 'completed',
         mechanicName: item.mechanicName || '',
         category: item.category || 'Reguler',
