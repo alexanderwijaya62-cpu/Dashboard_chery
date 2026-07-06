@@ -228,15 +228,18 @@ function DetailPage({ settlement, onBack }) {
     setExportProgress(0);
 
     try {
-      // 1. Fetch any missing VINs directly to avoid relying on async load queue
+      // 1. Fetch any missing VINs directly
       const uniqueVins = [...new Set(items.map(it => it.vin || it.vinCode || it.chassisNo).filter(Boolean))];
       const vinsToFetch = uniqueVins.filter(vin => !GLOBAL_PROFORMA_CACHE.vinCrossRef[vin]);
+      const totalVins = vinsToFetch.length;
 
-      if (vinsToFetch.length > 0) {
+      if (totalVins > 0) {
+        setExportProgress(2);
         vinsToFetch.forEach(vin => {
           GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: [], loading: true };
         });
 
+        let vinFetched = 0;
         await Promise.all(
           vinsToFetch.map(async (vin) => {
             try {
@@ -245,10 +248,11 @@ function DetailPage({ settlement, onBack }) {
             } catch (e) {
               GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] = { wos: [], loading: false };
             }
+            vinFetched++;
+            setExportProgress(Math.round((vinFetched / totalVins) * 8) + 2);
           })
         );
 
-        // Sync to component state
         setVinData(prev => {
           const next = { ...prev };
           uniqueVins.forEach(vin => {
@@ -260,40 +264,30 @@ function DetailPage({ settlement, onBack }) {
         });
       }
 
-      // 2. Wait for any remaining active VIN loading with a max timeout of 5s
-      const startTime = Date.now();
-      let allVinsLoaded = false;
-      while (!allVinsLoaded && (Date.now() - startTime < 5000)) {
-        const stillLoading = uniqueVins.some(vin => {
-          const vd = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin];
-          return vd && vd.loading;
-        });
-        if (!stillLoading) {
-          allVinsLoaded = true;
-        } else {
-          await new Promise(resolve => setTimeout(resolve, 300));
-        }
-      }
+      setExportProgress(10);
 
-      // 3. Fetch missing parts data for all matched work orders
+      // 2. Fetch missing parts data for all matched work orders
       const woIdsToFetch = new Set();
       items.forEach((item) => {
         if (item._type === 'adjustment') return;
         const v = item.vin || item.vinCode || item.chassisNo || '';
         const vd = GLOBAL_PROFORMA_CACHE.vinCrossRef[v] || vinData[v] || { wos: [] };
         const ic = item.code || item.claimCode || '';
-        const m = findBestMatchingWO(vd.wos, ic, v, item.mileage, ic.startsWith('BY'));
+        const dmsDesc = item.description || '';
+        const m = findBestMatchingWO(vd.wos, ic, v, item.mileage, ic.startsWith('BY'), dmsDesc);
         if (m?.id_wo && !GLOBAL_PROFORMA_CACHE.parts[m.id_wo]?.data) {
           woIdsToFetch.add(m.id_wo);
         }
       });
       const woArray = [...woIdsToFetch];
+      let woFetched = 0;
       const CONCURRENCY = 5;
+      const totalWo = woArray.length;
       for (let i = 0; i < woArray.length; i += CONCURRENCY) {
         const batch = woArray.slice(i, i + CONCURRENCY);
         await Promise.all(batch.map(async (id) => {
           const ac = new AbortController();
-          const timeoutId = setTimeout(() => ac.abort(), 15000);
+          const timeoutId = setTimeout(() => ac.abort(), 30000);
           try {
             const res = await fetch(`/api/chery_dms?${new URLSearchParams({ endpoint: 'warranty-estimasi-detail', id })}`, { signal: ac.signal });
             clearTimeout(timeoutId);
@@ -308,6 +302,8 @@ function DetailPage({ settlement, onBack }) {
             console.error("Export: failed to fetch parts for WO", id, e);
             GLOBAL_PROFORMA_CACHE.parts[id] = { loading: false, error: e.message, data: [], pekerjaan: [], totalPekerjaan: 0, totalFeeInternal: 0, perintah: '' };
           }
+          woFetched++;
+          setExportProgress(Math.round((woFetched / totalWo) * 80) + 10);
         }));
       }
       if (woArray.length > 0) {
