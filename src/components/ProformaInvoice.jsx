@@ -288,23 +288,27 @@ function DetailPage({ settlement, onBack }) {
         }
       });
       const woArray = [...woIdsToFetch];
-      for (let i = 0; i < woArray.length; i++) {
-        const ac = new AbortController();
-        const timeoutId = setTimeout(() => ac.abort(), 15000);
-        try {
-          const res = await fetch(`/api/chery_dms?${new URLSearchParams({ endpoint: 'warranty-estimasi-detail', id: woArray[i] })}`, { signal: ac.signal });
-          clearTimeout(timeoutId);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const json = await res.json();
-          const pData = json.parts || [];
-          const pTotal = json.totalPekerjaan || 0;
-          const pPerintah = json.perintah || '';
-          GLOBAL_PROFORMA_CACHE.parts[woArray[i]] = { loading: false, error: null, data: pData, pekerjaan: json.pekerjaan || [], totalPekerjaan: pTotal, totalFeeInternal: pTotal * 1.11, perintah: pPerintah };
-        } catch (e) {
-          clearTimeout(timeoutId);
-          console.error("Export: failed to fetch parts for WO", woArray[i], e);
-          GLOBAL_PROFORMA_CACHE.parts[woArray[i]] = { loading: false, error: e.message, data: [], pekerjaan: [], totalPekerjaan: 0, totalFeeInternal: 0, perintah: '' };
-        }
+      const CONCURRENCY = 5;
+      for (let i = 0; i < woArray.length; i += CONCURRENCY) {
+        const batch = woArray.slice(i, i + CONCURRENCY);
+        await Promise.all(batch.map(async (id) => {
+          const ac = new AbortController();
+          const timeoutId = setTimeout(() => ac.abort(), 15000);
+          try {
+            const res = await fetch(`/api/chery_dms?${new URLSearchParams({ endpoint: 'warranty-estimasi-detail', id })}`, { signal: ac.signal });
+            clearTimeout(timeoutId);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            const pData = json.parts || [];
+            const pTotal = json.totalPekerjaan || 0;
+            const pPerintah = json.perintah || '';
+            GLOBAL_PROFORMA_CACHE.parts[id] = { loading: false, error: null, data: pData, pekerjaan: json.pekerjaan || [], totalPekerjaan: pTotal, totalFeeInternal: pTotal * 1.11, perintah: pPerintah };
+          } catch (e) {
+            clearTimeout(timeoutId);
+            console.error("Export: failed to fetch parts for WO", id, e);
+            GLOBAL_PROFORMA_CACHE.parts[id] = { loading: false, error: e.message, data: [], pekerjaan: [], totalPekerjaan: 0, totalFeeInternal: 0, perintah: '' };
+          }
+        }));
       }
       if (woArray.length > 0) {
         setPartsCache(prev => ({ ...prev, ...Object.fromEntries(woArray.map(w => [w, GLOBAL_PROFORMA_CACHE.parts[w]])) }));
