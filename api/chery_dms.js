@@ -510,14 +510,17 @@ async function handleWarrantyEstimasiDetail(req, res) {
 
             let totalPekerjaan = pekerjaan.reduce((s, p) => s + p.total, 0);
 
-            // Override with DPP (Dasar Pengenaan Pajak) value if it's higher — DPP is the total
-            // of ALL pekerjaan before PPN, may include display-only rows not in input fields.
-            const dppMatch = body.match(/DPP[\s\S]{0,100}?Rp\.?\s*([0-9.]+)/i);
-            if (dppMatch) {
-                const dppValue = parseInt(dppMatch[1].replace(/\./g, ''), 10) || 0;
-                if (dppValue > totalPekerjaan) {
-                    totalPekerjaan = dppValue;
-                }
+            // Find the grand total DPP (tax base before PPN) from the HTML.
+            // DPP = sum of all section DPPs (sparepart + jasa). The LAST DPP value in the document
+            // is the grand total, since sections appear sequentially.
+            const dppRegex = /DPP[\s\S]{0,100}?Rp\.?\s*([0-9.]+)/gi;
+            let dppMatch, lastDpp = 0;
+            while ((dppMatch = dppRegex.exec(body)) !== null) {
+                const val = parseInt(dppMatch[1].replace(/\./g, ''), 10) || 0;
+                if (val > 0) lastDpp = val;
+            }
+            if (lastDpp > totalPekerjaan) {
+                totalPekerjaan = lastDpp;
             }
 
             const perintah = pekerjaan.map(p => p.nama_pekerjaan).filter(Boolean).join(', ');
