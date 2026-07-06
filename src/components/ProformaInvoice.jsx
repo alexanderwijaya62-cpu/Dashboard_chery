@@ -321,7 +321,10 @@ function DetailPage({ settlement, onBack }) {
         const itemCode = item.code || item.claimCode || '-';
         const vin = item.vin || item.vinCode || item.chassisNo || '';
         const vd = GLOBAL_PROFORMA_CACHE.vinCrossRef[vin] || vinData[vin] || { wos: [] };
-        const dmsDescription = item.description || '';
+        const detail = contractDetails[item.id || item.claimId] || {};
+        const contractOrId = detail.repairContractId || item.repairContractId;
+        const contract = repairContracts[contractOrId] || {};
+        const dmsDescription = contract.description || detail.faultDescription || detail.checkMeasureResult || detail.description || item.description || '';
 
         let matchWO = findBestMatchingWO(vd.wos, itemCode, vin, item.mileage, itemCode.startsWith('BY'), dmsDescription);
 
