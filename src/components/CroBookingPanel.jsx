@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Info, Search, Send, Plus, ShieldCheck, Truck, X, Edit3 } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Info, Search, Send, Plus, ShieldCheck, Truck, X, Edit3, Upload, AlertTriangle, Check as CheckIcon, Database } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import DmsBookingListView from './DmsBookingListView';
@@ -110,6 +110,193 @@ export default function CroBookingPanel({ user }) {
         modelKendaraan: '',
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    // Tab for booking list view
+    const [bookingListTab, setBookingListTab] = useState('dms'); // 'dms' | 'supabase'
+
+    // Import state
+    const [showImport, setShowImport] = useState(false);
+    const [importText, setImportText] = useState('');
+    const [parsedRows, setParsedRows] = useState([]);
+    const [importErrors, setImportErrors] = useState([]);
+    const [isImporting, setIsImporting] = useState(false);
+
+    const parseDateDMY = (str) => {
+        const trimmed = (str || '').trim();
+        // dd/mm/yyyy or d/m/yyyy
+        const parts = trimmed.split('/');
+        if (parts.length === 3) {
+            const d = parts[0].padStart(2, '0');
+            const m = parts[1].padStart(2, '0');
+            const y = parts[2];
+            if (d >= 1 && d <= 31 && m >= 1 && m <= 12 && y.length === 4) {
+                return `${y}-${m}-${d}`;
+            }
+        }
+        return null;
+    };
+
+    const parseImportRows = (text) => {
+        const lines = text.trim().split('\n').filter(r => r.trim());
+        const rows = [];
+        const errs = [];
+        lines.forEach((line, idx) => {
+            const cols = line.split('\t');
+            const dateRaw = (cols[0] || '').trim();
+            const jam = (cols[1] || '').trim().replace(':', '.');
+            const tipeMobil = (cols[2] || '').trim();
+            const noPlat = (cols[3] || '').trim().toUpperCase().replace(/\s+/g, '');
+            const namaCustomer = (cols[4] || '').trim();
+            const keluhan = (cols[5] || '').trim();
+            const tipeUnit = (cols[6] || '').trim();
+            const sa = (cols[7] || '').trim();
+            const noTelp = (cols[8] || '').trim();
+            const km = (cols[9] || '').trim();
+
+            const tanggal = parseDateDMY(dateRaw);
+            const issues = [];
+            if (!tanggal) issues.push('Tanggal tidak valid (dd/mm/yyyy)');
+            if (!jam) issues.push('Jam kosong');
+            if (!noPlat) issues.push('Plat kosong');
+            if (!namaCustomer) issues.push('Nama kosong');
+            if (!keluhan) issues.push('Keluhan kosong');
+            if (!sa) issues.push('SA kosong');
+            if (!noTelp) issues.push('No Telp kosong');
+
+            if (issues.length > 0) {
+                errs.push({ row: idx + 1, issues, plat: noPlat || '-' });
+            }
+            rows.push({ tanggal, jam, tipeMobil, noPlat, namaCustomer, keluhan, tipeUnit, sa, noTelp, km, _valid: issues.length === 0, _rowNum: idx + 1 });
+        });
+        setParsedRows(rows);
+        setImportErrors(errs);
+    };
+
+    const handleImport = async () => {
+        const valid = parsedRows.filter(r => r._valid);
+        if (valid.length === 0) { Toastify({ text: 'Tidak ada data valid untuk diimport!', background: '#ef4444' }).showToast(); return; }
+
+        // Cek duplikat plat: cari plat yg sudah ada booking active di tanggal yg sama
+        const plateList = [...new Set(valid.map(r => r.noPlat))];
+        const { data: existing } = await db.select('booking', {
+            select: 'noPlat, tanggal, status',
+            in: { noPlat: plateList },
+        });
+        const existingMap = new Map();
+        (existing || []).forEach(e => {
+            const plat = (e.noPlat || '').replace(/\s+/g, '').toUpperCase();
+            if (!existingMap.has(plat)) existingMap.set(plat, []);
+            existingMap.get(plat).push(e);
+        });
+
+        setIsImporting(true);
+        let success = 0;
+        let failed = 0;
+        let dmsSync = 0;
+        const skipReasons = [];
+
+        // Cache DMS vehicle lookups per plate
+        const dmsVehicleCache = new Map();
+
+        for (const row of valid) {
+            // Cek duplikat per tanggal
+            const existingForPlat = existingMap.get(row.noPlat) || [];
+            const dupe = existingForPlat.find(e =>
+                e.tanggal === row.tanggal &&
+                ['waiting_approval', 'waiting confirm', 'accepted'].includes(e.status)
+            );
+            if (dupe) {
+                skipReasons.push(`Baris ${row._rowNum}: ${row.noPlat} sudah booking aktif di ${row.tanggal}`);
+                failed++;
+                continue;
+            }
+
+            // Insert ke Supabase dulu
+            const { data: inserted, error } = await db.insert('booking', {
+                id: Date.now() + Math.floor(Math.random() * 10000) + success,
+                tanggal: row.tanggal,
+                jam: row.jam,
+                noPlat: row.noPlat,
+                namaCustomer: row.namaCustomer,
+                noTelp: row.noTelp,
+                tipeMobil: row.tipeMobil,
+                keperluanService: row.keluhan,
+                bookingVia: row.sa ? `CRO Import - SA: ${row.sa}` : 'CRO Import',
+                status: 'accepted',
+                keluhanDetail: [row.tipeUnit, row.km].filter(Boolean).join(' | '),
+            });
+            if (error) { failed++; skipReasons.push(`Baris ${row._rowNum}: ${row.noPlat} — ${error.message}`); continue; }
+
+            const bookingId = Array.isArray(inserted) ? inserted[0]?.id : inserted?.id;
+
+            // Sync ke DMS kalau kendaraan terdaftar
+            try {
+                let vehicle = dmsVehicleCache.get(row.noPlat);
+                if (!vehicle) {
+                    const res = await fetch(`/api/chery_dms?endpoint=vehicle-select&term=${row.noPlat}&q=${row.noPlat}`);
+                    const json = await res.json();
+                    vehicle = (Array.isArray(json) && json.find(v =>
+                        (v.no_polisi || '').toUpperCase().replace(/\s+/g, '') === row.noPlat
+                    )) || null;
+                    dmsVehicleCache.set(row.noPlat, vehicle);
+                }
+
+                if (vehicle) {
+                    const targetJam = row.jam.replace('.', ':') + ':00';
+                    const janjiDatang = `${row.tanggal} ${targetJam}`;
+                    const postData = {
+                        id_kendaraan: vehicle.id_kendaraan || '',
+                        no_polisi: vehicle.no_polisi,
+                        nama_kendaraan: vehicle.nama_kendaraan || vehicle.model_kendaraan || '',
+                        no_chassis: vehicle.no_chassis || '',
+                        atas_nama_booking: row.namaCustomer,
+                        no_telp_booking: row.noTelp,
+                        janji_datang: janjiDatang,
+                        keluhan: row.keluhan || '-',
+                        booking_via: 'CRO Import',
+                        km: row.km || '0'
+                    };
+                    const formDataBody = new URLSearchParams();
+                    Object.entries(postData).forEach(([k, v]) => formDataBody.set(k, v));
+
+                    const dmsRes = await fetch('/api/chery_dms?endpoint=booking-create', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: formDataBody.toString()
+                    });
+                    const dmsJson = await dmsRes.json();
+
+                    if (dmsJson.success && bookingId) {
+                        dmsSync++;
+                        await db.update('booking', {
+                            bookingVia: `CRO Import (DMS Synced)${row.sa ? ` - SA: ${row.sa}` : ''}`
+                        }, { eq: { id: bookingId } });
+                    }
+                }
+            } catch (syncErr) {
+                console.warn(`DMS sync error for ${row.noPlat}:`, syncErr);
+            }
+
+            success++;
+        }
+
+        const syncMsg = dmsSync > 0 ? ` (${dmsSync} sync DMS)` : '';
+        Toastify({
+            text: `✅ ${success} berhasil diimport${syncMsg}` + (skipReasons.length > 0 ? `, ${skipReasons.length} gagal` : ''),
+            background: failed > 0 ? '#f59e0b' : '#10b981',
+            duration: 5000
+        }).showToast();
+        if (skipReasons.length > 0) console.warn('Import skips:', skipReasons.join(' | '));
+
+        if (success > 0) {
+            setShowImport(false);
+            setImportText('');
+            setParsedRows([]);
+            setImportErrors([]);
+            setRefreshTrigger(prev => prev + 1);
+        }
+        setIsImporting(false);
+    };
 
     // Calendar
     const [currentCalMonth, setCurrentCalMonth] = useState(new Date());
@@ -326,20 +513,141 @@ export default function CroBookingPanel({ user }) {
                     <div className="bg-black p-2 rounded-lg text-white">
                         <Calendar size={20} />
                     </div>
-                    <h2 className="text-lg md:text-xl font-black text-zinc-900 leading-none">Booking Management</h2>
+                    <div>
+                        <h2 className="text-lg md:text-xl font-black text-zinc-900 leading-none">Booking Management</h2>
+                    </div>
                 </div>
-                <button
-                    onClick={() => { resetModal(); setIsModalOpen(true); }}
-                    className="min-h-[44px] bg-zinc-900 hover:bg-zinc-800 text-white px-6 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-zinc-200 group"
-                >
-                    <Plus size={14} className="group-hover:rotate-90 transition-transform" /> New
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => { setImportText(''); setParsedRows([]); setImportErrors([]); setShowImport(true); }}
+                        className="min-h-[44px] bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-4 py-2.5 rounded-xl font-black text-[8px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 border-2 border-zinc-200"
+                    >
+                        <Upload size={14} /> Import
+                    </button>
+                    <button
+                        onClick={() => { resetModal(); setIsModalOpen(true); }}
+                        className="min-h-[44px] bg-zinc-900 hover:bg-zinc-800 text-white px-6 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-zinc-200 group"
+                    >
+                        <Plus size={14} className="group-hover:rotate-90 transition-transform" /> New
+                    </button>
+                </div>
+            </div>
+
+            {/* Tab: DMS vs Supabase */}
+            <div className="flex mx-4 md:mx-6 mt-3 bg-zinc-100 rounded-xl p-1 shrink-0">
+                <button onClick={() => setBookingListTab('dms')}
+                    className={`flex-1 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${bookingListTab === 'dms' ? 'bg-white text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-800'}`}>
+                    <Database size={12} className="inline mr-1.5 mb-0.5" />DMS List
+                </button>
+                <button onClick={() => setBookingListTab('supabase')}
+                    className={`flex-1 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${bookingListTab === 'supabase' ? 'bg-white text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-800'}`}>
+                    <Calendar size={12} className="inline mr-1.5 mb-0.5" />Supabase Bookings
                 </button>
             </div>
 
-            {/* DMS List View */}
-            <div className="flex-1 overflow-hidden">
-                <DmsBookingListView user={user} refreshTrigger={refreshTrigger} />
-            </div>
+            {/* Content */}
+            {bookingListTab === 'dms' ? (
+                <div className="flex-1 overflow-hidden">
+                    <DmsBookingListView user={user} refreshTrigger={refreshTrigger} />
+                </div>
+            ) : (
+                <div className="flex-1 overflow-hidden">
+                    <SupabaseBookingList refreshTrigger={refreshTrigger} />
+                </div>
+            )}
+
+            {/* Import Modal */}
+            {showImport && (
+                <div className="fixed inset-0 bg-white z-[999] flex flex-col animate-fade-in overflow-hidden">
+                    <div className="flex-1 relative flex flex-col overflow-hidden">
+                        <button onClick={() => setShowImport(false)} className="absolute top-6 right-8 p-3 bg-zinc-100 hover:bg-black text-black hover:text-white rounded-2xl transition-all z-[1000] shadow-sm">
+                            <X size={24} />
+                        </button>
+
+                        <div className="px-4 py-4 md:px-8 md:py-6 lg:px-12 lg:py-10 flex-1 flex flex-col overflow-hidden">
+                            <h2 className="text-xl font-black text-zinc-900 mb-1">Import Booking</h2>
+                            <p className="text-xs font-bold text-zinc-400 mb-6">Paste data dari Excel (tab-separated)</p>
+
+                            <div className="flex-1 flex flex-col lg:flex-row gap-6 overflow-hidden">
+                                {/* Left: Input */}
+                                <div className="lg:w-1/2 flex flex-col gap-4">
+                                    <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4">
+                                        <h3 className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-2">Urutan Kolom (tab-separated)</h3>
+                                        <div className="text-[10px] font-mono font-bold text-zinc-700 bg-white border border-zinc-200 rounded-xl p-3 leading-relaxed">
+                                            1. Tanggal (dd/mm/yyyy) <span className="text-zinc-300">|</span> 2. Jam <span className="text-zinc-300">|</span> 3. Tipe Mobil <span className="text-zinc-300">|</span> 4. No Plat <span className="text-zinc-300">|</span> 5. Nama Customer <span className="text-zinc-300">|</span> 6. Keluhan <span className="text-zinc-300">|</span> 7. Tipe Unit* <span className="text-zinc-300">|</span> 8. SA <span className="text-zinc-300">|</span> 9. No Telp <span className="text-zinc-300">|</span> 10. KM*
+                                        </div>
+                                        <p className="text-[8px] font-bold text-zinc-400 mt-1">* opsional</p>
+                                    </div>
+
+                                    <textarea value={importText} onChange={e => { setImportText(e.target.value); parseImportRows(e.target.value); }}
+                                        placeholder={`12/07/2026\t08:30\tTiggo 8 CSH\tBK 1818 NYK\tYONGKI ALI\tKlaim Part\t\tSA\t08123456789`}
+                                        className="w-full flex-1 min-h-[200px] bg-zinc-50 border-2 border-zinc-200 rounded-2xl p-4 text-xs font-mono font-bold text-zinc-900 focus:border-black focus:bg-white outline-none transition-all resize-none"
+                                    />
+
+                                    <div className="flex items-center gap-2 text-[9px] font-bold text-zinc-400">
+                                        <Info size={12} />
+                                        {importText.trim() ? `${parsedRows.length} baris terdeteksi` : 'Tempel data dari Excel'}
+                                    </div>
+
+                                    {importErrors.length > 0 && (
+                                        <div className="bg-red-50 border border-red-200 rounded-2xl p-3 space-y-1 max-h-[120px] overflow-y-auto">
+                                            {importErrors.map((e, i) => (
+                                                <p key={i} className="text-[9px] font-bold text-red-700">
+                                                    Baris {e.row}: {e.issues.join(', ')}
+                                                </p>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Right: Preview */}
+                                <div className="lg:w-1/2 flex flex-col gap-4">
+                                    <h3 className="text-[9px] font-black uppercase tracking-widest text-zinc-500 flex items-center gap-2">
+                                        <CheckIcon size={12} className="text-emerald-500" />
+                                        Preview ({parsedRows.filter(r => r._valid).length} valid)
+                                    </h3>
+                                    <div className="flex-1 overflow-y-auto border border-zinc-200 rounded-2xl">
+                                        <table className="w-full text-[9px]">
+                                            <thead className="bg-zinc-100 sticky top-0">
+                                                <tr className="text-zinc-500 font-black uppercase tracking-wider">
+                                                    <th className="p-2 text-left">#</th>
+                                                    <th className="p-2 text-left">Tgl</th>
+                                                    <th className="p-2 text-left">Jam</th>
+                                                    <th className="p-2 text-left">Plat</th>
+                                                    <th className="p-2 text-left">Nama</th>
+                                                    <th className="p-2 text-left">SA</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {parsedRows.map((r, i) => (
+                                                    <tr key={i} className={`border-t border-zinc-100 ${r._valid ? '' : 'bg-red-50 text-zinc-400'}`}>
+                                                        <td className="p-2 font-bold text-zinc-400">{r._rowNum}</td>
+                                                        <td className="p-2 font-bold">{r.tanggal || '-'}</td>
+                                                        <td className="p-2 font-bold">{r.jam || '-'}</td>
+                                                        <td className="p-2 font-bold">{r.noPlat || '-'}</td>
+                                                        <td className="p-2 font-bold truncate max-w-[120px]">{r.namaCustomer || '-'}</td>
+                                                        <td className="p-2 font-bold">{r.sa || '-'}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    <button onClick={handleImport} disabled={isImporting || parsedRows.filter(r => r._valid).length === 0}
+                                        className="w-full bg-zinc-900 hover:bg-black disabled:bg-zinc-200 text-white disabled:text-zinc-400 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl shadow-zinc-200 transition-all flex items-center justify-center gap-3 active:scale-95"
+                                    >
+                                        {isImporting ? (
+                                            <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Importing...</>
+                                        ) : (
+                                            <><Upload size={16} /> Import {parsedRows.filter(r => r._valid).length} Booking</>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Create Booking Modal */}
             {isModalOpen && (
@@ -617,6 +925,107 @@ export default function CroBookingPanel({ user }) {
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+/* ─── Supabase Booking List ─── */
+function SupabaseBookingList({ refreshTrigger }) {
+    const [bookings, setBookings] = useState([]);
+    const [search, setSearch] = useState('');
+    const [loading, setLoading] = useState(true);
+    const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
+
+    useEffect(() => {
+        (async () => {
+            setLoading(true);
+            try {
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 30);
+                const { data } = await db.select('booking', {
+                    select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, keluhanDetail, createdAt',
+                    gte: { id: yesterday.getTime() },
+                    order: { column: 'id', ascending: false },
+                    limit: 200,
+                });
+                setBookings(data || []);
+            } catch (e) { console.error(e); }
+            setLoading(false);
+        })();
+    }, [refreshTrigger]);
+
+    const filtered = useMemo(() => {
+        let list = bookings;
+        if (filterDate) list = list.filter(b => b.tanggal === filterDate);
+        if (search.trim()) {
+            const q = search.toLowerCase();
+            list = list.filter(b =>
+                (b.noPlat || '').toLowerCase().includes(q) ||
+                (b.namaCustomer || '').toLowerCase().includes(q) ||
+                (b.noTelp || '').includes(q)
+            );
+        }
+        return list;
+    }, [bookings, search, filterDate]);
+
+    return (
+        <div className="h-full flex flex-col p-4 md:p-6">
+            {/* Filters */}
+            <div className="flex items-center gap-3 mb-4 shrink-0">
+                <div className="relative flex-1 max-w-xs">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                    <input value={search} onChange={e => setSearch(e.target.value)}
+                        placeholder="Cari plat/nama/telp..."
+                        className="w-full pl-9 pr-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none transition-all" />
+                </div>
+                <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
+                    className="px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none transition-all" />
+                <span className="text-[9px] font-bold text-zinc-400">{filtered.length} booking</span>
+            </div>
+
+            {/* Table */}
+            <div className="flex-1 overflow-y-auto border border-zinc-200 rounded-2xl">
+                <table className="w-full text-[10px]">
+                    <thead className="bg-zinc-100 sticky top-0">
+                        <tr className="text-zinc-500 font-black uppercase tracking-wider">
+                            <th className="p-2.5 text-left">Tanggal</th>
+                            <th className="p-2.5 text-left">Jam</th>
+                            <th className="p-2.5 text-left">No Plat</th>
+                            <th className="p-2.5 text-left">Nama</th>
+                            <th className="p-2.5 text-left">Tipe</th>
+                            <th className="p-2.5 text-left max-w-[200px]">Keluhan</th>
+                            <th className="p-2.5 text-left">Via</th>
+                            <th className="p-2.5 text-left">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {loading ? (
+                            <tr><td colSpan="8" className="p-8 text-center text-zinc-400 font-bold">Memuat...</td></tr>
+                        ) : filtered.length === 0 ? (
+                            <tr><td colSpan="8" className="p-8 text-center text-zinc-400 font-bold">Tidak ada booking</td></tr>
+                        ) : filtered.map(b => (
+                            <tr key={b.id} className="border-t border-zinc-100 hover:bg-zinc-50 transition-all">
+                                <td className="p-2.5 font-bold text-zinc-700">{b.tanggal || '-'}</td>
+                                <td className="p-2.5 font-bold text-zinc-700">{(b.jam || '').replace('.', ':')}</td>
+                                <td className="p-2.5 font-black text-zinc-900 uppercase">{b.noPlat || '-'}</td>
+                                <td className="p-2.5 font-bold text-zinc-700">{b.namaCustomer || '-'}</td>
+                                <td className="p-2.5 text-zinc-500">{b.tipeMobil || '-'}</td>
+                                <td className="p-2.5 text-zinc-500 max-w-[200px] truncate" title={b.keperluanService}>{b.keperluanService || '-'}</td>
+                                <td className="p-2.5">
+                                    <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${(b.bookingVia || '').includes('DMS') ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>
+                                        {(b.bookingVia || 'Supabase').length > 20 ? (b.bookingVia || '').slice(0, 18) + '...' : (b.bookingVia || 'Supabase')}
+                                    </span>
+                                </td>
+                                <td className="p-2.5">
+                                    <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${b.status === 'accepted' ? 'bg-green-50 text-green-700' : b.status === 'declined' ? 'bg-red-50 text-red-700' : 'bg-zinc-50 text-zinc-500'}`}>
+                                        {b.status || '-'}
+                                    </span>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 }
