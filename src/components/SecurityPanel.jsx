@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Shield, UserPlus, Check, Search, Clock, Calendar, Database, Ban } from 'lucide-react';
+import { Shield, UserPlus, Check, Search, Clock, Calendar, Database, Ban, Megaphone } from 'lucide-react';
 import { db } from '../utils/dbClient';
 import { supabase } from '../utils/supabaseClient';
+import { speak } from '../utils/tts';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 
@@ -10,11 +11,55 @@ export default function SecurityPanel({ user, handleLogout }) {
   const [bk, setBk] = useState('');
   const [bookings, setBookings] = useState([]);
   const [confirmedPlates, setConfirmedPlates] = useState(new Map());
-  const [allAntrianPlates, setAllAntrianPlates] = useState(new Set());
+
   const [selectedBookingIds, setSelectedBookingIds] = useState(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const [searchBooking, setSearchBooking] = useState('');
   const [antrianList, setAntrianList] = useState([]);
+  const [callCounter, setCallCounter] = useState(() => {
+    return parseInt(localStorage.getItem('security_call_counter')) || 1;
+  });
+  const [showManualBooking, setShowManualBooking] = useState(false);
+  const [manualPlat, setManualPlat] = useState('');
+  const [manualNama, setManualNama] = useState('');
+  const [manualTipe, setManualTipe] = useState('');
+  const [manualNoTelp, setManualNoTelp] = useState('');
+  const [manualKeluhan, setManualKeluhan] = useState('');
+
+  const handleCallAntrian = async (item) => {
+    const cooldownMs = 60000;
+    if (item.called_at) {
+      const elapsed = Date.now() - new Date(item.called_at).getTime();
+      if (elapsed < cooldownMs) {
+        const sisa = Math.ceil((cooldownMs - elapsed) / 1000);
+        Toastify({ text: `⏳ Tunggu ${sisa} detik`, duration: 2000, background: '#f59e0b' }).showToast();
+        return;
+      }
+    }
+    try {
+      const now = new Date().toISOString();
+      await db.update('antrian', {
+        is_called: true, counter: callCounter, called_at: now
+      }, { eq: { id: item.id } });
+
+      const code = item.category === 'Booking'
+        ? `B-${String(item.queue_number || 0).padStart(3, '0')}`
+        : `R-${String(item.queue_number || 0).padStart(3, '0')}`;
+      const plat = (item.bk || '').toUpperCase();
+      const announceText = `Antrian ${code} ${plat}, silahkan menuju counter ${callCounter}`;
+      Toastify({ text: `📢 ${announceText}`, duration: 3000, background: '#10b981' }).showToast();
+
+      fetch('/api/notify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plat, title: '📢 Panggilan Antrian', body: announceText, url: '/customer' })
+      }).catch(() => {});
+
+      speak(announceText);
+    } catch (e) {
+      console.error(e);
+      Toastify({ text: 'Gagal memanggil', background: '#ef4444' }).showToast();
+    }
+  };
 
   const todayStr = new Date().toLocaleDateString('en-CA');
 
@@ -23,7 +68,7 @@ export default function SecurityPanel({ user, handleLogout }) {
       const results = await Promise.allSettled([
         (async () => {
           const { data } = await db.select('booking', {
-            select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, noTelp',
+            select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, noTelp, keperluanService',
           });
           return ((data || []).filter(b => b.tanggal === todayStr)).map(b => ({ ...b, _source: 'supabase' }));
         })(),
@@ -52,6 +97,7 @@ export default function SecurityPanel({ user, handleLogout }) {
                 tipeMobil: b.nama_kendaraan || '',
                 status: 'accepted',
                 noTelp: b.no_telp_booking || '',
+                keperluanService: b.keperluan || b.keterangan || '',
                 _source: 'dms',
                 bookingVia: b.booking_via || 'DMS Internal',
               };
@@ -62,16 +108,13 @@ export default function SecurityPanel({ user, handleLogout }) {
             select: 'bk, category, queue_number, id, status, tipe',
           });
           const bookingMap = new Map();
-          const allPlates = new Set();
           (data || []).forEach(a => {
             const plat = (a.bk || '').replace(/\s+/g, '').toUpperCase();
-            if (plat) allPlates.add(plat);
             if (a.category === 'Booking' && plat) {
               bookingMap.set(plat, formatQueueCode('Booking', a.queue_number || 0));
             }
           });
           setConfirmedPlates(bookingMap);
-          setAllAntrianPlates(allPlates);
           setAntrianList(data || []);
           return null;
         })(),
@@ -196,7 +239,9 @@ export default function SecurityPanel({ user, handleLogout }) {
     const plat = bk.trim().toUpperCase().replace(/\s+/g, '');
     if (!plat) { alert('Masukkan No. Plat!'); return; }
 
-    if (allAntrianPlates.has(plat)) {
+    // Cek langsung ke DB — jangan andalkan state lokal yg mungkin stale
+    const { data: dupe } = await db.select('antrian', { select: 'id', eq: { bk: plat } });
+    if (dupe && dupe.length > 0) {
       Toastify({ text: `⛔ ${plat} sudah ada di antrian!`, duration: 2500, background: '#ef4444' }).showToast();
       return;
     }
@@ -221,7 +266,6 @@ export default function SecurityPanel({ user, handleLogout }) {
       const code = formatQueueCode('Reguler', qNum);
       Toastify({ text: `✅ ${plat} — ${code}`, duration: 2500, background: '#10b981' }).showToast();
       setBk('');
-      setAllAntrianPlates(prev => new Set(prev).add(plat));
     } catch (e) {
       console.error(e);
       Toastify({ text: 'Gagal ambil antrian', background: '#ef4444' }).showToast();
@@ -233,12 +277,23 @@ export default function SecurityPanel({ user, handleLogout }) {
   const handleBookingSubmit = async () => {
     if (selectedBookingIds.size === 0) { alert('Pilih booking yang sudah datang!'); return; }
 
-    const toInsert = [];
+    // Kumpulkan plat yg dipilih
+    const candidates = [];
     for (const bookingId of selectedBookingIds) {
       const b = bookings.find(x => x.id === bookingId);
       if (!b) continue;
       const plat = (b.noPlat || '').toUpperCase().replace(/\s+/g, '');
-      if (allAntrianPlates.has(plat)) {
+      candidates.push({ plat, booking: b });
+    }
+
+    // Batch cek duplikat langsung ke DB
+    const plateList = candidates.map(c => c.plat);
+    const { data: existing } = await db.select('antrian', { select: 'bk', in: { bk: plateList } });
+    const existingPlates = new Set((existing || []).map(e => (e.bk || '').replace(/\s+/g, '').toUpperCase()));
+
+    const toInsert = [];
+    for (const { plat, booking: b } of candidates) {
+      if (existingPlates.has(plat)) {
         Toastify({ text: `⛔ ${plat} sudah diantrikan!`, duration: 2000, background: '#f59e0b' }).showToast();
         continue;
       }
@@ -265,6 +320,7 @@ export default function SecurityPanel({ user, handleLogout }) {
           estimasiDefault: 1800,
           addedBy: user?.name || 'Security',
           nama_sa: user?.name || 'Security',
+          keluhan: b.keperluanService || '',
           is_called: false,
           counter: 0,
           queue_number: qNum,
@@ -282,6 +338,48 @@ export default function SecurityPanel({ user, handleLogout }) {
     } catch (e) {
       console.error(e);
       Toastify({ text: 'Gagal konfirmasi booking', background: '#ef4444' }).showToast();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleManualBookingSubmit = async () => {
+    const plat = manualPlat.trim().toUpperCase().replace(/\s+/g, '');
+    if (!plat) { alert('Masukkan No. Plat!'); return; }
+
+    const { data: dupe } = await db.select('antrian', { select: 'id', eq: { bk: plat } });
+    if (dupe && dupe.length > 0) {
+      Toastify({ text: `⛔ ${plat} sudah ada di antrian!`, duration: 2500, background: '#ef4444' }).showToast();
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const qNum = await generateQueueNumber('Booking');
+      const { error } = await db.insert('antrian', {
+          id: Date.now() + Math.floor(Math.random() * 10000),
+          bk: plat,
+          tipe: manualTipe.trim(),
+          category: 'Booking',
+          status: 'menunggu_sa',
+          estimasiDefault: 1800,
+          addedBy: manualNama.trim() || user?.name || 'Security',
+          nama_sa: user?.name || 'Security',
+          noTelp: manualNoTelp.trim(),
+          keluhan: manualKeluhan.trim(),
+          is_called: false,
+          counter: 0,
+          queue_number: qNum,
+        });
+      if (error) throw error;
+      const code = formatQueueCode('Booking', qNum);
+      Toastify({ text: `✅ ${plat} — ${code}`, duration: 2500, background: '#10b981' }).showToast();
+      setManualPlat(''); setManualNama(''); setManualTipe(''); setManualNoTelp(''); setManualKeluhan('');
+      setShowManualBooking(false);
+      await fetchData();
+    } catch (e) {
+      console.error(e);
+      Toastify({ text: 'Gagal tambah booking manual', background: '#ef4444' }).showToast();
     } finally {
       setIsLoading(false);
     }
@@ -344,8 +442,47 @@ export default function SecurityPanel({ user, handleLogout }) {
             <div className="bg-white border-2 border-zinc-200 rounded-2xl p-4">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Booking Hari Ini</h2>
-                <span className="text-[9px] font-bold text-zinc-400">{filteredBookings.length} total</span>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowManualBooking(prev => !prev)}
+                    className="text-[7px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border-2 transition-all active:scale-95"
+                    style={{ borderColor: showManualBooking ? '#000' : '#e4e4e7', color: showManualBooking ? '#fff' : '#a1a1aa', background: showManualBooking ? '#000' : 'transparent' }}>
+                    Isi Manual
+                  </button>
+                  <span className="text-[9px] font-bold text-zinc-400">{filteredBookings.length} total</span>
+                </div>
               </div>
+
+              {showManualBooking && (
+                <div className="bg-zinc-50 border-2 border-zinc-200 rounded-xl p-4 mb-4 space-y-3">
+                  <h3 className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Input Booking Manual</h3>
+                  <input value={manualPlat} onChange={e => setManualPlat(e.target.value)}
+                    placeholder="No. Plat"
+                    className="w-full px-3.5 py-2.5 bg-white border-2 border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-black transition-all uppercase" />
+                  <input value={manualNama} onChange={e => setManualNama(e.target.value)}
+                    placeholder="Nama Customer (opsional)"
+                    className="w-full px-3.5 py-2.5 bg-white border-2 border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-black transition-all" />
+                  <input value={manualTipe} onChange={e => setManualTipe(e.target.value)}
+                    placeholder="Tipe Mobil (opsional)"
+                    className="w-full px-3.5 py-2.5 bg-white border-2 border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-black transition-all" />
+                  <input value={manualNoTelp} onChange={e => setManualNoTelp(e.target.value)}
+                    placeholder="No. Telp (opsional)"
+                    className="w-full px-3.5 py-2.5 bg-white border-2 border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-black transition-all" />
+                  <textarea value={manualKeluhan} onChange={e => setManualKeluhan(e.target.value)}
+                    placeholder="Keluhan / Keperluan Service (opsional)"
+                    rows="2"
+                    className="w-full px-3.5 py-2.5 bg-white border-2 border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-black transition-all resize-none" />
+                  <button onClick={handleManualBookingSubmit} disabled={isLoading || !manualPlat.trim()}
+                    className="w-full py-3 bg-black hover:bg-zinc-800 disabled:bg-zinc-200 text-white disabled:text-zinc-400 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm">
+                    {isLoading ? (
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <UserPlus size={14} />
+                    )}
+                    {isLoading ? 'Memproses...' : 'Tambah Antrian Booking'}
+                  </button>
+                </div>
+              )}
+
               <div className="relative mb-3">
                 <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
                 <input value={searchBooking} onChange={e => setSearchBooking(e.target.value)}
@@ -412,10 +549,18 @@ export default function SecurityPanel({ user, handleLogout }) {
 
         {/* Antrian Status List */}
         <div className="mt-4 bg-white border-2 border-zinc-200 rounded-2xl p-4">
-          <h3 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-3 flex items-center gap-2">
-            <div className="w-1.5 h-1.5 bg-black rounded-full"></div>
-            Status Antrian ({antrianList.length})
-          </h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 flex items-center gap-2">
+              <div className="w-1.5 h-1.5 bg-black rounded-full"></div>
+              Status Antrian ({antrianList.length})
+            </h3>
+            <div className="flex items-center gap-1">
+              <span className="text-[7px] font-bold text-zinc-400 uppercase tracking-wider">Counter</span>
+              <input type="number" min="1" max="20" value={callCounter}
+                onChange={e => { const v = parseInt(e.target.value) || 1; setCallCounter(v); localStorage.setItem('security_call_counter', String(v)); }}
+                className="w-10 h-6 text-center text-[9px] font-black bg-zinc-50 border border-zinc-200 rounded-md focus:outline-none focus:border-black" />
+            </div>
+          </div>
           <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
             {antrianList.length === 0 ? (
               <p className="text-[10px] font-bold text-zinc-300 text-center py-4">Belum ada antrian hari ini</p>
@@ -438,7 +583,18 @@ export default function SecurityPanel({ user, handleLogout }) {
                       <span className="text-[10px] font-black text-zinc-900 shrink-0">{code}</span>
                       <span className="text-[10px] font-bold text-zinc-700 truncate">{(a.bk || '').toUpperCase()}</span>
                     </div>
-                    <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider shrink-0 ml-2">{statusLabels[a.status] || a.status || '-'}</span>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      {a.status === 'menunggu_sa' && (
+                        <button onClick={() => handleCallAntrian(a)}
+                          className="flex items-center gap-1 px-2 py-1 bg-black hover:bg-zinc-700 text-white rounded-lg transition-all active:scale-95">
+                          <Megaphone size={10} />
+                          <span className="text-[7px] font-black uppercase tracking-wider">Panggil</span>
+                        </button>
+                      )}
+                      <span className={"text-[8px] font-bold uppercase tracking-wider shrink-0 " + (a.status === 'menunggu_sa' ? 'text-zinc-400' : 'text-zinc-500')}>
+                        {statusLabels[a.status] || a.status || '-'}
+                      </span>
+                    </div>
                   </div>
                 );
               })

@@ -1284,6 +1284,72 @@ export default async function handler(req, res) {
             } else if (endpoint === 'repair-contract-detail') {
                 const id = req.query.id || '';
                 targetUrl = `https://dms.chery.co.id/afterSales/api/v1/repairContracts/${id}`;
+            } else if (endpoint === 'part_orders_search') {
+                const q = (req.query.q || '').toLowerCase();
+                const opts = {
+                    method: 'GET',
+                    headers: {
+                        'Cookie': cachedCookie,
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+                        'Referer': 'https://dms.chery.co.id/',
+                        'Origin': 'https://dms.chery.co.id',
+                        'Accept': 'application/json, application/vnd.api+json',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Content-Type': 'application/json',
+                        'Connection': 'keep-alive'
+                    }
+                };
+                const countResp = await fetchWithHttps('https://dms.chery.co.id/parts/api/v1/partSaleOrders/forCurrentUser?pageIndex=0&pageSize=1&isBuyer=true', opts);
+                const countResult = await countResp.json();
+                const totalElements = (countResult?.payload || countResult)?.totalElements || 0;
+                const size = Math.min(Math.max(totalElements, 1), 500);
+
+                const listResp = await fetchWithHttps(`https://dms.chery.co.id/parts/api/v1/partSaleOrders/forCurrentUser?pageIndex=0&pageSize=${size}&isBuyer=true`, opts);
+                const listResult = await listResp.json();
+                const orders = (listResult?.payload || listResult)?.content || [];
+
+                const matchedIds = new Set();
+                const unmatched = [];
+
+                orders.forEach(o => {
+                    if ((o.code || '').toLowerCase().includes(q)) { matchedIds.add(o.id); return; }
+                    if ((o.remark || '').toLowerCase().includes(q)) { matchedIds.add(o.id); return; }
+                    if ((o.submitterName || '').toLowerCase().includes(q)) { matchedIds.add(o.id); return; }
+                    if ((o.creatorName || '').toLowerCase().includes(q)) { matchedIds.add(o.id); return; }
+                    unmatched.push(o);
+                });
+
+                if (unmatched.length > 0) {
+                    const detailResults = await Promise.allSettled(
+                        unmatched.map(o =>
+                            fetchWithHttps(`https://dms.chery.co.id/parts/api/v1/partSaleOrders/${o.id}`, opts)
+                                .then(r => r.json())
+                        )
+                    );
+                    detailResults.forEach((r) => {
+                        if (r.status === 'fulfilled') {
+                            const d = r.value?.payload || r.value;
+                            if (!d || !d.id) return;
+                            if ((d.remark || '').toLowerCase().includes(q)) { matchedIds.add(d.id); return; }
+                            const details = d.details || [];
+                            if (details.some(item =>
+                                (item.partCode || '').toLowerCase().includes(q) ||
+                                (item.partName || '').toLowerCase().includes(q) ||
+                                (item.orderDescription || '').toLowerCase().includes(q)
+                            )) { matchedIds.add(d.id); }
+                        }
+                    });
+                }
+
+                const matchedOrders = orders.filter(o => matchedIds.has(o.id));
+                const withDetails = await Promise.all(matchedOrders.map(async (o) => {
+                    try {
+                        const dr = await fetchWithHttps(`https://dms.chery.co.id/parts/api/v1/partSaleOrders/${o.id}`, opts);
+                        const dj = await dr.json();
+                        return { ...o, _detail: dj?.payload || dj };
+                    } catch { return o; }
+                }));
+                data = { payload: { content: withDetails, totalPages: 1, totalElements: withDetails.length } };
             } else if (endpoint === 'part_orders') {
                 const orderCode = req.query.orderCode || '';
                 targetUrl = `https://dms.chery.co.id/parts/api/v1/partSaleOrders/forCurrentUser?pageIndex=${pageIndex}&pageSize=${pageSize}&isBuyer=true`;

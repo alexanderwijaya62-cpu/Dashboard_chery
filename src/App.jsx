@@ -7,6 +7,7 @@ import "toastify-js/src/toastify.css";
 import { GAS_URL, GAS_USERS_URL, IS_MAINTENANCE } from './utils/config';
 import { db } from './utils/dbClient';
 import { supabase } from './utils/supabaseClient';
+import { speak } from './utils/tts';
 
 
 // Import Komponen Terpisah
@@ -363,7 +364,7 @@ const App = () => {
             admin: ['admin', 'admin-booking', 'admin-wo', 'promo', 'display', 'booking-public', 'sa-booking'],
             manager: ['manager', 'manager-financial', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'display', 'booking-public'],
             cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-booking-approval', 'cro-holidays', 'cro-csi', 'cro-customers', 'display', 'booking-public', 'sa-booking', 'booking-settings'],
-            sparepart: ['sparepart', 'sparepart-view', 'sparepart-profit', 'quotation', 'display', 'booking-public', 'stock-comparison'],
+            sparepart: ['sparepart-dms-order', 'sparepart-dms', 'sparepart-cost', 'sparepart-profit', 'display', 'booking-public', 'stock-comparison'],
             owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-sparepart-cost', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'display', 'booking-public', 'stock-comparison'],
             warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-proforma'],
             foreman: ['foreman', 'booking-public', 'display'],
@@ -373,7 +374,7 @@ const App = () => {
           if (savedPage && allowedPages[role]?.includes(savedPage)) {
             setCurrentPage(savedPage);
           } else {
-            setCurrentPage(role === 'cro' ? 'cro' : role);
+            setCurrentPage(role === 'cro' ? 'cro' : role === 'sparepart' ? 'sparepart-dms-order' : role);
           }
         } else if (role === 'customer') {
           const customerPages = ['customer', 'customer-complaint'];
@@ -452,7 +453,7 @@ const App = () => {
       const today = new Date().toDateString();
       const storedDate = localStorage.getItem('chery_last_login_date');
 
-      if (user && storedDate && storedDate !== today) {
+      if (user && user.role?.toLowerCase() !== 'display' && storedDate && storedDate !== today) {
         handleLogout(true);
         localStorage.removeItem('chery_last_login_date');
         Toastify({
@@ -778,19 +779,12 @@ const App = () => {
   };
 
   const playTTS = (text) => {
+    if (speak(text)) return;
     try {
       const url = `/api/tts?text=${encodeURIComponent(text)}`;
       const audio = new Audio(url);
       audio.volume = 0.8;
-      audio.play().catch(() => {
-        if ('speechSynthesis' in window) {
-          window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(text);
-          utterance.lang = 'id-ID';
-          utterance.rate = 0.85;
-          window.speechSynthesis.speak(utterance);
-        }
-      });
+      audio.play().catch(() => {});
     } catch (_) {}
   };
 
@@ -1439,24 +1433,7 @@ const App = () => {
         db.delete('antrian', { eq: { id } }),
         db.delete('history', { eq: { id } })
       ]);
-      setQueue(prev => {
-        const filtered = prev.filter(q => q.id !== id);
-        // Renumber: turunkan queue_number item lain dalam kategori yg sama
-        if (target && target.queueNumber) {
-          const deletedNum = target.queueNumber;
-          const updated = filtered.map(q => {
-            if (q.category === target.category && q.queueNumber > deletedNum) {
-              const newNum = q.queueNumber - 1;
-              // Update di DB
-              db.update('antrian', { queue_number: newNum }, { eq: { id: q.id } }).catch(() => {});
-              return { ...q, queueNumber: newNum };
-            }
-            return q;
-          });
-          return updated;
-        }
-        return filtered;
-      });
+      setQueue(prev => prev.filter(q => q.id !== id));
       setRawHistory(prev => prev.filter(h => h.id !== id));
     } catch (err) {
       console.error(err);
@@ -1546,6 +1523,37 @@ const App = () => {
     }
   };
 
+  // Foreman tambah waktu → langsung approve tanpa perlu admin
+  const handleForemanAddTime = async (item, extraSeconds, reason) => {
+    if (isLoadingProcess) return;
+    setIsLoadingProcess(true);
+    try {
+      const currentRemaining = parseInt(item.estimasiDefault) || 0;
+      const newDuration = currentRemaining + extraSeconds;
+      const newTargetTime = Date.now() + (newDuration * 1000);
+      const payload = {
+        status: 'working',
+        estimasiDefault: newDuration,
+        targetTime: newTargetTime,
+        pendingExtra: null,
+        menginap_reason: ''
+      };
+      await db.update('antrian', payload, { eq: { id: item.id } });
+      setQueue(prev => prev.map(q =>
+        q.id === item.id ? { ...q, ...payload } : q
+      ));
+      Toastify({
+        text: `✅ Tambah waktu ${Math.floor(extraSeconds / 60)} menit oleh Foreman langsung disetujui!`,
+        background: '#10b981'
+      }).showToast();
+    } catch (err) {
+      console.error(err);
+      Toastify({ text: '❌ Gagal tambah waktu', background: '#ef4444' }).showToast();
+    } finally {
+      setIsLoadingProcess(false);
+    }
+  };
+
   // Admin reject tambah waktu
   const handleRejectExtension = async (item) => {
     if (isLoadingProcess) return;
@@ -1595,7 +1603,7 @@ const App = () => {
       targetTime: targetTime,
       is_called: false
     };
-    if (!item.mechanicName) {
+    if (!item.mechanicName && role === 'mekanik') {
       updatePayload.mechanicName = user.name;
     }
 
@@ -2005,24 +2013,6 @@ const App = () => {
         throw new Error(`Database Error (Antrian): ${deleteError.message}`);
       }
 
-      // Renumber sisa antrian kategori sama
-      if (item.queueNumber) {
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const { data: sisa } = await db.select('antrian', {
-          select: 'id, queue_number',
-          eq: { category: item.category },
-          gte: { id: todayStart.getTime() }
-        });
-        if (sisa) {
-          for (const s of sisa) {
-            if (s.queue_number > item.queueNumber) {
-              await db.update('antrian', { queue_number: s.queue_number - 1 }, { eq: { id: s.id } }).catch(() => {});
-            }
-          }
-        }
-      }
-
       // 3. Sync to CRO Table
       try {
         const croDataBase = {
@@ -2221,14 +2211,7 @@ const App = () => {
         })
       }).catch(() => {});
 
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(announceText);
-        utterance.lang = 'id-ID';
-        utterance.rate = 0.85;
-        utterance.pitch = 1;
-        window.speechSynthesis.speak(utterance);
-      }
+      speak(announceText);
 
       Toastify({
         text: `📢 ${announceText}`,
@@ -2409,15 +2392,18 @@ const App = () => {
           onStartWork={handleStartWork}
           onComplete={handleComplete}
           onRequestExtension={handleRequestExtension}
+          onForemanAddTime={handleForemanAddTime}
           isLoadingProcess={isLoadingProcess}
         />
       )}
-      {currentPage === 'sparepart' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={navigate} activeTab="input" />}
-      {currentPage === 'sparepart-view' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={navigate} activeTab="view" />}
-      {currentPage === 'sparepart-quotation' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={navigate} activeTab="quotation" />}
       {currentPage === 'sparepart-profit' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={navigate} activeTab="profit" />}
-      {/* {currentPage === 'sparepart-predict' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={navigate} activeTab="predict" />} */}
-      {currentPage === 'quotation' && <QuotationSPA />}
+      {currentPage === 'sparepart-dms-order' && <SparepartPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} setCurrentPage={navigate} activeTab="dms_order" />}
+      {currentPage === 'sparepart-dms' && user?.role === 'sparepart' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="dms_search" />
+      )}
+      {currentPage === 'sparepart-cost' && user?.role === 'sparepart' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="sparepart_cost" />
+      )}
       {currentPage === 'booking_manager' && <BookingManager user={user} handleLogout={handleLogout} isNavbarVisible={true} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />}
       {currentPage === 'cro' && (
         <FollowupPanel user={user} handleLogout={handleLogout} isNavbarVisible={true} initialTab="belum" setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />

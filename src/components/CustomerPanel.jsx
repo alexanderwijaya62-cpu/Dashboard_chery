@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import { db } from '../utils/dbClient';
+import { speak } from '../utils/tts';
 import { supabase } from '../utils/supabaseClient';
 import { pushSubscribe, pushUnsubscribe } from '../utils/pushClient';
 
@@ -291,16 +292,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
       }
 
       if (voiceEnabled) {
-        try {
-          if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(ttsText);
-            utterance.lang = 'id-ID';
-            utterance.rate = 0.85;
-            utterance.volume = 1;
-            window.speechSynthesis.speak(utterance);
-          }
-        } catch (e) { }
+        speak(ttsText);
       }
 
       try {

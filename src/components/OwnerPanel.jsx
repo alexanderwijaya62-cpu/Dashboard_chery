@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Moon, Users, User, Monitor, Smartphone, Wifi, WifiOff,
-  LogOut, RefreshCw, Globe, MapPin, Clock, Lock,
+  LogOut, LogIn, RefreshCw, Globe, MapPin, Clock, Lock,
   AlertTriangle, CheckCircle, Trash2, Key, Eye, EyeOff,
   Activity, Crown, XCircle, Menu, X, Car, Upload, Volume2, Play, Square, Edit3, Layers, ShieldCheck,
-  PackageSearch, Search, ExternalLink, MessageSquare, Truck, Package, Printer, Download, FileSpreadsheet, ArrowLeft, ArrowRight, Plus, Settings
+  PackageSearch, Search, ExternalLink, MessageSquare, Truck, Package, Printer, Download, FileSpreadsheet, ArrowLeft, ArrowRight, Plus, Settings, Copy, Bookmark
 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import { supabase } from '../utils/supabaseClient';
@@ -86,6 +86,8 @@ export default function OwnerPanel({
   const [isEpcTesting, setIsEpcTesting] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [isEpcLoggingIn, setIsEpcLoggingIn] = useState(false);
+  const [isFetchingEpcmToken, setIsFetchingEpcmToken] = useState(false);
+  const [showBookmarkletModal, setShowBookmarkletModal] = useState(false);
   const [epcmImages, setEpcmImages] = useState({});
   const [epcmDetails, setEpcmDetails] = useState({}); // Stores grouped EPCM data by partCode
   const [selectedParts, setSelectedParts] = useState([]); // List of parts for PDF document
@@ -228,22 +230,12 @@ export default function OwnerPanel({
     };
 
     try {
-      let token = '';
-      if (window.grecaptcha && window.grecaptcha.execute) {
-        try {
-          token = await Promise.race([
-            window.grecaptcha.execute('6Lfv8rwUAAAAAMYvBJtZ-zx8fQBH1vtFi_cQXZLN', {action: 'tracing'}),
-            new Promise((_, r) => setTimeout(() => r(new Error('recaptcha_timeout')), 1500))
-          ]);
-        } catch(e) { console.warn('Recaptcha execute warning:', e); }
-      }
-
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), 5000);
       const res = await fetch(`${CHERY_DMS_URL}?endpoint=jagoan_trace`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ awb: cleanResi, token }),
+        body: JSON.stringify({ awb: cleanResi }),
         signal: controller.signal
       });
       clearTimeout(id);
@@ -265,15 +257,6 @@ export default function OwnerPanel({
       setIsInAppTrackingLoading(false);
     }
   };
-
-  useEffect(() => {
-    if (!document.querySelector('#recaptcha-v3-script')) {
-      const s = document.createElement('script');
-      s.id = 'recaptcha-v3-script';
-      s.src = "https://www.google.com/recaptcha/api.js?render=6Lfv8rwUAAAAAMYvBJtZ-zx8fQBH1vtFi_cQXZLN";
-      document.head.appendChild(s);
-    }
-  }, []);
 
   const fetchPartOrders = useCallback(async (page = 0, searchCode = '') => {
     setIsPartOrdersLoading(true);
@@ -340,6 +323,28 @@ export default function OwnerPanel({
       setIsEpcLoggingIn(false);
     }
   };
+
+  const handleFetchEpcmToken = async () => {
+    setIsFetchingEpcmToken(true);
+    // Coba direct CORS fetch dulu (cepat kalo EPCM ngizinin)
+    try {
+      const corsResp = await fetch('https://qrepcm.mychery.com/api/rest/base/auth/current', {
+        credentials: 'include',
+        headers: { 'Accept': 'application/json' }
+      });
+      const corsResult = await corsResp.json();
+      if (corsResult.success && corsResult.data?.token) {
+        setEpcmToken(corsResult.data.token);
+        Toastify({ text: "✅ Token EPCM Berhasil Diambil!", style: { background: '#10b981' } }).showToast();
+        setIsFetchingEpcmToken(false);
+        return;
+      }
+    } catch (_) {}
+    setIsFetchingEpcmToken(false);
+    setShowBookmarkletModal(true);
+  };
+
+  const BOOKMARKLET_CODE = `javascript:(async function(){try{let r=await fetch('/api/rest/base/auth/current');let d=await r.json();if(d.success&&d.data?.token){window.open('${window.location.origin}/?epcmToken='+encodeURIComponent(d.data.token),'_blank')}else{alert('Gagal ambil token: '+d.message)}}catch(e){alert('Error: '+e.message)}})();`;
 
   // Simpan ke localStorage otomatis saat token diubah
   useEffect(() => {
@@ -841,6 +846,7 @@ export default function OwnerPanel({
       code: item.code || '-',
       price: item.retailGuidePrice ? Math.round(item.retailGuidePrice) : 0,
       priceExc: item.retailGuidePriceExcludingTax ? Math.round(item.retailGuidePriceExcludingTax) : (item.retailGuidePrice ? Math.round(item.retailGuidePrice / 1.11) : 0),
+      jasa: 0,
       models: getCombinedModels(details),
       image: manualImage || (epcmImages[item.code]?.[0] || null),
       status: item.name?.includes('TIDAK DITEMUKAN') ? 'not_found' : (item.name?.includes('ERROR') ? 'error' : 'success')
@@ -899,6 +905,8 @@ export default function OwnerPanel({
       }
       
       const ppnVal = (part.price || 0) - (part.priceExc || 0);
+      const jasaVal = part.jasa || 0;
+      const totalWithJasa = (part.price || 0) + jasaVal;
       tableData.push([
         i + 1,
         part.code,
@@ -906,7 +914,8 @@ export default function OwnerPanel({
         part.models,
         formatRp(part.priceExc),
         formatRp(ppnVal),
-        formatRp(part.price),
+        formatRp(jasaVal),
+        formatRp(totalWithJasa),
         base64 ? { content: '', image: base64 } : 'No Image'
       ]);
     }
@@ -914,14 +923,16 @@ export default function OwnerPanel({
     // Calculate totals for PDF summary row
     const totalExc = selectedParts.reduce((acc, curr) => acc + (curr.priceExc || 0), 0);
     const totalPpn = selectedParts.reduce((acc, curr) => acc + ((curr.price || 0) - (curr.priceExc || 0)), 0);
-    const totalInc = selectedParts.reduce((acc, curr) => acc + (curr.price || 0), 0);
+    const totalJasa = selectedParts.reduce((acc, curr) => acc + (curr.jasa || 0), 0);
+    const totalAll = selectedParts.reduce((acc, curr) => acc + (curr.price || 0) + (curr.jasa || 0), 0);
 
     // Summary row
     tableData.push([
       { content: 'TOTAL', colSpan: 4, styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
       { content: formatRp(totalExc), styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
       { content: formatRp(totalPpn), styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
-      { content: formatRp(totalInc), styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
+      { content: formatRp(totalJasa), styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
+      { content: formatRp(totalAll), styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
       { content: '', fillColor: [240, 240, 240] }
     ]);
 
@@ -935,26 +946,27 @@ export default function OwnerPanel({
 
     autoTable(doc, {
       startY: 38,
-      head: [['No', 'Part Number', 'Part Name', 'Model Tipe', 'Harga Non PPN', 'PPN (11%)', 'Total (Inc PPN)', 'Preview']],
+      head: [['No', 'Part Number', 'Part Name', 'Model Tipe', 'Harga Non PPN', 'PPN (11%)', 'Jasa', 'Total', 'Preview']],
       body: tableData,
       theme: 'grid',
       headStyles: { fillColor: [30, 30, 30], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
       bodyStyles: { fontSize: 7 },
       alternateRowStyles: { fillColor: [248, 248, 248] },
       didDrawCell: (data) => {
-        if (data.section === 'body' && data.column.index === 7 && data.cell.raw && data.cell.raw.image) {
+        if (data.section === 'body' && data.column.index === 8 && data.cell.raw && data.cell.raw.image) {
           doc.addImage(data.cell.raw.image, 'JPEG', data.cell.x + 2, data.cell.y + 2, 40, 30);
         }
       },
       columnStyles: {
         0: { cellWidth: 10, halign: 'center' },
-        1: { cellWidth: 30, fontStyle: 'bold' },
-        2: { cellWidth: 55 },
-        3: { cellWidth: 35 },
-        4: { cellWidth: 30, halign: 'right' },
-        5: { cellWidth: 30, halign: 'right' },
-        6: { cellWidth: 35, halign: 'right', fontStyle: 'bold' },
-        7: { cellWidth: 45, minCellHeight: 35 }
+        1: { cellWidth: 28, fontStyle: 'bold' },
+        2: { cellWidth: 50 },
+        3: { cellWidth: 30 },
+        4: { cellWidth: 28, halign: 'right' },
+        5: { cellWidth: 28, halign: 'right' },
+        6: { cellWidth: 28, halign: 'right' },
+        7: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
+        8: { cellWidth: 40, minCellHeight: 35 }
       },
       margin: { left: 14, right: 14 },
       tableWidth: 'auto'
@@ -1792,6 +1804,15 @@ export default function OwnerPanel({
                         >
                           {isEpcLoggingIn ? "Logging in..." : "Auto Login"}
                         </button>
+                        <button 
+                          onClick={handleFetchEpcmToken}
+                          disabled={isFetchingEpcmToken}
+                          className="bg-white hover:bg-zinc-50 text-zinc-900 font-bold border border-zinc-300 shadow-sm text-[10px] font-black px-2 py-1.5 rounded-md transition-all uppercase tracking-wider disabled:opacity-50 flex items-center gap-1"
+                          title="Ambil token dari session EPCM yang sedang login"
+                        >
+                          <LogIn size={12} className={isFetchingEpcmToken ? "animate-pulse" : ""} />
+                          {isFetchingEpcmToken ? "..." : "Ambil"}
+                        </button>
                      </div>
                    </div>
 
@@ -2062,25 +2083,31 @@ export default function OwnerPanel({
                               <div className="flex-1 min-w-0 pr-8">
                                 <h5 className="text-xs font-black text-zinc-900 truncate uppercase">{p.name}</h5>
                                 <p className="text-[9px] font-bold text-zinc-500 font-mono tracking-wider mb-1">{p.code}</p>
-                                <div className="flex items-center gap-3 mt-2">
-                                  <div>
-                                    <p className="text-[8px] font-black text-zinc-400 uppercase tracking-tight">Non PPN</p>
-                                    <p className="text-xs font-bold text-zinc-600 leading-tight">
-                                      {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(p.priceExc)}
-                                    </p>
-                                  </div>
-                                  <div>
-                                    <p className="text-[8px] font-black text-zinc-400 uppercase tracking-tight">PPN (11%)</p>
-                                    <p className="text-xs font-bold text-zinc-600 leading-tight">
-                                      {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format((p.price || 0) - (p.priceExc || 0))}
-                                    </p>
-                                  </div>
-                                  <div>
-                                    <p className="text-[8px] font-black text-zinc-400 uppercase tracking-tight">Total</p>
-                                    <p className="text-xs font-bold text-zinc-900 leading-tight">
-                                      {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(p.price)}
-                                    </p>
-                                  </div>
+                                  <div className="flex items-center gap-3 mt-2">
+                                    <div>
+                                      <p className="text-[8px] font-black text-zinc-400 uppercase tracking-tight">Harga</p>
+                                      <p className="text-xs font-bold text-zinc-600 leading-tight">
+                                        {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(p.priceExc)}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[8px] font-black text-zinc-400 uppercase tracking-tight">PPN (11%)</p>
+                                      <p className="text-xs font-bold text-zinc-600 leading-tight">
+                                        {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format((p.price || 0) - (p.priceExc || 0))}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[8px] font-black text-zinc-400 uppercase tracking-tight">Jasa</p>
+                                      <p className="text-xs font-bold text-zinc-600 leading-tight">
+                                        {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(p.jasa || 0)}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[8px] font-black text-zinc-400 uppercase tracking-tight">Total</p>
+                                      <p className="text-xs font-bold text-zinc-900 leading-tight">
+                                        {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format((p.price || 0) + (p.jasa || 0))}
+                                      </p>
+                                    </div>
                                   <span className="text-[8px] font-black text-zinc-400 uppercase tracking-tighter truncate max-w-[60px] ml-auto">
                                     {p.models}
                                   </span>
@@ -2111,7 +2138,7 @@ export default function OwnerPanel({
                     {selectedParts.length > 0 && (
                       <div className="mt-8 pt-8 border-t border-zinc-200 space-y-3">
                         <div className="flex items-center justify-between text-zinc-600 text-xs font-semibold">
-                          <p className="uppercase tracking-wider">Total Non PPN</p>
+                          <p className="uppercase tracking-wider">Total Harga</p>
                           <p>
                             {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(
                               selectedParts.reduce((acc, curr) => acc + (curr.priceExc || 0), 0)
@@ -2126,11 +2153,19 @@ export default function OwnerPanel({
                             )}
                           </p>
                         </div>
+                        <div className="flex items-center justify-between text-zinc-600 text-xs font-semibold">
+                          <p className="uppercase tracking-wider">Total Jasa</p>
+                          <p>
+                            {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(
+                              selectedParts.reduce((acc, curr) => acc + (curr.jasa || 0), 0)
+                            )}
+                          </p>
+                        </div>
                         <div className="flex items-center justify-between border-t border-zinc-200 pt-3">
-                          <p className="text-sm font-black text-zinc-900 uppercase tracking-[0.1em]">Total (Inc PPN)</p>
+                          <p className="text-sm font-black text-zinc-900 uppercase tracking-[0.1em]">Grand Total</p>
                           <p className="text-xl font-black text-zinc-900">
                             {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(
-                              selectedParts.reduce((acc, curr) => acc + (curr.price || 0), 0)
+                              selectedParts.reduce((acc, curr) => acc + (curr.price || 0) + (curr.jasa || 0), 0)
                             )}
                           </p>
                         </div>
@@ -3759,6 +3794,53 @@ export default function OwnerPanel({
         </div>
       )}
 
+      {/* Bookmarklet Modal */}
+      {showBookmarkletModal && (
+        <div className="fixed inset-0 z-[110] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-md p-8 w-full max-w-lg shadow-2xl relative flex flex-col gap-5 animate-in zoom-in-95 duration-300">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-black text-zinc-900 tracking-tight flex items-center gap-3">
+                <Bookmark size={22} className="text-zinc-900" />
+                Ambil Token EPCM
+              </h3>
+              <button onClick={() => setShowBookmarkletModal(false)} className="p-2 hover:bg-zinc-100 rounded-md transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="text-sm text-zinc-500 leading-relaxed">
+              Karena browser gak ngizinin akses token EPCM dari domain lain, lo perlu bookmarklet — jalan langsung di <strong className="text-zinc-900">qrepcm.mychery.com</strong>. Sekali setup, selamanya otomatis.
+            </p>
+
+            <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-5">
+              <p className="text-xs font-bold uppercase tracking-widest text-zinc-400 mb-3">Cara Setup Bookmarklet</p>
+              <ol className="text-sm text-zinc-600 space-y-2 ml-4 list-decimal">
+                <li>Klik tombol <strong>"Salin Code"</strong> di bawah</li>
+                <li>Buka browser, <strong>tambah bookmark baru</strong> (Ctrl+D / Cmd+D)</li>
+                <li>Nama: <code className="bg-zinc-200 px-1 rounded text-xs font-mono">EPCM Token</code></li>
+                <li>URL: <strong>paste</strong> code yang tadi disalin</li>
+                <li>Buka <code className="bg-zinc-200 px-1 rounded text-xs font-mono">qrepcm.mychery.com</code> (pastikan login), klik bookmark itu</li>
+                <li class="text-zinc-900 font-bold">Otomatis buka app ini & token kesimpan! ✅</li>
+              </ol>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <button onClick={() => { navigator.clipboard?.writeText(BOOKMARKLET_CODE); Toastify({ text: "📋 Code bookmarklet disalin! Tinggal paste di URL bookmark baru.", style: { background: '#18181b' } }).showToast(); }}
+                className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-zinc-900 text-white rounded-md text-sm font-bold hover:bg-zinc-800 transition-colors"
+              >
+                <Copy size={16} />
+                Salin Code Bookmarklet
+              </button>
+              <button onClick={() => { setShowBookmarkletModal(false); }}
+                className="flex items-center justify-center gap-2 w-full px-4 py-2.5 border border-zinc-300 rounded-md text-sm font-bold hover:bg-zinc-50 transition-colors"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Manual EPCM Selector Modal */}
       {editingPartIdx !== null && selectedParts[editingPartIdx] && (
         <div className="fixed inset-0 z-[120] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4">
@@ -3796,6 +3878,18 @@ export default function OwnerPanel({
                             price: val, 
                             priceExc: Math.round(val / 1.11)
                           });
+                        }}
+                        className="w-full bg-zinc-100 border border-zinc-200 rounded-md px-5 py-4 text-zinc-900 font-bold outline-none focus:border-zinc-2000 transition-all font-mono"
+                      />
+                   </div>
+                   <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest ml-2">Jasa (Service Fee - IDR)</label>
+                      <input 
+                        type="number"
+                        value={selectedParts[editingPartIdx].jasa || 0}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 0;
+                          handleUpdatePartManual(editingPartIdx, { jasa: val });
                         }}
                         className="w-full bg-zinc-100 border border-zinc-200 rounded-md px-5 py-4 text-zinc-900 font-bold outline-none focus:border-zinc-2000 transition-all font-mono"
                       />
@@ -3908,7 +4002,6 @@ export default function OwnerPanel({
                 <div className="py-20 text-center space-y-4">
                   <div className="w-16 h-16 border-4 border-black border-t-transparent rounded-full animate-spin mx-auto"></div>
                   <p className="text-sm font-black text-zinc-700 animate-pulse uppercase tracking-widest">Menarik Data Langsung dari Server Jagoan Logistics...</p>
-                  <p className="text-xs text-zinc-500 font-medium">Melakukan verifikasi token reCAPTCHA v3 Enterprise dan mencocokkan nomor AWB</p>
                 </div>
               ) : inAppTrackingError && !inAppTrackingData ? (
                 <div className="py-16 text-center space-y-4 max-w-lg mx-auto">

@@ -6,6 +6,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
+import { speak } from '../utils/tts';
 
 const DISPLAY_COUNT = 1;
 const COMPLETED_DISPLAY_COUNT = 1;
@@ -69,29 +70,34 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
    const isScheduled = !item.status || item.status === 'accepted' || item.status === 'waiting confirm';
 
    return (
-      <div className={`bg-white rounded-2xl border-4 shadow-lg overflow-hidden flex flex-col group/card hover:border-zinc-300 transition-all h-full ${isScheduled ? 'border-dashed border-zinc-300 opacity-80' : 'border-zinc-100'}`}>
+      <div className={`bg-white rounded-2xl border-4 shadow-lg overflow-y-auto flex flex-col group/card hover:border-zinc-300 transition-all flex-1 ${isScheduled ? 'border-dashed border-zinc-300 opacity-80' : 'border-zinc-100'}`}>
          <div
             className="h-2 w-full shrink-0"
             style={{ backgroundColor: isScheduled ? '#d4d4d8' : isWorking ? '#3b82f6' : isWashing ? '#0891b2' : isMenginap ? '#a855f7' : '#ef4444' }}
          />
 
-         <div className="px-6 py-5 flex flex-col gap-3 flex-1">
+          <div className="px-5 py-4 flex flex-col gap-2 flex-1">
             <div className="flex items-center justify-between">
                <div className="flex items-center gap-2 flex-wrap">
-                  <span
-                     className="px-4 py-1.5 rounded-xl text-2xl font-black uppercase tracking-wider flex items-center gap-2 text-white shadow-md"
-                     style={{ backgroundColor: (String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? '#dc2626' : '#4b5563' }}
-                  >
-                     {(String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? <Bookmark size={20} fill="white" /> : <Zap size={20} fill="white" />}
-                     {item.category}
-                  </span>
-                  <span
-                     className="px-4 py-1.5 rounded-xl text-2xl font-black uppercase tracking-wider text-white shadow-md"
-                     style={{ backgroundColor: isScheduled ? '#dc2626' : isWorking ? '#2563eb' : isWashing ? '#0891b2' : isMenginap ? '#9333ea' : '#ef4444' }}
-                  >
-                     {isScheduled ? `○ BOOKING ${item.jam} WIB` : isWorking ? '● PROSES' : isWashing ? '● DICUCI' : isMenginap ? '● MENGINAP' : '● ANTRIAN'}
-                  </span>
-               </div>
+<span
+                      className="px-3 py-1 rounded-xl text-xl font-black uppercase tracking-wider flex items-center gap-1.5 text-white shadow-md"
+                      style={{ backgroundColor: (String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? '#dc2626' : '#4b5563' }}
+                   >
+                      {(String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? <Bookmark size={16} fill="white" /> : <Zap size={16} fill="white" />}
+                      {item.category}
+                    </span>
+                    <span
+                       className="px-3 py-1 rounded-xl text-xl font-black uppercase tracking-wider text-white shadow-md"
+                       style={{ backgroundColor: isScheduled ? '#dc2626' : isWorking ? '#2563eb' : isWashing ? '#0891b2' : isMenginap ? '#9333ea' : '#ef4444' }}
+                    >
+                       {isScheduled ? `○ BOOKING ${item.jam} WIB` : isWorking ? '● PROSES' : isWashing ? '● DICUCI' : isMenginap ? '● MENGINAP' : '● ANTRIAN'}
+                    </span>
+                     {item.isCalled && !isScheduled && (
+                     <span className="px-3 py-1 rounded-xl text-xl font-black uppercase tracking-wider text-white shadow-md bg-emerald-500 flex items-center gap-1.5">
+                        <Megaphone size={16} fill="white" /> C-{item.counter || '?'}
+                     </span>
+                    )}
+                </div>
                {!isScheduled && (
                   <button onClick={() => setSelectedUnit(item)} className="p-2 text-black hover:text-zinc-600 transition-colors">
                      <FileText size={28} />
@@ -99,36 +105,36 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                )}
             </div>
 
-            <div className="py-2 flex-1 flex flex-col justify-center">
-               <h3 className="text-8xl font-black tracking-tighter text-black font-mono uppercase leading-none">{item.bk}</h3>
-               <p className="text-3xl font-black text-black uppercase tracking-widest mt-2">{item.tipe || '—'}</p>
-            </div>
+            <div className="py-1 flex-1 flex flex-col justify-center">
+                <h3 className="text-6xl font-black tracking-tighter text-black font-mono uppercase leading-none">{item.bk}</h3>
+                <p className="text-2xl font-black text-black uppercase tracking-widest mt-1">{item.tipe || '—'}</p>
+             </div>
 
-            <div className="grid grid-cols-3 gap-4 pt-4 border-t-2 border-zinc-100 font-mono">
+            <div className="grid grid-cols-3 gap-3 pt-3 border-t-2 border-zinc-100 font-mono">
                {isMenginap ? (
                   <div className="col-span-3">
-                     <p className="text-2xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2 mb-1">
-                        <Moon size={20} className="text-purple-500" /> Alasan Menginap
+                     <p className="text-xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2 mb-1">
+                        <Moon size={16} className="text-purple-500" /> Alasan Menginap
                      </p>
-                     <p className="text-3xl font-black text-purple-700 leading-none truncate uppercase">
+                     <p className="text-2xl font-black text-purple-700 leading-none truncate uppercase">
                         {item.menginap_reason || '—'}
                      </p>
                   </div>
                ) : (
                   <>
                      <div>
-                        <p className="text-2xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2 mb-1">
-                           <Clock size={20} className={isScheduled ? 'text-zinc-400' : 'text-blue-500'} /> {isScheduled ? 'Jadwal' : 'Datang'}
+                        <p className="text-xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2 mb-1">
+                           <Clock size={16} className={isScheduled ? 'text-zinc-400' : 'text-blue-500'} /> {isScheduled ? 'Jadwal' : 'Datang'}
                         </p>
-                        <p className="text-4xl font-black text-zinc-900 tabular-nums leading-none">{isScheduled ? item.jam : timeIn}</p>
-                        {!isScheduled && <p className="text-2xl font-bold text-zinc-400 mt-1 leading-none">{dateIn}</p>}
+                        <p className="text-3xl font-black text-zinc-900 tabular-nums leading-none">{isScheduled ? item.jam : timeIn}</p>
+                        {!isScheduled && <p className="text-xl font-bold text-zinc-400 mt-1 leading-none">{dateIn}</p>}
                      </div>
 
                      <div className="col-span-2">
-                        <p className="text-2xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2 mb-1">
-                           <Activity size={20} className={isWorkingOrWashing ? 'text-orange-500' : 'text-zinc-300'} /> {isScheduled ? 'Keperluan' : 'Estimasi'}
+                        <p className="text-xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2 mb-1">
+                           <Activity size={16} className={isWorkingOrWashing ? 'text-orange-500' : 'text-zinc-300'} /> {isScheduled ? 'Keperluan' : 'Estimasi'}
                         </p>
-                        <p className={`text-4xl font-black tabular-nums leading-none truncate ${isWorkingOrWashing ? (item.estimasi < 300 ? 'text-red-600 animate-pulse' : 'text-orange-600') : 'text-zinc-500'}`}>
+                        <p className={`text-3xl font-black tabular-nums leading-none truncate ${isWorkingOrWashing ? (item.estimasi < 300 ? 'text-red-600 animate-pulse' : 'text-orange-600') : 'text-zinc-500'}`}>
                             {isScheduled ? (item.keluhan || '-')?.split('\n').map((l,i,a) => <span key={i}>{l}{i < a.length - 1 ? <br/> : ''}</span>) : isWorkingOrWashing ? formatTime(item.estimasi) : isIstirahatExpired ? 'Menunggu Confirm Customer' : formatTime(parseInt(item.estimasiDefault) || 0)}
                         </p>
                      </div>
@@ -136,24 +142,24 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                )}
             </div>
 
-            <div className="flex items-center gap-4 pt-4 border-t-2 border-zinc-200 mt-auto">
+            <div className="flex items-center gap-4 pt-3 border-t-2 border-zinc-200 mt-auto">
                <div className="flex items-center gap-2 min-w-0 flex-1">
                   <div
-                     className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-2xl font-black shrink-0 shadow-md"
+                     className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-lg font-black shrink-0 shadow-md"
                      style={{ backgroundColor: (isScheduled && item.category !== 'Reguler (Late)') ? '#dc2626' : '#1e40af' }}
                   >
                      {(isScheduled && item.category !== 'Reguler (Late)') ? 'CS' : 'SA'}
                   </div>
-                  <span className="text-2xl font-black text-zinc-900 uppercase truncate">
-                      {item.category === 'Reguler (Late)' ? '—' : (isScheduled ? (item.nama_sa || 'BOOKING ONLINE') : (item.nama_sa || '—'))}
-                  </span>
-               </div>
-               {!isScheduled && (
-                  <>
-                     <div className="w-0.5 h-8 bg-zinc-200 shrink-0" />
-                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <div className="w-10 h-10 rounded-xl bg-[#2563eb] flex items-center justify-center text-white text-2xl font-black shrink-0 shadow-md">MK</div>
-                        <span className="text-2xl font-black text-[#2563eb] uppercase truncate">{item.mechanicName || '—'}</span>
+                   <span className="text-xl font-black text-zinc-900 uppercase truncate">
+                       {item.category === 'Reguler (Late)' ? '—' : (isScheduled ? (item.nama_sa || 'BOOKING ONLINE') : (item.nama_sa || '—'))}
+                   </span>
+                </div>
+                {!isScheduled && (
+                   <>
+                      <div className="w-0.5 h-6 bg-zinc-200 shrink-0" />
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                         <div className="w-8 h-8 rounded-xl bg-[#2563eb] flex items-center justify-center text-white text-lg font-black shrink-0 shadow-md">MK</div>
+                         <span className="text-xl font-black text-[#2563eb] uppercase truncate">{item.mechanicName || '—'}</span>
                      </div>
                   </>
                )}
@@ -174,21 +180,21 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                const cfg = bannerMap[item.status];
                if (!cfg) return null;
                return (
-                  <div className="mt-3 px-6 py-4 rounded-2xl border-4 border-white/30 shadow-2xl ring-4"
-                       style={{ backgroundColor: cfg.bg, '--tw-ring-color': cfg.bg + '40' }}>
-                     <div className="flex items-center gap-3 mb-1 text-white/70">
-                        {item.status === 'menunggu_cuci' || item.status === 'sedang_dicuci' ? (
-                           <Droplets size={24} fill="currentColor" />
-                        ) : item.status === 'working' ? (
-                           <Zap size={24} fill="currentColor" />
-                        ) : (
-                           <Clock size={24} />
-                        )}
-                        <span className="text-2xl font-black uppercase tracking-[0.15em]">{cfg.label}</span>
-                     </div>
-                     {cfg.sub && (
-                        <p className="text-3xl font-black text-white leading-tight uppercase font-mono">{cfg.sub}</p>
-                     )}
+                   <div className="mt-2 px-5 py-3 rounded-2xl border-4 border-white/30 shadow-2xl ring-4"
+                        style={{ backgroundColor: cfg.bg, '--tw-ring-color': cfg.bg + '40' }}>
+                      <div className="flex items-center gap-2 mb-1 text-white/70">
+                         {item.status === 'menunggu_cuci' || item.status === 'sedang_dicuci' ? (
+                            <Droplets size={18} fill="currentColor" />
+                         ) : item.status === 'working' ? (
+                            <Zap size={18} fill="currentColor" />
+                         ) : (
+                            <Clock size={18} />
+                         )}
+                         <span className="text-lg font-black uppercase tracking-[0.15em]">{cfg.label}</span>
+                      </div>
+                      {cfg.sub && (
+                         <p className="text-2xl font-black text-white leading-tight uppercase font-mono">{cfg.sub}</p>
+                      )}
                   </div>
                );
             })()}
@@ -256,39 +262,36 @@ const CarouselCol = ({ title, data, colorClass, icon: Icon, formatTime, setSelec
    while (visibleItems.length < displayCount) visibleItems.push(null);
 
    return (
-      <div className="flex flex-col bg-white rounded-3xl p-5 md:p-6 border-2 border-dashed border-zinc-200 shadow-sm transition-all hover:shadow-xl h-full">
+        <div className="flex flex-col bg-white rounded-3xl p-4 md:p-5 border-2 border-dashed border-zinc-200 shadow-sm transition-all hover:shadow-xl min-h-0 overflow-hidden">
          <div className="flex items-center justify-between mb-4 shrink-0 gap-2 px-1">
             <div className="flex items-center gap-3 min-w-0">
-               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center text-white shadow-xl ${colorClass} shrink-0`}>
-                  <Icon size={32} fill="currentColor" />
+                <div className={`w-10 h-10 md:w-12 md:h-12 rounded-2xl flex items-center justify-center text-white shadow-xl ${colorClass} shrink-0`}>
+                   <Icon size={24} fill="currentColor" />
                </div>
                <div className="min-w-0">
-                  <h3 className="text-3xl md:text-5xl font-black text-zinc-900 uppercase tracking-tighter leading-tight truncate">{title}</h3>
+                   <h3 className="text-2xl md:text-4xl font-black text-zinc-900 uppercase tracking-tighter leading-tight truncate">{title}</h3>
                   {subtitle ? subtitle : (
-                     <p className="text-xl md:text-2xl font-black text-zinc-400 uppercase tracking-widest mt-1 flex items-center gap-2 whitespace-nowrap overflow-hidden">
+                      <p className="text-base md:text-xl font-black text-zinc-400 uppercase tracking-widest mt-1 flex items-center gap-2 whitespace-nowrap overflow-hidden">
                         <span className={`w-2 h-2 rounded-full inline-block shrink-0 ${data.length > 0 ? (colorClass === 'bg-red-600' ? 'bg-red-500 animate-pulse' : 'bg-emerald-500 animate-pulse') : 'bg-zinc-300'}`} />
                         {data.length} unit
                      </p>
                   )}
                </div>
             </div>
-            {hasMultiple && (
-               <div className="flex items-center gap-2 bg-zinc-50 p-2 rounded-2xl border border-zinc-200 shadow-sm shrink-0">
-                  <button onClick={() => { const newIdx = (idx - 1 + totalStops) % totalStops; goToIdx(newIdx); }} className="p-2 hover:bg-zinc-100 rounded-xl transition-all text-zinc-400 hover:text-zinc-900 active:scale-95"><ChevronLeft size={20} strokeWidth={4} /></button>
-                  <div className="flex flex-col items-center px-2 md:px-3">
-                     <span className="text-lg font-black text-zinc-400/80 uppercase tracking-widest leading-none mb-1">{idx + 1} / {totalStops}</span>
-                     <div className="hidden sm:flex items-center gap-1.5 mt-0.5">
-                        {Array.from({ length: Math.min(totalStops, 10) }).map((_, i) => (<button key={i} onClick={() => goToIdx(i)} className={`rounded-full transition-all duration-500 ${i === idx ? 'w-6 h-1.5 bg-zinc-900' : 'w-1.5 h-1.5 bg-zinc-200'}`} />))}
-                     </div>
-                  </div>
-                  <button onClick={() => { const newIdx = (idx + 1) % totalStops; goToIdx(newIdx); }} className="p-2 hover:bg-zinc-100 rounded-xl transition-all text-zinc-400 hover:text-zinc-900 active:scale-95"><ChevronRight size={20} strokeWidth={4} /></button>
-               </div>
-            )}
+             {hasMultiple && (
+                <div className="flex items-center gap-1.5 bg-zinc-50 p-1.5 rounded-2xl border border-zinc-200 shadow-sm shrink-0">
+                   <button onClick={() => { const newIdx = (idx - 1 + totalStops) % totalStops; goToIdx(newIdx); }} className="p-1.5 hover:bg-zinc-100 rounded-xl transition-all text-zinc-400 hover:text-zinc-900 active:scale-95"><ChevronLeft size={16} strokeWidth={4} /></button>
+                   <div className="flex flex-col items-center px-1 md:px-2">
+                      <span className="text-sm font-black text-zinc-400/80 uppercase tracking-widest leading-none">{idx + 1} / {totalStops}</span>
+                   </div>
+                   <button onClick={() => { const newIdx = (idx + 1) % totalStops; goToIdx(newIdx); }} className="p-1.5 hover:bg-zinc-100 rounded-xl transition-all text-zinc-400 hover:text-zinc-900 active:scale-95"><ChevronRight size={16} strokeWidth={4} /></button>
+                </div>
+             )}
          </div>
-         <div className="flex flex-col flex-1" key={idx}>
+          <div className="flex flex-col flex-1 min-h-0 overflow-y-auto" key={idx}>
             {visibleItems.map((item, i) => item ? (<QueueCard key={item.id} item={item} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />) : (
                <div key={`empty-${i}`} className="flex-1 rounded-2xl border-4 border-dashed border-zinc-100 opacity-30 flex items-center justify-center">
-                  <p className="text-2xl font-bold text-zinc-300 uppercase tracking-[0.2em]">Belum ada antrian</p>
+                   <p className="text-xl font-bold text-zinc-300 uppercase tracking-[0.2em]">Belum ada antrian</p>
                </div>
             ))}
          </div>
@@ -314,7 +317,7 @@ const CompletedCarousel = ({ data, formatTime, setSelectedUnit }) => {
    while (visibleItems.length < displayCount) visibleItems.push(null);
 
    return (
-      <div className="w-full rounded-3xl p-5 md:p-8 shadow-2xl relative overflow-hidden group border-4 border-emerald-500/50 min-h-[200px] md:min-h-[240px] flex flex-col justify-center" style={{ backgroundColor: '#059669' }}>
+       <div className="w-full rounded-3xl p-4 md:p-5 shadow-2xl relative overflow-hidden group border-4 border-emerald-500/50 min-h-[100px] md:min-h-[120px] flex flex-col justify-center" style={{ backgroundColor: '#059669' }}>
          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10" />
          <div className="flex items-center justify-between mb-4 md:mb-4 relative z-10 gap-2">
             <div className="flex items-center gap-3 min-w-0">
@@ -420,41 +423,29 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
         }
      };
 
-     const speakAnnouncement = async (text) => {
-        // 1. Google Translate TTS via proxy (bypasses CORS on Samsung TV)
-        try {
-           const url = `/api/tts?text=${encodeURIComponent(text)}`;
-           const audio = new Audio(url);
-           audio.volume = 1;
-           await audio.play();
-           return;
-        } catch (e) {
-           console.warn('Google TTS play failed:', e);
-        }
-        // 2. Try speechSynthesis (Web Speech API)
-        try {
-           if ('speechSynthesis' in window) {
-              window.speechSynthesis.cancel();
-              const utterance = new SpeechSynthesisUtterance(text);
-              utterance.lang = 'id-ID';
-              utterance.rate = 0.85;
-              utterance.pitch = 1;
-              utterance.volume = 1;
-              window.speechSynthesis.speak(utterance);
-              return;
-           }
-        } catch (e) {
-           console.warn('speechSynthesis failed:', e);
-        }
-        // 3. Fallback: beep via AudioContext (requires user tap to unlock)
-        if (!audioCtxRef.current) {
-           pendingAnnouncementRef.current = text;
-           return;
-        }
-        try {
-           const ctx = audioCtxRef.current;
-           const now = ctx.currentTime;
-           for (let i = 0; i < 3; i++) {
+      const speakAnnouncement = async (text) => {
+         // 1. SpeechSynthesis with female Indonesian voice
+         const spoken = speak(text);
+         if (spoken) return;
+         // 2. Google Translate TTS via proxy (bypasses CORS on Samsung TV)
+         try {
+            const url = `/api/tts?text=${encodeURIComponent(text)}`;
+            const audio = new Audio(url);
+            audio.volume = 1;
+            await audio.play();
+            return;
+         } catch (e) {
+            console.warn('Google TTS play failed:', e);
+         }
+         // 3. Fallback: beep via AudioContext (requires user tap to unlock)
+         if (!audioCtxRef.current) {
+            pendingAnnouncementRef.current = text;
+            return;
+         }
+         try {
+            const ctx = audioCtxRef.current;
+            const now = ctx.currentTime;
+            for (let i = 0; i < 3; i++) {
               const osc = ctx.createOscillator();
               const gain = ctx.createGain();
               osc.type = 'sine';
@@ -663,6 +654,17 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
       };
    }, [processedQueue, bookings, dynamicJamPilihan]);
 
+   const currentlyCalled = useMemo(() => {
+      const called = processedQueue.filter(item => item.isCalled);
+      const booking = called
+         .filter(item => item.category === 'Booking' || item.category === 'Booking (Late)')
+         .sort((a, b) => new Date(b.calledAt) - new Date(a.calledAt))[0];
+      const reguler = called
+         .filter(item => item.category !== 'Booking' && item.category !== 'Booking (Late)')
+         .sort((a, b) => new Date(b.calledAt) - new Date(a.calledAt))[0];
+      return { booking, reguler };
+   }, [processedQueue]);
+
    const isCompletedToday = (item) => {
       const now = new Date();
       now.setHours(0, 0, 0, 0);
@@ -788,10 +790,80 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
             </div>
          </header>
 
-         <main className="flex-1 overflow-y-auto px-6 py-4 md:px-8 md:py-6 flex flex-col gap-4 custom-scrollbar pb-[80px] md:pb-4">
-            <CompletedCarousel data={todayCompleted} formatTime={formatTime} setSelectedUnit={setSelectedUnit} />
+          <main className="flex-1 overflow-y-auto px-6 py-3 md:px-8 md:py-4 flex flex-col gap-3 custom-scrollbar pb-[80px] md:pb-4">
+             <CompletedCarousel data={todayCompleted} formatTime={formatTime} setSelectedUnit={setSelectedUnit} />
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 min-h-0 flex-1">
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+                 <div className={`rounded-3xl p-3 md:p-4 shadow-xl border-2 ${currentlyCalled.booking ? 'bg-red-50 border-red-300' : 'bg-zinc-50 border-zinc-200'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                       <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${currentlyCalled.booking ? 'bg-red-600' : 'bg-zinc-300'}`}>
+                          <Bookmark size={16} fill="white" className="text-white" />
+                       </div>
+                        <h3 className={`text-base font-black uppercase tracking-widest ${currentlyCalled.booking ? 'text-red-700' : 'text-zinc-400'}`}>Booking</h3>
+                        <span className="ml-auto text-xs font-bold text-zinc-400 uppercase">Total {categories.booking.length}</span>
+                    </div>
+                    {currentlyCalled.booking ? (
+                       (() => {
+                          const item = currentlyCalled.booking;
+                          const code = `B-${String(item.queueNumber || 0).padStart(3, '0')}`;
+                          const isLate = item.status === 'Booking (Late)';
+                          return (
+                          <div className="bg-white rounded-2xl px-4 py-3 shadow-lg flex items-center gap-4 border-2 border-red-200">
+                             <div className="w-20 h-20 rounded-2xl bg-red-600 flex flex-col items-center justify-center shrink-0 shadow-lg">
+                                <Bookmark size={22} fill="white" className="text-white" />
+                                <span className="text-xs font-black text-white/90 mt-0.5 leading-none">{code}</span>
+                             </div>
+                             <div className="min-w-0">
+                                <p className="text-base font-black text-zinc-800 font-mono truncate">{item.bk}</p>
+                                <p className="text-sm font-black text-red-500 uppercase flex items-center gap-1 mt-0.5">
+                                   <ArrowRight size={14} className="animate-pulse" /> Counter {item.counter}
+                                </p>
+                             </div>
+                          </div>
+                          );
+                       })()
+                    ) : (
+                       <div className="bg-white/60 rounded-2xl px-4 py-4 flex items-center justify-center border-2 border-dashed border-zinc-200">
+                          <p className="text-sm font-black text-zinc-300 uppercase tracking-widest">Belum Ada Panggilan</p>
+                       </div>
+                    )}
+                 </div>
+                 <div className={`rounded-3xl p-3 md:p-4 shadow-xl border-2 ${currentlyCalled.reguler ? 'bg-zinc-50 border-zinc-300' : 'bg-zinc-50 border-zinc-200'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                       <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${currentlyCalled.reguler ? 'bg-zinc-800' : 'bg-zinc-300'}`}>
+                          <Zap size={16} fill="white" className="text-white" />
+                       </div>
+                        <h3 className={`text-base font-black uppercase tracking-widest ${currentlyCalled.reguler ? 'text-zinc-800' : 'text-zinc-400'}`}>Reguler</h3>
+                        <span className="ml-auto text-xs font-bold text-zinc-400 uppercase">Total {categories.reguler.length}</span>
+                    </div>
+                    {currentlyCalled.reguler ? (
+                       (() => {
+                          const item = currentlyCalled.reguler;
+                          const code = `R-${String(item.queueNumber || 0).padStart(3, '0')}`;
+                          return (
+                          <div className="bg-white rounded-2xl px-4 py-3 shadow-lg flex items-center gap-4 border-2 border-zinc-200">
+                             <div className="w-20 h-20 rounded-2xl bg-zinc-800 flex flex-col items-center justify-center shrink-0 shadow-lg">
+                                <Zap size={22} fill="white" className="text-white" />
+                                <span className="text-xs font-black text-white/90 mt-0.5 leading-none">{code}</span>
+                             </div>
+                             <div className="min-w-0">
+                                <p className="text-base font-black text-zinc-800 font-mono truncate">{item.bk}</p>
+                                <p className="text-sm font-black text-zinc-600 uppercase flex items-center gap-1 mt-0.5">
+                                   <ArrowRight size={14} className="animate-pulse" /> Counter {item.counter}
+                                </p>
+                             </div>
+                          </div>
+                          );
+                       })()
+                    ) : (
+                       <div className="bg-white/60 rounded-2xl px-4 py-4 flex items-center justify-center border-2 border-dashed border-zinc-200">
+                          <p className="text-sm font-black text-zinc-300 uppercase tracking-widest">Belum Ada Panggilan</p>
+                       </div>
+                    )}
+                 </div>
+             </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 h-[calc(100vh-440px)] min-h-0">
                <CarouselCol title="Booking" data={categories.booking} colorClass="bg-red-600" icon={Bookmark} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} subtitle={(<div className="flex flex-col mt-1"><div className="flex items-center gap-2 overflow-hidden"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" /><span className="text-xl font-black text-zinc-400 uppercase tracking-widest truncate">{categories.booking.length} Unit Antrian</span></div></div>)} />
                <CarouselCol title="Reguler" data={categories.reguler} colorClass="bg-zinc-800" icon={Zap} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />
                <CarouselCol title="Menginap" data={categories.menginap} colorClass="bg-purple-600" icon={Moon} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />
@@ -889,9 +961,9 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
                                         ? formatTime(liveUnit.estimasiDefault || liveUnit.elapsedSeconds || 0)
                                         : '--:--:--'}
                                </p>
-                               <div className={`mt-4 px-6 py-2 rounded-full inline-block text-[10px] font-black uppercase tracking-widest relative z-10 ${liveUnit.status === 'working' ? 'bg-blue-600 text-white' : 'bg-white/5 text-white/30'}`}>
-                                  {liveUnit.status === 'working' ? 'Aktif Diproses' : liveUnit.status === 'menginap' ? 'Menginap' : 'Menunggu Antrian'}
-                               </div>
+                                <div className={`mt-4 px-6 py-2 rounded-full inline-block text-[10px] font-black uppercase tracking-widest relative z-10 ${liveUnit.status === 'working' ? 'bg-blue-600 text-white' : liveUnit.status === 'istirahat' ? 'bg-yellow-500 text-white' : 'bg-white/5 text-white/30'}`}>
+                                   {liveUnit.status === 'working' ? 'Aktif Diproses' : liveUnit.status === 'istirahat' ? 'Istirahat' : liveUnit.status === 'menginap' ? 'Menginap' : 'Menunggu Antrian'}
+                                </div>
                             </div>
                            {user?.role?.toLowerCase() === 'mekanik' && (
                               <div className="flex flex-col gap-3">

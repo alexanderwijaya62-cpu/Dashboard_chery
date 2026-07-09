@@ -12,10 +12,10 @@
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/cherylogo.png" />
     <title>Antrian Bengkel Chery Medan</title>
+    <script type="module" src="/src/main.jsx"></script>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
     <script>
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js').then(reg => {
@@ -31,5 +31,6 @@
         }).catch(() => {});
       }
     </script>
+
   </body>
 </html>

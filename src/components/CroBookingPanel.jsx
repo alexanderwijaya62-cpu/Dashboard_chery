@@ -245,15 +245,26 @@ export default function CroBookingPanel({ user }) {
                     const targetJam = row.jam.replace('.', ':') + ':00';
                     const janjiDatang = `${row.tanggal} ${targetJam}`;
                     const postData = {
+                        uniqid: Math.random().toString(36).substring(2, 15) + '-' + Date.now(),
                         id_kendaraan: vehicle.id_kendaraan || '',
                         no_polisi: vehicle.no_polisi,
-                        nama_kendaraan: vehicle.nama_kendaraan || vehicle.model_kendaraan || '',
+                        model_kendaraan: vehicle.model_kendaraan || vehicle.nama_kendaraan || row.tipeMobil || '',
+                        nama_kendaraan: vehicle.nama_kendaraan || row.tipeMobil || '',
+                        tipe_kendaraan: vehicle.tipe_kendaraan || '',
                         no_chassis: vehicle.no_chassis || '',
+                        group_kendaraan: vehicle.group_kendaraan || 'PC',
+                        no_pelanggan: vehicle.no_pelanggan || '',
+                        id_pelanggan: vehicle.id_pelanggan || '',
+                        tipe_pelanggan: vehicle.tipe_pelanggan || 'PRIBADI',
+                        nama_pelanggan: vehicle.nama_pelanggan || row.namaCustomer,
+                        no_telp_pelanggan: vehicle.no_telp || row.noTelp,
+                        alamat_pelanggan: vehicle.alamat || '-',
                         atas_nama_booking: row.namaCustomer,
                         no_telp_booking: row.noTelp,
                         janji_datang: janjiDatang,
                         keluhan: row.keluhan || '-',
                         booking_via: 'CRO Import',
+                        booking_via_personal: '',
                         km: row.km || '0'
                     };
                     const formDataBody = new URLSearchParams();
@@ -451,15 +462,26 @@ export default function CroBookingPanel({ user }) {
                 const janjiDatang = `${formData.tanggal} ${targetJam}`;
 
                 const postData = {
+                    uniqid: Math.random().toString(36).substring(2, 15) + '-' + Date.now(),
                     id_kendaraan: foundVehicle.id_kendaraan || '',
                     no_polisi: foundVehicle.no_polisi,
-                    nama_kendaraan: foundVehicle.nama_kendaraan || foundVehicle.model_kendaraan || '',
+                    model_kendaraan: foundVehicle.model_kendaraan || foundVehicle.nama_kendaraan || formData.modelKendaraan || '',
+                    nama_kendaraan: foundVehicle.nama_kendaraan || formData.modelKendaraan || '',
+                    tipe_kendaraan: foundVehicle.tipe_kendaraan || '',
                     no_chassis: foundVehicle.no_chassis || '',
+                    group_kendaraan: foundVehicle.group_kendaraan || 'PC',
+                    no_pelanggan: foundVehicle.no_pelanggan || '',
+                    id_pelanggan: foundVehicle.id_pelanggan || '',
+                    tipe_pelanggan: foundVehicle.tipe_pelanggan || 'PRIBADI',
+                    nama_pelanggan: foundVehicle.nama_pelanggan || formData.atasNama,
+                    no_telp_pelanggan: foundVehicle.no_telp || formData.noTelp,
+                    alamat_pelanggan: foundVehicle.alamat || '-',
                     atas_nama_booking: formData.atasNama,
                     no_telp_booking: formData.noTelp,
                     janji_datang: janjiDatang,
                     keluhan: formData.keluhan || '-',
                     booking_via: 'WA CS Service / CRO',
+                    booking_via_personal: '',
                     km: formData.km || '0'
                 };
 

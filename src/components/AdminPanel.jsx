@@ -484,7 +484,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                         <p className="text-[7px] font-bold text-zinc-400 uppercase tracking-widest mt-1">Status: Online</p>
                     </div>
                     <div className="flex items-center gap-1.5 bg-zinc-100 p-1 rounded-xl border border-zinc-200">
-                        {[1, 2].map(c => (
+                        {[1, 2, 3].map(c => (
                             <button key={c} onClick={() => selectCounter(c)}
                                 className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all min-w-[44px] min-h-[36px] ${adminCounter === c ? 'bg-black text-white shadow-md' : 'text-zinc-400 hover:text-black'}`}
                             >
@@ -999,7 +999,7 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                 <div>
                                                     <div className="flex items-center gap-1.5 flex-wrap">
                                                         {item.queueNumber > 0 && (
-                                                             <span className="text-[9px] font-black bg-zinc-800 text-white px-2 py-0.5 rounded-md">{item.category === 'Booking' ? `B-${String(item.queueNumber).padStart(3, '0')}` : `R-${String(item.queueNumber).padStart(3, '0')}`}</span>
+                                                            <span className="text-[9px] font-black bg-zinc-800 text-white px-2 py-0.5 rounded-md">{item.category === 'Booking' ? `B-${String(item.queueNumber).padStart(3, '0')}` : `R-${String(item.queueNumber).padStart(3, '0')}`}</span>
                                                         )}
                                                         <span className="text-lg font-black text-black uppercase tracking-tight leading-none">{item.bk}</span>
                                                     </div>
@@ -1035,11 +1035,24 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                         <div className="grid grid-cols-5 gap-2 pt-1">
                                             {item.status === 'menunggu_sa' ? (
                                                 <>
+                                                    {(() => {
+                                                        const cd = getCooldownSisa(item.calledAt);
+                                                        const inCooldown = cd > 0;
+                                                        return (
+                                                            <button onClick={() => {
+                                                                if (!adminCounter) { Toastify({ text: "⚠️ Pilih Counter dulu!", style: { background: "#f59e0b" } }).showToast(); return; }
+                                                                if (inCooldown) { Toastify({ text: `⏳ Tunggu ${cd} detik`, duration: 2000, style: { background: "#f59e0b" } }).showToast(); return; }
+                                                                if (window.confirm(`Panggil ${item.bk} ke Counter ${adminCounter}?`)) handleCallQueue(item, adminCounter);
+                                                            }} className={`col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 ${inCooldown ? 'bg-amber-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                                                                {inCooldown ? <span className="text-[11px] font-black">{cd}s</span> : <Megaphone size={16} />}
+                                                            </button>
+                                                        );
+                                                    })()}
                                                     <button onClick={() => { editItem(item); Toastify({ text: "Lengkapi Tipe & Keluhan, lalu SIMPAN untuk konfirmasi SA", duration: 5000, style: { background: "#d97706", borderRadius: "12px", fontWeight: "900" } }).showToast(); }}
                                                         className="col-span-2 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 bg-yellow-500 hover:bg-yellow-600 text-[9px] font-black uppercase tracking-wider gap-1">
                                                         <CheckCircle size={14} /> Konfirmasi SA
                                                     </button>
-                                                    <button onClick={() => editItem(item)} className="col-span-2 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl transition-all active:scale-95 bg-white text-zinc-400 border border-zinc-200 hover:bg-black hover:text-white">
+                                                    <button onClick={() => editItem(item)} className="col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl transition-all active:scale-95 bg-white text-zinc-400 border border-zinc-200 hover:bg-black hover:text-white">
                                                         <Edit3 size={16} />
                                                     </button>
                                                     <button onClick={() => { if (window.confirm('Hapus antrian ini?')) deleteItem(item.id); }} className="col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl transition-all active:scale-95 bg-white text-zinc-400 border border-zinc-200 hover:bg-black hover:text-white">
@@ -1191,6 +1204,31 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                     <div className="flex justify-end gap-2.5 opacity-100 lg:opacity-40 group-hover:opacity-100 transition-all duration-300">
                                                         {item.status === 'menunggu_sa' ? (
                                                             <>
+                                                            {(() => {
+                                                                const cd = getCooldownSisa(item.calledAt);
+                                                                const inCooldown = cd > 0;
+                                                                return (
+                                                                    <button onClick={() => {
+                                                                        if (!adminCounter) {
+                                                                            Toastify({ text: "⚠️ Pilih Counter dulu!", style: { background: "#f59e0b" } }).showToast();
+                                                                            return;
+                                                                        }
+                                                                        if (inCooldown) {
+                                                                            Toastify({ text: `⏳ Tunggu ${cd} detik lagi sebelum panggil ulang`, duration: 2000, style: { background: "#f59e0b", borderRadius: "12px", fontWeight: "900" } }).showToast();
+                                                                            return;
+                                                                        }
+                                                                        if (window.confirm(`Panggil ${item.bk} ke Counter ${adminCounter}?`)) {
+                                                                            handleCallQueue(item, adminCounter);
+                                                                        }
+                                                                    }} className={`p-3 min-w-[44px] min-h-[44px] rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center ${inCooldown ? 'bg-zinc-300 text-zinc-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`} title={inCooldown ? `Tunggu ${cd} detik` : "Panggil Antrian"}>
+                                                                        {inCooldown ? (
+                                                                            <span className="text-[11px] font-black tabular-nums">{cd}s</span>
+                                                                        ) : (
+                                                                            <Megaphone size={16} />
+                                                                        )}
+                                                                    </button>
+                                                                );
+                                                            })()}
                                                             <button onClick={() => { editItem(item); Toastify({ text: "Lengkapi Tipe & Keluhan, lalu SIMPAN untuk konfirmasi SA", duration: 5000, style: { background: "#d97706", borderRadius: "12px", fontWeight: "900" } }).showToast(); }}
                                                                 className="p-3 min-w-[44px] min-h-[44px] bg-yellow-500 hover:bg-yellow-600 text-white rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-wider" title="Konfirmasi SA">
                                                                 <CheckCircle size={14} /> SA

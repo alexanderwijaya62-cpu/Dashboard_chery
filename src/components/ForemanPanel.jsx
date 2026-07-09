@@ -22,6 +22,7 @@ export default function ForemanPanel({
     onStartWork,
     onComplete,
     onRequestExtension,
+    onForemanAddTime,
     isLoadingProcess,
 }) {
     const [mechanics, setMechanics] = useState([]);
@@ -201,7 +202,7 @@ export default function ForemanPanel({
         if (!reason.trim()) { alert('Harap isi alasan tambah waktu!'); return; }
         setExtensionModal(s => ({ ...s, show: false }));
         try {
-            await onRequestExtension(item, extraMinutes * 60, reason.trim());
+            await onForemanAddTime(item, extraMinutes * 60, reason.trim());
         } catch (e) { console.error(e); }
     };
 
@@ -674,10 +675,10 @@ export default function ForemanPanel({
                             </button>
                             <button onClick={handleSubmitExtension}
                                 className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-sm">
-                                Kirim Request
+                                Tambah Waktu
                             </button>
                         </div>
-                        <p className="text-[7px] text-zinc-400 text-center mt-3">Request akan dikonfirmasi oleh Admin/SA</p>
+                        <p className="text-[7px] text-zinc-400 text-center mt-3">Tambah waktu oleh Foreman langsung disetujui</p>
                     </div>
                 </div>
             )}
