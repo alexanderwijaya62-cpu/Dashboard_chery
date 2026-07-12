@@ -4,13 +4,14 @@ import {
   ShieldCheck, ShieldAlert,
   Wrench, MessageCircle,
   Clock, Megaphone, ChevronDown, ChevronUp,
-  LogOut
+  LogOut, Calendar, RefreshCw, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import { db } from '../utils/dbClient';
 import { speak } from '../utils/tts';
 import { supabase } from '../utils/supabaseClient';
 import { pushSubscribe, pushUnsubscribe } from '../utils/pushClient';
+import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
 
 const HISTORY_CACHE_KEY = 'chery_history_cache';
 const HISTORY_CACHE_DURATION = 5 * 60 * 1000;
@@ -54,6 +55,17 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
   const [completedInfo, setCompletedInfo] = useState(null);
   const lastQueueRef = useRef(null);
   const completedShownRef = useRef(false);
+
+  // Reschedule state
+  const [activeBookings, setActiveBookings] = useState([]);
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [rescheduleBooking, setRescheduleBooking] = useState(null);
+  const [rescheduleDate, setRescheduleDate] = useState(new Date().toISOString().split('T')[0]);
+  const [rescheduleSlots, setRescheduleSlots] = useState([]);
+  const [rescheduleAllBookings, setRescheduleAllBookings] = useState([]);
+  const [rescheduleConfig, setRescheduleConfig] = useState({ slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 });
+  const [isRescheduling, setIsRescheduling] = useState(false);
+  const [rescheduleMonth, setRescheduleMonth] = useState(new Date());
 
   const formatQueueLabel = (queueNumber, category) => {
     if (!queueNumber || queueNumber === 0) return '';
@@ -109,10 +121,14 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
 
     const fetchMyQueue = async () => {
       try {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayId = todayStart.getTime();
         const { data, error } = await db.select('antrian', {
           select: '*',
           eq: { bk: user.plat_bk.toUpperCase().replace(/\s+/g, '') },
-          in: { status: ['waiting', 'working', 'istirahat', 'menginap', 'menunggu_konfirmasi', 'selesai', 'completed', 's'] },
+          in: { status: ['waiting', 'working', 'istirahat', 'menginap', 'menunggu_konfirmasi'] },
+          gte: { id: todayId },
           order: { column: 'id', ascending: false },
           limit: 1
         });
@@ -377,6 +393,108 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
     fetchHistory();
   }, [user.vin]);
 
+  // Fetch active bookings for this customer
+  useEffect(() => {
+    if (!user.plat_bk) return;
+    const fetchActiveBookings = async () => {
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const { data } = await db.select('booking', {
+          select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, bookingVia',
+          eq: { noPlat: user.plat_bk.toUpperCase().replace(/\s+/g, '') },
+          in: { status: ['accepted', 'waiting confirm'] },
+          gte: { tanggal: today },
+          order: { column: 'jam', ascending: true }
+        });
+        if (Array.isArray(data)) setActiveBookings(data);
+      } catch (e) {
+        console.warn('Gagal fetch active bookings:', e);
+      }
+    };
+    fetchActiveBookings();
+  }, [user.plat_bk]);
+
+  // Load reschedule config
+  useEffect(() => {
+    fetchBookingConfig().then(setRescheduleConfig).catch(() => {});
+  }, []);
+
+  // Fetch bookings for reschedule date
+  const fetchRescheduleBookings = useCallback(async (dateStr) => {
+    try {
+      const { data } = await db.select('booking', {
+        select: 'id, tanggal, jam, noPlat, status',
+        eq: { tanggal: dateStr },
+        in: { status: ['accepted', 'waiting confirm', 'completed'] }
+      });
+      if (Array.isArray(data)) setRescheduleAllBookings(data);
+    } catch (e) {
+      console.warn('Gagal fetch reschedule bookings:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showRescheduleModal) {
+      fetchRescheduleBookings(rescheduleDate);
+    }
+  }, [showRescheduleModal, rescheduleDate, fetchRescheduleBookings]);
+
+  const openRescheduleModal = (booking) => {
+    setRescheduleBooking(booking);
+    setRescheduleDate(booking.tanggal || new Date().toISOString().split('T')[0]);
+    setShowRescheduleModal(true);
+  };
+
+  const handleReschedule = async (newJam) => {
+    if (!rescheduleBooking || !newJam) return;
+    setIsRescheduling(true);
+    try {
+      const newDate = rescheduleDate;
+      const newJamNormalized = newJam.replace(':', '.');
+      const oldJamNormalized = String(rescheduleBooking.jam).replace(':', '.');
+
+      // Check if slot is available
+      const bookingsAtSlot = rescheduleAllBookings.filter(b =>
+        b.jam?.replace(':', '.') === newJamNormalized && b.id !== rescheduleBooking.id
+      );
+      const slotCap = rescheduleConfig.slotCapacity || 1;
+      if (bookingsAtSlot.length >= slotCap) {
+        Toastify({ text: 'Slot ini sudah penuh! Pilih jam lain.', style: { background: '#f97316' } }).showToast();
+        setIsRescheduling(false);
+        return;
+      }
+
+      // Update booking
+      const { error } = await db.update('booking', {
+        tanggal: newDate,
+        jam: newJamNormalized,
+        status: 'accepted',
+        bookingVia: (rescheduleBooking.bookingVia || 'Web') + ' (Reschedule)'
+      }, { eq: { id: rescheduleBooking.id } });
+
+      if (error) throw error;
+
+      Toastify({ text: `Booking dipindahkan ke ${newDate} jam ${newJam}!`, style: { background: 'green' } }).showToast();
+      setShowRescheduleModal(false);
+      setRescheduleBooking(null);
+
+      // Refresh active bookings
+      const today = new Date().toISOString().split('T')[0];
+      const { data } = await db.select('booking', {
+        select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, bookingVia',
+        eq: { noPlat: user.plat_bk.toUpperCase().replace(/\s+/g, '') },
+        in: { status: ['accepted', 'waiting confirm'] },
+        gte: { tanggal: today },
+        order: { column: 'jam', ascending: true }
+      });
+      if (Array.isArray(data)) setActiveBookings(data);
+    } catch (e) {
+      Toastify({ text: `Gagal reschedule: ${e.message}`, style: { background: '#ef4444' } }).showToast();
+    } finally {
+      setIsRescheduling(false);
+    }
+  };
+
   const isVerified = user.status === 'active';
 
   const statusLabels = {
@@ -508,7 +626,7 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
             </div>
             <button
               onClick={() => { pushUnsubscribe(user.plat_bk); handleLogout(); }}
-              className="w-10 h-10 bg-red-50 hover:bg-red-100 text-red-500 rounded-full flex items-center justify-center transition-all active:scale-90"
+              className="hidden md:flex w-10 h-10 bg-red-50 hover:bg-red-100 text-red-500 rounded-full items-center justify-center transition-all active:scale-90"
               title="Logout"
             >
               <LogOut size={18} />
@@ -575,6 +693,13 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
                 <p className="text-zinc-400 text-xs mt-2">
                   Anda sedang tidak dalam antrian saat ini.
                 </p>
+                <button
+                  onClick={() => setCurrentPage && setCurrentPage('booking-public')}
+                  className="mt-6 bg-black text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-wider hover:bg-zinc-800 transition-all active:scale-95 flex items-center justify-center gap-2 mx-auto shadow-md"
+                >
+                  <Calendar size={14} />
+                  Booking Sekarang
+                </button>
               </div>
             ) : (
               <div className={`${['selesai', 'completed', 's'].includes(myQueue.status) ? 'bg-emerald-600 text-white' : 'bg-black text-white'} p-6 rounded-[2rem] shadow-xl relative overflow-hidden h-full`}>
@@ -712,14 +837,46 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
           </div>
         )}
 
-        {/* Complaint Button */}
-        <button
-          onClick={() => setCurrentPage && setCurrentPage('customer-complaint')}
-          className="w-full bg-red-600 hover:bg-red-700 text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl transition-all active:scale-[0.98] flex items-center justify-center gap-3"
-        >
-          <MessageCircle size={20} />
-          Kirim Masukan
-        </button>
+        {/* Active Bookings */}
+        {activeBookings.length > 0 && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-8 h-8 bg-zinc-100 rounded-xl flex items-center justify-center">
+                <Calendar size={16} className="text-zinc-600" />
+              </div>
+              <h2 className="text-sm font-black text-zinc-400 uppercase tracking-widest">Booking Aktif</h2>
+            </div>
+            <div className="grid gap-3">
+              {activeBookings.map((bk) => (
+                <div key={bk.id} className="bg-white border border-zinc-200 rounded-[2rem] p-5 shadow-sm hover:shadow-md transition-all">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-3">
+                      <div className="w-12 h-12 bg-zinc-900 rounded-2xl flex items-center justify-center text-white font-mono text-sm font-black shrink-0">
+                        {bk.jam}
+                      </div>
+                      <div>
+                        <p className="text-xs font-black text-black">{bk.namaCustomer}</p>
+                        <p className="text-[9px] text-zinc-400 font-bold mt-0.5">
+                          {new Date(bk.tanggal).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                        </p>
+                        <p className="text-[9px] text-zinc-400 font-bold">{bk.noPlat} — {bk.tipeMobil || '-'}</p>
+                        <span className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600 border border-emerald-200">
+                          <Clock size={8} /> {bk.status === 'accepted' ? 'Dikonfirmasi' : 'Menunggu'}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => openRescheduleModal(bk)}
+                      className="flex items-center gap-1.5 bg-zinc-50 hover:bg-zinc-100 text-zinc-600 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 border border-zinc-200"
+                    >
+                      <RefreshCw size={12} /> Reschedule
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Service History */}
         <div className="space-y-1">
@@ -843,6 +1000,126 @@ const CustomerPanel = ({ user, handleLogout, setCurrentPage }) => {
           )}
         </div>
       </main>
+
+      {/* RESCHEDULE MODAL */}
+      {showRescheduleModal && rescheduleBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)' }}>
+          <div className="bg-white rounded-[2rem] w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="bg-black text-white p-6 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="font-black text-base uppercase tracking-wider">Reschedule Booking</h3>
+                <p className="text-zinc-400 text-[9px] font-bold uppercase tracking-widest mt-1">
+                  {rescheduleBooking.noPlat} — {rescheduleBooking.tipeMobil || ''}
+                </p>
+              </div>
+              <button onClick={() => { setShowRescheduleModal(false); setRescheduleBooking(null); }}
+                className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all">
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5 overflow-y-auto">
+              {/* Current booking info */}
+              <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4">
+                <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-1">Jadwal Saat Ini</p>
+                <p className="text-sm font-black text-black">
+                  {new Date(rescheduleBooking.tanggal).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} — {rescheduleBooking.jam} WIB
+                </p>
+              </div>
+
+              {/* Date picker */}
+              <div>
+                <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-2 block">Pilih Tanggal Baru</label>
+                <div className="flex items-center gap-3 mb-3">
+                  <button onClick={() => { const d = new Date(rescheduleMonth); d.setMonth(d.getMonth() - 1); setRescheduleMonth(d); }}
+                    className="p-2 bg-zinc-100 rounded-xl hover:bg-zinc-200 transition-all"><ChevronLeft size={14} /></button>
+                  <span className="text-xs font-black text-black uppercase tracking-wider flex-1 text-center">
+                    {rescheduleMonth.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
+                  </span>
+                  <button onClick={() => { const d = new Date(rescheduleMonth); d.setMonth(d.getMonth() + 1); setRescheduleMonth(d); }}
+                    className="p-2 bg-zinc-100 rounded-xl hover:bg-zinc-200 transition-all"><ChevronRight size={14} /></button>
+                </div>
+                <div className="grid grid-cols-7 gap-1.5">
+                  {['Min','Sen','Sel','Rab','Kam','Jum','Sat'].map(d => (
+                    <div key={d} className="text-center text-[7px] font-black text-zinc-400 uppercase tracking-widest py-1">{d}</div>
+                  ))}
+                  {(() => {
+                    const m = rescheduleMonth.getMonth();
+                    const y = rescheduleMonth.getFullYear();
+                    const daysInMonth = new Date(y, m + 1, 0).getDate();
+                    const startDay = new Date(y, m, 1).getDay();
+                    const cells = [];
+                    for (let i = 0; i < startDay; i++) cells.push(null);
+                    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+                    return cells.map((day, idx) => {
+                      if (!day) return <div key={idx}></div>;
+                      const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                      const isSelected = rescheduleDate === dateStr;
+                      const isToday = dateStr === new Date().toISOString().split('T')[0];
+                      const isPast = new Date(dateStr) < new Date().setHours(0, 0, 0, 0);
+                      const isSunday = new Date(dateStr).getDay() === 0;
+                      const isDisabled = isPast || isSunday;
+                      return (
+                        <button key={idx} disabled={isDisabled}
+                          onClick={() => { setRescheduleDate(dateStr); fetchRescheduleBookings(dateStr); }}
+                          className={`aspect-square rounded-xl text-[10px] font-black transition-all ${
+                            isDisabled ? 'text-zinc-200 cursor-not-allowed' :
+                            isSelected ? 'bg-black text-white shadow-lg' :
+                            isToday ? 'bg-zinc-100 text-black border border-zinc-300' :
+                            'text-zinc-600 hover:bg-zinc-100'
+                          }`}>
+                          {day}
+                        </button>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+
+              {/* Time slots */}
+              <div>
+                <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-2 block">Pilih Jam Baru</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {generateSlots(rescheduleConfig.slotCount, rescheduleConfig.gapMinutes, rescheduleConfig.startHour, rescheduleConfig.startMinute).map((jam) => {
+                    const bookingsAtSlot = rescheduleAllBookings.filter(b =>
+                      b.jam?.replace(':', '.') === jam.replace(':', '.')
+                    );
+                    const isFull = bookingsAtSlot.length >= (rescheduleConfig.slotCapacity || 1);
+                    const isCurrent = rescheduleBooking.jam?.replace(':', '.') === jam.replace(':', '.') &&
+                      rescheduleBooking.tanggal === rescheduleDate;
+                    const isPastTime = rescheduleDate === new Date().toISOString().split('T')[0] && (() => {
+                      const [h, m] = jam.split('.');
+                      const now = new Date();
+                      const slotDate = new Date();
+                      slotDate.setHours(parseInt(h), parseInt(m), 0, 0);
+                      return slotDate < now;
+                    })();
+
+                    return (
+                      <button key={jam} disabled={isFull || isCurrent || isPastTime || isRescheduling}
+                        onClick={() => handleReschedule(jam)}
+                        className={`p-3 rounded-xl text-center font-black transition-all border-2 ${
+                          isRescheduling ? 'opacity-50 cursor-wait' :
+                          isFull ? 'bg-zinc-50 border-zinc-100 text-zinc-300 cursor-not-allowed' :
+                          isCurrent ? 'bg-zinc-100 border-zinc-200 text-zinc-400 cursor-not-allowed' :
+                          isPastTime ? 'bg-zinc-50 border-zinc-100 text-zinc-300 cursor-not-allowed' :
+                          'bg-white border-zinc-200 text-black hover:border-black hover:shadow-md cursor-pointer active:scale-95'
+                        }`}>
+                        <span className="text-sm font-mono">{jam}</span>
+                        <p className="text-[7px] uppercase tracking-widest mt-1 font-bold">
+                          {isFull ? 'Penuh' : isCurrent ? 'Sekarang' : isPastTime ? 'Lewat' : `${rescheduleConfig.slotCapacity - bookingsAtSlot.length} slot`}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

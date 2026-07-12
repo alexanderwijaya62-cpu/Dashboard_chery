@@ -100,7 +100,13 @@ export const NAV_CONFIG = {
     { id: 'warranty-dashboard', icon: BarChart2,   label: 'Dashboard',        page: 'warranty',          ariaLabel: 'Warranty Dashboard' },
     { id: 'warranty-wo',        icon: ShieldCheck, label: 'Work Order',       page: 'warranty-wo',       ariaLabel: 'Warranty Work Order' },
     { id: 'warranty-search',    icon: Search,      label: 'Search',           page: 'warranty-search',   ariaLabel: 'Warranty Search' },
-    { id: 'warranty-proforma',  icon: FileText,    label: 'Proforma Invoice', page: 'warranty-proforma', ariaLabel: 'Proforma Invoice' },
+    { id: 'warranty-proforma',  icon: FileText,    label: 'Proforma Invoice', page: 'warranty-proforma', ariaLabel: 'Warranty Proforma Invoice' },
+  ],
+  sales: [
+    { id: 'sales-booking', icon: Calendar, label: 'Booking', page: 'sales-booking', ariaLabel: 'Sales Booking' },
+  ],
+  spv: [
+    { id: 'spv-booking', icon: Calendar, label: 'Booking', page: 'spv-booking', ariaLabel: 'SPV Booking' },
   ],
 };
 
@@ -118,6 +124,8 @@ export const DEFAULT_PAGES = {
   display: 'display',
   foreman: 'foreman',
   warranty: 'warranty',
+  sales: 'sales-booking',
+  spv: 'spv-booking',
 };
 
 /**

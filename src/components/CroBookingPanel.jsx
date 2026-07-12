@@ -83,7 +83,19 @@ export default function CroBookingPanel({ user }) {
                     console.warn('Gagal fetch DMS bookings:', dmsErr);
                 }
 
-                setBookings(merged);
+                // Dedup by plate + date + time (Supabase first, DMS only if not already present)
+                const dedupKey = (b) => `${(b.noPlat || '').replace(/\s+/g, '').toUpperCase()}_${b.tanggal}_${String(b.jam || '').replace(':', '.')}`;
+                const seenKeys = new Set();
+                const deduped = [];
+                merged.forEach(b => {
+                    const key = dedupKey(b);
+                    if (!seenKeys.has(key)) {
+                        seenKeys.add(key);
+                        deduped.push(b);
+                    }
+                });
+
+                setBookings(deduped);
             } catch (_) {}
         })();
     }, [refreshTrigger]);
@@ -137,21 +149,55 @@ export default function CroBookingPanel({ user }) {
     };
 
     const parseImportRows = (text) => {
-        const lines = text.trim().split('\n').filter(r => r.trim());
         const rows = [];
         const errs = [];
-        lines.forEach((line, idx) => {
-            const cols = line.split('\t');
+        let row = [];
+        let field = '';
+        let inQuote = false;
+        for (let i = 0; i < text.length; i++) {
+            const ch = text[i];
+            if (inQuote) {
+                if (ch === '"') {
+                    if (i + 1 < text.length && text[i + 1] === '"') {
+                        field += '"';
+                        i++;
+                    } else {
+                        inQuote = false;
+                    }
+                } else {
+                    field += ch;
+                }
+            } else {
+                if (ch === '"') {
+                    inQuote = true;
+                } else if (ch === '\t') {
+                    row.push(field);
+                    field = '';
+                } else if (ch === '\n' || ch === '\r') {
+                    if (ch === '\r' && i + 1 < text.length && text[i + 1] === '\n') i++;
+                    row.push(field);
+                    field = '';
+                    if (row.some(c => c.trim())) rows.push(row);
+                    row = [];
+                } else {
+                    field += ch;
+                }
+            }
+        }
+        if (field.trim() || row.some(c => c.trim())) {
+            row.push(field);
+            if (row.some(c => c.trim())) rows.push(row);
+        }
+        const parsed = rows.map((cols, idx) => {
             const dateRaw = (cols[0] || '').trim();
             const jam = (cols[1] || '').trim().replace(':', '.');
-            const tipeMobil = (cols[2] || '').trim();
+            const tipeUnit = (cols[2] || '').trim();
             const noPlat = (cols[3] || '').trim().toUpperCase().replace(/\s+/g, '');
             const namaCustomer = (cols[4] || '').trim();
             const keluhan = (cols[5] || '').trim();
-            const tipeUnit = (cols[6] || '').trim();
-            const sa = (cols[7] || '').trim();
+            const km = (cols[6] || '').trim();
+            const bookingVia = (cols[7] || '').trim();
             const noTelp = (cols[8] || '').trim();
-            const km = (cols[9] || '').trim();
 
             const tanggal = parseDateDMY(dateRaw);
             const issues = [];
@@ -160,15 +206,14 @@ export default function CroBookingPanel({ user }) {
             if (!noPlat) issues.push('Plat kosong');
             if (!namaCustomer) issues.push('Nama kosong');
             if (!keluhan) issues.push('Keluhan kosong');
-            if (!sa) issues.push('SA kosong');
             if (!noTelp) issues.push('No Telp kosong');
 
             if (issues.length > 0) {
                 errs.push({ row: idx + 1, issues, plat: noPlat || '-' });
             }
-            rows.push({ tanggal, jam, tipeMobil, noPlat, namaCustomer, keluhan, tipeUnit, sa, noTelp, km, _valid: issues.length === 0, _rowNum: idx + 1 });
+            return { tanggal, jam, tipeUnit, noPlat, namaCustomer, keluhan, km, bookingVia, noTelp, _valid: issues.length === 0, _rowNum: idx + 1 };
         });
-        setParsedRows(rows);
+        setParsedRows(parsed);
         setImportErrors(errs);
     };
 
@@ -203,7 +248,7 @@ export default function CroBookingPanel({ user }) {
             const existingForPlat = existingMap.get(row.noPlat) || [];
             const dupe = existingForPlat.find(e =>
                 e.tanggal === row.tanggal &&
-                ['waiting_approval', 'waiting confirm', 'accepted'].includes(e.status)
+                ['waiting_approval', 'waiting confirm', 'accepted', 'synced'].includes(e.status)
             );
             if (dupe) {
                 skipReasons.push(`Baris ${row._rowNum}: ${row.noPlat} sudah booking aktif di ${row.tanggal}`);
@@ -219,9 +264,9 @@ export default function CroBookingPanel({ user }) {
                 noPlat: row.noPlat,
                 namaCustomer: row.namaCustomer,
                 noTelp: row.noTelp,
-                tipeMobil: row.tipeMobil,
+                tipeMobil: row.tipeUnit,
                 keperluanService: row.keluhan,
-                bookingVia: row.sa ? `CRO Import - SA: ${row.sa}` : 'CRO Import',
+                bookingVia: row.bookingVia || 'CRO Import',
                 status: 'accepted',
                 keluhanDetail: [row.tipeUnit, row.km].filter(Boolean).join(' | '),
             });
@@ -248,8 +293,8 @@ export default function CroBookingPanel({ user }) {
                         uniqid: Math.random().toString(36).substring(2, 15) + '-' + Date.now(),
                         id_kendaraan: vehicle.id_kendaraan || '',
                         no_polisi: vehicle.no_polisi,
-                        model_kendaraan: vehicle.model_kendaraan || vehicle.nama_kendaraan || row.tipeMobil || '',
-                        nama_kendaraan: vehicle.nama_kendaraan || row.tipeMobil || '',
+                        model_kendaraan: vehicle.model_kendaraan || vehicle.nama_kendaraan || row.tipeUnit || '',
+                        nama_kendaraan: vehicle.nama_kendaraan || row.tipeUnit || '',
                         tipe_kendaraan: vehicle.tipe_kendaraan || '',
                         no_chassis: vehicle.no_chassis || '',
                         group_kendaraan: vehicle.group_kendaraan || 'PC',
@@ -263,8 +308,8 @@ export default function CroBookingPanel({ user }) {
                         no_telp_booking: row.noTelp,
                         janji_datang: janjiDatang,
                         keluhan: row.keluhan || '-',
-                        booking_via: 'CRO Import',
-                        booking_via_personal: '',
+                        booking_via: row.bookingVia || 'CRO Import',
+                        booking_via_personal: row.bookingVia || '',
                         km: row.km || '0'
                     };
                     const formDataBody = new URLSearchParams();
@@ -280,7 +325,8 @@ export default function CroBookingPanel({ user }) {
                     if (dmsJson.success && bookingId) {
                         dmsSync++;
                         await db.update('booking', {
-                            bookingVia: `CRO Import (DMS Synced)${row.sa ? ` - SA: ${row.sa}` : ''}`
+                            bookingVia: (row.bookingVia || 'CRO Import') + ' (DMS Synced)',
+                            status: 'synced'
                         }, { eq: { id: bookingId } });
                     }
                 }
@@ -331,6 +377,19 @@ export default function CroBookingPanel({ user }) {
         }
         return days;
     }, [currentCalMonth]);
+
+    const dateFillMap = useMemo(() => {
+        const map = {};
+        const allSlots = generateSlots(slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM);
+        const totalCapacity = allSlots.length * slotConfig.slotCapacity;
+        bookings.forEach(b => {
+            if (b.status !== 'waiting confirm' && b.status !== 'accepted' && b.status !== 'completed') return;
+            if (!b.tanggal) return;
+            map[b.tanggal] = (map[b.tanggal] || 0) + 1;
+        });
+        Object.keys(map).forEach(d => { map[d] = { count: map[d], total: totalCapacity, full: map[d] >= totalCapacity, partial: map[d] > 0 && map[d] < totalCapacity }; });
+        return map;
+    }, [bookings, slotConfig]);
 
     const changeCalMonth = (offset) => {
         const next = new Date(currentCalMonth);
@@ -427,7 +486,6 @@ export default function CroBookingPanel({ user }) {
                     keperluanService: formData.keluhan || '-',
                     status: 'accepted',
                     bookingVia: 'CRO Booking (Manual)',
-                    createdAt: new Date().toISOString(),
                 });
                 if (error) throw error;
                 Toastify({ text: "Booking BERHASIL!", background: "green" }).showToast();
@@ -449,7 +507,6 @@ export default function CroBookingPanel({ user }) {
                 keperluanService: formData.keluhan || '-',
                 status: 'accepted',
                 bookingVia: 'CRO Booking',
-                createdAt: new Date().toISOString(),
             });
             if (insertErr) throw insertErr;
 
@@ -596,13 +653,13 @@ export default function CroBookingPanel({ user }) {
                                     <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4">
                                         <h3 className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-2">Urutan Kolom (tab-separated)</h3>
                                         <div className="text-[10px] font-mono font-bold text-zinc-700 bg-white border border-zinc-200 rounded-xl p-3 leading-relaxed">
-                                            1. Tanggal (dd/mm/yyyy) <span className="text-zinc-300">|</span> 2. Jam <span className="text-zinc-300">|</span> 3. Tipe Mobil <span className="text-zinc-300">|</span> 4. No Plat <span className="text-zinc-300">|</span> 5. Nama Customer <span className="text-zinc-300">|</span> 6. Keluhan <span className="text-zinc-300">|</span> 7. Tipe Unit* <span className="text-zinc-300">|</span> 8. SA <span className="text-zinc-300">|</span> 9. No Telp <span className="text-zinc-300">|</span> 10. KM*
+                                            1. Tanggal (dd/mm/yyyy) <span className="text-zinc-300">|</span> 2. Jam <span className="text-zinc-300">|</span> 3. Tipe Unit <span className="text-zinc-300">|</span> 4. No Polisi <span className="text-zinc-300">|</span> 5. Nama Customer <span className="text-zinc-300">|</span> 6. Keperluan Service <span className="text-zinc-300">|</span> 7. KM <span className="text-zinc-300">|</span> 8. Booking Via <span className="text-zinc-300">|</span> 9. No Telp
                                         </div>
                                         <p className="text-[8px] font-bold text-zinc-400 mt-1">* opsional</p>
                                     </div>
 
                                     <textarea value={importText} onChange={e => { setImportText(e.target.value); parseImportRows(e.target.value); }}
-                                        placeholder={`12/07/2026\t08:30\tTiggo 8 CSH\tBK 1818 NYK\tYONGKI ALI\tKlaim Part\t\tSA\t08123456789`}
+                                        placeholder={`11/07/2026\t08:30\tCHERY C5\tBL 1755 DN\tDHARA AFRISSA\tService 15.000km, pasang part dan pentil\t\tSA\t895-0543-0261`}
                                         className="w-full flex-1 min-h-[200px] bg-zinc-50 border-2 border-zinc-200 rounded-2xl p-4 text-xs font-mono font-bold text-zinc-900 focus:border-black focus:bg-white outline-none transition-all resize-none"
                                     />
 
@@ -637,7 +694,8 @@ export default function CroBookingPanel({ user }) {
                                                     <th className="p-2 text-left">Jam</th>
                                                     <th className="p-2 text-left">Plat</th>
                                                     <th className="p-2 text-left">Nama</th>
-                                                    <th className="p-2 text-left">SA</th>
+                                                    <th className="p-2 text-left">Telp</th>
+                                                    <th className="p-2 text-left">Via</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -648,7 +706,8 @@ export default function CroBookingPanel({ user }) {
                                                         <td className="p-2 font-bold">{r.jam || '-'}</td>
                                                         <td className="p-2 font-bold">{r.noPlat || '-'}</td>
                                                         <td className="p-2 font-bold truncate max-w-[120px]">{r.namaCustomer || '-'}</td>
-                                                        <td className="p-2 font-bold">{r.sa || '-'}</td>
+                                                        <td className="p-2 font-bold">{r.noTelp || '-'}</td>
+                                                        <td className="p-2 font-bold">{r.bookingVia || '-'}</td>
                                                     </tr>
                                                 ))}
                                             </tbody>
@@ -798,11 +857,15 @@ export default function CroBookingPanel({ user }) {
                                                         const isPast = new Date(item.date) < new Date().setHours(0, 0, 0, 0);
                                                         const isHoliday = isHolidayOrSunday(item.date, holidays);
                                                         const isDisabled = isPast || isHoliday;
+                                                        const fill = dateFillMap[item.date];
+                                                        const fillBg = !isDisabled && fill?.full ? 'bg-red-500 border-red-600 text-white' :
+                                                            !isDisabled && fill?.partial ? 'bg-yellow-300 border-yellow-400 text-yellow-900' :
+                                                            !isDisabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:border-emerald-400' : '';
                                                         return (
                                                             <button key={idx} type="button" disabled={isDisabled}
                                                                 onClick={() => setFormData({ ...formData, tanggal: item.date, jam: '' })}
                                                                 className={`relative aspect-[4/5] rounded-xl flex flex-col items-center justify-center transition-all border-2 ${isDisabled ? 'bg-zinc-100/30 border-transparent text-zinc-200 cursor-not-allowed opacity-20' :
-                                                                    isActive ? 'bg-black border-black text-white shadow-lg z-10 scale-110' : 'bg-white border-zinc-100 text-zinc-800 hover:border-zinc-400'
+                                                                    isActive ? 'bg-black border-black text-white shadow-lg z-10 scale-110' : fillBg
                                                                 }`}
                                                             >
                                                                 <span className="text-[11px] font-black">{item.day}</span>
@@ -957,16 +1020,17 @@ function SupabaseBookingList({ refreshTrigger }) {
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
+    const [editItem, setEditItem] = useState(null);
+    const [editForm, setEditForm] = useState({});
 
     useEffect(() => {
         (async () => {
             setLoading(true);
             try {
-                const yesterday = new Date();
-                yesterday.setDate(yesterday.getDate() - 30);
+                const today = new Date().toISOString().slice(0, 10);
                 const { data } = await db.select('booking', {
-                    select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, keluhanDetail, createdAt',
-                    gte: { id: yesterday.getTime() },
+                    select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, keluhanDetail',
+                    gte: { tanggal: today },
                     order: { column: 'id', ascending: false },
                     limit: 200,
                 });
@@ -989,6 +1053,58 @@ function SupabaseBookingList({ refreshTrigger }) {
         }
         return list;
     }, [bookings, search, filterDate]);
+
+    const openEdit = (b) => {
+        setEditItem(b);
+        setEditForm({
+            tanggal: b.tanggal || '',
+            jam: (b.jam || '').replace('.', ':'),
+            noPlat: b.noPlat || '',
+            namaCustomer: b.namaCustomer || '',
+            noTelp: b.noTelp || '',
+            tipeMobil: b.tipeMobil || '',
+            keperluanService: b.keperluanService || '',
+            keluhanDetail: b.keluhanDetail || '',
+            status: b.status || 'accepted',
+        });
+    };
+
+    const handleEditSave = async () => {
+        if (!editItem) return;
+        try {
+            const { error } = await db.update('booking', {
+                tanggal: editForm.tanggal,
+                jam: editForm.jam.replace(':', '.'),
+                noPlat: editForm.noPlat,
+                namaCustomer: editForm.namaCustomer,
+                noTelp: editForm.noTelp,
+                tipeMobil: editForm.tipeMobil,
+                keperluanService: editForm.keperluanService,
+                keluhanDetail: editForm.keluhanDetail,
+                status: editForm.status,
+            }, { eq: { id: editItem.id } });
+            if (error) throw error;
+            Toastify({ text: '✅ Booking berhasil diupdate', background: '#10b981' }).showToast();
+            setEditItem(null);
+            const today = new Date().toISOString().slice(0, 10);
+            const { data } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, keluhanDetail', gte: { tanggal: today }, order: { column: 'id', ascending: false }, limit: 200 });
+            setBookings(data || []);
+        } catch (e) {
+            Toastify({ text: `❌ Gagal update: ${e.message}`, background: '#ef4444' }).showToast();
+        }
+    };
+
+    const handleDelete = async (id) => {
+        if (!window.confirm('Hapus booking ini?')) return;
+        try {
+            const { error } = await db.delete('booking', { eq: { id } });
+            if (error) throw error;
+            Toastify({ text: '✅ Booking berhasil dihapus', background: '#10b981' }).showToast();
+            setBookings(prev => prev.filter(b => b.id !== id));
+        } catch (e) {
+            Toastify({ text: `❌ Gagal hapus: ${e.message}`, background: '#ef4444' }).showToast();
+        }
+    };
 
     return (
         <div className="h-full flex flex-col p-4 md:p-6">
@@ -1018,13 +1134,14 @@ function SupabaseBookingList({ refreshTrigger }) {
                             <th className="p-2.5 text-left max-w-[200px]">Keluhan</th>
                             <th className="p-2.5 text-left">Via</th>
                             <th className="p-2.5 text-left">Status</th>
+                            <th className="p-2.5 text-center w-[80px]">Aksi</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan="8" className="p-8 text-center text-zinc-400 font-bold">Memuat...</td></tr>
+                            <tr><td colSpan="9" className="p-8 text-center text-zinc-400 font-bold">Memuat...</td></tr>
                         ) : filtered.length === 0 ? (
-                            <tr><td colSpan="8" className="p-8 text-center text-zinc-400 font-bold">Tidak ada booking</td></tr>
+                            <tr><td colSpan="9" className="p-8 text-center text-zinc-400 font-bold">Tidak ada booking</td></tr>
                         ) : filtered.map(b => (
                             <tr key={b.id} className="border-t border-zinc-100 hover:bg-zinc-50 transition-all">
                                 <td className="p-2.5 font-bold text-zinc-700">{b.tanggal || '-'}</td>
@@ -1039,15 +1156,92 @@ function SupabaseBookingList({ refreshTrigger }) {
                                     </span>
                                 </td>
                                 <td className="p-2.5">
-                                    <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${b.status === 'accepted' ? 'bg-green-50 text-green-700' : b.status === 'declined' ? 'bg-red-50 text-red-700' : 'bg-zinc-50 text-zinc-500'}`}>
-                                        {b.status || '-'}
+                                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${b.status === 'synced' || (b.bookingVia || '').includes('DMS') ? 'bg-blue-50 text-blue-700' : b.status === 'accepted' ? 'bg-green-50 text-green-700' : b.status === 'declined' ? 'bg-red-50 text-red-700' : 'bg-zinc-50 text-zinc-500'}`}>
+                                        {b.status === 'synced' || (b.bookingVia || '').includes('DMS') ? 'Synced (DMS)' : b.status || '-'}
                                     </span>
+                                </td>
+                                <td className="p-2.5">
+                                    <div className="flex items-center justify-center gap-1">
+                                        <button onClick={() => openEdit(b)}
+                                            className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-800 hover:text-white transition-all text-zinc-500"
+                                            title="Edit"><Edit3 size={12} /></button>
+                                        <button onClick={() => handleDelete(b.id)}
+                                            className="p-1.5 rounded-lg bg-red-50 hover:bg-red-600 hover:text-white transition-all text-red-500"
+                                            title="Hapus"><X size={12} /></button>
+                                    </div>
                                 </td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
             </div>
+
+            {/* Edit Modal */}
+            {editItem && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[999] flex items-center justify-center p-4" onClick={() => setEditItem(null)}>
+                    <div className="bg-white rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl p-6" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="text-lg font-black text-zinc-900 uppercase tracking-wider">Edit Booking</h3>
+                            <button onClick={() => setEditItem(null)} className="p-2 hover:bg-zinc-100 rounded-xl transition-all"><X size={18} /></button>
+                        </div>
+                        <div className="flex flex-col gap-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">Tanggal</label>
+                                    <input type="date" value={editForm.tanggal} onChange={e => setEditForm(p => ({ ...p, tanggal: e.target.value }))}
+                                        className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none" />
+                                </div>
+                                <div>
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">Jam</label>
+                                    <input type="time" value={editForm.jam} onChange={e => setEditForm(p => ({ ...p, jam: e.target.value }))}
+                                        className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none" />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">No Polisi</label>
+                                <input type="text" value={editForm.noPlat} onChange={e => setEditForm(p => ({ ...p, noPlat: e.target.value }))}
+                                    className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none uppercase" />
+                            </div>
+                            <div>
+                                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">Nama Customer</label>
+                                <input type="text" value={editForm.namaCustomer} onChange={e => setEditForm(p => ({ ...p, namaCustomer: e.target.value }))}
+                                    className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none" />
+                            </div>
+                            <div>
+                                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">No Telp</label>
+                                <input type="text" value={editForm.noTelp} onChange={e => setEditForm(p => ({ ...p, noTelp: e.target.value }))}
+                                    className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none" />
+                            </div>
+                            <div>
+                                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">Tipe Mobil</label>
+                                <input type="text" value={editForm.tipeMobil} onChange={e => setEditForm(p => ({ ...p, tipeMobil: e.target.value }))}
+                                    className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none" />
+                            </div>
+                            <div>
+                                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">Keperluan Service</label>
+                                <textarea value={editForm.keperluanService} onChange={e => setEditForm(p => ({ ...p, keperluanService: e.target.value }))}
+                                    className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none resize-none min-h-[60px]" />
+                            </div>
+                            <div>
+                                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">Status</label>
+                                <select value={editForm.status} onChange={e => setEditForm(p => ({ ...p, status: e.target.value }))}
+                                    className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none">
+                                    <option value="accepted">Accepted</option>
+                                    <option value="synced">Synced (DMS)</option>
+                                    <option value="declined">Declined</option>
+                                    <option value="waiting confirm">Waiting Confirm</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div className="flex gap-3 mt-8">
+                            <button onClick={() => setEditItem(null)}
+                                className="flex-1 py-3 bg-zinc-100 hover:bg-zinc-200 rounded-2xl text-xs font-black uppercase tracking-widest transition-all">Batal</button>
+                            <button onClick={handleEditSave}
+                                className="flex-1 py-3 bg-zinc-900 hover:bg-black text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl transition-all">Simpan</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

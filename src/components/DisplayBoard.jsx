@@ -317,15 +317,15 @@ const CompletedCarousel = ({ data, formatTime, setSelectedUnit }) => {
    while (visibleItems.length < displayCount) visibleItems.push(null);
 
    return (
-       <div className="w-full rounded-3xl p-4 md:p-5 shadow-2xl relative overflow-hidden group border-4 border-emerald-500/50 min-h-[100px] md:min-h-[120px] flex flex-col justify-center" style={{ backgroundColor: '#059669' }}>
+       <div className="w-full rounded-3xl p-4 md:p-5 shadow-2xl relative overflow-hidden group border-4 border-emerald-500/50 min-h-[140px] md:min-h-[170px] flex flex-col justify-center" style={{ backgroundColor: '#059669' }}>
          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10" />
-         <div className="flex items-center justify-between mb-4 md:mb-4 relative z-10 gap-2">
-            <div className="flex items-center gap-3 min-w-0">
-               <div className="w-10 h-10 md:w-12 md:h-12 bg-white rounded-xl flex items-center justify-center text-emerald-600 shadow-xl shrink-0"><CheckCircle size={24} /></div>
-               <div className="bg-white/10 px-4 md:px-6 py-2 md:py-2.5 rounded-xl backdrop-blur-md border border-white/10 shrink-0">
-                  <span className="text-xl md:text-3xl font-black text-white uppercase tracking-wider md:tracking-widest leading-none">
-                     {data.length} <span className="text-emerald-200">UNIT SELESAI</span>
-                  </span>
+          <div className="flex items-center justify-between mb-3 md:mb-3 relative z-10 gap-2">
+             <div className="flex items-center gap-2 min-w-0">
+                <div className="w-8 h-8 md:w-10 md:h-10 bg-white rounded-xl flex items-center justify-center text-emerald-600 shadow-xl shrink-0"><CheckCircle size={18} /></div>
+                <div className="bg-white/10 px-3 md:px-4 py-1.5 md:py-2 rounded-xl backdrop-blur-md border border-white/10 shrink-0">
+                   <span className="text-base md:text-xl font-black text-white uppercase tracking-wider md:tracking-widest leading-none">
+                      {data.length} <span className="text-emerald-200">UNIT SELESAI</span>
+                   </span>
                </div>
             </div>
             {hasMultiple && (
@@ -343,18 +343,18 @@ const CompletedCarousel = ({ data, formatTime, setSelectedUnit }) => {
          </div>
          <div className="flex-1 flex items-stretch relative z-10" key={idx}>
             {visibleItems.map((item, i) => item ? (
-               <div key={item.id} onClick={() => setSelectedUnit(item)} className="flex-1 bg-white rounded-2xl p-6 md:p-8 shadow-xl border-4 border-white/50 group/card cursor-pointer hover:bg-white hover:scale-[1.02] transition-all flex flex-col items-center justify-center min-h-[120px] md:min-h-[150px]">
-                   <h2 className="text-5xl md:text-7xl font-black text-black font-mono tracking-tighter mb-2 uppercase truncate w-full text-center leading-none">{item.bk || item.noPlat || item.no_plat || '-'}</h2>
-                  <p className="text-2xl md:text-3xl font-black text-black/40 uppercase tracking-[0.3em] truncate w-full text-center mt-2 leading-none border-t-2 border-zinc-100 pt-3">{item.tipe}</p>
-                  <div className="flex items-center gap-3 mt-4 bg-emerald-500/10 px-5 py-2.5 rounded-full border-2 border-emerald-500/20">
+                <div key={item.id} onClick={() => setSelectedUnit(item)} className="flex-1 bg-white rounded-2xl p-4 md:p-5 shadow-xl border-4 border-white/50 group/card cursor-pointer hover:bg-white hover:scale-[1.02] transition-all flex flex-col items-center justify-center min-h-[80px] md:min-h-[100px]">
+                    <h2 className="text-4xl md:text-5xl font-black text-black font-mono tracking-tighter mb-1 uppercase truncate w-full text-center leading-none">{item.bk || item.noPlat || item.no_plat || '-'}</h2>
+                   <p className="text-lg md:text-xl font-black text-black/40 uppercase tracking-[0.3em] truncate w-full text-center mt-1 leading-none border-t-2 border-zinc-100 pt-2">{item.tipe}</p>
+                   <div className="flex items-center gap-3 mt-2 bg-emerald-500/10 px-4 py-1.5 rounded-full border-2 border-emerald-500/20">
                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                     <span className="text-lg md:text-xl font-black text-emerald-600 uppercase tracking-widest whitespace-nowrap leading-none">
+                      <span className="text-sm md:text-base font-black text-emerald-600 uppercase tracking-widest whitespace-nowrap leading-none">
                         Selesai Pukul {new Date(parseInt(item.targetTime || item.target_time || item.id)).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })}
                      </span>
                   </div>
                </div>
             ) : (
-               <div key={`empty-${i}`} className="flex-1 bg-white/5 rounded-2xl border-4 border-dashed border-white/20 min-h-[120px] md:min-h-[150px] flex items-center justify-center">
+                <div key={`empty-${i}`} className="flex-1 bg-white/5 rounded-2xl border-4 border-dashed border-white/20 min-h-[80px] md:min-h-[100px] flex items-center justify-center">
                   <p className="text-xl md:text-2xl font-bold text-white/10 uppercase tracking-[0.2em] whitespace-nowrap">Belum ada data</p>
                </div>
             ))}

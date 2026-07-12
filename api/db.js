@@ -2,10 +2,29 @@ import { createClient } from '@supabase/supabase-js';
 
 const ALLOWED_TABLES = ['users','settings','antrian','history','booking','cro','libur','notifications','revenue','laporanwo','sparepart','customers','push_subscriptions','sparepart_master','sparepart_revenue'];
 
+// Default columns per table — cegah over-fetching saat client kirim select: '*'
+const DEFAULT_COLUMNS = {
+  booking: 'id,tanggal,jam,status,noPlat,namaCustomer,tipeMobil,keperluanService,noTelp,bookingVia,vin,noUrut,ip_address',
+  antrian: 'id,bk,tipe,status,category,queue_number,is_called,called_at,counter,nama_sa',
+  history: 'id,bk,tipe,status,waktuMasuk,waktuSelesai,category,mechanicName,stand_km,nama_sa',
+  customers: 'id,no_hp,nama,no_bk,vin,status',
+  users: 'id,username,name,role,status',
+  settings: 'key,value',
+  notifications: 'id,type,message,target_role,read,created_at',
+  cro: 'id,"workOrderNo",nama,telepon,vin,plat,status,"tanggalDatang"',
+  revenue: '*',
+  laporanwo: '*',
+  sparepart: '*',
+  sparepart_master: '*',
+  sparepart_revenue: '*',
+  libur: '*',
+  push_subscriptions: '*',
+};
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', 'https://cherymedan.web.id');
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Auth-Username, X-Auth-Session-Id');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -87,45 +106,49 @@ export default async function handler(req, res) {
   const authUsername = req.headers['x-auth-username'] || '';
   const authSessionId = req.headers['x-auth-session-id'] || '';
 
-  const { table, action, data, filters } = body;
+  const { table, action, filters } = body;
+  let data = body.data || {};
 
   if (!table || !action) return res.status(400).json({ error: 'table and action required' });
   if (!ALLOWED_TABLES.includes(table)) return res.status(403).json({ error: 'Table not allowed' });
 
   // ── Authentication Check ──
-  const isPublicBooking = table === 'booking' && action === 'insert';
+  // ── Public Access (no auth required) ──
   const isPublicLibur = table === 'libur' && action === 'select';
-  const isPublicSettings = table === 'settings' && action === 'select';
   const isPublicRegister = table === 'customers' && (action === 'insert' || action === 'select' || action === 'update');
   const isPublicNotification = table === 'notifications' && action === 'insert';
   const isPublicPush = table === 'push_subscriptions';
 
-  const isPublic = isPublicBooking || isPublicLibur || isPublicSettings || isPublicRegister || isPublicNotification || isPublicPush;
+  const isPublic = isPublicLibur || isPublicRegister || isPublicNotification || isPublicPush;
 
-  if (!isPublic) {
+  // Booking requires login — no public bypass
+  const requiresAuth = !isPublic;
+
+  if (requiresAuth) {
     if (!authUsername || !authSessionId) {
-      return res.status(401).json({ error: 'Authentication required. Missing headers.' });
+      return res.status(401).json({ error: 'Silakan login terlebih dahulu untuk melakukan booking.' });
     }
 
-    // Verify session in users table
-    const { data: userRecord, error: userErr } = await supabase
+    // Single query — cek users DAN customers dalam 1 request
+    const { data: userRecord } = await supabase
       .from('users')
-      .select('username, sessionId, status')
+      .select('username, status')
       .eq('username', authUsername)
       .eq('sessionId', authSessionId)
+      .eq('status', 'active')
       .maybeSingle();
 
-    if (userErr || !userRecord || userRecord.status !== 'active') {
-      // Also check customer table for active customer account (inbound tracking or feedback)
-      const { data: customerRecord, error: custErr } = await supabase
+    if (!userRecord) {
+      const { data: customerRecord } = await supabase
         .from('customers')
-        .select('no_hp, sessionId, status')
+        .select('no_hp, status')
         .eq('no_hp', authUsername)
         .eq('sessionId', authSessionId)
+        .eq('status', 'active')
         .maybeSingle();
 
-      if (custErr || !customerRecord || customerRecord.status !== 'active') {
-        return res.status(401).json({ error: 'Invalid or expired session' });
+      if (!customerRecord) {
+        return res.status(401).json({ error: 'Sesi tidak valid atau telah kedaluwarsa. Silakan login kembali.' });
       }
     }
   }
@@ -147,7 +170,6 @@ export default async function handler(req, res) {
         case 'like': q = q.like(f.column, f.value); break;
         case 'ilike': q = q.ilike(f.column, f.value); break;
         case 'is': q = q.is(f.column, f.value); break;
-        case 'in': q = q.in(f.column, f.value); break;
         case 'or': {
           const conditions = f.conditions || [];
           const orParts = conditions.map(c => {
@@ -185,6 +207,20 @@ export default async function handler(req, res) {
             const cols = requested.split(',').map(c => c.trim());
             const filtered = cols.filter(c => allowed.includes(c));
             data = { ...data, select: filtered.length > 0 ? filtered.join(',') : 'id' };
+          }
+        }
+        // Smart select: kalau client kirim '*', pakai DEFAULT_COLUMNS yang lebih efisien
+        else if (table in DEFAULT_COLUMNS) {
+          const requested = data?.select || '*';
+          if (requested === '*') {
+            data = { ...data, select: DEFAULT_COLUMNS[table] };
+          } else {
+            const allowed = DEFAULT_COLUMNS[table].split(',').map(c => c.trim());
+            const cols = requested.split(',').map(c => c.trim());
+            if (DEFAULT_COLUMNS[table] !== '*') {
+              const filtered = cols.filter(c => allowed.includes(c));
+              data = { ...data, select: filtered.length > 0 ? filtered.join(',') : 'id' };
+            }
           }
         }
         const headOnly = data?.head === true;
@@ -226,9 +262,9 @@ export default async function handler(req, res) {
             });
           }
         }
-        // Whitelist kolom untuk booking publik
-        if (table === 'booking' && action === 'insert' && isPublic) {
-          const bAllowed = ['id', 'noUrut', 'tanggal', 'jam', 'noPlat', 'namaCustomer', 'noTelp', 'keperluanService', 'ip_address', 'bookingVia', 'tipeMobil', 'status'];
+        // Whitelist kolom untuk booking insert (auth required)
+        if (table === 'booking' && action === 'insert') {
+          const bAllowed = ['id', 'noUrut', 'tanggal', 'jam', 'noPlat', 'namaCustomer', 'noTelp', 'keperluanService', 'ip_address', 'bookingVia', 'tipeMobil', 'status', 'vin'];
           const bSafe = {};
           const bRaw = data?.values || data;
           for (const k of bAllowed) { if (bRaw[k] !== undefined) bSafe[k] = bRaw[k]; }
@@ -250,6 +286,13 @@ export default async function handler(req, res) {
         let updateValues = data?.values || data;
         if (table === 'customers' && isPublic) {
           const allowed = ['nama', 'no_bk', 'vin', 'status', 'otp', 'otp_expires_at', 'password'];
+          const safe = {};
+          for (const k of allowed) { if (updateValues[k] !== undefined) safe[k] = updateValues[k]; }
+          updateValues = safe;
+        }
+        // Whitelist kolom untuk booking update (reschedule only)
+        if (table === 'booking') {
+          const allowed = ['jam', 'tanggal', 'status', 'bookingVia'];
           const safe = {};
           for (const k of allowed) { if (updateValues[k] !== undefined) safe[k] = updateValues[k]; }
           updateValues = safe;

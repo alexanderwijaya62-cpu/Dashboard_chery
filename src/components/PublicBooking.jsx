@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Calendar as CalendarIcon, Clock, Send, User, ChevronLeft, ChevronRight, Phone, CheckCircle2, AlertCircle, MapPin, ShieldCheck, Bookmark, X } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, Send, User, ChevronLeft, ChevronRight, Phone, CheckCircle2, AlertCircle, MapPin, ShieldCheck, Bookmark, X, Car } from 'lucide-react';
 import Toastify from 'toastify-js';
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
@@ -39,6 +39,22 @@ const normalizeJam = (j) => {
     return `${h}.${m}`;
 };
 
+const VEHICLE_TYPES = [
+    "OMODA 5",
+    "OMODA E5",
+    "OMODA 5 GT",
+    "TIGGO 5X",
+    "TIGGO 7 PRO",
+    "TIGGO 8",
+    "TIGGO 8 PRO",
+    "TIGGO 8 PRO MAX",
+    "TIGGO CROSS",
+    "CHERY J6",
+    "JAECOO J5",
+    "JAECOO J7",
+    "JAECOO J8"
+];
+
 const CACHE_KEY = 'public_booking_cache';
 const CACHE_TTL = 30000;
 
@@ -58,7 +74,7 @@ const saveCache = (data) => {
     } catch { /* quota exceeded */ }
 };
 
-export default function PublicBooking({ user }) {
+export default function PublicBooking({ user, setCurrentPage }) {
     const [bookings, setBookings] = useState([]);
     const [bookingConfig, setBookingConfig] = useState({ slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 });
     const [isLoading, setIsLoading] = useState(false);
@@ -68,9 +84,23 @@ export default function PublicBooking({ user }) {
     const [holidays, setHolidays] = useState([]);
     const [currentMonth, setCurrentMonth] = useState(new Date());
 
+    const isLoggedIn = !!user && (user.role === 'customer' || user.role);
+
     const [formData, setFormData] = useState({
-        jam: '', noPlat: '', namaCustomer: '', noTelp: '', keluhan: ''
+        jam: '', noPlat: '', namaCustomer: '', noTelp: '', keluhan: '', tipeMobil: ''
     });
+
+    // Auto-fill form data from logged-in user
+    useEffect(() => {
+        if (isLoggedIn && user) {
+            setFormData(prev => ({
+                ...prev,
+                namaCustomer: user.name || prev.namaCustomer,
+                noTelp: user.username || prev.noTelp,
+                noPlat: (user.plat_bk || prev.noPlat).toUpperCase(),
+            }));
+        }
+    }, [isLoggedIn]);
     const [selectedFS, setSelectedFS] = useState([]);
 
     const getCombinedKeluhan = () => {
@@ -89,10 +119,9 @@ export default function PublicBooking({ user }) {
     const [pendingBookJam, setPendingBookJam] = useState('');
 
     useEffect(() => {
-        // Ambil IP User untuk pencegahan spam booking ganda
         const getIP = async () => {
             try {
-                const res = await fetch('https://ipapi.co/json/');
+                const res = await fetch('https://api.ipify.org?format=json');
                 const data = await res.json();
                 if (data.ip) setUserIP(data.ip);
             } catch (e) { console.warn("Gagal mendapatkan IP User"); }
@@ -105,6 +134,7 @@ export default function PublicBooking({ user }) {
         if (!forceFresh) {
             const cached = loadCache();
             if (cached) {
+                console.log('[PublicBooking] Loaded from cache:', cached.length, 'bookings');
                 setBookings(cached);
                 setIsSlotsReady(true);
                 // Still refresh in background
@@ -118,12 +148,26 @@ export default function PublicBooking({ user }) {
             yesterday.setDate(yesterday.getDate() - 1);
             const dateStr = yesterday.toISOString().split('T')[0];
 
+            console.log('[PublicBooking] Fetching bookings from date:', dateStr);
             const { data: supabaseData, error } = await db.select('booking', {
+                select: 'id, tanggal, jam, noPlat, namaCustomer, noTelp, tipeMobil, status, bookingVia, noUrut',
                 gte: { tanggal: dateStr }
             });
+            console.log('[PublicBooking] Raw API response:', { supabaseData, error });
             if (error) throw error;
 
-            let merged = Array.isArray(supabaseData) ? [...supabaseData] : [];
+            let merged = Array.isArray(supabaseData)
+                ? supabaseData.map(b => ({
+                    ...b,
+                    tanggal: b.Tanggal || b.tanggal || '',
+                    noPlat: b.noPlat || b.no_plat || '',
+                    namaCustomer: b.namaCustomer || b.nama_customer || '',
+                    noTelp: b.noTelp || b.no_telp || '',
+                    tipeMobil: b.tipeMobil || b.tipe_mobil || ''
+                  }))
+                : [];
+
+            console.log('[PublicBooking] Merged bookings:', merged.length, 'items', merged);
 
             // === Fetch DMS internal booking (blocking — biar ga double book) ===
             try {
@@ -164,6 +208,7 @@ export default function PublicBooking({ user }) {
             }
 
             saveCache(merged);
+            console.log('[PublicBooking] Final merged count:', merged.length, merged.map(b => ({ tgl: b.tanggal, jam: b.jam, status: b.status })));
             setBookings(merged);
             setIsSlotsReady(true);
         } catch (e) {
@@ -216,30 +261,40 @@ export default function PublicBooking({ user }) {
         
         const dayBookings = bookings.filter(b => isSameDate(b.tanggal, dateStr) && (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed'));
         
-        let fullSlotsCount = 0;
-        let hasAnyBooking = false;
+        if (dayBookings.length === 0) return 'empty';
         
-        dynamicJam.forEach(jam => {
-            const bookingsAtThisTime = dayBookings.filter(b => normalizeJam(b.jam) === normalizeJam(jam));
-            let effectiveCount = bookingsAtThisTime.length;
-            
-            if (isToday) {
-                const [h, m] = jam.split('.');
-                const slotDate = new Date();
-                slotDate.setHours(parseInt(h), parseInt(m), 0, 0);
-                
-                if (slotDate < now && effectiveCount < slotCapacity) {
-                    effectiveCount = slotCapacity;
-                }
+        const toMin = (jam) => {
+            const p = normalizeJam(jam).split('.');
+            return parseInt(p[0]) * 60 + parseInt(p[1]);
+        };
+        
+        const slotMinutes = dynamicJam.map(jam => toMin(jam));
+        const slotBookCount = new Array(dynamicJam.length).fill(0);
+        
+        dayBookings.forEach(b => {
+            const bMin = toMin(b.jam);
+            let assigned = -1;
+            for (let i = dynamicJam.length - 1; i >= 0; i--) {
+                if (bMin >= slotMinutes[i]) { assigned = i; break; }
             }
-            
-            if (effectiveCount > 0) hasAnyBooking = true;
-            if (effectiveCount >= slotCapacity) fullSlotsCount++;
+            if (assigned === -1) assigned = 0;
+            slotBookCount[assigned]++;
         });
         
-        if (fullSlotsCount >= (dynamicJam.length)) return 'full';
-        if (hasAnyBooking) return 'partial';
-        return 'empty';
+        let fullSlotsCount = 0;
+        for (let i = 0; i < dynamicJam.length; i++) {
+            let effective = slotBookCount[i];
+            if (isToday) {
+                const [h, m] = dynamicJam[i].split('.');
+                const slotDate = new Date();
+                slotDate.setHours(parseInt(h), parseInt(m), 0, 0);
+                if (slotDate < now && effective < slotCapacity) effective = slotCapacity;
+            }
+            if (effective >= slotCapacity) fullSlotsCount++;
+        }
+        
+        if (fullSlotsCount >= dynamicJam.length) return 'full';
+        return 'partial';
     }, [bookings, holidays, bookingConfig]);
 
     const { slotCount: maxSlotsCount, gapMinutes: gapConfig, startHour: startConfigH, startMinute: startConfigM, slotCapacity } = bookingConfig;
@@ -332,8 +387,8 @@ export default function PublicBooking({ user }) {
         e.preventDefault();
         if (isLoading) return;
 
-        if (!formData.jam || !formData.noPlat || !formData.namaCustomer || !formData.noTelp) {
-            Toastify({ text: "Harap isi semua field wajib!", background: "red" }).showToast();
+        if (!formData.jam || !formData.noPlat || !formData.namaCustomer || !formData.noTelp || !formData.tipeMobil) {
+            Toastify({ text: "Harap isi semua field wajib, termasuk Tipe Mobil!", background: "red" }).showToast();
             return;
         }
 
@@ -428,6 +483,7 @@ export default function PublicBooking({ user }) {
                 tanggal: selectedDate,
                 jam: formData.jam,
                 noPlat: cleanPlat,
+                tipeMobil: formData.tipeMobil || (vehicleData ? (vehicleData.model_kendaraan || vehicleData.nama_kendaraan || '') : ''),
                 namaCustomer: formData.namaCustomer,
                 bookingVia: dmsBookingVia,
                 noTelp: formData.noTelp,
@@ -438,33 +494,6 @@ export default function PublicBooking({ user }) {
 
             if (error) throw error;
 
-            // Auto-create customer entry in customers table if new plate
-            try {
-                const { data: byPlate } = await db.select('customers', {
-                    select: 'id',
-                    eq: { no_bk: cleanPlat }
-                });
-                const { data: byPhone } = await db.select('customers', {
-                    select: 'id',
-                    eq: { no_hp: formData.noTelp }
-                });
-                if ((!byPlate || byPlate.length === 0) && (!byPhone || byPhone.length === 0)) {
-                    const custId = Date.now() + Math.floor(Math.random() * 1000);
-                    await db.insert('customers', {
-                        id: custId,
-                        no_hp: formData.noTelp,
-                        password: Math.random().toString(36).slice(2, 10),
-                        nama: formData.namaCustomer,
-                        no_bk: cleanPlat,
-                        status: 'active'
-                    }).catch((custErr) => {
-                        console.warn('Auto-create customer non-critical:', custErr);
-                    });
-                }
-            } catch (custErr) {
-                console.warn('Customer check non-critical:', custErr);
-            }
-
             if (dmsSynced) {
                 Toastify({ text: '✅ Booking berhasil & tersinkronisasi ke DMS!', style: { background: 'green' } }).showToast();
             } else {
@@ -472,7 +501,7 @@ export default function PublicBooking({ user }) {
             }
 
             setIsBookingMode(false);
-            setFormData({ jam: '', noPlat: '', namaCustomer: '', noTelp: '', keluhan: '' });
+            setFormData({ jam: '', noPlat: '', namaCustomer: '', noTelp: '', keluhan: '', tipeMobil: '' });
             setSelectedFS([]);
             fetchBookings();
         } catch (err) {
@@ -521,7 +550,7 @@ export default function PublicBooking({ user }) {
     };
 
     return (
-        <div className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col font-sans relative">
+        <div className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col font-sans relative pb-[72px]">
 
             {/* COMPACT TOP HEADER */}
             <header className="bg-white border-b-2 border-zinc-200 px-4 md:px-8 py-3 flex justify-between items-center shrink-0 z-50">
@@ -547,6 +576,32 @@ export default function PublicBooking({ user }) {
             {/* RESPONSIVE LAYOUT */}
             <div className="flex-1 w-full max-w-6xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col lg:flex-row gap-6 relative">
 
+                {/* LOGIN GATE — Must be logged in to book */}
+                {!isLoggedIn && (
+                    <div className="w-full flex items-center justify-center py-20">
+                        <div className="bg-white rounded-[2rem] shadow-2xl border-2 border-zinc-200 p-8 md:p-12 max-w-md w-full text-center">
+                            <div className="w-16 h-16 bg-zinc-900 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
+                                <User className="text-white w-8 h-8" />
+                            </div>
+                            <h2 className="text-xl font-black text-zinc-900 uppercase tracking-wider mb-2">Login Diperlukan</h2>
+                            <p className="text-zinc-400 text-xs font-bold mb-8 leading-relaxed">
+                                Silakan login terlebih dahulu untuk melakukan booking service kendaraan Anda.
+                            </p>
+                            <button
+                                onClick={() => setCurrentPage('login')}
+                                className="w-full bg-zinc-900 hover:bg-zinc-800 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] transition-all duration-150 shadow-xl active:scale-95 flex items-center justify-center gap-3"
+                            >
+                                <User size={16} /> Login Sekarang
+                            </button>
+                            <p className="text-zinc-300 text-[9px] font-bold mt-4 uppercase tracking-widest">
+                                Belum punya akun? <button onClick={() => setCurrentPage('register')} className="text-zinc-900 font-black underline">Daftar di sini</button>
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* Existing content — only show if logged in */}
+                {isLoggedIn && (<>
                 {!isSlotsReady && (
                     <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-zinc-50/80 backdrop-blur-sm rounded-[2rem]">
                         <div className="bg-white rounded-[2rem] shadow-2xl border border-zinc-200 p-8 md:p-12 flex flex-col items-center gap-4 animate-fade-in">
@@ -674,8 +729,13 @@ export default function PublicBooking({ user }) {
                             <div className="flex-1 p-6 md:p-8 flex flex-col z-10 gap-6 md:gap-8">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {JAM_PILIHAN.map((jam, idx) => {
+                                        const slotP = normalizeJam(jam).split('.');
+                                        const slotMin = parseInt(slotP[0]) * 60 + parseInt(slotP[1]);
+                                        const nextMin = idx < JAM_PILIHAN.length - 1 ? (() => { const np = normalizeJam(JAM_PILIHAN[idx + 1]).split('.'); return parseInt(np[0]) * 60 + parseInt(np[1]); })() : 9999;
                                         const bookingsAtThisTime = bookingsForDate.filter(b => {
-                                            return normalizeJam(b.jam) === normalizeJam(jam);
+                                            const bP = normalizeJam(b.jam).split('.');
+                                            const bMin = parseInt(bP[0]) * 60 + parseInt(bP[1]);
+                                            return bMin >= slotMin && bMin < nextMin;
                                         });
 
                                         const isOccupied = bookingsAtThisTime.length >= slotCapacity;
@@ -729,7 +789,7 @@ export default function PublicBooking({ user }) {
                                 <div className="p-6 md:p-8 space-y-6 md:space-y-8">
                                     <section className="space-y-4 md:space-y-5">
                                         {user && (
-                                            <button type="button" onClick={() => setFormData({ ...formData, namaCustomer: user.name || '', noTelp: user.username || '', noPlat: user.plat_bk || '' })}
+                                            <button type="button" onClick={() => setFormData({ ...formData, namaCustomer: user.name || '', noTelp: user.username || '', noPlat: user.plat_bk || '', tipeMobil: '' })}
                                                 className="w-full bg-emerald-500/10 border border-emerald-500/30 p-3 md:p-4 rounded-xl flex items-center gap-3 hover:bg-emerald-500/20 transition-all group">
                                                 <div className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center">
                                                     <User size={14} className="text-emerald-400" />
@@ -758,8 +818,24 @@ export default function PublicBooking({ user }) {
                                             </div>
                                             <div className="space-y-2 md:space-y-3">
                                                 <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Nomor Polisi (BK)</label>
-                                                <input required type="text" value={formData.noPlat} onChange={e => setFormData({ ...formData, noPlat: e.target.value.toUpperCase().replace(/\s+/g, '') })}
+                                                <input required type="text" value={formData.noPlat} 
+                                                    onChange={e => setFormData({ ...formData, noPlat: e.target.value.toUpperCase().replace(/\s+/g, '') })}
                                                     className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase placeholder:text-zinc-600" placeholder="BK 1234 AB" />
+                                            </div>
+                                            <div className="space-y-2 md:space-y-3">
+                                                <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Tipe Mobil / Unit <span className="text-black text-lg leading-none">*</span></label>
+                                                <select required value={formData.tipeMobil} onChange={e => setFormData({ ...formData, tipeMobil: e.target.value })}
+                                                    className="w-full bg-[#2A2A2A] border border-white/5 p-4 rounded-xl font-black text-white text-xs md:text-sm focus:bg-[#333] outline-none focus:border-white transition-all uppercase appearance-none cursor-pointer">
+                                                    <option value="" disabled className="text-zinc-500 bg-[#2A2A2A]">-- Pilih Tipe Mobil --</option>
+                                                    {VEHICLE_TYPES.map((tipe, idx) => (
+                                                        <option key={idx} value={tipe} className="bg-zinc-800 text-white font-bold">{tipe}</option>
+                                                    ))}
+                                                    {/* Jika kendaraan DMS yang terdeteksi tidak ada di list kita, tampilkan secara dinamis */}
+                                                    {formData.tipeMobil && !VEHICLE_TYPES.includes(formData.tipeMobil.toUpperCase()) && (
+                                                        <option value={formData.tipeMobil} className="bg-zinc-800 text-white font-bold">{formData.tipeMobil.toUpperCase()}</option>
+                                                    )}
+                                                    <option value="LAINNYA" className="bg-zinc-800 text-white font-bold">LAINNYA / TIPE LAIN</option>
+                                                </select>
                                             </div>
                                             <div className="space-y-2 md:space-y-3">
                                                 <label className="text-[8px] md:text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Free Service</label>
@@ -799,6 +875,8 @@ export default function PublicBooking({ user }) {
                         </div>
                     )}
                 </div>
+                </>)}
+
             </div>
 
             <style>{`
@@ -850,9 +928,10 @@ export default function PublicBooking({ user }) {
                                 <CheckCircle2 size={16} /> Saya Mengerti
                             </button>
                         </div>
-                    </div>
                 </div>
+            </div>
             )}
+
         </div>
     );
 }

@@ -41,6 +41,9 @@ export default function ForemanPanel({
     // Monitor toggle
     const [showMonitor, setShowMonitor] = useState(false);
 
+    // Foreman-set estimated time per item (jam:menit keyed by item.id)
+    const [foremanEstimates, setForemanEstimates] = useState({});
+
     // Fetch mechanics
     useEffect(() => {
         const fetchMechanics = async () => {
@@ -140,20 +143,30 @@ export default function ForemanPanel({
         if (selectedMechanics.length === 0 || !assignModal.item) return;
         setIsAssigning(true);
         const mechanicStr = selectedMechanics.join(',');
-        const payload = { mechanicName: mechanicStr };
+        const itemId = assignModal.item.id;
+        // Ambil estimasi dari foreman (default 2 jam = 7200 detik)
+        const est = foremanEstimates[itemId];
+        const estHours = est?.hours ?? 2;
+        const estMinutes = est?.minutes ?? 0;
+        const estSec = (estHours * 3600) + (estMinutes * 60);
+        const payload = {
+            mechanicName: mechanicStr,
+            estimasiDefault: estSec,
+        };
         if (startImmediately) {
             payload.status = 'working';
-            const estSec = parseInt(assignModal.item.estimasiDefault) || 1800;
             payload.targetTime = Date.now() + (estSec * 1000);
             payload.is_called = false;
         } else if (assignModal.item.status === 'menunggu_foreman' || assignModal.item.status === 'menunggu_sa') {
             payload.status = 'waiting';
         }
         try {
-            const { error } = await db.update('antrian', payload, { eq: { id: assignModal.item.id } });
+            const { error } = await db.update('antrian', payload, { eq: { id: itemId } });
             if (error) throw error;
+            // Hapus estimasi dari state setelah tersimpan
+            setForemanEstimates(prev => { const cpy = { ...prev }; delete cpy[itemId]; return cpy; });
             Toastify({
-                text: `${assignModal.item.bk}  ${selectedMechanics.length} mekanik`,
+                text: `${assignModal.item.bk} → ${selectedMechanics.length} mekanik (${estHours}h ${estMinutes}m)`,
                 duration: 2000,
                 background: '#10b981'
             }).showToast();
@@ -296,6 +309,43 @@ export default function ForemanPanel({
                                         <p className="text-[9px] font-medium text-zinc-500 mb-2 bg-zinc-50 rounded-xl px-3 py-2 border border-zinc-100 leading-relaxed whitespace-pre-wrap">
                                             {item.keluhan}
                                         </p>
+                                    )}
+
+                                    {/* Estimasi waktu untuk menunggu_foreman */}
+                                    {item.status === 'menunggu_foreman' && (
+                                        <div className="mb-2 bg-zinc-50 rounded-xl p-2.5 border border-zinc-200 flex items-center gap-2">
+                                            <Clock size={14} className="text-zinc-400 shrink-0" />
+                                            <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest shrink-0">Estimasi:</span>
+                                            <select
+                                                value={foremanEstimates[item.id]?.hours ?? 2}
+                                                onChange={(e) => setForemanEstimates(prev => ({
+                                                    ...prev,
+                                                    [item.id]: { ...prev[item.id], hours: parseInt(e.target.value) }
+                                                }))}
+                                                className="bg-white border border-zinc-300 rounded-lg px-2 py-1 text-[10px] font-black text-zinc-900 outline-none focus:border-black"
+                                            >
+                                                {Array.from({ length: 8 }, (_, i) => (
+                                                    <option key={i} value={i + 1}>{i + 1} jam</option>
+                                                ))}
+                                            </select>
+                                            <select
+                                                value={foremanEstimates[item.id]?.minutes ?? 0}
+                                                onChange={(e) => setForemanEstimates(prev => ({
+                                                    ...prev,
+                                                    [item.id]: { ...prev[item.id], minutes: parseInt(e.target.value) }
+                                                }))}
+                                                className="bg-white border border-zinc-300 rounded-lg px-2 py-1 text-[10px] font-black text-zinc-900 outline-none focus:border-black"
+                                            >
+                                                {[0, 15, 30, 45].map(m => (
+                                                    <option key={m} value={m}>{m} menit</option>
+                                                ))}
+                                            </select>
+                                            <span className="text-[9px] font-bold text-zinc-400 ml-auto">
+                                                {foremanEstimates[item.id]
+                                                    ? `${foremanEstimates[item.id].hours}h ${foremanEstimates[item.id].minutes}m`
+                                                    : '2h 0m'}
+                                            </span>
+                                        </div>
                                     )}
 
                                     <div className="flex gap-2">

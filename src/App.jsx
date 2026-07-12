@@ -26,6 +26,7 @@ import CroBookingPanel from './components/CroBookingPanel';
 import BookingManager from './components/BookingManager';
 import BookingApprovalQueue from './components/BookingApprovalQueue';
 import SABookingPanel from './components/SABookingPanel';
+import StaffBookingPanel from './components/StaffBookingPanel';
 import BookingSettings from './components/BookingSettings';
 import OwnerPanel from './components/OwnerPanel';
 import StockComparison from './components/StockComparison';
@@ -305,6 +306,9 @@ const App = () => {
     const path = window.location.pathname.toLowerCase();
     const savedUser = localStorage.getItem('chery_auth_user');
 
+    // Map public paths to pages (No Login Required)
+    if (path === '/booking') { setCurrentPage('booking-public'); return; }
+
     // 1. PUBLIC ROUTES — hanya login yang bisa diakses tanpa auth
     const publicPaths = ['/login', '/register'];
     if (publicPaths.includes(path)) {
@@ -312,7 +316,7 @@ const App = () => {
         const u = JSON.parse(savedUser);
         if (u && u.role) {
           const role = u.role.toLowerCase();
-          const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner', 'foreman', 'security'].includes(role) ? '/staff' : 
+          const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty', 'foreman', 'security', 'sales', 'spv'].includes(role) ? '/staff' : 
                             (role === 'customer' ? '/customer' : '/karyawan');
           window.history.replaceState({}, '', targetUrl);
           window.location.reload();
@@ -350,16 +354,12 @@ const App = () => {
     const savedPage = localStorage.getItem('chery_current_page');
     const role = u.role.toLowerCase();
 
-    // Map public paths to pages
-    if (path === '/booking') { setCurrentPage('booking-public'); return; }
-    if (path === '/tracking') { setCurrentPage('tracking-public'); return; }
-
     // Specific path mapping
     if (path === '/staff' || path === '/' || path === '/display') {
         if (role === 'display') {
           if (path !== '/display') window.history.replaceState({}, '', '/display');
           setCurrentPage('display');
-        } else if (['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty', 'foreman', 'security'].includes(role)) {
+        } else if (['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty', 'foreman', 'security', 'sales', 'spv'].includes(role)) {
           const allowedPages = {
             admin: ['admin', 'admin-booking', 'admin-wo', 'promo', 'display', 'booking-public', 'sa-booking'],
             manager: ['manager', 'manager-financial', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'display', 'booking-public'],
@@ -369,12 +369,14 @@ const App = () => {
             warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-proforma'],
             foreman: ['foreman', 'booking-public', 'display'],
             security: ['security', 'display', 'booking-public'],
+          sales: ['sales-booking', 'display', 'booking-public'],
+          spv: ['spv-booking', 'display', 'booking-public'],
           };
 
           if (savedPage && allowedPages[role]?.includes(savedPage)) {
             setCurrentPage(savedPage);
           } else {
-            setCurrentPage(role === 'cro' ? 'cro' : role === 'sparepart' ? 'sparepart-dms-order' : role);
+            setCurrentPage(role === 'cro' ? 'cro' : role === 'sparepart' ? 'sparepart-dms-order' : role === 'sales' ? 'sales-booking' : role === 'spv' ? 'spv-booking' : role);
           }
         } else if (role === 'customer') {
           const customerPages = ['customer', 'customer-complaint'];
@@ -396,7 +398,7 @@ const App = () => {
         setCurrentPage('mechanic');
       } else {
         window.history.replaceState({}, '', '/staff');
-        setCurrentPage(role === 'cro' ? 'cro' : role);
+        setCurrentPage(role === 'cro' ? 'cro' : role === 'sales' ? 'sales-booking' : role === 'spv' ? 'spv-booking' : role);
       }
     } else {
       // If path is unknown but logged in, send to their role's default page or respect saved page
@@ -410,11 +412,11 @@ const App = () => {
         if (savedPage && (
           (role === 'mekanik' && savedPage === 'mechanic') ||
           (role === 'customer' && (savedPage === 'customer' || savedPage === 'booking-public' || savedPage === 'customer-complaint')) ||
-          (['admin', 'manager', 'cro', 'sparepart', 'owner', 'foreman', 'security'].includes(role))
+          (['admin', 'manager', 'cro', 'sparepart', 'owner', 'foreman', 'security', 'sales', 'spv'].includes(role))
         )) {
           setCurrentPage(savedPage);
         } else {
-          setCurrentPage(role === 'mekanik' ? 'mechanic' : (role === 'customer' ? 'customer' : (role === 'cro' ? 'cro' : (role === 'foreman' ? 'foreman' : (role === 'security' ? 'security' : role)))));
+          setCurrentPage(role === 'mekanik' ? 'mechanic' : (role === 'customer' ? 'customer' : (role === 'cro' ? 'cro' : (role === 'foreman' ? 'foreman' : (role === 'security' ? 'security' : (role === 'sales' ? 'sales-booking' : (role === 'spv' ? 'spv-booking' : role)))))));
         }
       }
     }
@@ -514,7 +516,9 @@ const App = () => {
             role === 'display' ? 'display' :
             role === 'warranty' ? 'warranty' :
             role === 'foreman' ? 'foreman' :
-            role === 'security' ? 'security' : 'admin';
+            role === 'security' ? 'security' :
+            role === 'sales' ? 'sales-booking' :
+            role === 'spv' ? 'spv-booking' : 'admin';
           setCurrentPage(targetPage);
         }
       }
@@ -530,10 +534,14 @@ const App = () => {
   }, []);
 
   const fetchQueue = React.useCallback(async () => {
+    if (!user) return;
     try {
-      const { data: activeQueue, error: qError } = await db.select('antrian');
+      const { data: activeQueue, error: qError } = await db.select('antrian', {
+        select: 'id,bk,tipe,status,category,queue_number,is_called,called_at,counter,nama_sa'
+      });
 
       const { data: historyData, error: hError } = await db.select('history', {
+        select: 'id,bk,tipe,status,waktuMasuk,waktuSelesai,category,mechanicName,stand_km,nama_sa',
         order: { column: 'targetTime', ascending: false },
         limit: 100
       });
@@ -543,6 +551,7 @@ const App = () => {
       const bookingDateLimit = thirtyDaysAgo.toISOString().split('T')[0];
 
       const { data: bookingData, error: bError } = await db.select('booking', {
+        select: 'id,tanggal,jam,status,noPlat,namaCustomer,tipeMobil,keperluanService,noTelp,bookingVia,vin,noUrut,ip_address',
         gte: { tanggal: bookingDateLimit }
       });
 
@@ -692,23 +701,27 @@ const App = () => {
   const autoMenginapEnabledRef = React.useRef(true);
   const callCooldownRef = React.useRef(120);
 
-  // Fetch custom notification sound URL on mount
+  // Fetch custom notification sound URL — only when logged in
   React.useEffect(() => {
+    if (!user) return;
+
     const fetchCustomSound = async () => {
       try {
-        const { data, error } = await db.select('settings', { eq: { key: 'notification_sound_url' }, maybeSingle: true });
-        if (!error && data && data.value) {
-          customSoundUrlRef.current = data.value;
+        const { data } = await db.select('settings', {
+          or: [
+            { op: 'eq', column: 'key', value: 'notification_sound_url' },
+            { op: 'eq', column: 'key', value: 'notification_sound_enabled' },
+            { op: 'eq', column: 'key', value: 'auto_menginap_enabled' },
+            { op: 'eq', column: 'key', value: 'call_cooldown_seconds' },
+          ]
+        });
+        if (Array.isArray(data)) {
+          const map = Object.fromEntries(data.map(r => [r.key, r.value]));
+          if (map.notification_sound_url) customSoundUrlRef.current = map.notification_sound_url;
+          if (map.notification_sound_enabled) setIsSoundEnabled(map.notification_sound_enabled === 'true');
+          autoMenginapEnabledRef.current = map.auto_menginap_enabled ? map.auto_menginap_enabled === 'true' : true;
+          if (map.call_cooldown_seconds) callCooldownRef.current = parseInt(map.call_cooldown_seconds) || 120;
         }
-
-        const { data: soundStatus } = await db.select('settings', { eq: { key: 'notification_sound_enabled' }, maybeSingle: true });
-        if (soundStatus) setIsSoundEnabled(soundStatus.value === 'true');
-
-        const { data: menginapStatus } = await db.select('settings', { eq: { key: 'auto_menginap_enabled' }, maybeSingle: true });
-        autoMenginapEnabledRef.current = menginapStatus ? menginapStatus.value === 'true' : true;
-
-        const { data: cooldownData } = await db.select('settings', { eq: { key: 'call_cooldown_seconds' }, maybeSingle: true });
-        if (cooldownData) callCooldownRef.current = parseInt(cooldownData.value) || 120;
       } catch (e) {
         // Silently skip if table missing or other error
       }
@@ -716,7 +729,7 @@ const App = () => {
     };
     fetchCustomSound();
 
-    // Listen for changes to the settings table
+    // Listen for changes to the settings table — only when logged in
     const settingsChannel = supabase.channel('settings-notif-sound')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, (payload) => {
         if (payload.new) {
@@ -748,7 +761,7 @@ const App = () => {
       .subscribe();
 
     return () => { supabase.removeChannel(settingsChannel); };
-  }, []);
+  }, [user]);
 
   // notification sound function
 
@@ -1021,6 +1034,7 @@ const App = () => {
 
   // #3: Auto no-show handling — check setiap 60 detik
   useEffect(() => {
+    if (!user) return;
     if (noShowCheckedRef.current) return;
     noShowCheckedRef.current = true;
 
@@ -1029,6 +1043,7 @@ const App = () => {
         const now = new Date();
         const todayStr = now.toISOString().split('T')[0];
         const { data: todayBookings, error } = await db.select('booking', {
+          select: 'id,jam,noPlat,status',
           eq: { tanggal: todayStr },
           in: { status: ['accepted', 'waiting confirm'] }
         });
@@ -1071,7 +1086,7 @@ const App = () => {
     const interval = setInterval(checkNoShow, 60000);
     checkNoShow();
     return () => clearInterval(interval);
-  }, []);
+  }, [user]);
 
   const fullProcessedQueue = useMemo(() => {
     return queue
@@ -1179,9 +1194,11 @@ const App = () => {
                     json.role?.toLowerCase() === 'display' ? 'display' :
                     json.role?.toLowerCase() === 'warranty' ? 'warranty' :
                     json.role?.toLowerCase() === 'foreman' ? 'foreman' :
-                    json.role?.toLowerCase() === 'security' ? 'security' : 'admin';
+                    json.role?.toLowerCase() === 'security' ? 'security' :
+                    json.role?.toLowerCase() === 'sales' ? 'sales-booking' :
+                    json.role?.toLowerCase() === 'spv' ? 'spv-booking' : 'admin';
 
-        const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty', 'foreman', 'security'].includes(json.role?.toLowerCase()) ? '/staff' : 
+        const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty', 'foreman', 'security', 'sales', 'spv'].includes(json.role?.toLowerCase()) ? '/staff' : 
                           (json.role?.toLowerCase() === 'customer' ? '/customer' : 
                             (json.role?.toLowerCase() === 'display' ? '/display' : '/karyawan'));
         window.history.pushState({}, '', targetUrl);
@@ -2304,7 +2321,7 @@ const App = () => {
   }
 
   // Determine if navbars should be shown
-  const showNavbar = currentPage !== 'login' && currentPage !== 'register' && currentPage !== 'customer' && user?.role?.toLowerCase() !== 'display';
+  const showNavbar = currentPage !== 'login' && currentPage !== 'register' && user?.role?.toLowerCase() !== 'display';
   // Check if on a dashboard page (not public)
   const publicPages = ['display', 'booking-public', 'login', 'register'];
   const isOnDashboard = user && !publicPages.includes(currentPage);
@@ -2432,8 +2449,10 @@ const App = () => {
       {currentPage === 'cro-customers' && (
         <CsiCustomers />
       )}
-      {currentPage === 'booking-public' && <PublicBooking user={user} />}
+      {currentPage === 'booking-public' && <PublicBooking user={user} setCurrentPage={navigate} />}
       {currentPage === 'sa-booking' && <SABookingPanel />}
+      {currentPage === 'sales-booking' && user?.role === 'sales' && <StaffBookingPanel user={user} />}
+      {currentPage === 'spv-booking' && user?.role === 'spv' && <StaffBookingPanel user={user} />}
       {currentPage === 'booking-settings' && <BookingSettings />}
       {currentPage === 'promo' && <PromosiSparepart />}
       {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="performance" />}

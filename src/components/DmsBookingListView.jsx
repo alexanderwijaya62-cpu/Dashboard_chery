@@ -109,7 +109,9 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
     (async () => {
       try {
         const { data } = await db.select('booking', {
-          order: { column: 'createdAt', ascending: false }
+          select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, noUrut, vin',
+          order: { column: 'id', ascending: false },
+          limit: 500
         });
         setSupabaseData(data || []);
       } catch (e) {
@@ -137,7 +139,7 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
       atas_nama_booking: b.namaCustomer || '-',
       no_telp_booking: b.noTelp || '-',
       keluhan: b.keperluanService || '-',
-      created_at: b.createdAt || b.tanggal,
+      created_at: b.tanggal,
     }));
   }, [supabaseData]);
 

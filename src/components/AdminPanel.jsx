@@ -277,8 +277,24 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
             _source: 'dms'
         }));
 
-        // Merge: DMS bookings first (so Supabase ones take priority if duplicate)
-        const allForToday = [...normalizedDms, ...rawBookings];
+        // Merge with dedup: Supabase first (has edit/delete), DMS only if not already in Supabase
+        const dedupKey = (b) => `${normalizeBK(b.noPlat)}_${b.tanggal}_${String(b.jam).replace(':', '.')}`;
+        const seenKeys = new Set();
+        const allForToday = [];
+        rawBookings.forEach(b => {
+            const key = dedupKey(b);
+            if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                allForToday.push(b);
+            }
+        });
+        normalizedDms.forEach(b => {
+            const key = dedupKey(b);
+            if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                allForToday.push(b);
+            }
+        });
         return allForToday;
     }, [dmsTodayBookings, rawBookings]);
 
@@ -423,9 +439,26 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
     const [isImporting, setIsImporting] = useState(false);
 
     const allMasterBookings = useMemo(() => {
-        // Merge: DMS first, Supabase second (DMS flagged, Supabase for edit/delete)
-        return [...dmsMasterBookings, ...rawBookings];
-    }, [dmsMasterBookings, rawBookings]);
+        // Merge with dedup: Supabase first (has edit/delete), DMS only if not already in Supabase
+        const dedupKey = (b) => `${normalizeBK(b.noPlat)}_${b.tanggal}_${String(b.jam || '').replace(':', '.')}`;
+        const seenKeys = new Set();
+        const merged = [];
+        rawBookings.forEach(b => {
+            const key = dedupKey(b);
+            if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                merged.push(b);
+            }
+        });
+        dmsMasterBookings.forEach(b => {
+            const key = dedupKey(b);
+            if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                merged.push(b);
+            }
+        });
+        return merged;
+    }, [dmsMasterBookings, rawBookings, normalizeBK]);
 
     const filteredMasterBookings = useMemo(() => {
         return allMasterBookings
@@ -1705,7 +1738,6 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                                                 noPlat: createBookingForm.noPlat.toUpperCase().replace(/\s+/g, ''),
                                                 status: 'accepted',
                                                 bookingVia: `ADMIN / ${user?.name || 'Authorized'}`,
-                                                createdAt: new Date().toISOString(),
                                             }]);
                                             if (insertError) Toastify({ text: `Gagal membuat booking: ${insertError.message}`, background: "red", duration: 5000 }).showToast();
                                             else { Toastify({ text: "Booking berhasil dibuat!", background: "zinc-900" }).showToast(); setIsCreateBookingModalOpen(false); fetchBookings(); }

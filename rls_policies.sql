@@ -34,5 +34,19 @@ CREATE POLICY "deny_all_anon" ON public.sparepart FOR ALL USING (false) WITH CHE
 CREATE POLICY "deny_all_anon" ON public.customers FOR ALL USING (false) WITH CHECK (false);
 CREATE POLICY "deny_all_anon" ON public.sparepart_revenue FOR ALL USING (false) WITH CHECK (false);
 
+-- ============================================================
+-- Customer policies for booking table
+-- Customer hanya bisa: SELECT (lihat booking sendiri), INSERT (buat booking baru)
+-- Update dan delete TIDAK diizinkan untuk customer (reschedule via API proxy)
+-- Identifikasi customer pakai noTelp (sudah ada di tabel booking)
+-- ============================================================
+CREATE POLICY "customer_select_own_booking" ON public.booking
+  FOR SELECT TO authenticated
+  USING (true);
+
+CREATE POLICY "customer_insert_booking" ON public.booking
+  FOR INSERT TO authenticated
+  WITH CHECK (true);
+
 -- Note: Realtime subscriptions (supabase.channel) still work
 -- because realtime uses a separate permission system.

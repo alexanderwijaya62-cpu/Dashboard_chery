@@ -120,6 +120,11 @@ ALTER TABLE public.antrian ADD COLUMN IF NOT EXISTS cuci_required BOOLEAN DEFAUL
 NOTIFY pgrst, 'reload schema';
 
 -- ============================================================
+-- #9: Kolom noTelp di booking sudah ada, tidak perlu tambah lagi
+-- Booking identifikasi customer cukup pakai noTelp
+-- ============================================================
+
+-- ============================================================
 -- #6: Table sparepart_revenue untuk data penjualan sparepart
 -- imported from Excel via SparepartPredictor
 -- ============================================================

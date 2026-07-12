@@ -1332,6 +1332,8 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
                       <option value="mekanik">Mekanik Bengkel</option>
                       <option value="sparepart">Sparepart Staff</option>
                       <option value="cro">Customer Relation (CRO)</option>
+                      <option value="sales">Sales</option>
+                      <option value="spv">SPV Sales</option>
                       <option value="manager">Manager Hub</option>
                     </select>
                   </div>

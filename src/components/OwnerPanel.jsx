@@ -1217,7 +1217,7 @@ export default function OwnerPanel({
 
   const fetchDeletedBookings = useCallback(async () => {
     try {
-      const { data, error } = await db.select('booking', { eq: { status: 'deleted' }, order: { column: 'tanggal', ascending: false } });
+      const { data, error } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, bookingVia, noTelp, keperluanService', eq: { status: 'deleted' }, order: { column: 'tanggal', ascending: false } });
       if (error) throw error;
       setDeletedBookings(data || []);
     } catch (e) {
@@ -1232,17 +1232,21 @@ export default function OwnerPanel({
   // Fetch notification sound URL and status from settings
   const fetchNotifSettings = useCallback(async () => {
     try {
-      const { data: urlData } = await db.select('settings', { eq: { key: 'notification_sound_url' }, maybeSingle: true });
-      if (urlData) setNotifSoundUrl(urlData.value);
-
-      const { data: statusData } = await db.select('settings', { eq: { key: 'notification_sound_enabled' }, maybeSingle: true });
-      if (statusData) setIsSoundEnabled(statusData.value === 'true');
-
-      const { data: menginapData } = await db.select('settings', { eq: { key: 'auto_menginap_enabled' }, maybeSingle: true });
-      if (menginapData) setIsAutoMenginapEnabled(menginapData.value === 'true');
-
-      const { data: cooldownData } = await db.select('settings', { eq: { key: 'call_cooldown_seconds' }, maybeSingle: true });
-      if (cooldownData) setCallCooldown(parseInt(cooldownData.value) || 120);
+      const { data } = await db.select('settings', {
+        or: [
+          { op: 'eq', column: 'key', value: 'notification_sound_url' },
+          { op: 'eq', column: 'key', value: 'notification_sound_enabled' },
+          { op: 'eq', column: 'key', value: 'auto_menginap_enabled' },
+          { op: 'eq', column: 'key', value: 'call_cooldown_seconds' },
+        ]
+      });
+      if (Array.isArray(data)) {
+        const map = Object.fromEntries(data.map(r => [r.key, r.value]));
+        if (map.notification_sound_url) setNotifSoundUrl(map.notification_sound_url);
+        if (map.notification_sound_enabled) setIsSoundEnabled(map.notification_sound_enabled === 'true');
+        if (map.auto_menginap_enabled) setIsAutoMenginapEnabled(map.auto_menginap_enabled === 'true');
+        if (map.call_cooldown_seconds) setCallCooldown(parseInt(map.call_cooldown_seconds) || 120);
+      }
     } catch (e) { 
       // Silently ignore table errors
     }

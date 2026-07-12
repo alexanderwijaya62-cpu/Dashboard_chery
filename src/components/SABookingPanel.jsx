@@ -57,6 +57,19 @@ export default function SABookingPanel() {
     return days;
   }, [currentCalMonth]);
 
+  const dateFillMap = useMemo(() => {
+    const map = {};
+    const allSlots = generateSlots(slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM);
+    const totalCapacity = allSlots.length * slotConfig.capacity;
+    bookings.forEach(b => {
+      if (b.status !== 'waiting confirm' && b.status !== 'accepted' && b.status !== 'completed') return;
+      if (!b.tanggal) return;
+      map[b.tanggal] = (map[b.tanggal] || 0) + 1;
+    });
+    Object.keys(map).forEach(d => { map[d] = { count: map[d], total: totalCapacity, full: map[d] >= totalCapacity, partial: map[d] > 0 && map[d] < totalCapacity }; });
+    return map;
+  }, [bookings, slotConfig]);
+
   useEffect(() => {
     (async () => {
       const config = await fetchBookingConfig();
@@ -74,7 +87,7 @@ export default function SABookingPanel() {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const dateStr = yesterday.toISOString().split('T')[0];
-    const { data } = await db.select('booking', { gte: { tanggal: dateStr } });
+    const { data } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, bookingVia', gte: { tanggal: dateStr } });
     let merged = Array.isArray(data) ? [...data] : [];
 
     // === Fetch DMS internal bookings ===
@@ -112,7 +125,19 @@ export default function SABookingPanel() {
       console.warn('Gagal fetch DMS bookings:', dmsErr);
     }
 
-    setBookings(merged);
+    // Dedup by plate + date + time (Supabase first, DMS only if not already present)
+    const dedupKey = (b) => `${(b.noPlat || '').replace(/\s+/g, '').toUpperCase()}_${b.tanggal}_${String(b.jam || '').replace(':', '.')}`;
+    const seenKeys = new Set();
+    const deduped = [];
+    merged.forEach(b => {
+      const key = dedupKey(b);
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        deduped.push(b);
+      }
+    });
+
+    setBookings(deduped);
   }, []);
 
   useEffect(() => {
@@ -217,7 +242,6 @@ export default function SABookingPanel() {
           keperluanService: formData.keluhan || '-',
           status: 'accepted',
           bookingVia: 'SA Booking (Manual)',
-          createdAt: new Date().toISOString(),
         });
         if (error) throw error;
         Toastify({ text: "Booking BERHASIL!", background: "green" }).showToast();
@@ -239,7 +263,6 @@ export default function SABookingPanel() {
         keperluanService: formData.keluhan || '-',
         status: 'accepted',
         bookingVia: 'SA Booking',
-        createdAt: new Date().toISOString(),
       });
       if (insertErr) throw insertErr;
 
@@ -440,11 +463,15 @@ export default function SABookingPanel() {
                       const isPast = isPastDate(item.date);
                       const isHoliday = isHolidayOrSunday(item.date, holidays);
                       const isDisabled = isPast || isHoliday;
+                      const fill = dateFillMap[item.date];
+                      const fillBg = !isDisabled && fill?.full ? 'bg-red-500 border-red-600 text-white' :
+                        !isDisabled && fill?.partial ? 'bg-yellow-300 border-yellow-400 text-yellow-900' :
+                        !isDisabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:border-emerald-400' : '';
                       return (
                         <button key={idx} type="button" disabled={isDisabled}
                           onClick={() => setFormData({ ...formData, tanggal: item.date, jam: '' })}
                           className={`relative aspect-[4/5] rounded-xl flex flex-col items-center justify-center transition-all border-2 ${isDisabled ? 'bg-zinc-100/30 border-transparent text-zinc-200 cursor-not-allowed opacity-20' :
-                            isActive ? 'bg-black border-black text-white shadow-lg z-10 scale-110' : 'bg-white border-zinc-100 text-zinc-800 hover:border-zinc-400'
+                            isActive ? 'bg-black border-black text-white shadow-lg z-10 scale-110' : fillBg
                           }`}
                         >
                           <span className="text-[11px] font-black">{item.day}</span>

@@ -27,6 +27,7 @@ export default function BookingApprovalQueue({ user, setCurrentPage }) {
     setIsLoading(true);
     try {
       const { data, error } = await db.select('booking', {
+        select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, vin, noUrut, keluhanDetail',
         eq: { status: 'waiting_approval' },
         order: { column: 'tanggal', ascending: true }
       });

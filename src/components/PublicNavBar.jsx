@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, Calendar, LogIn, LogOut, Menu, X, User } from 'lucide-react';
+import { Home, Calendar, LogIn, LogOut, Menu, X, User, Car } from 'lucide-react';
 import { getNavItems } from '../utils/navConfig';
 
 /**
@@ -40,6 +40,8 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout }) => {
       warranty: 'warranty',
       foreman: 'foreman',
       security: 'security',
+      sales: 'sales-booking',
+      spv: 'spv-booking',
     };
     return map[role?.toLowerCase()] || 'login';
   };
@@ -48,8 +50,18 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout }) => {
     const urlMap = {
       'display': '/display',
       'booking-public': '/booking',
-      'tracking-public': '/tracking',
       'login': '/login',
+      'customer': '/customer',
+      'admin': '/staff',
+      'manager': '/staff',
+      'cro': '/staff',
+      'sparepart': '/staff',
+      'owner': '/staff',
+      'mechanic': '/karyawan',
+      'foreman': '/staff',
+      'security': '/staff',
+      'sales-booking': '/staff',
+      'spv-booking': '/staff',
     };
     const newPath = urlMap[page];
     if (newPath) {
@@ -78,17 +90,21 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout }) => {
     return () => document.removeEventListener('keydown', handleEsc);
   }, []);
 
-  // Public pages for bottom nav + sidebar
-  const publicNavItems = [
-    { id: 'home', icon: Home, label: 'Home', page: 'display', ariaLabel: 'Home Display' },
-    { id: 'booking', icon: Calendar, label: 'Booking', page: 'booking-public', ariaLabel: 'Booking Service' },
-  ];
+  // Public pages for bottom nav + sidebar — guest and customer only see Booking
+  const publicNavItems = !user || user?.role?.toLowerCase() === 'customer'
+    ? [
+        { id: 'booking', icon: Calendar, label: 'Booking', page: 'booking-public', ariaLabel: 'Booking Service' },
+      ]
+    : [
+        { id: 'home', icon: Home, label: 'Home', page: 'display', ariaLabel: 'Home Display' },
+        { id: 'booking', icon: Calendar, label: 'Booking', page: 'booking-public', ariaLabel: 'Booking Service' },
+      ];
 
   // Bottom nav items (mobile) — includes Dashboard/Login as 4th item
   const bottomNavItems = [
     ...publicNavItems,
     user
-      ? { id: 'dashboard', icon: Menu, label: 'Dashboard', page: getDefaultDashboard(user.role), ariaLabel: 'Dashboard' }
+      ? { id: 'dashboard', icon: user.role?.toLowerCase() === 'customer' ? Car : Menu, label: 'Dashboard', page: getDefaultDashboard(user.role), ariaLabel: 'Dashboard' }
       : { id: 'login', icon: LogIn, label: 'Login', page: 'login', ariaLabel: 'Login' },
   ];
 
@@ -96,7 +112,7 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout }) => {
   const sidebarItems = user ? getNavItems(user.role?.toLowerCase()) : [];
 
   // Is current page a dashboard page (not public)?
-  const publicPagesList = ['display', 'booking-public', 'tracking-public', 'login', 'register'];
+  const publicPagesList = ['display', 'booking-public', 'login', 'register'];
   const isOnDashboard = user && !publicPagesList.includes(currentPage);
 
   // Show mobile top bar only when on dashboard and there are multiple pages to navigate
