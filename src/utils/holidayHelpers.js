@@ -2,9 +2,14 @@ import { db } from './dbClient';
 
 export const fetchHolidays = async () => {
   try {
-    const { data } = await db.select('libur');
-    return data || [];
-  } catch {
+    const { data, error } = await db.select('libur');
+    if (error) {
+      console.error('fetchHolidays error:', error);
+      return [];
+    }
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    console.error('fetchHolidays exception:', e);
     return [];
   }
 };

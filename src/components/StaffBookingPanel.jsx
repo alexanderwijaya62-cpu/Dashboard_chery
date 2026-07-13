@@ -70,10 +70,18 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
 
     useEffect(() => {
         (async () => {
-            const config = await fetchBookingConfig();
-            setSlotConfig({ count: config.slotCount, gap: config.gapMinutes, startH: config.startHour, startM: config.startMinute, capacity: config.slotCapacity });
-            const hols = await fetchHolidays();
-            setHolidays(hols);
+            try {
+                const config = await fetchBookingConfig();
+                setSlotConfig({ count: config.slotCount, gap: config.gapMinutes, startH: config.startHour, startM: config.startMinute, capacity: config.slotCapacity });
+            } catch (e) {
+                console.warn('Gagal fetch booking config:', e);
+            }
+            try {
+                const hols = await fetchHolidays();
+                setHolidays(hols);
+            } catch (e) {
+                console.warn('Gagal fetch holidays:', e);
+            }
         })();
     }, []);
 
