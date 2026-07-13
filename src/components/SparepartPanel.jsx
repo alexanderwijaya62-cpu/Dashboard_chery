@@ -673,7 +673,7 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
                     )}
                 </main>
             </div>
+            <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
         </div>
-        <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
     );
 }
