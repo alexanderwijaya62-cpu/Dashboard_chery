@@ -146,7 +146,10 @@ export default function StaffBookingPanel({ user }) {
 
     const myBookings = useMemo(() => {
         const prefixPattern = `${bookingPrefix}: ${staffName}`;
-        return bookings.filter(b => (b.bookingVia || '').startsWith(prefixPattern));
+        return bookings.filter(b => {
+            const via = b.bookingVia || '';
+            return via.startsWith(prefixPattern) || via.includes(staffName);
+        });
     }, [bookings, bookingPrefix, staffName]);
 
     const filteredBookings = useMemo(() => {
@@ -254,7 +257,7 @@ export default function StaffBookingPanel({ user }) {
                     if (json.success) {
                         dmsSynced = true;
                         if (inserted && inserted.id) {
-                            try { await db.update('booking', { bookingVia: `${bookingPrefix} Booking (DMS Synced)` }, { eq: { id: inserted.id } }); } catch (_) {}
+                            try { await db.update('booking', { bookingVia: `${bookingPrefix}: ${staffName} (DMS Synced)` }, { eq: { id: inserted.id } }); } catch (_) {}
                         }
                     }
                 } catch (syncErr) {
