@@ -683,7 +683,7 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
                     )}
                 </div>
             )}
+            <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
         </div>
-        <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
     );
 }

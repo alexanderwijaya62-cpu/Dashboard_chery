@@ -1127,8 +1127,8 @@ const CustomerPanel = ({ user, handleLogout, handleChangePassword, setCurrentPag
         </div>
       )}
 
+      <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
     </div>
-    <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
   );
 };
 

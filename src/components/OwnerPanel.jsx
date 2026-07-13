@@ -4322,8 +4322,8 @@ function WorkshopColumn({ title, items, color, icon: Icon, formatTime, onEdit, o
           ))
         )}
       </div>
+      <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
     </div>
-    <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
   );
 }
 

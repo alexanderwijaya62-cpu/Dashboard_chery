@@ -740,7 +740,7 @@ export default function ForemanPanel({
                     </div>
                 </div>
             )}
+            <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
         </div>
-        <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
     );
 }
