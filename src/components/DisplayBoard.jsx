@@ -863,7 +863,7 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
                  </div>
              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 h-[calc(100vh-440px)] min-h-0">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 md:h-[calc(100vh-440px)] min-h-0">
                <CarouselCol title="Booking" data={categories.booking} colorClass="bg-red-600" icon={Bookmark} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} subtitle={(<div className="flex flex-col mt-1"><div className="flex items-center gap-2 overflow-hidden"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" /><span className="text-xl font-black text-zinc-400 uppercase tracking-widest truncate">{categories.booking.length} Unit Antrian</span></div></div>)} />
                <CarouselCol title="Reguler" data={categories.reguler} colorClass="bg-zinc-800" icon={Zap} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />
                <CarouselCol title="Menginap" data={categories.menginap} colorClass="bg-purple-600" icon={Moon} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />
