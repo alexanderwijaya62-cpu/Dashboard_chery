@@ -35,7 +35,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Password minimal 6 karakter' });
       }
 
-      // Try users table first, then customers
+      // Try users table first, then customers, then sales
       const { data: user } = await supabase
         .from('users')
         .select('password')
@@ -61,18 +61,37 @@ export default async function handler(req, res) {
         .eq('no_hp', username)
         .maybeSingle();
 
-      if (!customer) return res.status(404).json({ error: 'User not found' });
-
-      let valid = false;
-      if (customer.password.startsWith('$2b$') || customer.password.startsWith('$2a$')) {
-        valid = bcrypt.compareSync(oldPassword, customer.password);
-      } else {
-        valid = oldPassword === customer.password;
+      if (customer) {
+        let valid = false;
+        if (customer.password.startsWith('$2b$') || customer.password.startsWith('$2a$')) {
+          valid = bcrypt.compareSync(oldPassword, customer.password);
+        } else {
+          valid = oldPassword === customer.password;
+        }
+        if (!valid) return res.status(401).json({ error: 'Password lama salah!' });
+        const hash = bcrypt.hashSync(newPassword, 10);
+        await supabase.from('customers').update({ password: hash }).eq('no_hp', username);
+        return res.json({ success: true, message: 'Password berhasil diubah!' });
       }
-      if (!valid) return res.status(401).json({ error: 'Password lama salah!' });
 
-      const hash = bcrypt.hashSync(newPassword, 10);
-      await supabase.from('customers').update({ password: hash }).eq('no_hp', username);
+      const { data: salesUser } = await supabase
+        .from('sales')
+        .select('password')
+        .eq('username', username)
+        .maybeSingle();
+
+      if (!salesUser) return res.status(404).json({ error: 'User not found' });
+
+      let valid2 = false;
+      if (salesUser.password.startsWith('$2b$') || salesUser.password.startsWith('$2a$')) {
+        valid2 = bcrypt.compareSync(oldPassword, salesUser.password);
+      } else {
+        valid2 = oldPassword === salesUser.password;
+      }
+      if (!valid2) return res.status(401).json({ error: 'Password lama salah!' });
+
+      const hash2 = bcrypt.hashSync(newPassword, 10);
+      await supabase.from('sales').update({ password: hash2 }).eq('username', username);
       return res.json({ success: true, message: 'Password berhasil diubah!' });
     }
 
@@ -115,6 +134,43 @@ export default async function handler(req, res) {
         role: user.role,
         plat_bk: user.plat_bk,
         vin: user.vin,
+        sessionId
+      });
+    }
+
+    // ── LOGIN: try sales table (SPV/Sales staff) ──
+    const { data: salesUser } = await supabase
+      .from('sales')
+      .select('id, username, name, role, spv, status, password')
+      .eq('username', username)
+      .maybeSingle();
+
+    if (salesUser) {
+      if (salesUser.status === 'non-active') {
+        return res.status(403).json({ error: 'Akun sudah non-aktif. Hubungi SPV/Admin.' });
+      }
+
+      let valid = false;
+      if (salesUser.password.startsWith('$2b$') || salesUser.password.startsWith('$2a$')) {
+        valid = bcrypt.compareSync(password, salesUser.password);
+      } else {
+        valid = password === salesUser.password;
+        if (valid) {
+          const hash = bcrypt.hashSync(password, 10);
+          await supabase.from('sales').update({ password: hash }).eq('username', username);
+        }
+      }
+
+      if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+
+      const sessionId = crypto.randomUUID();
+
+      return res.json({
+        id: salesUser.id,
+        username: salesUser.username,
+        name: salesUser.name,
+        role: salesUser.role, // 'sales' or 'spv'
+        spv: salesUser.spv,
         sessionId
       });
     }
