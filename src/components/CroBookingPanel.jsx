@@ -156,7 +156,7 @@ export default function CroBookingPanel({ user }) {
                     field += ch;
                 }
             } else {
-                if (ch === '"') {
+                if (ch === '"' && field === '') {
                     inQuote = true;
                 } else if (ch === '\t') {
                     row.push(field);
