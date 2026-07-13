@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
-const ALLOWED_TABLES = ['users','settings','antrian','history','booking','cro','libur','notifications','revenue','laporanwo','sparepart','customers','push_subscriptions','sparepart_master','sparepart_revenue'];
+const ALLOWED_TABLES = ['users','settings','antrian','history','booking','cro','libur','notifications','revenue','laporanwo','sparepart','customers','push_subscriptions','sparepart_master','sparepart_revenue','sales'];
 
 // Default columns per table — cegah over-fetching saat client kirim select: '*'
 const DEFAULT_COLUMNS = {
@@ -129,7 +129,7 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Silakan login terlebih dahulu untuk melakukan booking.' });
     }
 
-    // Single query — cek users DAN customers dalam 1 request
+    // Single query — cek users, customers, DAN sales dalam 1 request
     const { data: userRecord } = await supabase
       .from('users')
       .select('username, status')
@@ -148,7 +148,16 @@ export default async function handler(req, res) {
         .maybeSingle();
 
       if (!customerRecord) {
-        return res.status(401).json({ error: 'Sesi tidak valid atau telah kedaluwarsa. Silakan login kembali.' });
+        const { data: salesRecord } = await supabase
+          .from('sales')
+          .select('username, status')
+          .eq('username', authUsername)
+          .eq('status', 'active')
+          .maybeSingle();
+
+        if (!salesRecord) {
+          return res.status(401).json({ error: 'Sesi tidak valid atau telah kedaluwarsa. Silakan login kembali.' });
+        }
       }
     }
   }
