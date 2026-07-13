@@ -141,35 +141,19 @@ export default function CroBookingPanel({ user }) {
         const errs = [];
         let row = [];
         let field = '';
-        let inQuote = false;
         for (let i = 0; i < text.length; i++) {
             const ch = text[i];
-            if (inQuote) {
-                if (ch === '"') {
-                    if (i + 1 < text.length && text[i + 1] === '"') {
-                        field += '"';
-                        i++;
-                    } else {
-                        inQuote = false;
-                    }
-                } else {
-                    field += ch;
-                }
+            if (ch === '\t') {
+                row.push(field);
+                field = '';
+            } else if (ch === '\n' || ch === '\r') {
+                if (ch === '\r' && i + 1 < text.length && text[i + 1] === '\n') i++;
+                row.push(field);
+                field = '';
+                if (row.some(c => c.trim())) rows.push(row);
+                row = [];
             } else {
-                if (ch === '"' && field === '') {
-                    inQuote = true;
-                } else if (ch === '\t') {
-                    row.push(field);
-                    field = '';
-                } else if (ch === '\n' || ch === '\r') {
-                    if (ch === '\r' && i + 1 < text.length && text[i + 1] === '\n') i++;
-                    row.push(field);
-                    field = '';
-                    if (row.some(c => c.trim())) rows.push(row);
-                    row = [];
-                } else {
-                    field += ch;
-                }
+                field += ch;
             }
         }
         if (field.trim() || row.some(c => c.trim())) {
