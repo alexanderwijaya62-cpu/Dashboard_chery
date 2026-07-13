@@ -498,7 +498,15 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
                         </div>
                     </div>
 
-                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-zinc-100">
+                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-zinc-100 relative">
+                        {isLoadingBookings && (
+                            <div className="absolute inset-0 bg-white/70 backdrop-blur-sm rounded-2xl z-10 flex items-center justify-center">
+                                <div className="flex flex-col items-center gap-2">
+                                    <div className="w-6 h-6 border-2 border-zinc-300 border-t-zinc-900 rounded-full animate-spin" />
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400">Memuat data booking...</span>
+                                </div>
+                            </div>
+                        )}
                         <BookingCalendar
                             bookings={bookings}
                             slotConfig={slotConfig}
