@@ -536,28 +536,23 @@ const App = () => {
   const fetchQueue = React.useCallback(async () => {
     if (!user) return;
     try {
-      const { data: activeQueue, error: qError } = await db.select('antrian', {
-        select: 'id,bk,tipe,status,category,queue_number,is_called,called_at,counter,nama_sa'
-      });
-
-      const { data: historyData, error: hError } = await db.select('history', {
-        select: 'id,bk,tipe,status,waktuMasuk,waktuSelesai,category,mechanicName,stand_km,nama_sa',
-        order: { column: 'targetTime', ascending: false },
-        limit: 100
-      });
-
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const bookingDateLimit = thirtyDaysAgo.toISOString().split('T')[0];
 
-      const { data: bookingData, error: bError } = await db.select('booking', {
-        select: 'id,tanggal,jam,status,noPlat,namaCustomer,tipeMobil,keperluanService,noTelp,bookingVia,vin,noUrut,ip_address',
-        gte: { tanggal: bookingDateLimit }
-      });
+      const [queueResult, historyResult, bookingResult] = await Promise.allSettled([
+        db.select('antrian', { select: 'id,bk,tipe,status,category,queue_number,is_called,called_at,counter,nama_sa' }),
+        db.select('history', { select: 'id,bk,tipe,status,waktuMasuk,waktuSelesai,category,mechanicName,nama_sa', order: { column: 'targetTime', ascending: false }, limit: 100 }),
+        db.select('booking', { select: 'id,tanggal,jam,status,noPlat,namaCustomer,tipeMobil,keperluanService,noTelp,bookingVia,vin,noUrut,ip_address', gte: { tanggal: bookingDateLimit } }),
+      ]);
 
-      if (qError) throw qError;
-      if (hError) throw hError;
-      if (bError) throw bError;
+      const activeQueue = queueResult.status === 'fulfilled' ? queueResult.value?.data : null;
+      const historyData = historyResult.status === 'fulfilled' ? historyResult.value?.data : null;
+      const bookingData = bookingResult.status === 'fulfilled' ? bookingResult.value?.data : null;
+
+      if (queueResult.status === 'rejected') console.error('Antrian error:', queueResult.reason);
+      if (historyResult.status === 'rejected') console.error('History error:', historyResult.reason);
+      if (bookingResult.status === 'rejected') console.error('Booking error:', bookingResult.reason);
 
       const mapDbToApp = (item) => {
         if (!item) return {};

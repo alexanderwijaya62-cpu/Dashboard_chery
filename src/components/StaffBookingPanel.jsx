@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Search, Send, Plus, X, List, Clock, Check, Car, User, Phone, FileText, Trash2 } from 'lucide-react';
+import { Calendar, Search, Send, Plus, List, Clock, Check, Car, FileText, Trash2 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
+import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
-import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
+import { fetchBookingConfig } from '../utils/bookingConfig';
 import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
-
-const daysInMonth = (month, year) => new Date(year, month + 1, 0).getDate();
-const startDayOfMonth = (month, year) => new Date(year, month, 1).getDay();
+import { normalizeDmsBooking, parseDmsDate, parseDmsTime } from '../utils/dateHelpers';
+import BookingCalendar from './BookingCalendar';
 
 const TIPE_MOBIL = [
     "Tiggo 5x", "Tiggo Cross", "Tiggo Cross Csh", "Tiggo 7", "Tiggo 8 Pro",
@@ -46,21 +46,14 @@ export default function StaffBookingPanel({ user }) {
     const [foundVehicle, setFoundVehicle] = useState(null);
 
     const [formData, setFormData] = useState({
-        noPolisi: '',
-        atasNama: '',
-        noTelp: '',
-        modelKendaraan: '',
-        keluhan: '',
-        tanggal: '',
-        jam: '',
+        noPolisi: '', atasNama: '', noTelp: '', modelKendaraan: '', keluhan: '', tanggal: '', jam: '',
     });
 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [slotConfig, setSlotConfig] = useState({ count: 4, gap: 30, startH: 8, startM: 30, capacity: 1 });
     const [holidays, setHolidays] = useState([]);
-    const [currentCalMonth, setCurrentCalMonth] = useState(new Date());
 
-    const [myBookings, setMyBookings] = useState([]);
+    const [bookings, setBookings] = useState([]);
     const [isLoadingBookings, setIsLoadingBookings] = useState(false);
     const [bookingFilter, setBookingFilter] = useState('all');
 
@@ -73,55 +66,95 @@ export default function StaffBookingPanel({ user }) {
         })();
     }, []);
 
-    const calendarGrid = useMemo(() => {
-        const month = currentCalMonth.getMonth();
-        const year = currentCalMonth.getFullYear();
-        const days = [];
-        const prevMonthLastDay = new Date(year, month, 0).getDate();
-        const startDay = startDayOfMonth(month, year);
-        for (let i = startDay - 1; i >= 0; i--) {
-            days.push({ day: prevMonthLastDay - i, currentMonth: false });
-        }
-        for (let i = 1; i <= daysInMonth(month, year); i++) {
-            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-            days.push({ day: i, currentMonth: true, date: dateStr });
-        }
-        const remaining = 42 - days.length;
-        for (let i = 1; i <= remaining; i++) {
-            days.push({ day: i, currentMonth: false });
-        }
-        return days;
-    }, [currentCalMonth]);
-
-    const JAM_PILIHAN = useMemo(
-        () => generateSlots(slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM),
-        [slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM]
-    );
-
-    const fetchMyBookings = useCallback(async () => {
+    const fetchBookings = useCallback(async () => {
         setIsLoadingBookings(true);
         try {
-            const today = new Date().toISOString().split('T')[0];
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const dateStr = yesterday.toISOString().split('T')[0];
             const { data } = await db.select('booking', {
                 select: 'id,tanggal,jam,noPlat,namaCustomer,tipeMobil,keperluanService,status,bookingVia,noTelp',
-                gte: { tanggal: today },
+                gte: { tanggal: dateStr },
                 order: { column: 'tanggal', ascending: false },
-                limit: 100,
+                limit: 200,
             });
-            if (Array.isArray(data)) {
-                const prefixPattern = `${bookingPrefix}: ${staffName}`;
-                setMyBookings(data.filter(b => (b.bookingVia || '').startsWith(prefixPattern)));
+            let merged = Array.isArray(data) ? [...data] : [];
+            const supabaseData = Array.isArray(data) ? [...data] : [];
+
+            try {
+                const now = new Date();
+                const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+                const nextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+                const to = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-${String(nextMonth.getDate()).padStart(2, '0')}`;
+                const dmsRes = await fetch(`/api/chery_dms?endpoint=booking-data&datefrom=${from}&dateto=${to}&length=500`);
+                if (dmsRes.ok) {
+                    const dmsJson = await dmsRes.json();
+                    const dmsAll = dmsJson.data || [];
+                    const dmsCancelled = dmsAll.filter(b => (b.status_booking || '').toLowerCase() === 'batal');
+                    for (const cancelled of dmsCancelled) {
+                        const cDate = parseDmsDate(cancelled.janji_datang);
+                        const cJam = parseDmsTime(cancelled.janji_datang);
+                        const cPlat = (cancelled.no_polisi || '').replace(/\s+/g, '').toUpperCase();
+                        const match = supabaseData.find(sb => {
+                            const sbPlat = (sb.noPlat || '').replace(/\s+/g, '').toUpperCase();
+                            const sbJam = String(sb.jam || '').replace(':', '.');
+                            return sbPlat === cPlat && sb.tanggal === cDate && sbJam === cJam && sb.status !== 'cancelled';
+                        });
+                        if (match) {
+                            try {
+                                await db.update('booking', { status: 'cancelled' }, { eq: { id: match.id } });
+                                match.status = 'cancelled';
+                            } catch (e) {
+                                console.warn('Gagal auto-cancel Supabase booking:', e);
+                            }
+                        }
+                    }
+                    const dmsEntries = dmsAll.map(normalizeDmsBooking).filter(Boolean).filter(b => b.tanggal >= dateStr);
+                    merged = [...merged, ...dmsEntries];
+                }
+            } catch (dmsErr) {
+                console.warn('Gagal fetch DMS bookings:', dmsErr);
             }
+
+            const dedupKey = (b) => `${(b.noPlat || '').replace(/\s+/g, '').toUpperCase()}_${b.tanggal}_${String(b.jam || '').replace(':', '.')}`;
+            const seenKeys = new Set();
+            const deduped = [];
+            merged.forEach(b => {
+                const key = dedupKey(b);
+                if (!seenKeys.has(key)) {
+                    seenKeys.add(key);
+                    deduped.push(b);
+                }
+            });
+
+            setBookings(deduped);
         } catch (e) {
             console.error('Gagal memuat booking', e);
         } finally {
             setIsLoadingBookings(false);
         }
-    }, [bookingPrefix, staffName]);
+    }, []);
 
     useEffect(() => {
-        if (activeTab === 'list') fetchMyBookings();
-    }, [activeTab, fetchMyBookings]);
+        fetchBookings();
+        const channel = supabase
+            .channel('staff-booking-realtime')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'booking' }, () => fetchBookings())
+            .subscribe();
+        return () => { supabase.removeChannel(channel); };
+    }, [fetchBookings]);
+
+    const myBookings = useMemo(() => {
+        const prefixPattern = `${bookingPrefix}: ${staffName}`;
+        return bookings.filter(b => (b.bookingVia || '').startsWith(prefixPattern));
+    }, [bookings, bookingPrefix, staffName]);
+
+    const filteredBookings = useMemo(() => {
+        const today = new Date().toISOString().split('T')[0];
+        if (bookingFilter === 'today') return myBookings.filter(b => b.tanggal === today);
+        if (bookingFilter === 'upcoming') return myBookings.filter(b => b.tanggal > today);
+        return myBookings;
+    }, [myBookings, bookingFilter]);
 
     const handleSearchVehicle = async (e) => {
         e.preventDefault();
@@ -207,7 +240,7 @@ export default function StaffBookingPanel({ user }) {
                         no_telp_booking: formData.noTelp,
                         janji_datang: janjiDatang,
                         keluhan: formData.keluhan || '-',
-                        booking_via: `${bookingPrefix} Booking`,
+                        booking_via: staffName,
                         km: '0'
                     };
                     const body = new URLSearchParams();
@@ -249,31 +282,11 @@ export default function StaffBookingPanel({ user }) {
         try {
             await db.update('booking', { status: 'cancelled' }, { eq: { id: booking.id } });
             Toastify({ text: "Booking dibatalkan.", background: "green" }).showToast();
-            fetchMyBookings();
+            fetchBookings();
         } catch (e) {
             Toastify({ text: "Gagal membatalkan.", background: "red" }).showToast();
         }
     };
-
-    const changeCalMonth = (offset) => {
-        const next = new Date(currentCalMonth);
-        next.setMonth(next.getMonth() + offset);
-        setCurrentCalMonth(next);
-    };
-
-    const isPastDate = (dateStr) => {
-        const d = new Date(dateStr + 'T00:00:00');
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-        return d < now;
-    };
-
-    const filteredBookings = useMemo(() => {
-        const today = new Date().toISOString().split('T')[0];
-        if (bookingFilter === 'today') return myBookings.filter(b => b.tanggal === today);
-        if (bookingFilter === 'upcoming') return myBookings.filter(b => b.tanggal > today);
-        return myBookings;
-    }, [myBookings, bookingFilter]);
 
     const formatDate = (d) => {
         try { return new Date(d + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return d; }
@@ -315,12 +328,9 @@ export default function StaffBookingPanel({ user }) {
                     <div className="bg-white rounded-2xl p-4 shadow-sm border border-zinc-100">
                         <label className="text-[10px] font-black uppercase text-zinc-400 mb-2 block">No. Polisi</label>
                         <form onSubmit={handleSearchVehicle} className="flex gap-2">
-                            <input
-                                value={plateSearch}
-                                onChange={e => setPlateSearch(e.target.value.toUpperCase())}
+                            <input value={plateSearch} onChange={e => setPlateSearch(e.target.value.toUpperCase())}
                                 placeholder="B 1234 ABC"
-                                className="flex-1 bg-zinc-50 border-2 border-zinc-200 rounded-xl px-4 py-3 text-sm font-black uppercase outline-none focus:border-zinc-900 transition-all min-h-[44px]"
-                            />
+                                className="flex-1 bg-zinc-50 border-2 border-zinc-200 rounded-xl px-4 py-3 text-sm font-black uppercase outline-none focus:border-zinc-900 transition-all min-h-[44px]" />
                             <button type="submit" disabled={isSearching} className="bg-zinc-900 text-white px-4 rounded-xl font-black min-h-[44px] min-w-[44px] flex items-center justify-center active:scale-95 transition-all disabled:opacity-50">
                                 {isSearching ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Search size={18} />}
                             </button>
@@ -355,6 +365,9 @@ export default function StaffBookingPanel({ user }) {
                                 <select value={formData.modelKendaraan} onChange={e => setFormData({ ...formData, modelKendaraan: e.target.value })} className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-xl px-3 py-3 text-sm font-bold outline-none focus:border-zinc-900 transition-all appearance-none min-h-[44px]">
                                     <option value="">Pilih</option>
                                     {TIPE_MOBIL.map(t => <option key={t} value={t}>{t}</option>)}
+                                    {formData.modelKendaraan && !TIPE_MOBIL.includes(formData.modelKendaraan) && (
+                                        <option value={formData.modelKendaraan}>{formData.modelKendaraan}</option>
+                                    )}
                                 </select>
                             </div>
                         </div>
@@ -365,50 +378,16 @@ export default function StaffBookingPanel({ user }) {
                     </div>
 
                     <div className="bg-white rounded-2xl p-4 shadow-sm border border-zinc-100">
-                        <div className="flex items-center justify-between mb-3">
-                            <button onClick={() => changeCalMonth(-1)} className="p-2 rounded-xl hover:bg-zinc-100 active:scale-95 transition-all"><ChevronLeft size={18} /></button>
-                            <h3 className="text-sm font-black uppercase">{currentCalMonth.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}</h3>
-                            <button onClick={() => changeCalMonth(1)} className="p-2 rounded-xl hover:bg-zinc-100 active:scale-95 transition-all"><ChevronRight size={18} /></button>
-                        </div>
-                        <div className="grid grid-cols-7 gap-1 text-center mb-1">
-                            {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sat'].map(d => <div key={d} className="text-[9px] font-black text-zinc-400 py-1">{d}</div>)}
-                        </div>
-                        <div className="grid grid-cols-7 gap-1">
-                            {calendarGrid.map((item, idx) => {
-                                if (!item.currentMonth) return <div key={idx} className="aspect-square opacity-0"><div /></div>;
-                                const isActive = formData.tanggal === item.date;
-                                const past = isPastDate(item.date);
-                                const holiday = isHolidayOrSunday(item.date, holidays);
-                                const disabled = past || holiday;
-                                return (
-                                    <button key={idx} type="button" disabled={disabled}
-                                        onClick={() => setFormData({ ...formData, tanggal: item.date, jam: '' })}
-                                        className={`aspect-square rounded-xl flex items-center justify-center text-xs font-black transition-all ${disabled ? 'bg-zinc-100 text-zinc-300 cursor-not-allowed opacity-30' : isActive ? 'bg-zinc-900 text-white shadow-lg scale-110' : 'bg-zinc-50 text-zinc-700 hover:bg-zinc-200 active:scale-95'}`}
-                                    >{item.day}</button>
-                                );
-                            })}
-                        </div>
+                        <BookingCalendar
+                            bookings={bookings}
+                            slotConfig={slotConfig}
+                            selectedDate={formData.tanggal}
+                            selectedTime={formData.jam}
+                            holidays={holidays}
+                            onDateSelect={(date) => setFormData({ ...formData, tanggal: date, jam: '' })}
+                            onTimeSelect={(time) => setFormData({ ...formData, jam: time })}
+                        />
                     </div>
-
-                    {formData.tanggal && (
-                        <div className="bg-white rounded-2xl p-4 shadow-sm border border-zinc-100">
-                            <h4 className="text-[10px] font-black uppercase text-zinc-400 mb-3">Pilih Jam</h4>
-                            <div className="grid grid-cols-3 gap-2">
-                                {JAM_PILIHAN.map((slot) => {
-                                    const [h, m] = slot.split('.');
-                                    const isPastTime = formData.tanggal === new Date().toISOString().split('T')[0] && parseFloat(slot) < (new Date().getHours() + new Date().getMinutes() / 60);
-                                    return (
-                                        <button key={slot} type="button" disabled={isPastTime}
-                                            onClick={() => setFormData({ ...formData, jam: slot })}
-                                            className={`py-3 rounded-xl text-xs font-black transition-all ${formData.jam === slot ? 'bg-zinc-900 text-white shadow-lg' : isPastTime ? 'bg-zinc-50 text-zinc-300 cursor-not-allowed' : 'bg-zinc-50 text-zinc-600 hover:bg-zinc-200 active:scale-95'}`}
-                                        >
-                                            {h}:{m}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
 
                     <button onClick={handleFormSubmit} disabled={isSubmitting || !formData.tanggal || !formData.jam || !formData.noPolisi || !formData.atasNama}
                         className="w-full bg-zinc-900 text-white py-4 rounded-2xl font-black uppercase tracking-wider text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-30 disabled:cursor-not-allowed min-h-[56px]">

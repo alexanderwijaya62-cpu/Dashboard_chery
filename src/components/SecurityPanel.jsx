@@ -83,11 +83,14 @@ export default function SecurityPanel({ user, handleLogout }) {
               return !['batal', 'expired', 'declined', 'cancelled'].includes(s);
             })
             .map(b => {
-              const janji = b.janji_datang || '';
-              const parts = janji.split(' ');
-              const tgl = parts[0] || todayStr;
-              const jamRaw = parts[1] || '';
-              const jam = jamRaw ? jamRaw.slice(0, 5) : '';
+              const sBooking = (b.status_booking || '').toLowerCase();
+              if (['batal', 'expired', 'declined', 'cancelled'].includes(sBooking)) return null;
+              const tanggal = (b.janji_datang || '').trim().split(' ')[0] || todayStr;
+              const jamRaw = (b.janji_datang || '').trim().split(' ')[1] || '';
+              const jam = jamRaw ? jamRaw.slice(0, 5).replace(':', '.') : '';
+              // Parse DD/MM/YYYY to YYYY-MM-DD
+              const parts = tanggal.split('/');
+              const tgl = parts.length === 3 && parts[2].length === 4 ? `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}` : tanggal;
               return {
                 id: `dms_${b.no_booking || b.id || Math.random()}`,
                 tanggal: tgl,

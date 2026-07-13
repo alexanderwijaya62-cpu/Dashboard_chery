@@ -176,13 +176,14 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
                     const dmsJson = await dmsRes.json();
                     if (Array.isArray(dmsJson.data)) {
                         const normalized = dmsJson.data.map(b => {
-                            const janji = b.janji_datang || '';
-                            const parts = janji.split(' ');
-                            const tgl = parts[0] || '';
-                            const jamRaw = parts[1] || '00:00';
-                            const jam = jamRaw.replace(':', '.');
                             const sBooking = (b.status_booking || '').toLowerCase();
                             if (['batal', 'expired', 'declined'].includes(sBooking)) return null;
+                            const tanggal = (b.janji_datang || '').trim().split(' ')[0] || '';
+                            const jamRaw = (b.janji_datang || '').trim().split(' ')[1] || '00:00';
+                            const jam = jamRaw.slice(0, 5).replace(':', '.');
+                            // Parse DD/MM/YYYY to YYYY-MM-DD
+                            const parts = tanggal.split('/');
+                            const tgl = parts.length === 3 && parts[2].length === 4 ? `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}` : tanggal;
                             return {
                                 id: `dms_${b.no_booking || b.id || Math.random()}`,
                                 _isDms: true,
@@ -261,10 +262,15 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
             return getStr(d1) === getStr(d2);
         };
 
-        const normalizedDms = dmsTodayBookings.map(row => ({
+        const normalizedDms = dmsTodayBookings.map(row => {
+            const rawTanggal = row.janji_datang?.split(' ')[0] || todayStr;
+            const rawJam = row.janji_datang?.split(' ')[1]?.slice(0, 5).replace(':', '.') || '08.00';
+            const dmy = rawTanggal.split('/');
+            const tanggal = dmy.length === 3 && dmy[2].length === 4 ? `${dmy[2]}-${dmy[1].padStart(2, '0')}-${dmy[0].padStart(2, '0')}` : rawTanggal;
+            return {
             id: row.id_booking || `dms-${Date.now()}-${Math.random()}`,
-            tanggal: row.janji_datang?.split(' ')[0] || todayStr,
-            jam: row.janji_datang?.split(' ')[1]?.slice(0, 5).replace(':', '.') || '08.00',
+            tanggal,
+            jam: rawJam,
             noPlat: row.no_polisi || '-',
             namaCustomer: row.nama_pelanggan || '-',
             tipeMobil: row.nama_kendaraan || '-',
@@ -275,7 +281,8 @@ const AdminPanel = ({ user, handleLogout, queue, rawHistory = [], deleteItem, cl
             noTelp: row.no_telp_booking || '',
             noUrut: 0,
             _source: 'dms'
-        }));
+        };
+        });
 
         // Merge with dedup: Supabase first (has edit/delete), DMS only if not already in Supabase
         const dedupKey = (b) => `${normalizeBK(b.noPlat)}_${b.tanggal}_${String(b.jam).replace(':', '.')}`;

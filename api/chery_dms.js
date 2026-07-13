@@ -1312,10 +1312,9 @@ export default async function handler(req, res) {
                 const unmatched = [];
 
                 orders.forEach(o => {
-                    if ((o.code || '').toLowerCase().includes(q)) { matchedIds.add(o.id); return; }
-                    if ((o.remark || '').toLowerCase().includes(q)) { matchedIds.add(o.id); return; }
-                    if ((o.submitterName || '').toLowerCase().includes(q)) { matchedIds.add(o.id); return; }
-                    if ((o.creatorName || '').toLowerCase().includes(q)) { matchedIds.add(o.id); return; }
+                    const matchStr = (s) => (s || '').toLowerCase().includes(q);
+                    const orderStr = Object.values(o).filter(v => typeof v === 'string').join(' ');
+                    if (orderStr.toLowerCase().includes(q)) { matchedIds.add(o.id); return; }
                     unmatched.push(o);
                 });
 
@@ -1330,13 +1329,13 @@ export default async function handler(req, res) {
                         if (r.status === 'fulfilled') {
                             const d = r.value?.payload || r.value;
                             if (!d || !d.id) return;
-                            if ((d.remark || '').toLowerCase().includes(q)) { matchedIds.add(d.id); return; }
+                            const dStr = Object.values(d).filter(v => typeof v === 'string').join(' ');
+                            if (dStr.toLowerCase().includes(q)) { matchedIds.add(d.id); return; }
                             const details = d.details || [];
-                            if (details.some(item =>
-                                (item.partCode || '').toLowerCase().includes(q) ||
-                                (item.partName || '').toLowerCase().includes(q) ||
-                                (item.orderDescription || '').toLowerCase().includes(q)
-                            )) { matchedIds.add(d.id); }
+                            if (details.some(item => {
+                                const iStr = Object.values(item).filter(v => typeof v === 'string').join(' ');
+                                return iStr.toLowerCase().includes(q);
+                            })) { matchedIds.add(d.id); }
                         }
                     });
                 }

@@ -176,31 +176,11 @@ export default function PublicBooking({ user, setCurrentPage }) {
                 const nextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
                 const to = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-${String(nextMonth.getDate()).padStart(2, '0')}`;
 
-                const dmsRes = await fetch(`/api/chery_dms?endpoint=booking-data&datefrom=${from}&dateto=${to}&length=200`);
+                    const dmsRes = await fetch(`/api/chery_dms?endpoint=booking-data&datefrom=${from}&dateto=${to}&length=200`);
                 if (dmsRes.ok) {
                     const dmsJson = await dmsRes.json();
-                    const dmsBookings = (dmsJson.data || []).map(b => {
-                        const janji = b.janji_datang || '';
-                        const parts = janji.split(' ');
-                        const tgl = parts[0] || '';
-                        const jamRaw = parts[1] || '00:00';
-                        const jam = jamRaw.replace(':', '.');
-                        const sBooking = (b.status_booking || '').toLowerCase();
-                        if (['batal', 'expired', 'declined'].includes(sBooking)) return null;
-                        return {
-                            id: `dms_${b.no_booking || b.id || Math.random()}`,
-                            noUrut: 0,
-                            tanggal: tgl,
-                            jam,
-                            noPlat: b.no_polisi || '',
-                            namaCustomer: b.nama_pelanggan || '',
-                            noTelp: b.no_telp || '',
-                            tipeMobil: b.nama_kendaraan || '',
-                            keperluanService: '',
-                            status: 'accepted',
-                            bookingVia: 'DMS Internal',
-                        };
-                    }).filter(Boolean).filter(b => b.tanggal >= dateStr);
+                    const { normalizeDmsBooking } = await import('../utils/dateHelpers');
+                    const dmsBookings = (dmsJson.data || []).map(normalizeDmsBooking).filter(Boolean).filter(b => b.tanggal >= dateStr);
                     merged = [...merged, ...dmsBookings];
                 }
             } catch (dmsErr) {

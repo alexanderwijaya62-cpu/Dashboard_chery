@@ -6,6 +6,8 @@ import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
 import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
 import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
+import { normalizeDmsBooking } from '../utils/dateHelpers';
+import BookingCalendar from './BookingCalendar';
 
 const daysInMonth = (month, year) => new Date(year, month + 1, 0).getDate();
 const startDayOfMonth = (month, year) => new Date(year, month, 1).getDay();
@@ -99,26 +101,7 @@ export default function SABookingPanel() {
       const dmsRes = await fetch(`/api/chery_dms?endpoint=booking-data&datefrom=${from}&dateto=${to}&length=500`);
       if (dmsRes.ok) {
         const dmsJson = await dmsRes.json();
-        const dmsEntries = (dmsJson.data || []).map(b => {
-          const janji = b.janji_datang || '';
-          const parts = janji.split(' ');
-          const tgl = parts[0] || '';
-          const jamRaw = parts[1] || '00:00';
-          const jam = jamRaw.replace(':', '.');
-          const sBooking = (b.status_booking || '').toLowerCase();
-          if (['batal', 'expired', 'declined'].includes(sBooking)) return null;
-          return {
-            id: `dms_${b.no_booking || b.id || Math.random()}`,
-            tanggal: tgl,
-            jam,
-            status: 'accepted',
-            noPlat: b.no_polisi || '',
-            namaCustomer: b.nama_pelanggan || '',
-            tipeMobil: b.nama_kendaraan || '',
-            keperluanService: '',
-            bookingVia: 'DMS Internal',
-          };
-        }).filter(Boolean).filter(b => b.tanggal >= dateStr);
+        const dmsEntries = (dmsJson.data || []).map(normalizeDmsBooking).filter(Boolean).filter(b => b.tanggal >= dateStr);
         merged = [...merged, ...dmsEntries];
       }
     } catch (dmsErr) {
@@ -446,63 +429,15 @@ export default function SABookingPanel() {
                   <div className="w-6 h-6 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">1</div> Pilih Tanggal
                 </h3>
                 <div className="bg-zinc-50 border border-zinc-100 rounded-3xl p-5 shadow-sm">
-                  <div className="flex items-center justify-between mb-4 px-1">
-                    <button type="button" onClick={() => changeCalMonth(-1)} className="p-2 bg-white border border-zinc-100 rounded-xl hover:bg-zinc-900 hover:text-white transition-all shadow-sm"><ChevronLeft size={16} /></button>
-                    <h4 className="text-[11px] font-black uppercase tracking-[0.15em] text-zinc-900">
-                      {currentCalMonth.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
-                    </h4>
-                    <button type="button" onClick={() => changeCalMonth(1)} className="p-2 bg-white border border-zinc-100 rounded-xl hover:bg-zinc-900 hover:text-white transition-all shadow-sm"><ChevronRight size={16} /></button>
-                  </div>
-                  <div className="grid grid-cols-7 gap-1 text-center text-[8px] font-black uppercase text-zinc-400 mb-2">
-                    {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sat'].map(d => <div key={d}>{d}</div>)}
-                  </div>
-                  <div className="grid grid-cols-7 gap-2">
-                    {calendarGrid.map((item, idx) => {
-                      if (!item.currentMonth) return <div key={idx} className="aspect-[4/5] opacity-5"><div className="w-full h-full border border-dashed border-zinc-200 rounded-xl"></div></div>;
-                      const isActive = formData.tanggal === item.date;
-                      const isPast = isPastDate(item.date);
-                      const isHoliday = isHolidayOrSunday(item.date, holidays);
-                      const isDisabled = isPast || isHoliday;
-                      const fill = dateFillMap[item.date];
-                      const fillBg = !isDisabled && fill?.full ? 'bg-red-500 border-red-600 text-white' :
-                        !isDisabled && fill?.partial ? 'bg-yellow-300 border-yellow-400 text-yellow-900' :
-                        !isDisabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:border-emerald-400' : '';
-                      return (
-                        <button key={idx} type="button" disabled={isDisabled}
-                          onClick={() => setFormData({ ...formData, tanggal: item.date, jam: '' })}
-                          className={`relative aspect-[4/5] rounded-xl flex flex-col items-center justify-center transition-all border-2 ${isDisabled ? 'bg-zinc-100/30 border-transparent text-zinc-200 cursor-not-allowed opacity-20' :
-                            isActive ? 'bg-black border-black text-white shadow-lg z-10 scale-110' : fillBg
-                          }`}
-                        >
-                          <span className="text-[11px] font-black">{item.day}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Jam Kedatangan</h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    {JAM_PILIHAN.map((slot) => {
-                      const isPastTime = formData.tanggal === new Date().toISOString().split('T')[0] && parseFloat(slot) < (new Date().getHours() + new Date().getMinutes() / 60);
-                      const slotBookings = bookings.filter(b =>
-                        b.tanggal === formData.tanggal &&
-                        (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed') &&
-                        String(b.jam || '').replace(':', '.').trim() === slot
-                      );
-                      const isFull = slotBookings.length >= slotConfig.capacity;
-                      return (
-                        <button key={slot} type="button" disabled={isPastTime || isFull}
-                          onClick={() => setFormData({ ...formData, jam: slot })}
-                          className={`py-3 px-2 rounded-xl border-2 font-black text-[9px] uppercase tracking-widest transition-all ${formData.jam === slot ? 'bg-black border-black text-white shadow-lg' :
-                            isPastTime ? 'bg-zinc-50 border-transparent text-zinc-200 cursor-not-allowed' : isFull ? 'bg-red-50 border-red-200 text-red-400 cursor-not-allowed' : 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
-                          }`}
-                        >
-                          {slot.replace('.', ':')} WIB {slotBookings.length}/{slotConfig.capacity}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <BookingCalendar
+                    bookings={bookings}
+                    slotConfig={slotConfig}
+                    selectedDate={formData.tanggal}
+                    selectedTime={formData.jam}
+                    holidays={holidays}
+                    onDateSelect={(date) => setFormData({ ...formData, tanggal: date, jam: '' })}
+                    onTimeSelect={(slot) => setFormData({ ...formData, jam: slot })}
+                  />
                 </div>
               </div>
 
