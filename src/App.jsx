@@ -2447,8 +2447,8 @@ const App = () => {
       )}
       {currentPage === 'booking-public' && <PublicBooking user={user} setCurrentPage={navigate} />}
       {currentPage === 'sa-booking' && <SABookingPanel />}
-      {currentPage === 'sales-booking' && user?.role === 'sales' && <StaffBookingPanel user={user} handleChangePassword={handleChangePassword} />}
-      {currentPage === 'spv-booking' && user?.role === 'spv' && <StaffBookingPanel user={user} handleChangePassword={handleChangePassword} />}
+      {currentPage === 'sales-booking' && user?.role === 'sales' && <StaffBookingPanel user={user} handleChangePassword={handleChangePassword} handleLogout={handleLogout} />}
+      {currentPage === 'spv-booking' && user?.role === 'spv' && <StaffBookingPanel user={user} handleChangePassword={handleChangePassword} handleLogout={handleLogout} />}
       {currentPage === 'booking-settings' && <BookingSettings />}
       {currentPage === 'promo' && <PromosiSparepart />}
       {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="performance" />}

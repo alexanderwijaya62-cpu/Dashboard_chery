@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Calendar, Search, Send, Plus, List, Clock, Check, Car, FileText, Trash2, Key, Users, Edit2 } from 'lucide-react';
+import { Calendar, Search, Send, Plus, List, Clock, Check, Car, FileText, Trash2, Key, Users, Edit2, LogOut } from 'lucide-react';
 import ChangePasswordModal from './ChangePasswordModal';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
@@ -34,7 +34,7 @@ const normalizeModelName = (dmsName) => {
     return match || dmsName;
 };
 
-export default function StaffBookingPanel({ user, handleChangePassword }) {
+export default function StaffBookingPanel({ user, handleChangePassword, handleLogout }) {
     const staffName = user?.name || user?.username || 'Staff';
     const staffRole = (user?.role || '').toLowerCase();
     const bookingPrefix = staffRole === 'spv' ? 'SPV' : 'Sales';
@@ -419,6 +419,11 @@ export default function StaffBookingPanel({ user, handleChangePassword }) {
                             className="p-2 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all active:scale-95"
                             title="Ganti Password">
                             <Key size={16} />
+                        </button>
+                        <button onClick={handleLogout}
+                            className="p-2 bg-white/10 hover:bg-red-500/80 text-white rounded-xl transition-all active:scale-95"
+                            title="Logout">
+                            <LogOut size={16} />
                         </button>
                         <div className="bg-white/10 rounded-full px-3 py-1 text-[10px] font-black">{staffName}</div>
                     </div>
