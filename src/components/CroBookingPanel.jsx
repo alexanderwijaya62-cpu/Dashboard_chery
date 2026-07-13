@@ -166,10 +166,21 @@ export default function CroBookingPanel({ user }) {
             const tipeUnit = (cols[2] || '').trim();
             const noPlat = (cols[3] || '').trim().toUpperCase().replace(/\s+/g, '');
             const namaCustomer = (cols[4] || '').trim();
-            const keluhan = (cols[5] || '').trim();
+            let keluhan = (cols[5] || '').trim();
             const km = (cols[6] || '').trim();
-            const bookingVia = (cols[7] || '').trim();
-            const noTelp = (cols[8] || '').trim();
+            let bookingVia = (cols[7] || '').trim();
+            let noTelp = (cols[8] || '').trim();
+
+            // Some DMS rows have "Name 08xxxx" in bookingVia column without separate noTelp column
+            if (!noTelp && bookingVia) {
+                const phoneMatch = bookingVia.match(/(08[\d\-]+)/);
+                if (phoneMatch) {
+                    noTelp = phoneMatch[1];
+                    bookingVia = bookingVia.replace(phoneMatch[0], '').trim();
+                }
+            }
+
+            if (!keluhan) keluhan = '-';
 
             const tanggal = parseDateDMY(dateRaw);
             const issues = [];
@@ -177,8 +188,6 @@ export default function CroBookingPanel({ user }) {
             if (!jam) issues.push('Jam kosong');
             if (!noPlat) issues.push('Plat kosong');
             if (!namaCustomer) issues.push('Nama kosong');
-            if (!keluhan) issues.push('Keluhan kosong');
-            if (!noTelp) issues.push('No Telp kosong');
 
             if (issues.length > 0) {
                 errs.push({ row: idx + 1, issues, plat: noPlat || '-' });
