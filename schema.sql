@@ -247,6 +247,20 @@ CREATE POLICY "deny_all_anon" ON public.laporanwo FOR ALL USING (false) WITH CHE
 CREATE POLICY "deny_all_anon" ON public.sparepart FOR ALL USING (false) WITH CHECK (false);
 CREATE POLICY "deny_all_anon" ON public.customers FOR ALL USING (false) WITH CHECK (false);
 
+-- 13. SALES TABLE (SPV/Sales User Management)
+CREATE TABLE IF NOT EXISTS public.sales (
+    id BIGSERIAL PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    name TEXT,
+    spv TEXT,
+    status TEXT DEFAULT 'active',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+ALTER TABLE public.sales ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "deny_all_anon" ON public.sales;
+CREATE POLICY "deny_all_anon" ON public.sales FOR ALL USING (false) WITH CHECK (false);
+
 -- ============================================================
 -- 14. ALTER TABLE UPGRADES FOR EXISTING DATABASES
 -- Run these if you already have the tables created and only

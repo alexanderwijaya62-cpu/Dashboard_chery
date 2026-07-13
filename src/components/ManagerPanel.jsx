@@ -3,8 +3,9 @@ import {
   TrendingUp, Users, Clock, AlertCircle, ChevronRight, ChevronLeft,
   Search, Calendar, Download, Filter, Car, DollarSign, Activity,
   ShieldCheck, Package, Award, Zap, Star, LayoutDashboard, Database,
-  History, Upload, X, BarChart4, CheckCircle, Wrench, Shield, Settings, MessageSquare, Menu, FileSpreadsheet
+  History, Upload, X, BarChart4, CheckCircle, Wrench, Shield, Settings, MessageSquare, Menu, FileSpreadsheet, Key
 } from 'lucide-react';
+import ChangePasswordModal from './ChangePasswordModal';
 import CroBookingPanel from './CroBookingPanel';
 import HolidaySettings from './HolidaySettings';
 import * as XLSX from 'xlsx';
@@ -15,7 +16,8 @@ import ReactApexChart from 'react-apexcharts';
 import { db } from '../utils/dbClient';
 
 
-const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSettings, setBreakSettings, setIsNavbarVisible, activeTab: activeTabProp }) => {
+const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], rawHistory = [], breakSettings, setBreakSettings, setIsNavbarVisible, activeTab: activeTabProp }) => {
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [usersData, setUsersData] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const mainRef = useRef(null);
@@ -828,6 +830,13 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
 
   return (
     <div className="bg-white overflow-hidden flex flex-col font-sans antialiased text-black transition-colors duration-500 w-full h-full">
+      <div className="flex items-center justify-end px-4 py-2 border-b border-zinc-200 bg-white shrink-0">
+        <button onClick={() => setShowPasswordModal(true)}
+          className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-xl transition-all active:scale-95"
+          title="Ganti Password">
+          <Key size={16} />
+        </button>
+      </div>
       {/* Main Content - no internal sidebar */}
       <main
         ref={mainRef}
@@ -1409,6 +1418,7 @@ const ManagerPanel = ({ user, handleLogout, queue = [], rawHistory = [], breakSe
           <p className="text-center text-white/40 font-black uppercase text-[10px] tracking-[0.5em] pb-10 ">Ketuk di mana saja untuk menutup</p>
         </div>
       )}
+      <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
     </div>
   );
 };

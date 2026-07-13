@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Calendar, Search, Send, Plus, List, Clock, Check, Car, FileText, Trash2 } from 'lucide-react';
+import { Calendar, Search, Send, Plus, List, Clock, Check, Car, FileText, Trash2, Key, Users, Edit2 } from 'lucide-react';
+import ChangePasswordModal from './ChangePasswordModal';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import { supabase } from '../utils/supabaseClient';
@@ -33,11 +34,12 @@ const normalizeModelName = (dmsName) => {
     return match || dmsName;
 };
 
-export default function StaffBookingPanel({ user }) {
+export default function StaffBookingPanel({ user, handleChangePassword }) {
     const staffName = user?.name || user?.username || 'Staff';
     const staffRole = (user?.role || '').toLowerCase();
     const bookingPrefix = staffRole === 'spv' ? 'SPV' : 'Sales';
 
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [activeTab, setActiveTab] = useState('booking');
 
     const [plateSearch, setPlateSearch] = useState('');
@@ -56,6 +58,15 @@ export default function StaffBookingPanel({ user }) {
     const [bookings, setBookings] = useState([]);
     const [isLoadingBookings, setIsLoadingBookings] = useState(false);
     const [bookingFilter, setBookingFilter] = useState('all');
+
+    // User management (SPV only)
+    const [salesUsers, setSalesUsers] = useState([]);
+    const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+    const [showUserForm, setShowUserForm] = useState(false);
+    const [editingUser, setEditingUser] = useState(null);
+    const [userForm, setUserForm] = useState({ username: '', password: '', name: '', spv: '', status: 'active' });
+
+    const isSpv = staffRole === 'spv';
 
     useEffect(() => {
         (async () => {
@@ -158,6 +169,95 @@ export default function StaffBookingPanel({ user }) {
         if (bookingFilter === 'upcoming') return myBookings.filter(b => b.tanggal > today);
         return myBookings;
     }, [myBookings, bookingFilter]);
+
+    // === User Management CRUD (SPV only) ===
+    const fetchSalesUsers = useCallback(async () => {
+        setIsLoadingUsers(true);
+        try {
+            const { data, error } = await db.select('sales', { order: { column: 'id', ascending: false } });
+            if (error) throw error;
+            setSalesUsers(data || []);
+        } catch (e) {
+            console.error('Gagal fetch sales users:', e);
+            Toastify({ text: 'Gagal memuat data user', background: '#ef4444' }).showToast();
+        } finally {
+            setIsLoadingUsers(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (activeTab === 'users' && isSpv) fetchSalesUsers();
+    }, [activeTab, isSpv, fetchSalesUsers]);
+
+    const handleSaveUser = async (e) => {
+        e.preventDefault();
+        if (!userForm.username || !userForm.name) {
+            Toastify({ text: 'Username dan Nama wajib diisi!', background: '#f97316' }).showToast();
+            return;
+        }
+        if (!editingUser && !userForm.password) {
+            Toastify({ text: 'Password wajib diisi untuk user baru!', background: '#f97316' }).showToast();
+            return;
+        }
+        try {
+            if (editingUser) {
+                const updates = { name: userForm.name, spv: userForm.spv, status: userForm.status };
+                if (userForm.password) updates.password = userForm.password;
+                const { error } = await db.update('sales', updates, { eq: { id: editingUser.id } });
+                if (error) throw error;
+                Toastify({ text: 'User berhasil diupdate!', background: '#22c55e' }).showToast();
+            } else {
+                const { error } = await db.insert('sales', {
+                    username: userForm.username,
+                    password: userForm.password,
+                    name: userForm.name,
+                    spv: userForm.spv,
+                    status: userForm.status,
+                });
+                if (error) throw error;
+                Toastify({ text: 'User berhasil ditambahkan!', background: '#22c55e' }).showToast();
+            }
+            setShowUserForm(false);
+            setEditingUser(null);
+            setUserForm({ username: '', password: '', name: '', spv: '', status: 'active' });
+            fetchSalesUsers();
+        } catch (e) {
+            console.error('Gagal simpan user:', e);
+            Toastify({ text: `Gagal: ${e.message || 'Unknown error'}`, background: '#ef4444' }).showToast();
+        }
+    };
+
+    const handleDeleteUser = async (id, name) => {
+        if (!window.confirm(`Hapus user "${name}"?`)) return;
+        try {
+            const { error } = await db.delete('sales', { eq: { id } });
+            if (error) throw error;
+            Toastify({ text: 'User berhasil dihapus', background: '#22c55e' }).showToast();
+            fetchSalesUsers();
+        } catch (e) {
+            Toastify({ text: `Gagal hapus: ${e.message}`, background: '#ef4444' }).showToast();
+        }
+    };
+
+    const handleToggleStatus = async (id, currentStatus) => {
+        const newStatus = currentStatus === 'active' ? 'non-active' : 'active';
+        try {
+            const { error } = await db.update('sales', { status: newStatus }, { eq: { id } });
+            if (error) throw error;
+            Toastify({ text: `Status diubah ke ${newStatus}`, background: '#22c55e' }).showToast();
+            fetchSalesUsers();
+        } catch (e) {
+            Toastify({ text: `Gagal: ${e.message}`, background: '#ef4444' }).showToast();
+        }
+    };
+
+    const handleEditUser = (u) => {
+        setEditingUser(u);
+        setUserForm({ username: u.username, password: '', name: u.name || '', spv: u.spv || '', status: u.status || 'active' });
+        setShowUserForm(true);
+    };
+
+    // === End User Management ===
 
     const handleSearchVehicle = async (e) => {
         e.preventDefault();
@@ -313,7 +413,14 @@ export default function StaffBookingPanel({ user }) {
                 <div className="flex items-center gap-2 mb-3">
                     <Car size={20} />
                     <h1 className="text-sm font-black uppercase tracking-wider">Booking {bookingPrefix}</h1>
-                    <div className="ml-auto bg-white/10 rounded-full px-3 py-1 text-[10px] font-black">{staffName}</div>
+                    <div className="ml-auto flex items-center gap-2">
+                        <button onClick={() => setShowPasswordModal(true)}
+                            className="p-2 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all active:scale-95"
+                            title="Ganti Password">
+                            <Key size={16} />
+                        </button>
+                        <div className="bg-white/10 rounded-full px-3 py-1 text-[10px] font-black">{staffName}</div>
+                    </div>
                 </div>
                 <div className="flex gap-1 bg-white/10 rounded-xl p-1">
                     <button onClick={() => setActiveTab('booking')} className={`flex-1 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${activeTab === 'booking' ? 'bg-white text-zinc-900' : 'text-white/60'}`}>
@@ -323,6 +430,11 @@ export default function StaffBookingPanel({ user }) {
                         <List size={14} className="inline mr-1" />Daftar Booking
                         {myBookings.length > 0 && <span className="ml-1 bg-red-500 text-white text-[9px] px-1.5 rounded-full">{myBookings.length}</span>}
                     </button>
+                    {isSpv && (
+                        <button onClick={() => setActiveTab('users')} className={`flex-1 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${activeTab === 'users' ? 'bg-white text-zinc-900' : 'text-white/60'}`}>
+                            <Users size={14} className="inline mr-1" />User
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -452,6 +564,107 @@ export default function StaffBookingPanel({ user }) {
                     )}
                 </div>
             )}
+
+            {activeTab === 'users' && isSpv && (
+                <div className="p-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider">Manajemen User Sales</h2>
+                        <button onClick={() => { setEditingUser(null); setUserForm({ username: '', password: '', name: '', spv: '', status: 'active' }); setShowUserForm(true); }}
+                            className="flex items-center gap-1 bg-zinc-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all">
+                            <Plus size={14} />Tambah
+                        </button>
+                    </div>
+
+                    {isLoadingUsers ? (
+                        <div className="text-center py-12"><div className="w-8 h-8 border-2 border-zinc-300 border-t-zinc-900 rounded-full animate-spin mx-auto" /></div>
+                    ) : salesUsers.length === 0 ? (
+                        <div className="bg-white rounded-2xl p-12 text-center border border-zinc-100">
+                            <Users size={40} className="mx-auto mb-3 text-zinc-300" />
+                            <p className="text-xs font-bold text-zinc-400">Belum ada user sales</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            {salesUsers.map(u => (
+                                <div key={u.id} className="bg-white rounded-2xl p-4 shadow-sm border border-zinc-100">
+                                    <div className="flex items-start justify-between">
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-sm font-black text-zinc-900">{u.name || u.username}</p>
+                                            <p className="text-[10px] font-bold text-zinc-400">@{u.username}</p>
+                                            {u.spv && <p className="text-[10px] font-bold text-zinc-500 mt-0.5">SPV: {u.spv}</p>}
+                                        </div>
+                                        <span className={`text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full shrink-0 ${u.status === 'active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-zinc-100 text-zinc-500 border border-zinc-200'}`}>
+                                            {u.status || 'active'}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-3">
+                                        <button onClick={() => handleToggleStatus(u.id, u.status)}
+                                            className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all active:scale-95 ${u.status === 'active' ? 'bg-amber-50 text-amber-700 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}>
+                                            {u.status === 'active' ? 'Non-aktifkan' : 'Aktifkan'}
+                                        </button>
+                                        <button onClick={() => handleEditUser(u)}
+                                            className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider bg-zinc-50 text-zinc-600 hover:bg-zinc-100 transition-all active:scale-95 flex items-center gap-1">
+                                            <Edit2 size={10} />Edit
+                                        </button>
+                                        <button onClick={() => handleDeleteUser(u.id, u.name || u.username)}
+                                            className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider bg-red-50 text-red-500 hover:bg-red-100 transition-all active:scale-95 flex items-center gap-1">
+                                            <Trash2 size={10} />Hapus
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {showUserForm && (
+                        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[100] flex items-center justify-center p-4" onClick={() => { setShowUserForm(false); setEditingUser(null); }}>
+                            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6" onClick={e => e.stopPropagation()}>
+                                <h3 className="text-lg font-black mb-4">{editingUser ? 'Edit User' : 'Tambah User Baru'}</h3>
+                                <form onSubmit={handleSaveUser} className="space-y-3">
+                                    <div>
+                                        <label className="text-[10px] font-black uppercase text-zinc-400 mb-1 block">Username</label>
+                                        <input value={userForm.username} onChange={e => setUserForm({ ...userForm, username: e.target.value })}
+                                            disabled={!!editingUser}
+                                            className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-zinc-900 transition-all disabled:opacity-50" placeholder="username" required />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black uppercase text-zinc-400 mb-1 block">Nama Lengkap</label>
+                                        <input value={userForm.name} onChange={e => setUserForm({ ...userForm, name: e.target.value })}
+                                            className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-zinc-900 transition-all" placeholder="Nama lengkap" required />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black uppercase text-zinc-400 mb-1 block">Password {editingUser && '(kosongkan jika tidak diubah)'}</label>
+                                        <input type="password" value={userForm.password} onChange={e => setUserForm({ ...userForm, password: e.target.value })}
+                                            className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-zinc-900 transition-all" placeholder="••••••••" required={!editingUser} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black uppercase text-zinc-400 mb-1 block">SPV / Atasan</label>
+                                        <input value={userForm.spv} onChange={e => setUserForm({ ...userForm, spv: e.target.value })}
+                                            className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-zinc-900 transition-all" placeholder="Nama SPV" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black uppercase text-zinc-400 mb-1 block">Status</label>
+                                        <select value={userForm.status} onChange={e => setUserForm({ ...userForm, status: e.target.value })}
+                                            className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-zinc-900 transition-all">
+                                            <option value="active">Active</option>
+                                            <option value="non-active">Non-active</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex gap-2 pt-2">
+                                        <button type="submit" className="flex-1 bg-zinc-900 text-white py-3 rounded-xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all">
+                                            {editingUser ? 'Update' : 'Simpan'}
+                                        </button>
+                                        <button type="button" onClick={() => { setShowUserForm(false); setEditingUser(null); }}
+                                            className="px-6 py-3 rounded-xl text-zinc-400 text-[11px] font-black uppercase tracking-widest">
+                                            Batal
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
+        <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
     );
 }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Wrench, User, Clock, CheckCircle2, Droplets, X, Search, Activity, Check, UserPlus, Eye, EyeOff, Zap } from 'lucide-react';
+import { Wrench, User, Clock, CheckCircle2, Droplets, X, Search, Activity, Check, UserPlus, Eye, EyeOff, Zap, Key } from 'lucide-react';
+import ChangePasswordModal from './ChangePasswordModal';
 import { db } from '../utils/dbClient';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
@@ -18,6 +19,7 @@ const EXTENSION_PRESETS = [15, 30, 45, 60, 90, 120];
 export default function ForemanPanel({
     user,
     handleLogout,
+    handleChangePassword,
     queue = [],
     onStartWork,
     onComplete,
@@ -25,6 +27,7 @@ export default function ForemanPanel({
     onForemanAddTime,
     isLoadingProcess,
 }) {
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [mechanics, setMechanics] = useState([]);
     const [expandedMechanic, setExpandedMechanic] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -264,6 +267,11 @@ export default function ForemanPanel({
                         className={`p-2.5 rounded-xl transition-all active:scale-95 border-2 ${showMonitor ? 'bg-black text-white border-black' : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-400'}`}
                         title={showMonitor ? 'Sembunyikan Monitor' : 'Tampilkan Monitor'}>
                         {showMonitor ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                    <button onClick={() => setShowPasswordModal(true)}
+                        className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-xl transition-all active:scale-95"
+                        title="Ganti Password">
+                        <Key size={16} />
                     </button>
                     <button onClick={handleLogout}
                         className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-sm transition-all active:scale-95">
@@ -733,5 +741,6 @@ export default function ForemanPanel({
                 </div>
             )}
         </div>
+        <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
     );
 }

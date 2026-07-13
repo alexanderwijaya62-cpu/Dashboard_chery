@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Shield, UserPlus, Check, Search, Clock, Calendar, Database, Ban, Megaphone } from 'lucide-react';
+import { Shield, UserPlus, Check, Search, Clock, Calendar, Database, Ban, Megaphone, Key } from 'lucide-react';
 import { db } from '../utils/dbClient';
 import { supabase } from '../utils/supabaseClient';
 import { speak } from '../utils/tts';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
+import ChangePasswordModal from './ChangePasswordModal';
 
-export default function SecurityPanel({ user, handleLogout }) {
+export default function SecurityPanel({ user, handleLogout, handleChangePassword }) {
   const [tab, setTab] = useState('reguler');
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [bk, setBk] = useState('');
   const [bookings, setBookings] = useState([]);
   const [confirmedPlates, setConfirmedPlates] = useState(new Map());
@@ -400,11 +402,18 @@ export default function SecurityPanel({ user, handleLogout }) {
             <p className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest mt-0.5">{user?.name}</p>
           </div>
         </div>
+        <button onClick={() => setShowPasswordModal(true)}
+          className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-xl transition-all active:scale-95"
+          title="Ganti Password">
+          <Key size={16} />
+        </button>
         <button onClick={handleLogout}
           className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[8px] font-black uppercase tracking-widest transition-all active:scale-95">
           Logout
         </button>
       </div>
+
+      <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
 
       <div className="flex mx-4 mt-4 bg-white rounded-2xl border-2 border-zinc-200 overflow-hidden">
         <button onClick={() => setTab('reguler')}

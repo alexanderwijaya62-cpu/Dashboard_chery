@@ -7,6 +7,7 @@ import {
   PackageSearch, Search, ExternalLink, MessageSquare, Truck, Package, Printer, Download, FileSpreadsheet, ArrowLeft, ArrowRight, Plus, Settings, Copy, Bookmark
 } from 'lucide-react';
 import Toastify from 'toastify-js';
+import ChangePasswordModal from './ChangePasswordModal';
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
 import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL } from '../utils/config';
@@ -37,11 +38,12 @@ const DeviceIcon = ({ device }) => {
 };
 
 export default function OwnerPanel({
-  user, handleLogout, processedQueue = [], rawHistory = [], formatTime,
+  user, handleLogout, handleChangePassword, processedQueue = [], rawHistory = [], formatTime,
   handleSave, deleteItem, editItem, setFormData, formData, isEditing, setIsEditing,
   handleCancelEdit, handleAddTask, handleRemoveTask, handleToggleTask, isLoadingProcess, setCurrentPage,
   activeTab: activeTabProp
 }) {
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(activeTabProp || 'monitoring');
@@ -1544,6 +1546,11 @@ export default function OwnerPanel({
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <button onClick={() => setShowPasswordModal(true)}
+              className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-xl transition-all active:scale-95"
+              title="Ganti Password">
+              <Key size={16} />
+            </button>
             {activeTab === 'monitoring' && (
               <>
                 <button 
@@ -4316,6 +4323,7 @@ function WorkshopColumn({ title, items, color, icon: Icon, formatTime, onEdit, o
         )}
       </div>
     </div>
+    <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
   );
 }
 

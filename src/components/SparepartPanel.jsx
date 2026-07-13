@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { FileText, Search, Package, Truck, ChevronRight, Layers, ArrowLeft, ArrowRight, RefreshCw, Clock, DollarSign, User, Hash, Calendar } from 'lucide-react';
+import { FileText, Search, Package, Truck, ChevronRight, Layers, ArrowLeft, ArrowRight, RefreshCw, Clock, DollarSign, User, Hash, Calendar, Key } from 'lucide-react';
+import ChangePasswordModal from './ChangePasswordModal';
 import SparepartPredictor from './SparepartPredictor';
 import Toastify from 'toastify-js';
 import { CHERY_DMS_URL } from '../utils/config';
@@ -32,7 +33,8 @@ function InfoPill({ icon, label, value, mono }) {
     );
 }
 
-export default function SparepartPanel({ activeTab: activeTabProp }) {
+export default function SparepartPanel({ activeTab: activeTabProp, handleChangePassword }) {
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [activeTab, setActiveTab] = useState(activeTabProp || 'dms_order');
 
     useEffect(() => {
@@ -283,6 +285,11 @@ export default function SparepartPanel({ activeTab: activeTabProp }) {
                         </p>
                     </div>
                     <div className="flex items-center gap-3">
+                        <button onClick={() => setShowPasswordModal(true)}
+                            className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-xl transition-all active:scale-95"
+                            title="Ganti Password">
+                            <Key size={16} />
+                        </button>
                         {activeTab === 'dms_order' && (
                             <>
                                 <div className="relative">
@@ -667,5 +674,6 @@ export default function SparepartPanel({ activeTab: activeTabProp }) {
                 </main>
             </div>
         </div>
+        <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
     );
 }
