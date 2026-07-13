@@ -64,7 +64,7 @@ export default function StaffBookingPanel({ user, handleChangePassword }) {
     const [isLoadingUsers, setIsLoadingUsers] = useState(false);
     const [showUserForm, setShowUserForm] = useState(false);
     const [editingUser, setEditingUser] = useState(null);
-    const [userForm, setUserForm] = useState({ username: '', password: '', name: '', spv: '', status: 'active' });
+    const [userForm, setUserForm] = useState({ username: '', password: '', name: '', role: 'sales', spv: '', status: 'active' });
 
     const isSpv = staffRole === 'spv';
 
@@ -201,7 +201,7 @@ export default function StaffBookingPanel({ user, handleChangePassword }) {
         }
         try {
             if (editingUser) {
-                const updates = { name: userForm.name, spv: userForm.spv, status: userForm.status };
+                const updates = { name: userForm.name, role: userForm.role, spv: userForm.spv, status: userForm.status };
                 if (userForm.password) updates.password = userForm.password;
                 const { error } = await db.update('sales', updates, { eq: { id: editingUser.id } });
                 if (error) throw error;
@@ -211,6 +211,7 @@ export default function StaffBookingPanel({ user, handleChangePassword }) {
                     username: userForm.username,
                     password: userForm.password,
                     name: userForm.name,
+                    role: userForm.role,
                     spv: userForm.spv,
                     status: userForm.status,
                 });
@@ -219,7 +220,7 @@ export default function StaffBookingPanel({ user, handleChangePassword }) {
             }
             setShowUserForm(false);
             setEditingUser(null);
-            setUserForm({ username: '', password: '', name: '', spv: '', status: 'active' });
+            setUserForm({ username: '', password: '', name: '', role: 'sales', spv: '', status: 'active' });
             fetchSalesUsers();
         } catch (e) {
             console.error('Gagal simpan user:', e);
@@ -253,7 +254,7 @@ export default function StaffBookingPanel({ user, handleChangePassword }) {
 
     const handleEditUser = (u) => {
         setEditingUser(u);
-        setUserForm({ username: u.username, password: '', name: u.name || '', spv: u.spv || '', status: u.status || 'active' });
+        setUserForm({ username: u.username, password: '', name: u.name || '', role: u.role || 'sales', spv: u.spv || '', status: u.status || 'active' });
         setShowUserForm(true);
     };
 
@@ -569,7 +570,7 @@ export default function StaffBookingPanel({ user, handleChangePassword }) {
                 <div className="p-4 space-y-4">
                     <div className="flex items-center justify-between">
                         <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider">Manajemen User Sales</h2>
-                        <button onClick={() => { setEditingUser(null); setUserForm({ username: '', password: '', name: '', spv: '', status: 'active' }); setShowUserForm(true); }}
+                        <button onClick={() => { setEditingUser(null); setUserForm({ username: '', password: '', name: '', role: 'sales', spv: '', status: 'active' }); setShowUserForm(true); }}
                             className="flex items-center gap-1 bg-zinc-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all">
                             <Plus size={14} />Tambah
                         </button>
@@ -592,9 +593,14 @@ export default function StaffBookingPanel({ user, handleChangePassword }) {
                                             <p className="text-[10px] font-bold text-zinc-400">@{u.username}</p>
                                             {u.spv && <p className="text-[10px] font-bold text-zinc-500 mt-0.5">SPV: {u.spv}</p>}
                                         </div>
-                                        <span className={`text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full shrink-0 ${u.status === 'active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-zinc-100 text-zinc-500 border border-zinc-200'}`}>
-                                            {u.status || 'active'}
-                                        </span>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                            <span className={`text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${(u.role || 'sales') === 'spv' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-zinc-100 text-zinc-600 border border-zinc-200'}`}>
+                                                {u.role || 'sales'}
+                                            </span>
+                                            <span className={`text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${u.status === 'active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-zinc-100 text-zinc-500 border border-zinc-200'}`}>
+                                                {u.status || 'active'}
+                                            </span>
+                                        </div>
                                     </div>
                                     <div className="flex items-center gap-2 mt-3">
                                         <button onClick={() => handleToggleStatus(u.id, u.status)}
@@ -635,6 +641,14 @@ export default function StaffBookingPanel({ user, handleChangePassword }) {
                                         <label className="text-[10px] font-black uppercase text-zinc-400 mb-1 block">Password {editingUser && '(kosongkan jika tidak diubah)'}</label>
                                         <input type="password" value={userForm.password} onChange={e => setUserForm({ ...userForm, password: e.target.value })}
                                             className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-zinc-900 transition-all" placeholder="••••••••" required={!editingUser} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black uppercase text-zinc-400 mb-1 block">Role</label>
+                                        <select value={userForm.role} onChange={e => setUserForm({ ...userForm, role: e.target.value })}
+                                            className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-zinc-900 transition-all">
+                                            <option value="sales">Sales</option>
+                                            <option value="spv">SPV</option>
+                                        </select>
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-black uppercase text-zinc-400 mb-1 block">SPV / Atasan</label>

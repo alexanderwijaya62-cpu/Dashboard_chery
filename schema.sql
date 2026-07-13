@@ -253,6 +253,7 @@ CREATE TABLE IF NOT EXISTS public.sales (
     username TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
     name TEXT,
+    role TEXT DEFAULT 'sales',
     spv TEXT,
     status TEXT DEFAULT 'active',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
