@@ -76,94 +76,95 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
             style={{ backgroundColor: isScheduled ? '#d4d4d8' : isWorking ? '#3b82f6' : isWashing ? '#0891b2' : isMenginap ? '#a855f7' : '#ef4444' }}
          />
 
-          <div className="px-5 py-4 flex flex-col gap-2 flex-1">
-            <div className="flex items-center justify-between">
-               <div className="flex items-center gap-2 flex-wrap">
+           <div className="px-3 py-2 md:px-5 md:py-4 flex flex-col gap-1 md:gap-2 flex-1">
+             <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1 md:gap-2 flex-wrap">
 <span
-                      className="px-3 py-1 rounded-xl text-xl font-black uppercase tracking-wider flex items-center gap-1.5 text-white shadow-md"
-                      style={{ backgroundColor: (String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? '#dc2626' : '#4b5563' }}
-                   >
-                      {(String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? <Bookmark size={16} fill="white" /> : <Zap size={16} fill="white" />}
+                       className="px-2 py-0.5 md:px-3 md:py-1 rounded-xl text-sm md:text-xl font-black uppercase tracking-wider flex items-center gap-1 md:gap-1.5 text-white shadow-md"
+                       style={{ backgroundColor: (String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? '#dc2626' : '#4b5563' }}
+                    >
+                      {(String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? <Bookmark size={14} fill="white" /> : <Zap size={14} fill="white" />}
                       {item.category}
                     </span>
                     <span
-                       className="px-3 py-1 rounded-xl text-xl font-black uppercase tracking-wider text-white shadow-md"
+                       className="px-2 py-0.5 md:px-3 md:py-1 rounded-xl text-sm md:text-xl font-black uppercase tracking-wider text-white shadow-md"
                        style={{ backgroundColor: isScheduled ? '#dc2626' : isWorking ? '#2563eb' : isWashing ? '#0891b2' : isMenginap ? '#9333ea' : '#ef4444' }}
                     >
                        {isScheduled ? `○ BOOKING ${item.jam} WIB` : isWorking ? '● PROSES' : isWashing ? '● DICUCI' : isMenginap ? '● MENGINAP' : '● ANTRIAN'}
                     </span>
                      {item.isCalled && !isScheduled && (
-                     <span className="px-3 py-1 rounded-xl text-xl font-black uppercase tracking-wider text-white shadow-md bg-emerald-500 flex items-center gap-1.5">
-                        <Megaphone size={16} fill="white" /> C-{item.counter || '?'}
+                     <span className="px-2 py-0.5 md:px-3 md:py-1 rounded-xl text-sm md:text-xl font-black uppercase tracking-wider text-white shadow-md bg-emerald-500 flex items-center gap-1 md:gap-1.5">
+                        <Megaphone size={14} fill="white" /> C-{item.counter || '?'}
                      </span>
                     )}
                 </div>
                {!isScheduled && (
-                  <button onClick={() => setSelectedUnit(item)} className="p-2 text-black hover:text-zinc-600 transition-colors">
-                     <FileText size={28} />
+                  <button onClick={() => setSelectedUnit(item)} className="p-1 md:p-2 text-black hover:text-zinc-600 transition-colors">
+                     <FileText size={20} className="md:hidden" />
+                     <FileText size={28} className="hidden md:block" />
                   </button>
                )}
-            </div>
-
-            <div className="py-1 flex-1 flex flex-col justify-center">
-                <h3 className="text-6xl font-black tracking-tighter text-black font-mono uppercase leading-none">{item.bk}</h3>
-                <p className="text-2xl font-black text-black uppercase tracking-widest mt-1">{item.tipe || '—'}</p>
              </div>
 
-            <div className="grid grid-cols-3 gap-3 pt-3 border-t-2 border-zinc-100 font-mono">
-               {isMenginap ? (
-                  <div className="col-span-3">
-                     <p className="text-xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2 mb-1">
-                        <Moon size={16} className="text-purple-500" /> Alasan Menginap
-                     </p>
-                     <p className="text-2xl font-black text-purple-700 leading-none truncate uppercase">
-                        {item.menginap_reason || '—'}
-                     </p>
-                  </div>
-               ) : (
-                  <>
-                     <div>
-                        <p className="text-xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2 mb-1">
-                           <Clock size={16} className={isScheduled ? 'text-zinc-400' : 'text-blue-500'} /> {isScheduled ? 'Jadwal' : 'Datang'}
-                        </p>
-                        <p className="text-3xl font-black text-zinc-900 tabular-nums leading-none">{isScheduled ? item.jam : timeIn}</p>
-                        {!isScheduled && <p className="text-xl font-bold text-zinc-400 mt-1 leading-none">{dateIn}</p>}
-                     </div>
+             <div className="py-1 flex-1 flex flex-col justify-center">
+                 <h3 className="text-3xl md:text-6xl font-black tracking-tighter text-black font-mono uppercase leading-none">{item.bk}</h3>
+                 <p className="text-base md:text-2xl font-black text-black uppercase tracking-widest mt-1">{item.tipe || '—'}</p>
+              </div>
 
-                     <div className="col-span-2">
-                        <p className="text-xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2 mb-1">
-                           <Activity size={16} className={isWorkingOrWashing ? 'text-orange-500' : 'text-zinc-300'} /> {isScheduled ? 'Keperluan' : 'Estimasi'}
-                        </p>
-                        <p className={`text-3xl font-black tabular-nums leading-none truncate ${isWorkingOrWashing ? (item.estimasi < 300 ? 'text-red-600 animate-pulse' : 'text-orange-600') : 'text-zinc-500'}`}>
-                            {isScheduled ? (item.keluhan || '-')?.split('\n').map((l,i,a) => <span key={i}>{l}{i < a.length - 1 ? <br/> : ''}</span>) : isWorkingOrWashing ? formatTime(item.estimasi) : isIstirahatExpired ? 'Menunggu Confirm Customer' : formatTime(parseInt(item.estimasiDefault) || 0)}
-                        </p>
-                     </div>
-                  </>
-               )}
-            </div>
-
-            <div className="flex items-center gap-4 pt-3 border-t-2 border-zinc-200 mt-auto">
-               <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <div
-                     className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-lg font-black shrink-0 shadow-md"
-                     style={{ backgroundColor: (isScheduled && item.category !== 'Reguler (Late)') ? '#dc2626' : '#1e40af' }}
-                  >
-                     {(isScheduled && item.category !== 'Reguler (Late)') ? 'CS' : 'SA'}
-                  </div>
-                   <span className="text-xl font-black text-zinc-900 uppercase truncate">
-                       {item.category === 'Reguler (Late)' ? '—' : (isScheduled ? (item.nama_sa || 'BOOKING ONLINE') : (item.nama_sa || '—'))}
-                   </span>
-                </div>
-                {!isScheduled && (
+             <div className="grid grid-cols-3 gap-1.5 md:gap-3 pt-2 md:pt-3 border-t-2 border-zinc-100 font-mono">
+                {isMenginap ? (
+                   <div className="col-span-3">
+                      <p className="text-sm md:text-xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1 md:gap-2 mb-1">
+                         <Moon size={14} className="text-purple-500" /> Alasan Menginap
+                      </p>
+                      <p className="text-base md:text-2xl font-black text-purple-700 leading-none truncate uppercase">
+                         {item.menginap_reason || '—'}
+                      </p>
+                   </div>
+                ) : (
                    <>
-                      <div className="w-0.5 h-6 bg-zinc-200 shrink-0" />
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                         <div className="w-8 h-8 rounded-xl bg-[#2563eb] flex items-center justify-center text-white text-lg font-black shrink-0 shadow-md">MK</div>
-                         <span className="text-xl font-black text-[#2563eb] uppercase truncate">{item.mechanicName || '—'}</span>
-                     </div>
-                  </>
-               )}
+                      <div>
+                         <p className="text-sm md:text-xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1 md:gap-2 mb-1">
+                            <Clock size={14} className={isScheduled ? 'text-zinc-400' : 'text-blue-500'} /> {isScheduled ? 'Jadwal' : 'Datang'}
+                         </p>
+                         <p className="text-lg md:text-3xl font-black text-zinc-900 tabular-nums leading-none">{isScheduled ? item.jam : timeIn}</p>
+                         {!isScheduled && <p className="text-sm md:text-xl font-bold text-zinc-400 mt-1 leading-none">{dateIn}</p>}
+                      </div>
+
+                      <div className="col-span-2">
+                         <p className="text-sm md:text-xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1 md:gap-2 mb-1">
+                            <Activity size={14} className={isWorkingOrWashing ? 'text-orange-500' : 'text-zinc-300'} /> {isScheduled ? 'Keperluan' : 'Estimasi'}
+                         </p>
+                         <p className={`text-lg md:text-3xl font-black tabular-nums leading-none truncate ${isWorkingOrWashing ? (item.estimasi < 300 ? 'text-red-600 animate-pulse' : 'text-orange-600') : 'text-zinc-500'}`}>
+                             {isScheduled ? (item.keluhan || '-')?.split('\n').map((l,i,a) => <span key={i}>{l}{i < a.length - 1 ? <br/> : ''}</span>) : isWorkingOrWashing ? formatTime(item.estimasi) : isIstirahatExpired ? 'Menunggu Confirm Customer' : formatTime(parseInt(item.estimasiDefault) || 0)}
+                         </p>
+                      </div>
+                   </>
+                )}
              </div>
+
+             <div className="flex items-center gap-2 md:gap-4 pt-2 md:pt-3 border-t-2 border-zinc-200 mt-auto">
+                <div className="flex items-center gap-1 md:gap-2 min-w-0 flex-1">
+                   <div
+                      className="w-6 h-6 md:w-8 md:h-8 rounded-xl flex items-center justify-center text-white text-xs md:text-lg font-black shrink-0 shadow-md"
+                      style={{ backgroundColor: (isScheduled && item.category !== 'Reguler (Late)') ? '#dc2626' : '#1e40af' }}
+                   >
+                      {(isScheduled && item.category !== 'Reguler (Late)') ? 'CS' : 'SA'}
+                   </div>
+                    <span className="text-sm md:text-xl font-black text-zinc-900 uppercase truncate">
+                        {item.category === 'Reguler (Late)' ? '—' : (isScheduled ? (item.nama_sa || 'BOOKING ONLINE') : (item.nama_sa || '—'))}
+                    </span>
+                 </div>
+                 {!isScheduled && (
+                    <>
+                       <div className="w-0.5 h-4 md:h-6 bg-zinc-200 shrink-0" />
+                       <div className="flex items-center gap-1 md:gap-2 min-w-0 flex-1">
+                          <div className="w-6 h-6 md:w-8 md:h-8 rounded-xl bg-[#2563eb] flex items-center justify-center text-white text-xs md:text-lg font-black shrink-0 shadow-md">MK</div>
+                          <span className="text-sm md:text-xl font-black text-[#2563eb] uppercase truncate">{item.mechanicName || '—'}</span>
+                      </div>
+                   </>
+                )}
+              </div>
 
             {!isScheduled && (() => {
                const bannerMap = {
@@ -180,61 +181,63 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                const cfg = bannerMap[item.status];
                if (!cfg) return null;
                return (
-                   <div className="mt-2 px-5 py-3 rounded-2xl border-4 border-white/30 shadow-2xl ring-4"
+                   <div className="mt-1 md:mt-2 px-3 md:px-5 py-2 md:py-3 rounded-2xl border-4 border-white/30 shadow-2xl ring-4"
                         style={{ backgroundColor: cfg.bg, '--tw-ring-color': cfg.bg + '40' }}>
-                      <div className="flex items-center gap-2 mb-1 text-white/70">
+                      <div className="flex items-center gap-1.5 md:gap-2 mb-1 text-white/70">
                          {item.status === 'menunggu_cuci' || item.status === 'sedang_dicuci' ? (
-                            <Droplets size={18} fill="currentColor" />
+                            <Droplets size={14} className="md:hidden" fill="currentColor" />
                          ) : item.status === 'working' ? (
-                            <Zap size={18} fill="currentColor" />
+                            <Zap size={14} className="md:hidden" fill="currentColor" />
                          ) : (
-                            <Clock size={18} />
+                            <Clock size={14} className="md:hidden" />
                          )}
-                         <span className="text-lg font-black uppercase tracking-[0.15em]">{cfg.label}</span>
+                         <Droplets size={18} className="hidden md:block" fill="currentColor" />
+                         <span className="text-xs md:text-lg font-black uppercase tracking-[0.15em]">{cfg.label}</span>
                       </div>
                       {cfg.sub && (
-                         <p className="text-2xl font-black text-white leading-tight uppercase font-mono">{cfg.sub}</p>
+                         <p className="text-sm md:text-2xl font-black text-white leading-tight uppercase font-mono">{cfg.sub}</p>
                       )}
                   </div>
                );
             })()}
 
             {isMenginap && item.menginap_reason && (
-               <div className="mt-3 px-6 py-4 bg-[#9333ea] rounded-2xl border-4 border-white/30 shadow-2xl ring-4 ring-purple-500/20">
-                  <div className="flex items-center gap-3 mb-2 text-white/70">
-                     <Moon size={24} fill="currentColor" />
-                     <span className="text-2xl font-black uppercase tracking-[0.15em]">Keterangan Menginap</span>
+               <div className="mt-2 md:mt-3 px-4 md:px-6 py-3 md:py-4 bg-[#9333ea] rounded-2xl border-4 border-white/30 shadow-2xl ring-4 ring-purple-500/20">
+                  <div className="flex items-center gap-2 md:gap-3 mb-2 text-white/70">
+                     <Moon size={18} className="md:hidden" fill="currentColor" />
+                     <Moon size={24} className="hidden md:block" fill="currentColor" />
+                     <span className="text-sm md:text-2xl font-black uppercase tracking-[0.15em]">Keterangan Menginap</span>
                   </div>
-                  <p className="text-3xl font-black text-white leading-tight uppercase font-mono italic">
+                  <p className="text-base md:text-3xl font-black text-white leading-tight uppercase font-mono italic">
                      "{item.menginap_reason}"
                   </p>
                </div>
             )}
 
             {user?.role?.toLowerCase() === 'mekanik' && (
-               <div className="pt-3 border-t-2 border-zinc-100">
+               <div className="pt-2 md:pt-3 border-t-2 border-zinc-100">
                   {item.status === 'waiting' && (!item.mechanicName || item.mechanicName.split(',').includes(user.name)) && (
                      <button
                         onClick={(e) => { e.stopPropagation(); onStartWork(item); }}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl text-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-500/20 active:scale-95 transition-all flex items-center justify-center gap-3 min-h-[60px]"
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 md:py-4 rounded-xl text-base md:text-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-500/20 active:scale-95 transition-all flex items-center justify-center gap-2 md:gap-3 min-h-[48px] md:min-h-[60px]"
                      >
-                        <Zap size={24} fill="white" /> Mulai Pekerjaan
+                        <Zap size={20} fill="white" /> <span className="hidden sm:inline">Mulai </span>Pekerjaan
                      </button>
                   )}
                   {item.status === 'menginap' && (!item.mechanicName || item.mechanicName.split(',').includes(user.name)) && (
                      <button
                         onClick={(e) => { e.stopPropagation(); onStartWork(item); }}
-                        className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-xl text-2xl font-black uppercase tracking-widest shadow-xl shadow-orange-500/20 active:scale-95 transition-all flex items-center justify-center gap-3 min-h-[60px]"
+                        className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 md:py-4 rounded-xl text-base md:text-2xl font-black uppercase tracking-widest shadow-xl shadow-orange-500/20 active:scale-95 transition-all flex items-center justify-center gap-2 md:gap-3 min-h-[48px] md:min-h-[60px]"
                      >
-                        <Zap size={24} fill="white" /> Lanjutkan Pekerjaan
+                        <Zap size={20} fill="white" /> <span className="hidden sm:inline">Lanjutkan </span>Pekerjaan
                      </button>
                   )}
                   {isWorking && item.mechanicName && item.mechanicName.split(',').includes(user.name) && (
                      <button
                         onClick={(e) => { e.stopPropagation(); onComplete(item); }}
-                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-xl text-2xl font-black uppercase tracking-widest shadow-xl shadow-emerald-500/20 active:scale-95 transition-all flex items-center justify-center gap-3 min-h-[60px]"
+                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 md:py-4 rounded-xl text-base md:text-2xl font-black uppercase tracking-widest shadow-xl shadow-emerald-500/20 active:scale-95 transition-all flex items-center justify-center gap-2 md:gap-3 min-h-[48px] md:min-h-[60px]"
                      >
-                        <CheckCircle size={24} /> Selesai Pekerjaan
+                        <CheckCircle size={20} /> Selesai
                      </button>
                   )}
                </div>
@@ -538,26 +541,9 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
       });
 
       const todayBookings = [];
-      const movedToReguler = [];
 
       todayBookingsRaw.forEach(b => {
-         try {
-            const timeStr = String(b.jam).includes('.') ? String(b.jam).replace('.', ':') : `${b.jam}:00`;
-            const [jamStr, menitStr] = timeStr.split(':');
-            const scheduledTime = new Date();
-            scheduledTime.setHours(parseInt(jamStr), parseInt(menitStr), 0, 0);
-
-            // Periksa jika sudah lewat 15 menit dari jam booking
-            const diffInMinutes = (new Date() - scheduledTime) / (1000 * 60);
-
-            if (diffInMinutes > 15) {
-               movedToReguler.push({ ...b, category: 'Reguler (Late)', isLate: true });
-            } else {
-               todayBookings.push({ ...b, category: 'Booking' });
-            }
-         } catch (e) {
-            todayBookings.push({ ...b, category: 'Booking' });
-         }
+         todayBookings.push({ ...b, category: 'Booking' });
       });
 
       const occupiedCount = bookings.filter(b => isSameDate(b.tanggal, todayStr) && (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed')).length;
@@ -641,7 +627,7 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
       ]);
 
       // 4. Pastikan daftar Reguler bersih dari unit yang sudah ada di Booking atau Menginap
-      const finalReguler = sortQueue([...arrivedReguler, ...movedToReguler]).filter(i => {
+      const finalReguler = sortQueue([...arrivedReguler]).filter(i => {
          const sanitizedBK = (i.bk || '').replace(/\s+/g, '').toUpperCase();
          return !occupiedPlates.has(sanitizedBK);
       });
@@ -763,17 +749,17 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
             </div>
          )}
 
-         <header className="px-6 md:px-12 py-5 flex justify-between items-center bg-white border-b-2 border-zinc-100 z-50 shrink-0">
-            <div className="flex items-center gap-6 md:gap-16" onDoubleClick={onLogoDoubleClick}>
-               <div className="flex items-center gap-5 md:gap-10 bg-white rounded-xl p-1">
-                  <img src={cheryLogo} alt="Chery" className="h-16 md:h-32 object-contain" />
+         <header className="px-4 md:px-12 py-3 md:py-5 flex justify-between items-center bg-white border-b-2 border-zinc-100 z-50 shrink-0">
+            <div className="flex items-center gap-3 md:gap-16" onDoubleClick={onLogoDoubleClick}>
+               <div className="flex items-center gap-3 md:gap-10 bg-white rounded-xl p-1">
+                  <img src={cheryLogo} alt="Chery" className="h-10 md:h-32 object-contain" />
                </div>
-               <div className="hidden lg:block">
-                  <h1 className="text-4xl font-black tracking-tighter text-black leading-tight">Service <span className="text-black">Dashboard</span></h1>
-                  <p className="text-lg font-black text-zinc-400 uppercase tracking-[0.3em]">Chery Oriental – Real-time Monitoring</p>
+               <div className="hidden sm:block">
+                  <h1 className="text-xl md:text-4xl font-black tracking-tighter text-black leading-tight">Service <span className="text-black">Dashboard</span></h1>
+                  <p className="text-[10px] md:text-lg font-black text-zinc-400 uppercase tracking-[0.3em]">Chery Oriental – Real-time Monitoring</p>
                </div>
             </div>
-            <div className="flex items-center gap-3 md:gap-8">
+            <div className="flex items-center gap-2 md:gap-8">
                <div className="hidden md:flex items-center gap-4 bg-zinc-50 border-2 border-zinc-200 rounded-2xl px-6 py-3 shadow-sm">
                   <div className="text-right">
                      <p className="text-lg font-black text-black uppercase tracking-tight leading-none">Booking disini! 👇</p>
@@ -785,7 +771,7 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
                </div>
                <div className="hidden md:block h-14 w-0.5 bg-zinc-100" />
                <div className="flex flex-col items-end">
-                  <ClockDisplay className="text-4xl md:text-5xl font-black tracking-tighter text-zinc-900 tabular-nums leading-none" />
+                  <ClockDisplay className="text-2xl md:text-5xl font-black tracking-tighter text-zinc-900 tabular-nums leading-none" />
                </div>
             </div>
          </header>
