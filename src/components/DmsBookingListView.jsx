@@ -64,6 +64,8 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
   const [cancelModal, setCancelModal] = useState(null);
 
   const [supabaseData, setSupabaseData] = useState([]);
+  const [supaDateFrom, setSupaDateFrom] = useState('');
+  const [supaDateTo, setSupaDateTo] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [syncingId, setSyncingId] = useState(null);
 
@@ -112,15 +114,15 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
           order: { column: 'id', ascending: false },
           limit: 10,
         };
-        if (dateFrom) filters.gte = { tanggal: dateFrom };
-        if (dateTo) filters.lte = { tanggal: dateTo };
+        if (supaDateFrom) filters.gte = { tanggal: supaDateFrom };
+        if (supaDateTo) filters.lte = { tanggal: supaDateTo };
         const { data } = await db.select('booking', filters);
         setSupabaseData(data || []);
       } catch (e) {
         console.error('Gagal fetch local bookings:', e);
       }
     })();
-  }, [refreshTrigger, dateFrom, dateTo]);
+  }, [refreshTrigger, supaDateFrom, supaDateTo]);
 
   const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
 
@@ -525,12 +527,25 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
                   })}
 
                   {/* MANUAL BOOKINGS FROM SUPABASE */}
-                  {normalizedSupabase.length > 0 && (
+                  {normalizedSupabase.length > 0 || supaDateFrom || supaDateTo ? (
                     <>
                       <tr className="bg-amber-50/50">
                         <td colSpan={10} className="px-4 py-3">
-                          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-amber-700">
-                            <Database size={14} /> Manual Bookings ({normalizedSupabase.length})
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-amber-700">
+                              <Database size={14} /> Manual Bookings ({normalizedSupabase.length})
+                            </div>
+                            <div className="flex items-center gap-2 ml-auto">
+                              <label className="text-[9px] font-bold uppercase tracking-wider text-amber-500">Dari</label>
+                              <input type="date" value={supaDateFrom} onChange={e => setSupaDateFrom(e.target.value)}
+                                className="text-[11px] px-2 py-1 border border-amber-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-amber-400" />
+                              <label className="text-[9px] font-bold uppercase tracking-wider text-amber-500">Sampai</label>
+                              <input type="date" value={supaDateTo} onChange={e => setSupaDateTo(e.target.value)}
+                                className="text-[11px] px-2 py-1 border border-amber-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-amber-400" />
+                              {(supaDateFrom || supaDateTo) && (
+                                <button onClick={() => { setSupaDateFrom(''); setSupaDateTo(''); }} className="text-[10px] font-bold text-amber-600 hover:text-amber-800 underline">Reset</button>
+                              )}
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -685,16 +700,33 @@ function RescheduleModal({ booking, onClose, onSubmit }) {
   const [alasan, setAlasan] = useState('');
   const [loading, setLoading] = useState(false);
   const [holidays, setHolidays] = useState([]);
+  const [calMonth, setCalMonth] = useState(() => {
+    const d = new Date(); d.setDate(1); return d;
+  });
 
   useEffect(() => { fetchHolidays().then(setHolidays); }, []);
+
+  const calGrid = useMemo(() => {
+    const m = calMonth.getMonth(), y = calMonth.getFullYear();
+    const days = [];
+    const prevLast = new Date(y, m, 0).getDate();
+    const start = new Date(y, m, 1).getDay();
+    for (let i = start - 1; i >= 0; i--) days.push({ day: prevLast - i, currentMonth: false });
+    for (let i = 1; i <= new Date(y, m + 1, 0).getDate(); i++) {
+      const ds = `${y}-${String(m + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+      const now = new Date(); now.setHours(0, 0, 0, 0);
+      const isPast = new Date(ds + 'T00:00:00') < now;
+      const isDisabled = isPast || isHolidayOrSunday(ds, holidays);
+      days.push({ day: i, currentMonth: true, date: ds, isDisabled });
+    }
+    const rem = 42 - days.length;
+    for (let i = 1; i <= rem; i++) days.push({ day: i, currentMonth: false });
+    return days;
+  }, [calMonth, holidays]);
 
   const handleSubmit = async () => {
     if (!date || !time) {
       Toastify({ text: 'Pilih tanggal dan jam baru!', background: 'orange' }).showToast();
-      return;
-    }
-    if (isHolidayOrSunday(date, holidays)) {
-      Toastify({ text: 'Tidak bisa reschedule di hari libur atau Minggu!', background: 'red' }).showToast();
       return;
     }
     setLoading(true);
@@ -717,7 +749,32 @@ function RescheduleModal({ booking, onClose, onSubmit }) {
           </div>
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Tanggal Baru</label>
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
+            {date && <p className="text-sm font-semibold text-zinc-900 mb-1">{new Date(date + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>}
+            <div className="bg-zinc-50 rounded-xl p-3 border border-zinc-200">
+              <div className="flex items-center justify-between mb-2">
+                <button type="button" onClick={() => { const d = new Date(calMonth); d.setMonth(d.getMonth() - 1); setCalMonth(d); }} className="p-1 hover:bg-zinc-200 rounded-lg"><ChevronLeft size={14} /></button>
+                <span className="text-xs font-black uppercase tracking-wider text-zinc-700">{calMonth.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}</span>
+                <button type="button" onClick={() => { const d = new Date(calMonth); d.setMonth(d.getMonth() + 1); setCalMonth(d); }} className="p-1 hover:bg-zinc-200 rounded-lg"><ChevronRight size={14} /></button>
+              </div>
+              <div className="grid grid-cols-7 gap-1">
+                {['Min','Sen','Sel','Rab','Kam','Jum','Sat'].map(d => (
+                  <div key={d} className="text-center text-[7px] font-black text-zinc-400 uppercase tracking-widest py-0.5">{d}</div>
+                ))}
+                {calGrid.map((item, idx) => {
+                  if (!item.currentMonth) return <div key={idx} className="aspect-square" />;
+                  const isSelected = date === item.date;
+                  return (
+                    <button key={idx} type="button" disabled={item.isDisabled}
+                      onClick={() => setDate(item.date)}
+                      className={`aspect-square rounded-lg text-[10px] font-black transition-all flex items-center justify-center ${
+                        item.isDisabled ? 'text-zinc-300 cursor-not-allowed' :
+                        isSelected ? 'bg-black text-white shadow' :
+                        'text-zinc-700 hover:bg-zinc-200'
+                      }`}>{item.day}</button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Jam Baru</label>
@@ -730,7 +787,7 @@ function RescheduleModal({ booking, onClose, onSubmit }) {
         </div>
         <div className="px-6 py-4 border-t border-zinc-100 flex justify-end gap-3">
           <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 rounded-xl transition-colors">Batal</button>
-          <button onClick={handleSubmit} disabled={loading} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center gap-2">
+          <button onClick={handleSubmit} disabled={loading || !date || !time} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center gap-2">
             {loading ? 'Menyimpan...' : 'Simpan'}
           </button>
         </div>
