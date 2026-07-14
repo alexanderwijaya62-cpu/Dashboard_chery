@@ -613,7 +613,17 @@ async function handleVehicleSelect(req, res) {
             continue;
         }
         try {
-            return res.status(200).json(JSON.parse(body));
+            const raw = JSON.parse(body);
+            const sanitized = (Array.isArray(raw) ? raw : [raw]).map(v => ({
+                id_kendaraan: v.id_kendaraan,
+                no_polisi: v.no_polisi,
+                tipe_kendaraan: v.tipe_kendaraan,
+                nama_kendaraan: v.nama_kendaraan,
+                tahun_produksi: v.tahun_produksi,
+                id_pelanggan: v.id_pelanggan,
+                nama_pelanggan: v.nama_pelanggan,
+            }));
+            return res.status(200).json(sanitized);
         } catch {
             return res.status(500).json({ error: 'Non-JSON response from vehicle select', snippet: body.slice(0, 200) });
         }
