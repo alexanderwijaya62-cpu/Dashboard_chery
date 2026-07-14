@@ -578,6 +578,9 @@ async function getCsrfToken(url, cookie) {
     });
     const pageHtml = await pageResp.text();
     const tokenMatch = pageHtml.match(/name="_token"\s+value="([^"]+)"/);
+    if (!tokenMatch) {
+        console.error(`[getCsrfToken] No _token found. Status: ${pageResp.status}, isLogin: ${pageHtml.includes('login')}, snippet: ${pageHtml.slice(0, 200)}`);
+    }
     return tokenMatch ? tokenMatch[1] : null;
 }
 
@@ -717,12 +720,6 @@ async function handleBookingReschedule(req, res) {
             return res.status(200).json({ success: true, message: 'Booking rescheduled successfully' });
         }
 
-        if (response.status === 404 || response.status === 401 || respBody.includes('<title>Not Found</title>')) {
-            croCookie = null;
-            attempts++;
-            continue;
-        }
-        
         return res.status(response.status).json({ success: false, message: `Server returned ${response.status}`, snippet: respBody.slice(0, 300) });
     }
     return res.status(500).json({ error: 'CRO login failed after 2 attempts' });
