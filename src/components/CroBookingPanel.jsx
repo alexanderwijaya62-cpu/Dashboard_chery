@@ -26,7 +26,7 @@ export default function CroBookingPanel({ user }) {
     const [step, setStep] = useState('search'); // 'search' | 'form'
 
     // Slot config from Supabase
-    const [slotConfig, setSlotConfig] = useState({ count: 4, gap: 30, startH: 8, startM: 0, slotCapacity: 1 });
+    const [slotConfig, setSlotConfig] = useState({ count: 4, gap: 30, startH: 8, startM: 0, capacity: 1 });
     const [bookings, setBookings] = useState([]);
     useEffect(() => {
         (async () => {
@@ -37,7 +37,7 @@ export default function CroBookingPanel({ user }) {
                     gap: config.gapMinutes,
                     startH: config.startHour,
                     startM: config.startMinute,
-                    slotCapacity: config.slotCapacity,
+                    capacity: config.slotCapacity,
                 });
             } catch (_) {}
         })();
@@ -366,7 +366,7 @@ export default function CroBookingPanel({ user }) {
     const dateFillMap = useMemo(() => {
         const map = {};
         const allSlots = generateSlots(slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM);
-        const totalCapacity = allSlots.length * slotConfig.slotCapacity;
+        const totalCapacity = allSlots.length * slotConfig.capacity;
         bookings.forEach(b => {
             if (b.status !== 'waiting confirm' && b.status !== 'accepted' && b.status !== 'completed') return;
             if (!b.tanggal) return;
@@ -849,7 +849,7 @@ export default function CroBookingPanel({ user }) {
                                                             String(b.jam).replace(':', '.') === slot &&
                                                             (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed')
                                                         ).length;
-                                                        const isFull = count >= slotConfig.slotCapacity;
+                                                        const isFull = count >= slotConfig.capacity;
                                                         return (
                                                             <button key={slot} type="button" disabled={isPastTime || (isFull && formData.jam !== slot)}
                                                                 onClick={() => setFormData({ ...formData, jam: slot })}
@@ -858,7 +858,7 @@ export default function CroBookingPanel({ user }) {
                                                                 }`}
                                                             >
                                                                 {h}:{m} WIB
-                                                                <span className="text-[6px] opacity-70 block">{count}/{slotConfig.slotCapacity}</span>
+                                                                <span className="text-[6px] opacity-70 block">{count}/{slotConfig.capacity}</span>
                                                             </button>
                                                         );
                                                     })}
