@@ -698,7 +698,7 @@ function RescheduleModal({ booking, onClose, onSubmit }) {
       return;
     }
     setLoading(true);
-    await onSubmit(booking.no_booking, `${date} ${time}`, alasan);
+    await onSubmit(booking.no_booking, `${date}T${time}`, alasan);
     setLoading(false);
   };
 

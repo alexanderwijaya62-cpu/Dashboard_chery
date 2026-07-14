@@ -716,6 +716,12 @@ async function handleBookingReschedule(req, res) {
         if (response.status === 302 || response.status === 303 || response.status === 200) {
             return res.status(200).json({ success: true, message: 'Booking rescheduled successfully' });
         }
+
+        if (response.status === 404 || response.status === 401 || respBody.includes('<title>Not Found</title>')) {
+            croCookie = null;
+            attempts++;
+            continue;
+        }
         
         return res.status(response.status).json({ success: false, message: `Server returned ${response.status}`, snippet: respBody.slice(0, 300) });
     }
