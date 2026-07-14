@@ -369,8 +369,8 @@ const App = () => {
             warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-proforma'],
             foreman: ['foreman', 'booking-public', 'display'],
             security: ['security', 'display', 'booking-public'],
-          sales: ['sales-booking', 'display', 'booking-public'],
-          spv: ['spv-booking', 'display', 'booking-public'],
+          sales: ['sales-booking', 'display'],
+          spv: ['spv-booking', 'display'],
           };
 
           if (savedPage && allowedPages[role]?.includes(savedPage)) {

@@ -90,15 +90,19 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout }) => {
     return () => document.removeEventListener('keydown', handleEsc);
   }, []);
 
-  // Public pages for bottom nav + sidebar — guest and customer only see Booking
+  // Public pages for bottom nav + sidebar — sales/spv have their own booking panel, no need for public booking
   const publicNavItems = !user || user?.role?.toLowerCase() === 'customer'
     ? [
         { id: 'booking', icon: Calendar, label: 'Booking', page: 'booking-public', ariaLabel: 'Booking Service' },
       ]
-    : [
-        { id: 'home', icon: Home, label: 'Home', page: 'display', ariaLabel: 'Home Display' },
-        { id: 'booking', icon: Calendar, label: 'Booking', page: 'booking-public', ariaLabel: 'Booking Service' },
-      ];
+    : ['sales', 'spv'].includes(user?.role?.toLowerCase())
+      ? [
+          { id: 'home', icon: Home, label: 'Home', page: 'display', ariaLabel: 'Home Display' },
+        ]
+      : [
+          { id: 'home', icon: Home, label: 'Home', page: 'display', ariaLabel: 'Home Display' },
+          { id: 'booking', icon: Calendar, label: 'Booking', page: 'booking-public', ariaLabel: 'Booking Service' },
+        ];
 
   // Bottom nav items (mobile) — includes Dashboard/Login as 4th item
   const bottomNavItems = [
