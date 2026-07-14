@@ -10,7 +10,7 @@ const isPastDate = (dateStr) => {
     const d = new Date(dateStr + 'T00:00:00');
     const now = new Date();
     now.setHours(0, 0, 0, 0);
-    return d < now;
+    return d <= now;
 };
 
 const STATUS_ACTIVE = ['waiting confirm', 'waiting_approval', 'accepted', 'completed', 'synced'];
