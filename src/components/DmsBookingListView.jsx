@@ -526,30 +526,28 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
                     );
                   })}
 
-                  {/* MANUAL BOOKINGS FROM SUPABASE */}
-                  {normalizedSupabase.length > 0 || supaDateFrom || supaDateTo ? (
-                    <>
-                      <tr className="bg-amber-50/50">
-                        <td colSpan={10} className="px-4 py-3">
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-amber-700">
-                              <Database size={14} /> Manual Bookings ({normalizedSupabase.length})
-                            </div>
-                            <div className="flex items-center gap-2 ml-auto">
-                              <label className="text-[9px] font-bold uppercase tracking-wider text-amber-500">Dari</label>
-                              <input type="date" value={supaDateFrom} onChange={e => setSupaDateFrom(e.target.value)}
-                                className="text-[11px] px-2 py-1 border border-amber-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-amber-400" />
-                              <label className="text-[9px] font-bold uppercase tracking-wider text-amber-500">Sampai</label>
-                              <input type="date" value={supaDateTo} onChange={e => setSupaDateTo(e.target.value)}
-                                className="text-[11px] px-2 py-1 border border-amber-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-amber-400" />
-                              {(supaDateFrom || supaDateTo) && (
-                                <button onClick={() => { setSupaDateFrom(''); setSupaDateTo(''); }} className="text-[10px] font-bold text-amber-600 hover:text-amber-800 underline">Reset</button>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                      {normalizedSupabase.map((row, i) => {
+                  {/* MANUAL BOOKINGS FROM SUPABASE — always show filter */}
+                  <tr className="bg-amber-50/50">
+                    <td colSpan={10} className="px-4 py-3">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-amber-700">
+                          <Database size={14} /> Manual Bookings ({normalizedSupabase.length})
+                        </div>
+                        <div className="flex items-center gap-2 ml-auto">
+                          <label className="text-[9px] font-bold uppercase tracking-wider text-amber-500">Dari</label>
+                          <input type="date" value={supaDateFrom} onChange={e => setSupaDateFrom(e.target.value)}
+                            className="text-[11px] px-2 py-1 border border-amber-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-amber-400" />
+                          <label className="text-[9px] font-bold uppercase tracking-wider text-amber-500">Sampai</label>
+                          <input type="date" value={supaDateTo} onChange={e => setSupaDateTo(e.target.value)}
+                            className="text-[11px] px-2 py-1 border border-amber-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-amber-400" />
+                          {(supaDateFrom || supaDateTo) && (
+                            <button onClick={() => { setSupaDateFrom(''); setSupaDateTo(''); }} className="text-[10px] font-bold text-amber-600 hover:text-amber-800 underline">Reset</button>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                  {normalizedSupabase.length > 0 && normalizedSupabase.map((row, i) => {
                         const isExp = expandedRow === `local_${i}`;
                         const s = getStatusStyle(row.status_booking);
                         return (
@@ -617,8 +615,6 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
                           </React.Fragment>
                         );
                       })}
-                    </>
-                  )}
                 </tbody>
               </table>
             </div>
