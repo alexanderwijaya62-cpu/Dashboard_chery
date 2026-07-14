@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { AlertCircle, Calendar, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Edit, FileText, Filter, Phone, RefreshCw, Search, Trash2, Truck, X, XCircle, Database, Settings } from 'lucide-react';
+import { AlertCircle, Calendar, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Edit, FileText, Filter, Phone, RefreshCw, Search, Trash2, Truck, X, XCircle, Database, Settings, RefreshCcw } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import BookingSettings from './BookingSettings';
@@ -65,6 +65,7 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
 
   const [supabaseData, setSupabaseData] = useState([]);
   const [showSettings, setShowSettings] = useState(false);
+  const [syncingId, setSyncingId] = useState(null);
 
   const hasActiveFilters = statusFilter || dateFrom || dateTo;
 
@@ -103,22 +104,23 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
     fetchData();
   }, [fetchData]);
 
-  // Fetch ALL local Supabase bookings (not just manual ones)
-  // so that every internal booking appears in the CRO view.
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await db.select('booking', {
+        const filters = {
           select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, noUrut, vin',
           order: { column: 'id', ascending: false },
-          limit: 500
-        });
+          limit: 10,
+        };
+        if (dateFrom) filters.gte = { tanggal: dateFrom };
+        if (dateTo) filters.lte = { tanggal: dateTo };
+        const { data } = await db.select('booking', filters);
         setSupabaseData(data || []);
       } catch (e) {
         console.error('Gagal fetch local bookings:', e);
       }
     })();
-  }, [refreshTrigger]);
+  }, [refreshTrigger, dateFrom, dateTo]);
 
   const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
 
@@ -156,6 +158,55 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
     setSearch('');
     setSearchInput('');
     setPage(0);
+  };
+
+  const handleSyncBooking = async (row) => {
+    const syncKey = row.no_booking || row.id_booking;
+    if (!syncKey) return;
+    setSyncingId(syncKey);
+    try {
+      const noPlat = (row.no_polisi || '').replace(/\s+/g, '').toUpperCase();
+      const janji = row.janji_datang || '';
+      const tanggal = janji.split(' ')[0] || '';
+      const { data: existing } = await db.select('booking', {
+        eq: { noPlat: row.no_polisi },
+        limit: 50,
+      });
+      const match = (existing || []).find(b => {
+        const d = (b.tanggal || '').substring(0, 10);
+        return d === tanggal && b.namaCustomer === row.nama_pelanggan;
+      });
+      if (match) {
+        Toastify({ text: `Booking ${syncKey} sudah ada di Supabase (ID: ${match.id})`, background: '#22c55e' }).showToast();
+      } else {
+        const jam = (janji.split(' ')[1] || '00:00').replace(':', '.');
+        const { error } = await db.insert('booking', {
+          id: Date.now() + Math.floor(Math.random() * 1000),
+          tanggal,
+          jam,
+          noPlat: row.no_polisi || '',
+          namaCustomer: row.nama_pelanggan || '',
+          noTelp: row.no_telp_booking || '',
+          tipeMobil: row.nama_kendaraan || '',
+          keperluanService: row.keluhan || '-',
+          status: row.status_booking === 'Selesai' ? 'completed' : row.status_booking === 'Batal' ? 'cancelled' : 'accepted',
+          bookingVia: `DMS Sync: ${row.booking_via || row.dibuat_oleh || '-'}`,
+        });
+        if (error) throw error;
+        Toastify({ text: `Booking ${syncKey} berhasil disync ke Supabase!`, background: '#22c55e' }).showToast();
+        const { data: refreshed } = await db.select('booking', {
+          select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, noUrut, vin',
+          order: { column: 'id', ascending: false },
+          limit: 10,
+        });
+        setSupabaseData(refreshed || []);
+      }
+    } catch (e) {
+      console.error('Sync error:', e);
+      Toastify({ text: `Gagal sync: ${e.message}`, background: '#ef4444' }).showToast();
+    } finally {
+      setSyncingId(null);
+    }
   };
 
   const handleReschedule = async (id, janjiBaru, alasan) => {
@@ -266,7 +317,7 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
       {showFilter && (
         <div className="bg-white border-b border-zinc-200 px-4 py-3 flex flex-wrap items-end gap-3 shrink-0">
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Status</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Status</label>
             <select
               value={statusFilter}
               onChange={e => { setStatusFilter(e.target.value); setPage(0); }}
@@ -282,7 +333,7 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
             </select>
           </div>
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Dari</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Dari</label>
             <input
               type="date" value={dateFrom}
               onChange={e => { setDateFrom(e.target.value); setPage(0); }}
@@ -290,7 +341,7 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
             />
           </div>
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Sampai</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Sampai</label>
             <input
               type="date" value={dateTo}
               onChange={e => { setDateTo(e.target.value); setPage(0); }}
@@ -329,48 +380,57 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
         ) : (
           <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-base">
                 <thead>
                   <tr className="bg-zinc-50 border-b border-zinc-200">
-                    <th className="w-8"></th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">No. Booking</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Status</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Pelanggan</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">No. Polisi</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Kendaraan</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Janji Datang</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Via</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Dibuat Oleh</th>
-                    <th className="text-center px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Aksi</th>
+                    <th className="w-10"></th>
+                    <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">No. Booking</th>
+                    <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Status</th>
+                    <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Pelanggan</th>
+                    <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">No. Polisi</th>
+                    <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Kendaraan</th>
+                    <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Janji Datang</th>
+                    <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Via</th>
+                    <th className="text-left px-4 py-3 text-xs font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Dibuat Oleh</th>
+                    <th className="text-center px-4 py-3 text-xs font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
                   {data.map((row, i) => {
                     const isExp = expandedRow === `dms_${i}`;
                     const s = getStatusStyle(row.status_booking);
+                    const rowKey = row.no_booking || i;
                     return (
-                      <React.Fragment key={`dms_${row.id_booking || i}`}>
+                      <React.Fragment key={`dms_${rowKey}`}>
                         <tr
                           className={`hover:bg-zinc-50 transition-colors cursor-pointer ${isExp ? 'bg-zinc-50' : ''}`}
                           onClick={() => setExpandedRow(isExp ? null : `dms_${i}`)}
                         >
-                          <td className="pl-3 pr-1 py-2.5 text-zinc-400">
-                            {isExp ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                          <td className="pl-3 pr-1 py-3 text-zinc-400">
+                            {isExp ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                           </td>
-                          <td className="px-3 py-2.5 font-bold text-zinc-900 whitespace-nowrap text-xs">{row.no_booking || '-'}</td>
-                          <td className="px-3 py-2.5">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${s.bg} ${s.text} ${s.border}`}>
+                          <td className="px-4 py-3 font-bold text-zinc-900 whitespace-nowrap text-sm">{row.no_booking || '-'}</td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${s.bg} ${s.text} ${s.border}`}>
                               {row.status_booking || '-'}
                             </span>
                           </td>
-                          <td className="px-3 py-2.5 text-zinc-700 whitespace-nowrap text-xs max-w-[120px] truncate">{row.nama_pelanggan || '-'}</td>
-                          <td className="px-3 py-2.5 font-mono text-zinc-700 whitespace-nowrap text-xs">{row.no_polisi || '-'}</td>
-                          <td className="px-3 py-2.5 text-zinc-600 whitespace-nowrap text-xs max-w-[140px] truncate">{row.nama_kendaraan || '-'}</td>
-                          <td className="px-3 py-2.5 text-zinc-500 whitespace-nowrap text-xs">{formatDateShort(row.janji_datang)}</td>
-                          <td className="px-3 py-2.5 text-zinc-500 whitespace-nowrap text-xs">{row.booking_via || '-'}</td>
-                          <td className="px-3 py-2.5 text-zinc-400 whitespace-nowrap text-xs">{row.dibuat_oleh || '-'}</td>
-                          <td className="px-3 py-2.5 text-center">
-                            <div className="flex items-center justify-center gap-1" onClick={e => e.stopPropagation()}>
+                          <td className="px-4 py-3 text-zinc-700 whitespace-nowrap text-sm max-w-[160px] truncate">{row.nama_pelanggan || '-'}</td>
+                          <td className="px-4 py-3 font-mono text-zinc-700 whitespace-nowrap text-sm">{row.no_polisi || '-'}</td>
+                          <td className="px-4 py-3 text-zinc-600 whitespace-nowrap text-sm max-w-[160px] truncate">{row.nama_kendaraan || '-'}</td>
+                          <td className="px-4 py-3 text-zinc-500 whitespace-nowrap text-sm">{formatDateShort(row.janji_datang)}</td>
+                          <td className="px-4 py-3 text-zinc-500 whitespace-nowrap text-sm">{row.booking_via || '-'}</td>
+                          <td className="px-4 py-3 text-zinc-400 whitespace-nowrap text-sm">{row.dibuat_oleh || '-'}</td>
+                          <td className="px-4 py-3 text-center">
+                            <div className="flex items-center justify-center gap-1.5" onClick={e => e.stopPropagation()}>
+                              <button
+                                onClick={() => handleSyncBooking(row)}
+                                disabled={syncingId === row.no_booking}
+                                className="p-1.5 rounded-lg text-zinc-500 hover:bg-emerald-50 hover:text-emerald-700 transition-all disabled:opacity-50"
+                                title="Sync ke Supabase"
+                              >
+                                {syncingId === row.no_booking ? <RefreshCw size={14} className="animate-spin" /> : <RefreshCcw size={14} />}
+                              </button>
                               <button
                                 onClick={() => setRescheduleModal(row)}
                                 className="p-1.5 rounded-lg text-zinc-500 hover:bg-blue-50 hover:text-blue-700 transition-all"
@@ -399,15 +459,15 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
                         {/* EXPANDED DETAIL */}
                         {isExp && (
                           <tr className="bg-zinc-50 border-b border-zinc-200">
-                            <td colSpan={10} className="px-5 py-4">
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                            <td colSpan={10} className="px-6 py-5">
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 text-sm">
                                 <div>
-                                  <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
-                                    <Truck size={10} /> Kendaraan
+                                  <p className="text-xs font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
+                                    <Truck size={12} /> Kendaraan
                                   </p>
-                                  <div className="space-y-1">
+                                  <div className="space-y-1.5">
                                     {[['Chassis', row.no_chassis], ['KM', row.km ? `${row.km} km` : '-'], ['Atas Nama', row.atas_nama_booking || '-'], ['No. Telp', row.no_telp_booking || '-']].map(([label, val]) => (
-                                      <div key={label} className="flex justify-between text-xs">
+                                      <div key={label} className="flex justify-between text-sm">
                                         <span className="text-zinc-400 font-medium">{label}</span>
                                         <span className="text-zinc-800 font-semibold">{val}</span>
                                       </div>
@@ -415,44 +475,44 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
                                   </div>
                                 </div>
                                 <div>
-                                  <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
-                                    <FileText size={10} /> Detail Booking
+                                  <p className="text-xs font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
+                                    <FileText size={12} /> Detail Booking
                                   </p>
-                                  <div className="space-y-1">
+                                  <div className="space-y-1.5">
                                     {[
                                       ['Booking Via', row.booking_via || '-'],
                                       ['Dibuat Oleh', row.dibuat_oleh || '-'],
                                       ['Keluhan', row.keluhan || '-'],
                                       ['Actual Datang', formatDate(row.actual_datang)],
                                     ].map(([label, val]) => (
-                                      <div key={label} className="flex justify-between text-xs">
+                                      <div key={label} className="flex justify-between text-sm">
                                         <span className="text-zinc-400 font-medium">{label}</span>
-                                        <span className="text-zinc-800 font-semibold max-w-[180px] truncate">{val}</span>
+                                        <span className="text-zinc-800 font-semibold max-w-[200px] truncate">{val}</span>
                                       </div>
                                     ))}
                                   </div>
                                 </div>
                                 <div>
-                                  <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
-                                    <Clock size={10} /> Timeline
+                                  <p className="text-xs font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
+                                    <Clock size={12} /> Timeline
                                   </p>
-                                  <div className="space-y-1">
+                                  <div className="space-y-1.5">
                                     {[
                                       ['Janji Datang', formatDate(row.janji_datang)],
                                       ['Waktu Selesai', formatDate(row.waktu_selesai)],
                                       ['Alasan Reschedule', row.alasan_reschedule || '-'],
                                       ['Created', formatDate(row.created_at)],
                                     ].map(([label, val]) => (
-                                      <div key={label} className="flex justify-between text-xs">
+                                      <div key={label} className="flex justify-between text-sm">
                                         <span className="text-zinc-400 font-medium">{label}</span>
                                         <span className="text-zinc-800 font-semibold">{val}</span>
                                       </div>
                                     ))}
                                   </div>
                                   {row.status_booking === 'Batal' && (
-                                    <div className="mt-3 p-2 bg-red-50 border border-red-100 rounded-lg">
-                                      <p className="text-[10px] font-bold text-red-700">Dibatalkan: {row.dibatalkan_oleh || '-'}</p>
-                                      <p className="text-[9px] text-red-500 italic">Alasan: {row.alasan_pembatalan || '-'}</p>
+                                    <div className="mt-3 p-2.5 bg-red-50 border border-red-100 rounded-lg">
+                                      <p className="text-xs font-bold text-red-700">Dibatalkan: {row.dibatalkan_oleh || '-'}</p>
+                                      <p className="text-xs text-red-500 italic">Alasan: {row.alasan_pembatalan || '-'}</p>
                                     </div>
                                   )}
                                 </div>
@@ -468,8 +528,8 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
                   {normalizedSupabase.length > 0 && (
                     <>
                       <tr className="bg-amber-50/50">
-                        <td colSpan={10} className="px-3 py-3">
-                          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-amber-700">
+                        <td colSpan={10} className="px-4 py-3">
+                          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-amber-700">
                             <Database size={14} /> Manual Bookings ({normalizedSupabase.length})
                           </div>
                         </td>
@@ -483,39 +543,39 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
                               className={`hover:bg-amber-50/50 transition-colors cursor-pointer ${isExp ? 'bg-amber-50/50' : ''}`}
                               onClick={() => setExpandedRow(isExp ? null : `local_${i}`)}
                             >
-                              <td className="pl-3 pr-1 py-2.5 text-zinc-400">
-                                {isExp ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                              <td className="pl-3 pr-1 py-3 text-zinc-400">
+                                {isExp ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                               </td>
-                              <td className="px-3 py-2.5 font-bold text-zinc-900 whitespace-nowrap text-xs">
+                              <td className="px-4 py-3 font-bold text-zinc-900 whitespace-nowrap text-sm">
                                 <span className="inline-flex items-center gap-1">
                                   {row.no_booking}
-                                  <span className="text-[8px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">Local</span>
+                                  <span className="text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">Local</span>
                                 </span>
                               </td>
-                              <td className="px-3 py-2.5">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${s.bg} ${s.text} ${s.border}`}>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${s.bg} ${s.text} ${s.border}`}>
                                   {row.status_booking || '-'}
                                 </span>
                               </td>
-                              <td className="px-3 py-2.5 text-zinc-700 whitespace-nowrap text-xs max-w-[120px] truncate">{row.nama_pelanggan || '-'}</td>
-                              <td className="px-3 py-2.5 font-mono text-zinc-700 whitespace-nowrap text-xs">{row.no_polisi || '-'}</td>
-                              <td className="px-3 py-2.5 text-zinc-600 whitespace-nowrap text-xs max-w-[140px] truncate">{row.nama_kendaraan || '-'}</td>
-                              <td className="px-3 py-2.5 text-zinc-500 whitespace-nowrap text-xs">{formatDateShort(row.janji_datang)}</td>
-                              <td className="px-3 py-2.5 text-zinc-500 whitespace-nowrap text-xs">{row.booking_via || '-'}</td>
-                              <td className="px-3 py-2.5 text-zinc-400 whitespace-nowrap text-xs">{row.dibuat_oleh || '-'}</td>
-                              <td className="px-3 py-2.5 text-center text-[9px] text-zinc-400 font-bold">—</td>
+                              <td className="px-4 py-3 text-zinc-700 whitespace-nowrap text-sm max-w-[160px] truncate">{row.nama_pelanggan || '-'}</td>
+                              <td className="px-4 py-3 font-mono text-zinc-700 whitespace-nowrap text-sm">{row.no_polisi || '-'}</td>
+                              <td className="px-4 py-3 text-zinc-600 whitespace-nowrap text-sm max-w-[160px] truncate">{row.nama_kendaraan || '-'}</td>
+                              <td className="px-4 py-3 text-zinc-500 whitespace-nowrap text-sm">{formatDateShort(row.janji_datang)}</td>
+                              <td className="px-4 py-3 text-zinc-500 whitespace-nowrap text-sm">{row.booking_via || '-'}</td>
+                              <td className="px-4 py-3 text-zinc-400 whitespace-nowrap text-sm">{row.dibuat_oleh || '-'}</td>
+                              <td className="px-4 py-3 text-center text-xs text-zinc-400 font-bold">—</td>
                             </tr>
                             {isExp && (
                               <tr className="bg-amber-50/30 border-b border-zinc-200">
-                                <td colSpan={10} className="px-5 py-4">
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                <td colSpan={10} className="px-6 py-5">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
                                     <div>
-                                      <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
-                                        <Truck size={10} /> Kendaraan
+                                      <p className="text-xs font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
+                                        <Truck size={12} /> Kendaraan
                                       </p>
-                                      <div className="space-y-1">
+                                      <div className="space-y-1.5">
                                         {[['No Polisi', row.no_polisi], ['Model', row.nama_kendaraan], ['Atas Nama', row.atas_nama_booking], ['No. Telp', row.no_telp_booking]].map(([label, val]) => (
-                                          <div key={label} className="flex justify-between text-xs">
+                                          <div key={label} className="flex justify-between text-sm">
                                             <span className="text-zinc-400 font-medium">{label}</span>
                                             <span className="text-zinc-800 font-semibold">{val}</span>
                                           </div>
@@ -523,14 +583,14 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
                                       </div>
                                     </div>
                                     <div>
-                                      <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
-                                        <FileText size={10} /> Detail
+                                      <p className="text-xs font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
+                                        <FileText size={12} /> Detail
                                       </p>
-                                      <div className="space-y-1">
+                                      <div className="space-y-1.5">
                                         {[['Via', row.booking_via], ['Keluhan', row.keluhan], ['Created', formatDate(row.created_at)]].map(([label, val]) => (
-                                          <div key={label} className="flex justify-between text-xs">
+                                          <div key={label} className="flex justify-between text-sm">
                                             <span className="text-zinc-400 font-medium">{label}</span>
-                                            <span className="text-zinc-800 font-semibold max-w-[180px] truncate">{val}</span>
+                                            <span className="text-zinc-800 font-semibold max-w-[200px] truncate">{val}</span>
                                           </div>
                                         ))}
                                       </div>
@@ -554,22 +614,22 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
       {/* PAGINATION */}
       {totalPages > 1 && (
         <div className="bg-white border-t border-zinc-200 px-4 py-3 flex items-center justify-between shrink-0">
-          <p className="text-xs text-zinc-500">{page * pageSize + 1}–{Math.min((page + 1) * pageSize, totalRecords)} dari {totalRecords.toLocaleString()}</p>
+          <p className="text-sm text-zinc-500">{page * pageSize + 1}–{Math.min((page + 1) * pageSize, totalRecords)} dari {totalRecords.toLocaleString()}</p>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setPage(p => Math.max(0, p - 1))}
               disabled={page === 0 || isLoading}
               className="p-2 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <ChevronLeft size={14} />
+              <ChevronLeft size={16} />
             </button>
-            <span className="text-sm font-semibold text-zinc-700 px-2">{page + 1} / {totalPages}</span>
+            <span className="text-base font-semibold text-zinc-700 px-2">{page + 1} / {totalPages}</span>
             <button
               onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
               disabled={page >= totalPages - 1 || isLoading}
               className="p-2 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <ChevronRight size={14} />
+              <ChevronRight size={16} />
             </button>
           </div>
         </div>
@@ -606,7 +666,7 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
         <div className="fixed inset-0 bg-black/40 z-[999] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-zinc-200 overflow-hidden max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between shrink-0">
-              <h3 className="font-black text-sm uppercase tracking-wider">Pengaturan Slot Booking</h3>
+              <h3 className="font-black text-base uppercase tracking-wider">Pengaturan Slot Booking</h3>
               <button onClick={() => setShowSettings(false)} className="p-1.5 hover:bg-zinc-100 rounded-lg transition-colors"><X size={16} /></button>
             </div>
             <div className="flex-1 overflow-y-auto">
@@ -638,7 +698,7 @@ function RescheduleModal({ booking, onClose, onSubmit }) {
       return;
     }
     setLoading(true);
-    await onSubmit(booking.id_booking, `${date} ${time}`, alasan);
+    await onSubmit(booking.no_booking, `${date} ${time}`, alasan);
     setLoading(false);
   };
 
@@ -646,25 +706,25 @@ function RescheduleModal({ booking, onClose, onSubmit }) {
     <div className="fixed inset-0 bg-black/40 z-[999] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-zinc-200 overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between">
-          <h3 className="font-black text-sm uppercase tracking-wider">Reschedule Booking</h3>
-          <button onClick={onClose} className="p-1.5 hover:bg-zinc-100 rounded-lg transition-colors"><X size={16} /></button>
+          <h3 className="font-black text-base uppercase tracking-wider">Reschedule Booking</h3>
+          <button onClick={onClose} className="p-1.5 hover:bg-zinc-100 rounded-lg transition-colors"><X size={18} /></button>
         </div>
         <div className="px-6 py-4 space-y-4">
-          <div className="bg-zinc-50 rounded-xl p-3 text-xs space-y-1">
+          <div className="bg-zinc-50 rounded-xl p-3 text-sm space-y-1">
             <p className="font-bold text-zinc-900">{booking.no_booking}</p>
             <p className="text-zinc-500">{booking.nama_pelanggan} - {booking.no_polisi}</p>
             <p className="text-zinc-400">Janji lama: {formatDate(booking.janji_datang)}</p>
           </div>
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Tanggal Baru</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Tanggal Baru</label>
             <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
           </div>
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Jam Baru</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Jam Baru</label>
             <input type="time" value={time} onChange={e => setTime(e.target.value)} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
           </div>
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Alasan Reschedule</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Alasan Reschedule</label>
             <textarea value={alasan} onChange={e => setAlasan(e.target.value)} rows={3} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" placeholder="Alasan perubahan jadwal..." />
           </div>
         </div>
@@ -696,7 +756,7 @@ function EditModal({ booking, onClose, onSubmit }) {
 
   const handleSubmit = async () => {
     setLoading(true);
-    await onSubmit(booking.id_booking, form);
+    await onSubmit(booking.no_booking, form);
     setLoading(false);
   };
 
@@ -704,41 +764,41 @@ function EditModal({ booking, onClose, onSubmit }) {
     <div className="fixed inset-0 bg-black/40 z-[999] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-zinc-200 overflow-hidden max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between shrink-0">
-          <h3 className="font-black text-sm uppercase tracking-wider">Edit Booking</h3>
-          <button onClick={onClose} className="p-1.5 hover:bg-zinc-100 rounded-lg transition-colors"><X size={16} /></button>
+          <h3 className="font-black text-base uppercase tracking-wider">Edit Booking</h3>
+          <button onClick={onClose} className="p-1.5 hover:bg-zinc-100 rounded-lg transition-colors"><X size={18} /></button>
         </div>
         <div className="px-6 py-4 space-y-4 overflow-y-auto">
-          <div className="bg-zinc-50 rounded-xl p-3 text-xs space-y-1">
+          <div className="bg-zinc-50 rounded-xl p-3 text-sm space-y-1">
             <p className="font-bold text-zinc-900">{booking.no_booking}</p>
             <p className="text-zinc-500">{booking.nama_pelanggan}</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">No. Polisi</label>
+              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">No. Polisi</label>
               <input type="text" value={form.no_polisi} onChange={e => setForm({ ...form, no_polisi: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
             </div>
             <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Nama Kendaraan</label>
+              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Nama Kendaraan</label>
               <input type="text" value={form.nama_kendaraan} onChange={e => setForm({ ...form, nama_kendaraan: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
             </div>
             <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">No. Chassis</label>
+              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">No. Chassis</label>
               <input type="text" value={form.no_chassis} onChange={e => setForm({ ...form, no_chassis: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
             </div>
             <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">KM</label>
+              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">KM</label>
               <input type="text" value={form.km} onChange={e => setForm({ ...form, km: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
             </div>
             <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Atas Nama Booking</label>
+              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Atas Nama Booking</label>
               <input type="text" value={form.atas_nama_booking} onChange={e => setForm({ ...form, atas_nama_booking: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" placeholder="Kosongkan jika sama STNK" />
             </div>
             <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">No. Telp Booking</label>
+              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">No. Telp Booking</label>
               <input type="text" value={form.no_telp_booking} onChange={e => setForm({ ...form, no_telp_booking: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
             </div>
             <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Booking Via</label>
+              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Booking Via</label>
               <select value={form.booking_via} onChange={e => setForm({ ...form, booking_via: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 bg-white">
                 <option value="Personal">Personal</option>
                 <option value="WA CS Service">WA CS Service</option>
@@ -748,11 +808,11 @@ function EditModal({ booking, onClose, onSubmit }) {
               </select>
             </div>
             <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Booking Via Personal</label>
+              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Booking Via Personal</label>
               <input type="text" value={form.booking_via_personal} onChange={e => setForm({ ...form, booking_via_personal: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" placeholder="Nama personal booking" />
             </div>
             <div className="col-span-2">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Keluhan</label>
+              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Keluhan</label>
               <textarea value={form.keluhan} onChange={e => setForm({ ...form, keluhan: e.target.value })} rows={3} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
             </div>
           </div>
@@ -779,7 +839,7 @@ function CancelModal({ booking, onClose, onSubmit }) {
     }
     if (!window.confirm(`Yakin ingin membatalkan booking ${booking.no_booking}?`)) return;
     setLoading(true);
-    await onSubmit(booking.id_booking, alasan);
+    await onSubmit(booking.no_booking, alasan);
     setLoading(false);
   };
 
@@ -787,17 +847,17 @@ function CancelModal({ booking, onClose, onSubmit }) {
     <div className="fixed inset-0 bg-black/40 z-[999] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-zinc-200 overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between">
-          <h3 className="font-black text-sm uppercase tracking-wider text-red-600">Batalkan Booking</h3>
-          <button onClick={onClose} className="p-1.5 hover:bg-zinc-100 rounded-lg transition-colors"><X size={16} /></button>
+          <h3 className="font-black text-base uppercase tracking-wider text-red-600">Batalkan Booking</h3>
+          <button onClick={onClose} className="p-1.5 hover:bg-zinc-100 rounded-lg transition-colors"><X size={18} /></button>
         </div>
         <div className="px-6 py-4 space-y-4">
-          <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-xs space-y-1">
+          <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-sm space-y-1">
             <p className="font-bold text-zinc-900">{booking.no_booking}</p>
             <p className="text-zinc-500">{booking.nama_pelanggan} - {booking.no_polisi}</p>
             <p className="text-zinc-400">Janji: {formatDate(booking.janji_datang)}</p>
           </div>
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">Alasan Pembatalan <span className="text-red-500">*</span></label>
+            <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Alasan Pembatalan <span className="text-red-500">*</span></label>
             <textarea value={alasan} onChange={e => setAlasan(e.target.value)} rows={4} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500" placeholder="Tulis alasan pembatalan..." />
           </div>
         </div>

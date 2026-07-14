@@ -182,7 +182,10 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
     const fetchSalesUsers = useCallback(async () => {
         setIsLoadingUsers(true);
         try {
-            const { data, error } = await db.select('sales', { order: { column: 'id', ascending: false } });
+            const { data, error } = await db.select('sales', {
+                eq: { spv: staffName },
+                order: { column: 'id', ascending: false },
+            });
             if (error) throw error;
             setSalesUsers(data || []);
         } catch (e) {
@@ -191,7 +194,7 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
         } finally {
             setIsLoadingUsers(false);
         }
-    }, []);
+    }, [staffName]);
 
     useEffect(() => {
         if (activeTab === 'users' && isSpv) fetchSalesUsers();
@@ -209,27 +212,29 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
         }
         try {
             if (editingUser) {
-                const updates = { name: userForm.name, role: userForm.role, spv: userForm.spv, status: userForm.status };
+                const updates = { name: userForm.name, role: 'sales', spv: staffName, status: userForm.status };
                 if (userForm.password) updates.password = userForm.password;
                 const { error } = await db.update('sales', updates, { eq: { id: editingUser.id } });
                 if (error) throw error;
+                setSalesUsers(prev => prev.map(u => u.id === editingUser.id ? { ...u, ...updates } : u));
                 Toastify({ text: 'User berhasil diupdate!', background: '#22c55e' }).showToast();
             } else {
-                const { error } = await db.insert('sales', {
+                const payload = {
                     username: userForm.username,
                     password: userForm.password,
                     name: userForm.name,
-                    role: userForm.role,
-                    spv: userForm.spv,
+                    role: 'sales',
+                    spv: staffName,
                     status: userForm.status,
-                });
+                };
+                const { error } = await db.insert('sales', payload);
                 if (error) throw error;
+                setSalesUsers(prev => [{ ...payload, id: Date.now() }, ...prev]);
                 Toastify({ text: 'User berhasil ditambahkan!', background: '#22c55e' }).showToast();
             }
             setShowUserForm(false);
             setEditingUser(null);
             setUserForm({ username: '', password: '', name: '', role: 'sales', spv: '', status: 'active' });
-            fetchSalesUsers();
         } catch (e) {
             console.error('Gagal simpan user:', e);
             Toastify({ text: `Gagal: ${e.message || 'Unknown error'}`, background: '#ef4444' }).showToast();
@@ -241,8 +246,8 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
         try {
             const { error } = await db.delete('sales', { eq: { id } });
             if (error) throw error;
+            setSalesUsers(prev => prev.filter(u => u.id !== id));
             Toastify({ text: 'User berhasil dihapus', background: '#22c55e' }).showToast();
-            fetchSalesUsers();
         } catch (e) {
             Toastify({ text: `Gagal hapus: ${e.message}`, background: '#ef4444' }).showToast();
         }
@@ -253,8 +258,8 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
         try {
             const { error } = await db.update('sales', { status: newStatus }, { eq: { id } });
             if (error) throw error;
+            setSalesUsers(prev => prev.map(u => u.id === id ? { ...u, status: newStatus } : u));
             Toastify({ text: `Status diubah ke ${newStatus}`, background: '#22c55e' }).showToast();
-            fetchSalesUsers();
         } catch (e) {
             Toastify({ text: `Gagal: ${e.message}`, background: '#ef4444' }).showToast();
         }
@@ -262,7 +267,7 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
 
     const handleEditUser = (u) => {
         setEditingUser(u);
-        setUserForm({ username: u.username, password: '', name: u.name || '', role: u.role || 'sales', spv: u.spv || '', status: u.status || 'active' });
+        setUserForm({ username: u.username, password: '', name: u.name || '', role: 'sales', spv: staffName, status: u.status || 'active' });
         setShowUserForm(true);
     };
 
@@ -612,7 +617,6 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
                                         <div className="min-w-0 flex-1">
                                             <p className="text-sm font-black text-zinc-900">{u.name || u.username}</p>
                                             <p className="text-[10px] font-bold text-zinc-400">@{u.username}</p>
-                                            {u.spv && <p className="text-[10px] font-bold text-zinc-500 mt-0.5">SPV: {u.spv}</p>}
                                         </div>
                                         <div className="flex items-center gap-1.5 shrink-0">
                                             <span className={`text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${(u.role || 'sales') === 'spv' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-zinc-100 text-zinc-600 border border-zinc-200'}`}>
@@ -662,19 +666,6 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
                                         <label className="text-[10px] font-black uppercase text-zinc-400 mb-1 block">Password {editingUser && '(kosongkan jika tidak diubah)'}</label>
                                         <input type="password" value={userForm.password} onChange={e => setUserForm({ ...userForm, password: e.target.value })}
                                             className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-zinc-900 transition-all" placeholder="••••••••" required={!editingUser} />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-black uppercase text-zinc-400 mb-1 block">Role</label>
-                                        <select value={userForm.role} onChange={e => setUserForm({ ...userForm, role: e.target.value })}
-                                            className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-zinc-900 transition-all">
-                                            <option value="sales">Sales</option>
-                                            <option value="spv">SPV</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-black uppercase text-zinc-400 mb-1 block">SPV / Atasan</label>
-                                        <input value={userForm.spv} onChange={e => setUserForm({ ...userForm, spv: e.target.value })}
-                                            className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-zinc-900 transition-all" placeholder="Nama SPV" />
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-black uppercase text-zinc-400 mb-1 block">Status</label>
