@@ -4,7 +4,7 @@ const ALLOWED_TABLES = ['users','settings','antrian','history','booking','cro','
 
 // Default columns per table — cegah over-fetching saat client kirim select: '*'
 const DEFAULT_COLUMNS = {
-  booking: 'id,tanggal,jam,status,noPlat,namaCustomer,tipeMobil,keperluanService,noTelp,bookingVia,vin,noUrut,ip_address',
+  booking: 'id,tanggal,jam,status,noPlat,namaCustomer,tipeMobil,keperluanService,noTelp,bookingVia,vin,noUrut,ip_address,keluhanDetail',
   antrian: 'id,bk,tipe,status,category,queue_number,is_called,called_at,counter,nama_sa',
   history: 'id,bk,tipe,status,waktuMasuk,waktuSelesai,category,mechanicName,nama_sa',
   customers: 'id,no_hp,nama,no_bk,vin,status',
@@ -273,7 +273,7 @@ export default async function handler(req, res) {
         }
         // Whitelist kolom untuk booking insert (auth required)
         if (table === 'booking' && action === 'insert') {
-          const bAllowed = ['id', 'noUrut', 'tanggal', 'jam', 'noPlat', 'namaCustomer', 'noTelp', 'keperluanService', 'ip_address', 'bookingVia', 'tipeMobil', 'status', 'vin'];
+          const bAllowed = ['id', 'noUrut', 'tanggal', 'jam', 'noPlat', 'namaCustomer', 'noTelp', 'keperluanService', 'ip_address', 'bookingVia', 'tipeMobil', 'status', 'vin', 'keluhanDetail'];
           const bSafe = {};
           const bRaw = data?.values || data;
           for (const k of bAllowed) { if (bRaw[k] !== undefined) bSafe[k] = bRaw[k]; }
@@ -301,7 +301,7 @@ export default async function handler(req, res) {
         }
         // Whitelist kolom untuk booking update (reschedule only)
         if (table === 'booking') {
-          const allowed = ['jam', 'tanggal', 'status', 'bookingVia'];
+          const allowed = ['jam', 'tanggal', 'status', 'bookingVia', 'keluhanDetail', 'noPlat', 'namaCustomer', 'noTelp', 'tipeMobil', 'keperluanService'];
           const safe = {};
           for (const k of allowed) { if (updateValues[k] !== undefined) safe[k] = updateValues[k]; }
           updateValues = safe;

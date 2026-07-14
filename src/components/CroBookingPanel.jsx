@@ -141,12 +141,15 @@ export default function CroBookingPanel({ user }) {
         const errs = [];
         let row = [];
         let field = '';
+        let inQuote = false;
         for (let i = 0; i < text.length; i++) {
             const ch = text[i];
-            if (ch === '\t') {
+            if (ch === '"') {
+                inQuote = !inQuote;
+            } else if (ch === '\t' && !inQuote) {
                 row.push(field);
                 field = '';
-            } else if (ch === '\n' || ch === '\r') {
+            } else if ((ch === '\n' || ch === '\r') && !inQuote) {
                 if (ch === '\r' && i + 1 < text.length && text[i + 1] === '\n') i++;
                 row.push(field);
                 field = '';
@@ -161,15 +164,16 @@ export default function CroBookingPanel({ user }) {
             if (row.some(c => c.trim())) rows.push(row);
         }
         const parsed = rows.map((cols, idx) => {
-            const dateRaw = (cols[0] || '').trim();
-            const jam = (cols[1] || '').trim().replace(':', '.');
-            const tipeUnit = (cols[2] || '').trim();
-            const noPlat = (cols[3] || '').trim().toUpperCase().replace(/\s+/g, '');
-            const namaCustomer = (cols[4] || '').trim();
-            let keluhan = (cols[5] || '').trim();
-            const km = (cols[6] || '').trim();
-            let bookingVia = (cols[7] || '').trim();
-            let noTelp = (cols[8] || '').trim();
+            const stripQuotes = s => s.replace(/^"(.*)"$/s, '$1').trim();
+            const dateRaw = stripQuotes(cols[0] || '');
+            const jam = stripQuotes(cols[1] || '').replace(':', '.');
+            const tipeUnit = stripQuotes(cols[2] || '');
+            const noPlat = stripQuotes(cols[3] || '').toUpperCase().replace(/\s+/g, '');
+            const namaCustomer = stripQuotes(cols[4] || '');
+            let keluhan = stripQuotes(cols[5] || '');
+            const km = stripQuotes(cols[6] || '');
+            let bookingVia = stripQuotes(cols[7] || '');
+            let noTelp = stripQuotes(cols[8] || '');
 
             // Some DMS rows have "Name 08xxxx" in bookingVia column without separate noTelp column
             if (!noTelp && bookingVia) {
