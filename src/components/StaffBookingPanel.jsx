@@ -182,12 +182,17 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
     const fetchSalesUsers = useCallback(async () => {
         setIsLoadingUsers(true);
         try {
-            const { data, error } = await db.select('sales', {
-                eq: { spv: staffName },
+            const { data: allData, error } = await db.select('sales', {
                 order: { column: 'id', ascending: false },
             });
             if (error) throw error;
-            setSalesUsers(data || []);
+            const filtered = (allData || []).filter(u => {
+                const uRole = (u.role || 'sales').toLowerCase();
+                const uSpv = (u.spv || '').trim().toLowerCase();
+                const myName = staffName.trim().toLowerCase();
+                return uRole === 'sales' && (uSpv === myName || uSpv.includes(myName) || myName.includes(uSpv));
+            });
+            setSalesUsers(filtered);
         } catch (e) {
             console.error('Gagal fetch sales users:', e);
             Toastify({ text: 'Gagal memuat data user', background: '#ef4444' }).showToast();
