@@ -3,7 +3,7 @@ import {
   TrendingUp, Users, Clock, AlertCircle, ChevronRight, ChevronLeft,
   Search, Calendar, Download, Filter, Car, DollarSign, Activity,
   ShieldCheck, Package, Award, Zap, Star, LayoutDashboard, Database,
-  History, Upload, X, BarChart4, CheckCircle, Wrench, Shield, Settings, MessageSquare, Menu, FileSpreadsheet, Key
+  History, Upload, X, BarChart4, CheckCircle, Wrench, Shield, Settings, MessageSquare, Menu, FileSpreadsheet, Key, LogOut
 } from 'lucide-react';
 import ChangePasswordModal from './ChangePasswordModal';
 import CroBookingPanel from './CroBookingPanel';
@@ -828,94 +828,121 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
 
   // Navbar visibility logic simplified to hover only in App.jsx
 
+  const tabMeta = {
+    performance: { title: '📊 Dashboard Utama', subtitle: 'Ringkasan performa workshop & revenue' },
+    financial: { title: '💰 Laporan Revenue', subtitle: 'Audit transaksi & finansial service' },
+    wo_tracking: { title: '🔧 Tracking Pengerjaan', subtitle: 'Status pengerjaan workshop realtime' },
+    vehicles: { title: '🚗 Database Mobil', subtitle: 'Frekuensi kunjungan kendaraan' },
+    cro_history: { title: '📋 Riwayat CRO', subtitle: 'Follow up customer relation' },
+    holidays: { title: '🗓️ Libur Dealer', subtitle: 'Pengaturan hari libur dealer' },
+    staff: { title: '👥 Manajemen Staff', subtitle: 'Kelola akses user bengkel' },
+  };
+  const currentTab = tabMeta[activeTab] || tabMeta.performance;
+
   return (
-    <div className="bg-white overflow-hidden flex flex-col font-sans antialiased text-black transition-colors duration-500 w-full h-full">
-      <div className="flex items-center justify-end px-4 py-2 border-b border-zinc-200 bg-white shrink-0">
-        <button onClick={() => setShowPasswordModal(true)}
-          className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-xl transition-all active:scale-95"
-          title="Ganti Password">
-          <Key size={16} />
-        </button>
-      </div>
-      {/* Main Content - no internal sidebar */}
-      <main
-        ref={mainRef}
-        className={`flex-1 ${activeTab === 'holidays' ? 'overflow-hidden' : 'overflow-y-auto'} p-4 md:p-12 custom-scrollbar space-y-10 lg:space-y-16 overflow-x-hidden`}
-      >
+    <div className="w-full h-full bg-zinc-100 flex flex-col overflow-hidden font-sans antialiased">
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <header className="bg-white border-b border-zinc-200 px-4 md:px-8 h-20 flex items-center justify-between shrink-0 box-border">
+          <div className="flex items-center gap-3">
+            <div>
+              <h2 className="text-zinc-900 font-black text-base md:text-lg">{currentTab.title}</h2>
+              <p className="text-zinc-500 text-xs font-medium">{currentTab.subtitle}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowPasswordModal(true)}
+              className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-xl transition-all active:scale-95"
+              title="Ganti Password">
+              <Key size={16} />
+            </button>
+            <button onClick={handleLogout}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl transition-all active:scale-95 text-xs font-bold flex items-center gap-2 shadow-sm"
+              title="Logout">
+              <LogOut size={14} />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Main Content */}
+        <main
+          ref={mainRef}
+          className={`flex-1 ${activeTab === 'holidays' ? 'overflow-hidden' : 'overflow-y-auto'} p-4 md:p-8 custom-scrollbar space-y-6 pb-[72px] md:pb-8 overflow-x-hidden`}
+        >
         {/* EXPORT SUMMARY - only on Dashboard Utama */}
         {activeTab === 'performance' && (
-        <div className="flex flex-col lg:flex-row justify-between items-center gap-6 mb-8 group/header">
-          <div className="flex items-center gap-6">
-             <div className="bg-black p-4 rounded-3xl text-white shadow-xl shadow-zinc-200 group-hover/header:rotate-6 transition-transform">
-                <FileSpreadsheet size={32} />
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="flex items-center gap-3">
+             <div className="bg-zinc-900 p-3 rounded-lg text-white">
+                <FileSpreadsheet size={20} />
              </div>
              <div>
-                <h2 className="text-3xl font-black text-zinc-900 uppercase tracking-tighter">Ekspor Rangkuman Audit</h2>
-                <p className="text-[10px] font-black text-zinc-400 tracking-[0.4em] uppercase mt-1">Satu File Excel &bull; 4 Laporan Spesifik</p>
+                <h3 className="text-sm font-black text-zinc-900 uppercase tracking-wider">Ekspor Rangkuman Audit</h3>
+                <p className="text-[10px] text-zinc-500 font-medium">4 Laporan Spesifik</p>
              </div>
           </div>
           <button 
             onClick={handleExportSummary}
             disabled={isSyncing}
-            className={`w-full lg:w-auto ${isSyncing ? 'bg-zinc-300 text-zinc-500' : 'bg-black hover:bg-zinc-800'} text-white px-8 md:px-10 py-4 md:py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-2xl shadow-zinc-200 transition-all flex items-center justify-center gap-4 group/btn min-h-[44px]`}
+            className={`w-full sm:w-auto ${isSyncing ? 'bg-zinc-300 text-zinc-500' : 'bg-zinc-900 hover:bg-zinc-800'} text-white px-6 py-3 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 min-h-[40px]`}
           >
             {isSyncing ? (
                 <>
-                    <div className="w-5 h-5 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
-                    Memproses Audit...
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Memproses...
                 </>
             ) : (
                 <>
-                    <Download size={20} className="group-hover/btn:-translate-y-1 transition-transform" /> Ekspor Rangkuman (XLSX)
-                    <div className="w-px h-4 bg-white/20 mx-2"></div>
-                    <span className="opacity-60">{financialData.length} Data Audit Siap</span>
+                    <Download size={16} /> Ekspor XLSX
+                    <span className="opacity-50 hidden sm:inline">({financialData.length} Data)</span>
                 </>
             )}
           </button>
         </div>
         )}
         {activeTab !== 'staff' && (
-          <section className="flex flex-col lg:flex-row justify-between items-center gap-6 mb-12">
-            <div className="text-center lg:text-left">
-              <h2 className="text-4xl md:text-5xl font-black uppercase tracking-tighter text-zinc-900 leading-none">
+          <section className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+            <div>
+              <h2 className="text-sm font-black uppercase tracking-widest text-zinc-500">
                 {activeTab === 'performance' ? 'Kinerja Tim' : activeTab === 'financial' ? 'Invoice Pelanggan' : activeTab === 'wo_tracking' ? 'Tracking Pengerjaan' : activeTab === 'vehicles' ? 'Data Kendaraan' : activeTab === 'staff' ? 'Manajemen Staff' : activeTab === 'holidays' ? 'Libur Dealer' : 'Riwayat CRO'}
               </h2>
             </div>
-            <div className="flex flex-col gap-4 w-full lg:w-auto">
-              <div className="flex flex-wrap items-center justify-center lg:justify-end gap-2 bg-white p-2 rounded-3xl lg:rounded-[2rem] border border-zinc-200 shadow-xl w-full lg:w-auto">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full lg:w-auto">
+              <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-zinc-200 w-full sm:w-auto overflow-x-auto no-scrollbar">
                 {['today', 'this_month', 'year', 'custom', 'all'].map(t => (
                   <button
                     key={t} onClick={() => setTimeFilter(t)}
-                    className={`px-4 lg:px-6 py-3 lg:py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all min-w-[44px] min-h-[44px] ${timeFilter === t ? 'bg-zinc-900 text-white shadow-lg scale-[1.05]' : 'text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200'}`}
+                    className={`px-3 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap min-h-[36px] ${timeFilter === t ? 'bg-zinc-900 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100'}`}
                   >
                     {t === 'today' ? 'Hari Ini' : t === 'this_month' ? 'Bulan Ini' : t === 'year' ? 'Tahunan' : t === 'custom' ? 'Kustom' : 'Semua'}
                   </button>
                 ))}
               </div>
 
-              <div className="flex flex-wrap items-center justify-center lg:justify-end gap-4 animate-in">
+              <div className="flex flex-wrap items-center gap-2">
                 {timeFilter === 'year' && (
-                  <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl border-2 border-zinc-100 shadow-sm">
-                    <Calendar size={14} className="text-zinc-400" />
+                  <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-zinc-200">
+                    <Calendar size={12} className="text-zinc-400" />
                     <select
                       value={selectedYear}
                       onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                      className="text-[11px] font-black uppercase outline-none cursor-pointer min-h-[44px]"
+                      className="text-[10px] font-black uppercase outline-none cursor-pointer min-h-[36px]"
                     >
                       {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                   </div>
                 )}
                 {timeFilter === 'custom' && (
-                  <div className="flex flex-col sm:flex-row items-center gap-3 bg-white px-4 py-3 rounded-2xl border-2 border-zinc-200 shadow-sm animate-fade-in w-full sm:w-auto">
+                  <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-zinc-200">
                     <div className="flex items-center gap-2">
                       <span className="text-[9px] font-bold text-zinc-400">DARI:</span>
-                      <input type="date" value={customRange.start} onChange={(e) => setCustomRange({ ...customRange, start: e.target.value })} className="text-[10px] font-black outline-none bg-transparent min-h-[44px]" />
+                      <input type="date" value={customRange.start} onChange={(e) => setCustomRange({ ...customRange, start: e.target.value })} className="text-[10px] font-black outline-none bg-transparent min-h-[36px]" />
                     </div>
-                    <div className="w-px h-4 bg-zinc-200 mx-2 hidden sm:block"></div>
+                    <div className="w-px h-4 bg-zinc-200"></div>
                     <div className="flex items-center gap-2">
                       <span className="text-[9px] font-bold text-zinc-400">KE:</span>
-                      <input type="date" value={customRange.end} onChange={(e) => setCustomRange({ ...customRange, end: e.target.value })} className="text-[10px] font-black outline-none bg-transparent min-h-[44px]" />
+                      <input type="date" value={customRange.end} onChange={(e) => setCustomRange({ ...customRange, end: e.target.value })} className="text-[10px] font-black outline-none bg-transparent min-h-[36px]" />
                     </div>
                   </div>
                 )}
@@ -926,41 +953,44 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
 
         {/* Status Indicators */}
         {activeTab !== 'cro_history' && activeTab !== 'staff' && activeTab !== 'booking_mgmt' && activeTab !== 'holidays' && activeTab !== 'vehicles' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 animate-in">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             {activeTab === 'wo_tracking' ? (
               [
-                { l: 'Total WO', v: stats.totalWo, i: Activity, c: 'text-black', b: 'bg-zinc-100' },
-                { l: 'WO EUR', v: stats.eurCount, i: ShieldCheck, c: 'text-black', b: 'bg-zinc-100' },
-                { l: 'WO IFS', v: stats.ifsCount, i: Star, c: 'text-black', b: 'bg-zinc-100' },
-                { l: 'WO IKC', v: stats.ikcCount, i: Zap, c: 'text-black', b: 'bg-zinc-100' }
+                { l: 'Total WO', v: stats.totalWo, i: Activity, c: 'text-black', b: 'bg-zinc-50' },
+                { l: 'WO EUR', v: stats.eurCount, i: ShieldCheck, c: 'text-black', b: 'bg-zinc-50' },
+                { l: 'WO IFS', v: stats.ifsCount, i: Star, c: 'text-black', b: 'bg-zinc-50' },
+                { l: 'WO IKC', v: stats.ikcCount, i: Zap, c: 'text-black', b: 'bg-zinc-50' }
               ].map((s, idx) => (
-                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border-2 border-dashed border-zinc-200 shadow-sm hover:translate-y-[-4px] hover:bg-zinc-50 transition-all duration-300 flex flex-col gap-6 group">
-                  <div className={`w-12 h-12 md:w-14 md:h-14 ${s.b} ${s.c} rounded-2xl flex items-center justify-center shadow-sm group-hover:rotate-6 transition-transform`}><s.i size={24} strokeWidth={2.5} /></div>
-                  <div><p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-1">{s.l}</p><p className="text-2xl md:text-3xl font-black text-black tracking-tighter leading-none tabular-nums italic">{s.v}</p></div>
+                <div key={idx} className="bg-white border border-zinc-200 rounded-lg p-5">
+                  <div className={`w-10 h-10 ${s.b} ${s.c} rounded-md flex items-center justify-center mb-3`}><s.i size={20} strokeWidth={2} /></div>
+                  <p className="text-2xl font-black text-zinc-900">{s.v}</p>
+                  <p className="text-zinc-500 text-[10px] font-medium mt-1 uppercase tracking-wider">{s.l}</p>
                 </div>
               ))
             ) : activeTab === 'performance' ? (
               [
-                { l: 'Mobil Selesai', v: stats.selesaiCount, i: CheckCircle, c: 'text-black', b: 'bg-zinc-100' },
-                { l: 'Proses Pengerjaan', v: stats.workingCount, i: Wrench, c: 'text-black', b: 'bg-zinc-100' },
-                { l: 'Mobil Menginap', v: stats.overnightCount, i: Shield, c: 'text-black', b: 'bg-zinc-100' },
-                { l: 'Antrian Tunggu', v: stats.waitingCount, i: Clock, c: 'text-black', b: 'bg-zinc-100' }
+                { l: 'Mobil Selesai', v: stats.selesaiCount, i: CheckCircle, c: 'text-black', b: 'bg-zinc-50' },
+                { l: 'Proses Pengerjaan', v: stats.workingCount, i: Wrench, c: 'text-black', b: 'bg-zinc-50' },
+                { l: 'Mobil Menginap', v: stats.overnightCount, i: Shield, c: 'text-black', b: 'bg-zinc-50' },
+                { l: 'Antrian Tunggu', v: stats.waitingCount, i: Clock, c: 'text-black', b: 'bg-zinc-50' }
               ].map((s, idx) => (
-                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border-2 border-dashed border-zinc-200 shadow-sm hover:translate-y-[-4px] hover:bg-zinc-50 transition-all duration-300 flex flex-col gap-6 group">
-                  <div className={`w-12 h-12 md:w-14 md:h-14 ${s.b} ${s.c} rounded-2xl flex items-center justify-center shadow-sm group-hover:rotate-6 transition-transform`}><s.i size={24} strokeWidth={2.5} /></div>
-                  <div><p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-1">{s.l}</p><p className="text-2xl md:text-3xl font-black text-black tracking-tighter leading-none tabular-nums italic">{s.v}</p></div>
+                <div key={idx} className="bg-white border border-zinc-200 rounded-lg p-5">
+                  <div className={`w-10 h-10 ${s.b} ${s.c} rounded-md flex items-center justify-center mb-3`}><s.i size={20} strokeWidth={2} /></div>
+                  <p className="text-2xl font-black text-zinc-900">{s.v}</p>
+                  <p className="text-zinc-500 text-[10px] font-medium mt-1 uppercase tracking-wider">{s.l}</p>
                 </div>
               ))
             ) : (
               [
-                { l: 'Total Jasa (Fee)', v: formatCurrency(financialSummary.jasa), i: Wrench, c: 'text-black', b: 'bg-zinc-100' },
-                { l: 'Total Sparepart', v: formatCurrency(financialSummary.s_part), i: Package, c: 'text-black', b: 'bg-zinc-100' },
-                { l: 'Grand Total Revenue', v: formatCurrency(financialSummary.grandTotal), i: DollarSign, c: 'text-black', b: 'bg-zinc-100' },
-                { l: 'Total WO (Unit)', v: (sortedFinancialData?.length || 0), i: Activity, c: 'text-black', b: 'bg-zinc-100' }
+                { l: 'Total Jasa (Fee)', v: formatCurrency(financialSummary.jasa), i: Wrench, c: 'text-black', b: 'bg-zinc-50' },
+                { l: 'Total Sparepart', v: formatCurrency(financialSummary.s_part), i: Package, c: 'text-black', b: 'bg-zinc-50' },
+                { l: 'Grand Total Revenue', v: formatCurrency(financialSummary.grandTotal), i: DollarSign, c: 'text-black', b: 'bg-zinc-50' },
+                { l: 'Total WO (Unit)', v: (sortedFinancialData?.length || 0), i: Activity, c: 'text-black', b: 'bg-zinc-50' }
               ].map((s, idx) => (
-                <div key={idx} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border-2 border-dashed border-zinc-200 shadow-sm hover:translate-y-[-4px] hover:bg-zinc-50 transition-all duration-300 flex flex-col gap-6 group">
-                  <div className={`w-12 h-12 md:w-14 md:h-14 ${s.b} ${s.c} rounded-2xl flex items-center justify-center shadow-sm group-hover:rotate-6 transition-transform`}><s.i size={24} strokeWidth={2.5} /></div>
-                  <div><p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-1">{s.l}</p><p className="text-2xl md:text-3xl font-black text-black tracking-tighter leading-none tabular-nums italic">{s.v}</p></div>
+                <div key={idx} className="bg-white border border-zinc-200 rounded-lg p-5">
+                  <div className={`w-10 h-10 ${s.b} ${s.c} rounded-md flex items-center justify-center mb-3`}><s.i size={20} strokeWidth={2} /></div>
+                  <p className="text-2xl font-black text-zinc-900">{s.v}</p>
+                  <p className="text-zinc-500 text-[10px] font-medium mt-1 uppercase tracking-wider">{s.l}</p>
                 </div>
               ))
             )}
@@ -976,15 +1006,14 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
           )}
 
           {activeTab === 'performance' && (
-            <div className="space-y-12">
-              <div className="bg-white p-6 md:p-12 rounded-[2.5rem] md:rounded-[4rem] border-2 border-zinc-200 shadow-xl relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-96 h-96 bg-zinc-50 rounded-bl-full -z-0"></div>
-                <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-10 mb-12">
-                  <div><h3 className="text-2xl md:text-3xl font-black text-black uppercase tracking-tighter mb-2 italic">Tren Pendapatan Bulanan</h3><p className="text-zinc-400 text-[10px] font-black tracking-[0.5em] uppercase">Analisis Historis Kumulatif</p></div>
+            <div className="space-y-6">
+              <div className="bg-white p-5 md:p-8 border border-zinc-200 rounded-lg">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                  <div><h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">Tren Pendapatan Bulanan</h3><p className="text-zinc-400 text-[10px] font-medium mt-1">Analisis Historis Kumulatif</p></div>
                 </div>
-                <div className="relative w-full h-[300px] md:h-[450px]">
+                <div className="w-full h-[300px] md:h-[400px]">
                   {financialData.length === 0 ? (
-                    <div className="w-full h-full flex items-center justify-center border-2 border-dashed border-white/10 rounded-[3rem] text-white font-black  uppercase tracking-[0.5em]">Belum ada data visualisasi</div>
+                    <div className="w-full h-full flex items-center justify-center border border-dashed border-zinc-200 rounded-lg text-zinc-400 text-xs font-medium uppercase tracking-wider">Belum ada data visualisasi</div>
                   ) : (
                     <ReactApexChart
                       options={{
@@ -992,20 +1021,20 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
                           show: true,
                           position: 'top',
                           horizontalAlign: 'right',
-                          labels: { colors: '#ffffff' },
+                          labels: { colors: '#71717a' },
                           fontFamily: 'Inter',
-                          fontWeight: 900,
-                          itemMargin: { horizontal: 20 }
+                          fontWeight: 700,
+                          itemMargin: { horizontal: 16 }
                         },
                         chart: { type: 'area', background: 'transparent', toolbar: { show: false }, zoom: { enabled: false } },
                         colors: ['#000000', '#71717a', '#a1a1aa'],
-                        fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.1, stops: [0, 90, 100] } },
+                        fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.3, opacityTo: 0.05, stops: [0, 90, 100] } },
                         dataLabels: { enabled: false },
-                        stroke: { curve: 'smooth', width: 4 },
-                        xaxis: { categories: monthlyChartData.categories, labels: { style: { colors: '#71717a', fontWeight: 900, fontFamily: 'Inter' } }, axisBorder: { show: false }, axisTicks: { show: false } },
-                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 900 }, formatter: (val) => formatCurrency(val) } },
-                        grid: { borderColor: '#27272a', strokeDashArray: 4 },
-                        tooltip: { theme: 'dark', x: { show: true } }
+                        stroke: { curve: 'smooth', width: 2 },
+                        xaxis: { categories: monthlyChartData.categories, labels: { style: { colors: '#71717a', fontWeight: 700, fontFamily: 'Inter', fontSize: '10px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
+                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700, fontSize: '10px' }, formatter: (val) => formatCurrency(val) } },
+                        grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
+                        tooltip: { theme: 'light', x: { show: true } }
                       }}
                       series={monthlyChartData.series}
                       type="area"
@@ -1014,37 +1043,37 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-10">
-                <div className="bg-white p-6 md:p-12 rounded-[2.5rem] md:rounded-[3.5rem] border-2 border-zinc-200 shadow-2xl relative group">
-                  <h3 className="text-xl md:text-2xl font-black text-zinc-900 uppercase tracking-tighter mb-8 md:mb-10 flex items-center gap-4"><Award className="text-black" size={28} /> Top Performance SA</h3>
-                  <div className="space-y-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="bg-white p-5 md:p-8 border border-zinc-200 rounded-lg">
+                  <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest mb-5 flex items-center gap-2"><Award className="text-zinc-600" size={18} /> Top Performance SA</h3>
+                  <div className="space-y-3">
                     {revenueLeaders.saArr.slice(0, 5).map((s, i) => (
-                      <div key={i} className="flex justify-between items-center p-4 md:p-6 bg-zinc-50 rounded-2xl md:rounded-3xl border border-zinc-100 hover:scale-[1.02] transition-all hover:bg-zinc-200 hover:shadow-xl">
-                        <div className="flex items-center gap-4 md:gap-6">
-                          <span className="text-[10px] font-black text-zinc-300">#{i + 1}</span>
+                      <div key={i} className="flex justify-between items-center p-3 bg-zinc-50 rounded-lg hover:bg-zinc-100 transition-all">
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] font-black text-zinc-300 w-5">#{i + 1}</span>
                           <div>
-                            <span className="text-sm md:text-lg font-black uppercase tracking-tight block">{s.name}</span>
-                            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{s.count} UNIT DITANGANI</span>
+                            <span className="text-xs font-black uppercase tracking-tight block">{s.name}</span>
+                            <span className="text-[9px] font-medium text-zinc-400 uppercase tracking-wider">{s.count} Unit Ditangani</span>
                           </div>
                         </div>
-                        <span className="text-base md:text-xl font-black text-black tabular-nums">{formatCurrency(s.totalJasa)}</span>
+                        <span className="text-xs font-black text-zinc-900 tabular-nums">{formatCurrency(s.totalJasa)}</span>
                       </div>
                     ))}
                   </div>
                 </div>
-                <div className="bg-white p-6 md:p-12 rounded-[2.5rem] md:rounded-[3.5rem] border-2 border-zinc-200 shadow-2xl relative group">
-                  <h3 className="text-xl md:text-2xl font-black text-zinc-900 uppercase tracking-tighter mb-8 md:mb-10 flex items-center gap-4"><Star className="text-black" size={28} /> Lead Mechanic</h3>
-                  <div className="space-y-4">
+                <div className="bg-white p-5 md:p-8 border border-zinc-200 rounded-lg">
+                  <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest mb-5 flex items-center gap-2"><Star className="text-zinc-600" size={18} /> Lead Mechanic</h3>
+                  <div className="space-y-3">
                     {revenueLeaders.mechArr.slice(0, 5).map((m, i) => (
-                      <div key={i} className="flex justify-between items-center p-4 md:p-6 bg-zinc-50 rounded-2xl md:rounded-3xl border border-zinc-100 hover:scale-[1.02] transition-all hover:bg-zinc-200 hover:shadow-xl">
-                        <div className="flex items-center gap-4 md:gap-6">
-                          <span className="text-[10px] font-black text-zinc-300">#{i + 1}</span>
+                      <div key={i} className="flex justify-between items-center p-3 bg-zinc-50 rounded-lg hover:bg-zinc-100 transition-all">
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] font-black text-zinc-300 w-5">#{i + 1}</span>
                           <div>
-                            <span className="text-sm md:text-lg font-black uppercase tracking-tight block">{m.name}</span>
-                            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{m.count} UNIT SELESAI</span>
+                            <span className="text-xs font-black uppercase tracking-tight block">{m.name}</span>
+                            <span className="text-[9px] font-medium text-zinc-400 uppercase tracking-wider">{m.count} Unit Selesai</span>
                           </div>
                         </div>
-                        <span className="text-base md:text-xl font-black text-black tabular-nums">{formatCurrency(m.totalJasa)}</span>
+                        <span className="text-xs font-black text-zinc-900 tabular-nums">{formatCurrency(m.totalJasa)}</span>
                       </div>
                     ))}
                   </div>
@@ -1054,156 +1083,155 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
           )}
 
           {activeTab === 'financial' && (
-            <div className="bg-white rounded-[2rem] md:rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden animate-in">
-              <div className="p-4 md:p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col xl:flex-row justify-between items-center gap-6 md:gap-10">
-                <div><h3 className="text-xl md:text-3xl font-black uppercase tracking-tighter text-center md:text-left">Audit Transaksi Workshop</h3><p className="text-[10px] font-black text-zinc-400 tracking-[0.4em] mt-2 text-center md:text-left">Data Finansial Service Operasional</p></div>
-                <div className="flex flex-col md:flex-row items-center gap-4 md:gap-8 w-full xl:w-auto">
+            <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
+              <div className="p-4 md:p-6 border-b border-zinc-200 bg-zinc-50/50 flex flex-col xl:flex-row justify-between items-center gap-4">
+                <div><h3 className="text-sm font-black uppercase tracking-widest text-zinc-900">Audit Transaksi Workshop</h3><p className="text-[10px] font-medium text-zinc-400 mt-1">Data Finansial Service Operasional</p></div>
+                <div className="flex flex-col md:flex-row items-center gap-3 w-full xl:w-auto">
                   <input type="file" id="import-revenue-btn" className="hidden" accept=".xlsx, .xls" onChange={handleWorkshopUpload} />
-                  <label htmlFor="import-revenue-btn" className="w-full md:w-auto bg-black text-white px-8 py-4 rounded-3xl font-black text-[10px] uppercase tracking-[0.2em] cursor-pointer shadow-2xl hover:bg-zinc-800 transition-all flex items-center justify-center gap-4 min-h-[44px]">
-                    <Upload size={18} /> Import Invoice Pelanggan
+                  <label htmlFor="import-revenue-btn" className="w-full md:w-auto bg-zinc-900 text-white px-5 py-2.5 rounded-lg font-black text-[10px] uppercase tracking-widest cursor-pointer hover:bg-zinc-800 transition-all flex items-center justify-center gap-2 min-h-[36px]">
+                    <Upload size={14} /> Import Invoice
                   </label>
-                  <div className="flex bg-zinc-100 p-2 rounded-2xl md:rounded-3xl border border-zinc-200 shadow-inner w-full md:w-auto overflow-x-auto no-scrollbar">
+                  <div className="flex bg-zinc-100 p-1 rounded-lg border border-zinc-200 w-full md:w-auto overflow-x-auto no-scrollbar">
                     {['all', 'EUR', 'IFS', 'IKC'].map(e => (
-                      <button key={e} onClick={() => setEntityFilter(e)} className={`px-4 md:px-6 py-2 md:py-3 rounded-xl md:rounded-2xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap min-w-[44px] min-h-[44px] ${entityFilter === e ? 'bg-white text-zinc-900 shadow-lg' : 'text-zinc-400'}`}>{e === 'all' ? 'SEMUA' : e}</button>
+                      <button key={e} onClick={() => setEntityFilter(e)} className={`px-3 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap min-h-[36px] ${entityFilter === e ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-400'}`}>{e === 'all' ? 'SEMUA' : e}</button>
                     ))}
                   </div>
-                  <div className="relative w-full xl:min-w-[400px]">
-                    <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-400" size={20} />
-                    <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Cari WO atau No Polisi..." className="pl-14 pr-8 py-5 bg-white border-2 border-zinc-200 rounded-3xl text-[12px] font-black focus:border-zinc-900 transition-all w-full uppercase shadow-sm min-h-[44px]" />
+                  <div className="relative w-full xl:min-w-[300px]">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={14} />
+                    <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Cari WO atau No Polisi..." className="pl-9 pr-4 py-2.5 bg-white border border-zinc-200 rounded-lg text-[11px] font-medium focus:border-zinc-900 transition-all w-full min-h-[36px]" />
                   </div>
                 </div>
               </div>
               <div className="overflow-x-auto custom-scrollbar">
-                <table className="w-full text-left font-black uppercase min-w-[800px]">
+                <table className="w-full text-left font-medium min-w-[800px]">
                   <thead>
-                    <tr className="bg-zinc-100/30 text-[10px] text-zinc-600 tracking-[0.2em] border-b border-zinc-200 font-black">
-                      <th className="px-6 md:px-12 py-6 md:py-8 cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('no_wo')}>Karakteristik Order {sortConfig.key === 'no_wo' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-6 md:px-12 py-6 md:py-8 cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('sa')}>Tim Operasional {sortConfig.key === 'sa' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-6 md:px-12 py-6 md:py-8 text-right cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('jasa')}>Jasa Service {sortConfig.key === 'jasa' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-6 md:px-12 py-6 md:py-8 text-right cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('s_part')}>Sparepart {sortConfig.key === 's_part' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-6 md:px-12 py-6 md:py-8 text-right underline decoration-4 decoration-zinc-100 cursor-pointer min-h-[44px]" onClick={() => requestSort('g_total')}>Total Akhir {sortConfig.key === 'g_total' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                    <tr className="bg-zinc-50 text-[10px] text-zinc-500 uppercase tracking-wider border-b border-zinc-200 font-black">
+                      <th className="px-4 md:px-6 py-3 cursor-pointer hover:text-zinc-900" onClick={() => requestSort('no_wo')}>No. WO {sortConfig.key === 'no_wo' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-4 md:px-6 py-3 cursor-pointer hover:text-zinc-900" onClick={() => requestSort('sa')}>Tim Operasional {sortConfig.key === 'sa' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-4 md:px-6 py-3 text-right cursor-pointer hover:text-zinc-900" onClick={() => requestSort('jasa')}>Jasa {sortConfig.key === 'jasa' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-4 md:px-6 py-3 text-right cursor-pointer hover:text-zinc-900" onClick={() => requestSort('s_part')}>Sparepart {sortConfig.key === 's_part' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-4 md:px-6 py-3 text-right cursor-pointer hover:text-zinc-900" onClick={() => requestSort('g_total')}>Total {sortConfig.key === 'g_total' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y-2 divide-zinc-50">
+                  <tbody className="divide-y divide-zinc-100">
                     {sortedFinancialData.slice((financialPage - 1) * rowsPerPage, financialPage * rowsPerPage).map((row, i) => (
-                      <tr key={i} className="hover:bg-zinc-100 transition-all duration-300 font-black uppercase group">
-                        <td className="px-6 md:px-12 py-6 md:py-10">
-                          <p className="text-[20px] text-zinc-900 tracking-tighter leading-none">{row.no_wo || 'N/A'}</p>
-                          <p className="text-[12px] text-zinc-400 mt-2 tracking-widest leading-none flex items-center gap-2"><Calendar size={12} /> {formatDisplayDate(row.wkt_masuk)}</p>
+                      <tr key={i} className="hover:bg-zinc-50 transition-all">
+                        <td className="px-4 md:px-6 py-4">
+                          <p className="text-sm font-black text-zinc-900">{row.no_wo || 'N/A'}</p>
+                          <p className="text-[10px] text-zinc-400 mt-1 flex items-center gap-1"><Calendar size={10} /> {formatDisplayDate(row.wkt_masuk)}</p>
                         </td>
-                        <td className="px-6 md:px-12 py-6 md:py-10">
-                          <p className="text-[16px] text-zinc-900 tracking-tight leading-none mb-4">{row.tipe_kendaraan || 'GENERAL SERVICE'}</p>
-                          <div className="flex items-center gap-3"><span className="text-[10px] bg-zinc-100 px-3 py-1 rounded-lg text-zinc-600 font-black">SA: {row.sa || '---'}</span><span className="text-[10px] bg-zinc-100 px-3 py-1 rounded-lg text-zinc-600 font-black">MKN: {row.mekanik || '---'}</span></div>
+                        <td className="px-4 md:px-6 py-4">
+                          <p className="text-xs font-medium text-zinc-700 mb-1">{row.tipe_kendaraan || 'GENERAL SERVICE'}</p>
+                          <div className="flex items-center gap-2"><span className="text-[9px] bg-zinc-100 px-2 py-0.5 rounded text-zinc-500 font-medium">SA: {row.sa || '---'}</span><span className="text-[9px] bg-zinc-100 px-2 py-0.5 rounded text-zinc-500 font-medium">MKN: {row.mekanik || '---'}</span></div>
                         </td>
-                        <td className="px-6 md:px-12 py-6 md:py-10 text-right text-black font-black text-base md:text-xl tabular-nums">{formatCurrency(row.jasa)}</td>
-                        <td className="px-6 md:px-12 py-6 md:py-10 text-right text-black font-black text-base md:text-xl tabular-nums">{formatCurrency(row.s_part)}</td>
-                        <td className="px-6 md:px-12 py-6 md:py-10 text-right font-black text-xl md:text-3xl tabular-nums">{formatCurrency(row.g_total)}</td>
+                        <td className="px-4 md:px-6 py-4 text-right text-zinc-900 font-black text-sm tabular-nums">{formatCurrency(row.jasa)}</td>
+                        <td className="px-4 md:px-6 py-4 text-right text-zinc-900 font-black text-sm tabular-nums">{formatCurrency(row.s_part)}</td>
+                        <td className="px-4 md:px-6 py-4 text-right font-black text-sm tabular-nums">{formatCurrency(row.g_total)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <div className="p-4 md:p-12 border-t-2 border-zinc-100 flex flex-col md:flex-row justify-between items-center bg-zinc-50/20 gap-4 md:gap-8">
-                <p className="text-[11px] font-black uppercase text-zinc-400 tracking-widest  whitespace-nowrap">Halaman {financialPage} dari {Math.ceil(sortedFinancialData.length / rowsPerPage)}</p>
-                <p className="text-[11px] font-black uppercase text-zinc-900 tracking-widest flex items-center gap-3"><Activity size={18} className="text-black" /> TOTAL: {sortedFinancialData.length} UNIT DATA</p>
-                <div className="flex gap-4">
-                  <button disabled={financialPage === 1} onClick={() => setFinancialPage(p => p - 1)} className={`px-8 md:px-12 py-4 md:py-5 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all min-w-[44px] min-h-[44px] ${financialPage === 1 ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white shadow-2xl hover:scale-105 active:scale-95'}`}>Prev</button>
-                  <button disabled={financialPage * rowsPerPage >= sortedFinancialData.length} onClick={() => setFinancialPage(p => p + 1)} className={`px-8 md:px-12 py-4 md:py-5 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all min-w-[44px] min-h-[44px] ${financialPage * rowsPerPage >= sortedFinancialData.length ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white shadow-2xl hover:scale-105 active:scale-95'}`}>Next</button>
+              <div className="p-4 md:p-6 border-t border-zinc-200 flex flex-col md:flex-row justify-between items-center bg-zinc-50/30 gap-3">
+                <p className="text-[10px] font-medium uppercase text-zinc-400 tracking-wider whitespace-nowrap">Halaman {financialPage} dari {Math.ceil(sortedFinancialData.length / rowsPerPage)}</p>
+                <p className="text-[10px] font-black uppercase text-zinc-900 tracking-wider flex items-center gap-2"><Activity size={14} /> Total: {sortedFinancialData.length}</p>
+                <div className="flex gap-2">
+                  <button disabled={financialPage === 1} onClick={() => setFinancialPage(p => p - 1)} className={`px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all min-h-[36px] ${financialPage === 1 ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white hover:bg-zinc-800'}`}>Prev</button>
+                  <button disabled={financialPage * rowsPerPage >= sortedFinancialData.length} onClick={() => setFinancialPage(p => p + 1)} className={`px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all min-h-[36px] ${financialPage * rowsPerPage >= sortedFinancialData.length ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white hover:bg-zinc-800'}`}>Next</button>
                 </div>
               </div>
             </div>
           )}
 
           {activeTab === 'wo_tracking' && (
-            <div className="bg-white rounded-[2rem] md:rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden animate-in">
-              <div className="p-4 md:p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col xl:flex-row justify-between items-center gap-6 md:gap-10">
-                <div><h3 className="text-xl md:text-3xl font-black  uppercase tracking-tighter">Status Pengerjaan Workshop</h3><p className="text-[10px] font-black text-zinc-400 tracking-[0.4em] mt-2 ">Realtime Workflow Monitoring</p></div>
-                <div className="flex flex-col sm:flex-row items-center gap-8 w-full xl:w-auto">
+            <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
+              <div className="p-4 md:p-6 border-b border-zinc-200 bg-zinc-50/50 flex flex-col xl:flex-row justify-between items-center gap-4">
+                <div><h3 className="text-sm font-black uppercase tracking-widest text-zinc-900">Status Pengerjaan Workshop</h3><p className="text-[10px] font-medium text-zinc-400 mt-1">Realtime Workflow Monitoring</p></div>
+                <div className="flex flex-col sm:flex-row items-center gap-3 w-full xl:w-auto">
                   <input type="file" id="import-tracking-btn" className="hidden" accept=".xlsx, .xls" onChange={handleWorkshopUpload} />
-                  <label htmlFor="import-tracking-btn" className="bg-black text-white px-8 md:px-10 py-4 md:py-5 rounded-[2rem] font-black text-[11px] uppercase tracking-[0.2em] cursor-pointer shadow-2xl hover:bg-zinc-800 hover:scale-110 active:scale-95 transition-all flex items-center gap-4 min-h-[44px] w-full sm:w-auto justify-center">
-                    <Upload size={20} /> Import Excel
+                  <label htmlFor="import-tracking-btn" className="bg-zinc-900 text-white px-5 py-2.5 rounded-lg font-black text-[10px] uppercase tracking-widest cursor-pointer hover:bg-zinc-800 transition-all flex items-center gap-2 min-h-[36px] w-full sm:w-auto justify-center">
+                    <Upload size={14} /> Import Excel
                   </label>
-                  <div className="flex bg-zinc-100 p-2 rounded-3xl border border-zinc-200 w-full sm:w-auto overflow-x-auto custom-scrollbar">
+                  <div className="flex bg-zinc-100 p-1 rounded-lg border border-zinc-200 w-full sm:w-auto overflow-x-auto custom-scrollbar">
                     {['all', 'Estimasi', 'On Progress', 'Ready', 'Closed', 'Open', 'Cancelled', 'Pre-Cancelled'].map(s => (
-                      <button key={s} onClick={() => setWoStatusFilter(s)} className={`px-4 md:px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap min-w-[44px] min-h-[44px] ${woStatusFilter === s ? 'bg-zinc-900 text-white shadow-lg' : 'text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200'}`}>{s === 'all' ? 'SEMUA' : s}</button>
+                      <button key={s} onClick={() => setWoStatusFilter(s)} className={`px-3 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap min-h-[36px] ${woStatusFilter === s ? 'bg-zinc-900 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200'}`}>{s === 'all' ? 'SEMUA' : s}</button>
                     ))}
                   </div>
-                  <div className="relative w-full xl:min-w-[400px]">
-                    <Search className="absolute left-8 top-1/2 -translate-y-1/2 text-zinc-400" size={24} />
-                    <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Cari WO, Plat, Mekanik..." className="pl-18 pr-10 py-4 md:py-6 bg-white border-2 border-zinc-200 rounded-[2rem] text-sm font-black focus:border-zinc-900 shadow-sm uppercase w-full min-h-[44px]" />
+                  <div className="relative w-full xl:min-w-[300px]">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={14} />
+                    <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Cari WO, Plat, Mekanik..." className="pl-9 pr-4 py-2.5 bg-white border border-zinc-200 rounded-lg text-[11px] font-medium focus:border-zinc-900 w-full min-h-[36px]" />
                   </div>
                 </div>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-left font-black uppercase min-w-[800px]">
+                <table className="w-full text-left font-medium min-w-[800px]">
                   <thead>
-                    <tr className="bg-zinc-100/30 text-[11px] text-zinc-600 tracking-[0.2em] border-b border-zinc-200 uppercase font-black">
-                      <th className="px-6 md:px-12 py-6 md:py-8 cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('no_wo')}>No. WO / Plat {sortConfig.key === 'no_wo' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-6 md:px-12 py-6 md:py-8 cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('status')}>Status {sortConfig.key === 'status' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-6 md:px-12 py-6 md:py-8 cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('sa')}>Team Support {sortConfig.key === 'sa' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-6 md:px-12 py-6 md:py-8 cursor-pointer hover:text-zinc-900 min-h-[44px]" onClick={() => requestSort('wkt_masuk')}>Waktu Masuk {sortConfig.key === 'wkt_masuk' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                      <th className="px-6 md:px-12 py-6 md:py-8 text-right underline cursor-pointer min-h-[44px]" onClick={() => requestSort('wkt_estimasi')}>Estimasi Selesai {sortConfig.key === 'wkt_estimasi' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                    <tr className="bg-zinc-50 text-[10px] text-zinc-500 uppercase tracking-wider border-b border-zinc-200 font-black">
+                      <th className="px-4 md:px-6 py-3 cursor-pointer hover:text-zinc-900" onClick={() => requestSort('no_wo')}>No. WO / Plat {sortConfig.key === 'no_wo' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-4 md:px-6 py-3 cursor-pointer hover:text-zinc-900" onClick={() => requestSort('status')}>Status {sortConfig.key === 'status' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-4 md:px-6 py-3 cursor-pointer hover:text-zinc-900" onClick={() => requestSort('sa')}>Team Support {sortConfig.key === 'sa' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-4 md:px-6 py-3 cursor-pointer hover:text-zinc-900" onClick={() => requestSort('wkt_masuk')}>Waktu Masuk {sortConfig.key === 'wkt_masuk' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                      <th className="px-4 md:px-6 py-3 text-right cursor-pointer hover:text-zinc-900" onClick={() => requestSort('wkt_estimasi')}>Estimasi {sortConfig.key === 'wkt_estimasi' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y-2 divide-zinc-50">
+                  <tbody className="divide-y divide-zinc-100">
                     {sortedWoTrackingData.slice((woTrackingPage - 1) * rowsPerPage, woTrackingPage * rowsPerPage).map((row, i) => (
-                      <tr key={i} className="hover:bg-zinc-100 transition-all duration-300 font-black uppercase group">
-                        <td className="px-6 md:px-12 py-6 md:py-10">
-                          <p className="text-[20px] text-zinc-900 tracking-tighter leading-none">{row.no_wo || 'N/A'}</p>
-                          <p className="text-[12px] text-zinc-400 mt-3 font-bold px-3 py-1 bg-zinc-100 rounded-lg w-max tracking-widest">{row.no_pol || '---'}</p>
+                      <tr key={i} className="hover:bg-zinc-50 transition-all">
+                        <td className="px-4 md:px-6 py-4">
+                          <p className="text-sm font-black text-zinc-900">{row.no_wo || 'N/A'}</p>
+                          <p className="text-[10px] text-zinc-400 mt-1 px-2 py-0.5 bg-zinc-100 rounded w-max">{row.no_pol || '---'}</p>
                         </td>
-                        <td className="px-6 md:px-12 py-6 md:py-10">
-                          <span className={`px-8 py-3 rounded-2xl text-[11px] font-black border-2 shadow-xl ${(row.status || '').toLowerCase().includes('selesai') || (row.status || '').toLowerCase().includes('ready') || (row.status || '').toLowerCase().includes('closed') ? 'bg-green-50 text-green-700 border-green-200 shadow-green-50' : (row.status || '').toLowerCase().includes('on progress') ? 'bg-zinc-100 text-zinc-700 border-zinc-200 shadow-zinc-50' : 'bg-yellow-50 text-yellow-700 border-yellow-200 shadow-yellow-50'}`}>{row.status || 'PROSES'}</span>
+                        <td className="px-4 md:px-6 py-4">
+                          <span className={`px-3 py-1 rounded-md text-[10px] font-black ${(row.status || '').toLowerCase().includes('selesai') || (row.status || '').toLowerCase().includes('ready') || (row.status || '').toLowerCase().includes('closed') ? 'bg-green-50 text-green-700 border border-green-200' : (row.status || '').toLowerCase().includes('on progress') ? 'bg-zinc-100 text-zinc-700 border border-zinc-200' : 'bg-yellow-50 text-yellow-700 border border-yellow-200'}`}>{row.status || 'PROSES'}</span>
                         </td>
-                        <td className="px-6 md:px-12 py-6 md:py-10">
-                          <div className="space-y-2.5">
-                            <div className="flex items-center gap-3"><div className="w-2 h-2 rounded-full bg-zinc-400"></div> <span className="text-[14px]">{row.sa || '---'} (SA)</span></div>
-                            <div className="flex items-center gap-3"><div className="w-2 h-2 rounded-full bg-zinc-600"></div> <span className="text-[14px]">{row.mekanik || '---'} (MKN)</span></div>
+                        <td className="px-4 md:px-6 py-4">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-zinc-400"></div> <span className="text-xs">{row.sa || '---'} (SA)</span></div>
+                            <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-zinc-600"></div> <span className="text-xs">{row.mekanik || '---'} (MKN)</span></div>
                           </div>
                         </td>
-                        <td className="px-6 md:px-12 py-6 md:py-10 text-[14px] text-zinc-600 tabular-nums">{formatDisplayDate(row.wkt_masuk || row.wktmasuk)}</td>
-                        <td className="px-6 md:px-12 py-6 md:py-10 text-right"><span className="bg-zinc-900 text-white px-8 py-4 rounded-[1.2rem] text-[12px] shadow-2xl tabular-nums inline-block border border-zinc-700 font-black">{formatDisplayDate(row.wkt_estimasi || row.wktestimasi)}</span></td>
+                        <td className="px-4 md:px-6 py-4 text-xs text-zinc-600 tabular-nums">{formatDisplayDate(row.wkt_masuk || row.wktmasuk)}</td>
+                        <td className="px-4 md:px-6 py-4 text-right"><span className="bg-zinc-900 text-white px-3 py-1.5 rounded-md text-[10px] tabular-nums inline-block font-black">{formatDisplayDate(row.wkt_estimasi || row.wktestimasi)}</span></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <div className="p-4 md:p-12 border-t-2 border-zinc-100 flex flex-col md:flex-row justify-between items-center bg-zinc-50/20 gap-4 md:gap-8">
-                <div className="flex flex-wrap items-center gap-4 md:gap-6">
-                  <p className="text-[11px] font-black uppercase text-zinc-400 tracking-widest  whitespace-nowrap">Tampilkan:</p>
-                  <select value={rowsPerPage} onChange={(e) => setRowsPerPage(parseInt(e.target.value))} className="bg-white border-2 border-zinc-200 rounded-2xl px-6 py-3 text-xs font-black outline-none focus:border-zinc-900 cursor-pointer shadow-sm min-h-[44px]">
-                    <option value={10}>10 Baris</option><option value={20}>20 Baris</option><option value={40}>40 Baris</option><option value={100}>100 Baris</option>
+              <div className="p-4 md:p-6 border-t border-zinc-200 flex flex-col md:flex-row justify-between items-center bg-zinc-50/30 gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="text-[10px] font-medium uppercase text-zinc-400 tracking-wider whitespace-nowrap">Tampilkan:</p>
+                  <select value={rowsPerPage} onChange={(e) => setRowsPerPage(parseInt(e.target.value))} className="bg-white border border-zinc-200 rounded-lg px-3 py-1.5 text-[10px] font-medium outline-none focus:border-zinc-900 cursor-pointer min-h-[36px]">
+                    <option value={10}>10</option><option value={20}>20</option><option value={40}>40</option><option value={100}>100</option>
                   </select>
-                  <p className="text-[11px] font-black uppercase text-zinc-900 tracking-widest  ml-4 flex items-center gap-3"><Activity size={18} className="text-black" /> TOTAL: {sortedWoTrackingData.length} UNIT DATA</p>
+                  <p className="text-[10px] font-black uppercase text-zinc-900 tracking-wider flex items-center gap-2"><Activity size={14} /> Total: {sortedWoTrackingData.length}</p>
                 </div>
-                <div className="flex gap-4">
-                  <button disabled={woTrackingPage === 1} onClick={() => setWoTrackingPage(p => p - 1)} className={`px-8 md:px-12 py-4 md:py-5 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all min-w-[44px] min-h-[44px] ${woTrackingPage === 1 ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white shadow-2xl hover:scale-105 active:scale-95'}`}>Prev</button>
-                  <button disabled={woTrackingPage * rowsPerPage >= sortedWoTrackingData.length} onClick={() => setWoTrackingPage(p => p + 1)} className={`px-8 md:px-12 py-4 md:py-5 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all min-w-[44px] min-h-[44px] ${woTrackingPage * rowsPerPage >= sortedWoTrackingData.length ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white shadow-2xl hover:scale-105 active:scale-95'}`}>Next</button>
+                <div className="flex gap-2">
+                  <button disabled={woTrackingPage === 1} onClick={() => setWoTrackingPage(p => p - 1)} className={`px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all min-h-[36px] ${woTrackingPage === 1 ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white hover:bg-zinc-800'}`}>Prev</button>
+                  <button disabled={woTrackingPage * rowsPerPage >= sortedWoTrackingData.length} onClick={() => setWoTrackingPage(p => p + 1)} className={`px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all min-h-[36px] ${woTrackingPage * rowsPerPage >= sortedWoTrackingData.length ? 'opacity-30 cursor-not-allowed text-zinc-300' : 'bg-zinc-900 text-white hover:bg-zinc-800'}`}>Next</button>
                 </div>
               </div>
             </div>
           )}
 
           {activeTab === 'vehicles' && (
-            <div className="bg-white rounded-[2rem] md:rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden animate-in">
-              <div className="p-4 md:p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col md:flex-row justify-between items-center gap-6 md:gap-10">
-                <h3 className="text-xl md:text-3xl font-black  uppercase tracking-tighter">Database Frekuensi Kendaraan</h3>
-                <div className="relative group">
-                  <Search size={22} className="absolute left-8 top-1/2 -translate-y-1/2 text-zinc-400 group-hover:text-zinc-900" />
-                  <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Masukkan No Plat..." className="pl-18 pr-10 py-4 md:py-6 bg-white border-2 border-zinc-200 rounded-[2rem] text-sm font-black focus:border-zinc-900 w-full md:min-w-[450px] shadow-sm uppercase min-h-[44px]" />
+            <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
+              <div className="p-4 md:p-6 border-b border-zinc-200 bg-zinc-50/50 flex flex-col md:flex-row justify-between items-center gap-4">
+                <h3 className="text-sm font-black uppercase tracking-widest text-zinc-900">Database Frekuensi Kendaraan</h3>
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Masukkan No Plat..." className="pl-9 pr-4 py-2.5 bg-white border border-zinc-200 rounded-lg text-[11px] font-medium focus:border-zinc-900 w-full md:min-w-[300px] min-h-[36px]" />
                 </div>
               </div>
-              <div className="p-6 md:p-12">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-10 font-black uppercase ">
+              <div className="p-4 md:p-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {vehicleLeaderboard.filter(v => v.bk.toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 18).map((car, i) => (
-                    <div key={i} onClick={() => setSelectedVehicle(car.bk)} className="bg-zinc-50 border-2 border-dashed border-zinc-200 rounded-[2.5rem] md:rounded-[3.5rem] p-8 md:p-12 hover:border-zinc-900 hover:bg-white hover:shadow-2xl transition-all cursor-pointer group transform hover:-translate-y-2 relative overflow-hidden">
-                      <div className="flex justify-between items-start mb-8 md:mb-12 relative z-10">
-                        <div className="w-12 h-12 md:w-16 md:h-16 bg-zinc-900 text-white rounded-xl flex items-center justify-center text-lg md:text-xl shadow-2xl ">#{i + 1}</div>
-                        <div className="px-4 py-2 md:px-6 md:py-3 bg-zinc-900 text-white rounded-xl md:rounded-2xl text-[9px] md:text-[10px] shadow-lg tracking-widest border border-zinc-800">{car.count} KUNJUNGAN</div>
+                    <div key={i} onClick={() => setSelectedVehicle(car.bk)} className="bg-zinc-50 border border-zinc-200 rounded-lg p-4 hover:border-zinc-400 hover:bg-white hover:shadow-md transition-all cursor-pointer group">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="w-8 h-8 bg-zinc-900 text-white rounded-md flex items-center justify-center text-xs font-black">#{i + 1}</div>
+                        <div className="px-2 py-1 bg-zinc-100 text-zinc-600 rounded text-[9px] font-black tracking-wider">{car.count} KUNJUNGAN</div>
                       </div>
-                      <p className="text-3xl md:text-4xl tracking-tighter mb-1 leading-none relative z-10 font-black">{car.bk}</p>
-                      <p className="text-[10px] md:text-[11px] text-zinc-400 tracking-[0.4em] relative z-10">{car.tipe}</p>
-                      <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-zinc-100/50 rounded-full group-hover:bg-zinc-900/5 transition-colors"></div>
+                      <p className="text-sm font-black text-zinc-900 tracking-tight mb-0.5">{car.bk}</p>
+                      <p className="text-[10px] text-zinc-400">{car.tipe}</p>
                     </div>
                   ))}
                 </div>
@@ -1212,43 +1240,42 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
           )}
 
           {activeTab === 'cro_history' && (
-            <div className="bg-white rounded-[2rem] md:rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden min-h-[600px] animate-in">
-              <div className="p-4 md:p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col xl:flex-row justify-between items-center gap-6 md:gap-10">
-                <div><h3 className="text-xl md:text-3xl font-black  uppercase tracking-tighter">Riwayat Follow Up Customer</h3><p className="text-[10px] font-black text-zinc-400 tracking-[0.4em] mt-2 ">Data hasil respon customer CRO</p></div>
-                <div className="relative w-full xl:min-w-[500px]">
-                  <Search className="absolute left-8 top-1/2 -translate-y-1/2 text-zinc-400" size={24} />
-                  <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Cari Nama, Plat, atau Respon..." className="pl-18 pr-10 py-4 md:py-6 bg-white border-2 border-zinc-200 rounded-[2rem] text-sm font-black focus:border-zinc-900 transition-all w-full uppercase shadow-sm min-h-[44px]" />
+            <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden min-h-[400px]">
+              <div className="p-4 md:p-6 border-b border-zinc-200 bg-zinc-50/50 flex flex-col xl:flex-row justify-between items-center gap-4">
+                <div><h3 className="text-sm font-black uppercase tracking-widest text-zinc-900">Riwayat Follow Up Customer</h3><p className="text-[10px] font-medium text-zinc-400 mt-1">Data hasil respon customer CRO</p></div>
+                <div className="relative w-full xl:min-w-[300px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={14} />
+                  <input type="text" value={searchTerm} onChange={x => setSearchTerm(x.target.value)} placeholder="Cari Nama, Plat, atau Respon..." className="pl-9 pr-4 py-2.5 bg-white border border-zinc-200 rounded-lg text-[11px] font-medium focus:border-zinc-900 transition-all w-full min-h-[36px]" />
                 </div>
               </div>
-              <div className="p-4 md:p-8">
+              <div className="p-4 md:p-6">
                 {isLoading ? (
-                  <div className="py-24 text-center text-zinc-400 font-bold  animate-pulse">Memuat Data...</div>
+                  <div className="py-16 text-center text-zinc-400 text-xs font-medium animate-pulse">Memuat Data...</div>
                 ) : croHistory.length === 0 ? (
-                  <div className="py-24 text-center text-zinc-400 font-bold ">Belum ada riwayat follow up.</div>
+                  <div className="py-16 text-center text-zinc-400 text-xs font-medium">Belum ada riwayat follow up.</div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {croHistory.filter(item => {
                       const s = searchTerm.toLowerCase();
                       return !s || (item.nama || '').toLowerCase().includes(s) || (item.plat || '').toLowerCase().includes(s) || (item.respon || '').toLowerCase().includes(s);
                     }).map((item, idx) => (
-                      <div key={idx} className="bg-white border-2 border-zinc-100 rounded-[1.5rem] md:rounded-[2.5rem] p-4 md:p-8 shadow-xl shadow-zinc-100/50 hover:shadow-2xl transition-all group overflow-hidden relative">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-zinc-50 rounded-bl-[4rem] -z-10 group-hover:scale-110 transition-transform"></div>
-                        <div className="flex justify-between items-start mb-6">
-                          <div className="px-5 py-2 bg-zinc-900 text-white text-[10px] font-black rounded-xl uppercase tracking-widest shadow-lg shadow-zinc-200">{item.plat}</div>
-                          <div className="text-[10px] font-bold text-zinc-400 px-3 py-1 bg-zinc-100 rounded-lg">{item.tanggalFollowUp}</div>
+                      <div key={idx} className="bg-white border border-zinc-200 rounded-lg p-4 hover:shadow-md transition-all">
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="px-2 py-1 bg-zinc-900 text-white text-[9px] font-black rounded tracking-wider">{item.plat}</div>
+                          <div className="text-[9px] font-medium text-zinc-400 px-2 py-1 bg-zinc-50 rounded">{item.tanggalFollowUp}</div>
                         </div>
                         {(item.lampiran || item.foto) && (
                           <div
-                            className="mb-6 w-full h-48 rounded-3xl overflow-hidden border-2 border-zinc-50 shadow-inner group-hover:scale-[1.02] transition-transform duration-500 cursor-zoom-in"
+                            className="mb-3 w-full h-36 rounded-lg overflow-hidden border border-zinc-100 cursor-zoom-in"
                             onClick={() => setPreviewImage(item.lampiran || item.foto)}
                           >
                             <img src={item.lampiran || item.foto} alt="Foto CRO" className="w-full h-full object-cover" />
                           </div>
                         )}
-                        <h4 className="font-black text-2xl text-zinc-900 mb-1 tracking-tight">{item.nama}</h4>
-                        <p className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] mb-6">{item.tipeMobil}</p>
-                        <div className="bg-zinc-50 p-6 rounded-[2rem] border border-zinc-100 relative group-hover:bg-white transition-colors duration-500">
-                          <p className="text-sm font-bold text-zinc-700 leading-relaxed  line-clamp-4">"{item.respon || 'Tidak ada respon tertulis.'}"</p>
+                        <h4 className="font-black text-sm text-zinc-900 mb-0.5">{item.nama}</h4>
+                        <p className="text-[9px] font-medium text-zinc-400 uppercase tracking-wider mb-3">{item.tipeMobil}</p>
+                        <div className="bg-zinc-50 p-3 rounded-lg">
+                          <p className="text-[11px] text-zinc-600 leading-relaxed line-clamp-3">"{item.respon || 'Tidak ada respon tertulis.'}"</p>
                         </div>
                       </div>
                     ))}
@@ -1259,47 +1286,47 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
           )}
 
           {activeTab === 'staff' && (
-            <div className="bg-white rounded-[2rem] md:rounded-[4rem] border-2 border-zinc-200 shadow-3xl overflow-hidden animate-in">
-              <div className="p-4 md:p-12 border-b-2 border-zinc-100 bg-zinc-50/50 flex flex-col sm:flex-row justify-between items-center gap-4 md:gap-8 font-black uppercase">
+            <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
+              <div className="p-4 md:p-6 border-b border-zinc-200 bg-zinc-50/50 flex flex-col sm:flex-row justify-between items-center gap-3">
                 <div>
-                  <h3 className="text-3xl font-black uppercase tracking-tighter">Manajemen Staff</h3>
-                  <p className="text-[10px] font-black text-zinc-400 tracking-[0.4em] mt-2 ">Kelola Akses User Bengkel</p>
+                  <h3 className="text-sm font-black uppercase tracking-widest text-zinc-900">Manajemen Staff</h3>
+                  <p className="text-[10px] font-medium text-zinc-400 mt-1">Kelola Akses User Bengkel</p>
                 </div>
                 <button
                   onClick={() => { setUserFormData({ username: '', password: '', name: '', role: 'mekanik' }); setIsUserModalOpen(true); }}
-                  className="px-8 md:px-10 py-4 md:py-5 bg-zinc-900 text-white rounded-[1.8rem] font-black text-xs uppercase tracking-widest shadow-xl hover:scale-105 transition-all min-w-[44px] min-h-[44px]"
+                  className="px-5 py-2.5 bg-zinc-900 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-zinc-800 transition-all min-h-[36px]"
                 >
                   Tambah Staf Baru
                 </button>
               </div>
-              <div className="max-h-[600px] overflow-auto overflow-x-auto custom-scrollbar">
-                <table className="w-full text-left border-collapse font-black uppercase min-w-[700px]">
+              <div className="max-h-[500px] overflow-auto overflow-x-auto custom-scrollbar">
+                <table className="w-full text-left border-collapse font-medium min-w-[700px]">
                   <thead className="sticky top-0 z-20 bg-white">
-                    <tr className="bg-zinc-50/80 text-[10px] font-black uppercase text-zinc-400 tracking-[0.2em] backdrop-blur-md">
-                      <th className="px-6 md:px-12 py-6 md:py-8">Nama Lengkap</th>
-                      <th className="px-6 md:px-12 py-6 md:py-8">User ID</th>
-                      <th className="px-6 md:px-12 py-6 md:py-8">Role / Akses</th>
-                      <th className="px-6 md:px-12 py-6 md:py-8 text-right">Aksi</th>
+                    <tr className="bg-zinc-50 text-[10px] font-black uppercase text-zinc-400 tracking-wider border-b border-zinc-200">
+                      <th className="px-4 md:px-6 py-3">Nama Lengkap</th>
+                      <th className="px-4 md:px-6 py-3">User ID</th>
+                      <th className="px-4 md:px-6 py-3">Role / Akses</th>
+                      <th className="px-4 md:px-6 py-3 text-right">Aksi</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y-2 divide-zinc-50">
+                  <tbody className="divide-y divide-zinc-100">
                     {usersData.length === 0 ? (
-                      <tr><td colSpan="4" className="px-12 py-20 text-center text-zinc-400 italic font-medium uppercase tracking-[0.2em]">Belum ada data staf / Loading...</td></tr>
+                      <tr><td colSpan="4" className="px-6 py-12 text-center text-zinc-400 text-xs font-medium">Belum ada data staf / Loading...</td></tr>
                     ) : (
                       usersData.map((u, i) => (
-                        <tr key={i} className="hover:bg-zinc-50 transition-all font-black uppercase">
-                          <td className="px-6 md:px-12 py-6 md:py-10 flex items-center gap-4 text-zinc-900">
-                            <div className="w-10 h-10 bg-zinc-900 text-white flex items-center justify-center rounded-xl text-lg">{u.name?.charAt(0)}</div>
-                            <div><p className="text-lg">{u.name}</p></div>
+                        <tr key={i} className="hover:bg-zinc-50 transition-all">
+                          <td className="px-4 md:px-6 py-3 flex items-center gap-3 text-zinc-900">
+                            <div className="w-8 h-8 bg-zinc-900 text-white flex items-center justify-center rounded-md text-xs font-black">{u.name?.charAt(0)}</div>
+                            <span className="text-xs font-black">{u.name}</span>
                           </td>
-                          <td className="px-6 md:px-12 py-6 md:py-10 text-zinc-400">{u.username}</td>
-                          <td className="px-6 md:px-12 py-6 md:py-10">
-                            <span className={`px-4 py-2 rounded-lg text-[10px] ${u.role === 'admin' ? 'bg-zinc-900 text-white' : u.role === 'mekanik' ? 'bg-zinc-100 text-black' : 'bg-zinc-200 text-black'}`}>{u.role}</span>
+                          <td className="px-4 md:px-6 py-3 text-zinc-400 text-xs">{u.username}</td>
+                          <td className="px-4 md:px-6 py-3">
+                            <span className={`px-2 py-1 rounded text-[9px] font-black ${u.role === 'admin' ? 'bg-zinc-900 text-white' : u.role === 'mekanik' ? 'bg-zinc-100 text-black' : 'bg-zinc-200 text-black'}`}>{u.role}</span>
                           </td>
-                          <td className="px-6 md:px-12 py-6 md:py-10 text-right">
-                            <div className="flex justify-end gap-3">
-                              <button onClick={() => { setUserFormData({ ...u, password: '' }); setIsUserModalOpen(true); }} className="p-3 bg-zinc-100 text-zinc-900 rounded-xl hover:bg-zinc-200 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"><Settings size={16} /></button>
-                              <button onClick={() => handleDeleteUser(u.username)} className="p-3 bg-zinc-100 text-black rounded-xl hover:bg-black hover:text-white transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"><X size={16} /></button>
+                          <td className="px-4 md:px-6 py-3 text-right">
+                            <div className="flex justify-end gap-2">
+                              <button onClick={() => { setUserFormData({ ...u, password: '' }); setIsUserModalOpen(true); }} className="p-2 bg-zinc-100 text-zinc-900 rounded-md hover:bg-zinc-200 transition-all"><Settings size={14} /></button>
+                              <button onClick={() => handleDeleteUser(u.username)} className="p-2 bg-zinc-100 text-black rounded-md hover:bg-red-500 hover:text-white transition-all"><X size={14} /></button>
                             </div>
                           </td>
                         </tr>
@@ -1313,30 +1340,30 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
 
           {/* User Modal */}
           {isUserModalOpen && (
-            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-zinc-900/60 backdrop-blur-sm animate-in">
-              <div className="bg-white rounded-[3rem] w-full max-w-lg overflow-hidden shadow-2xl font-black uppercase">
-                <div className="p-10 bg-zinc-900 text-white flex justify-between items-center">
-                  <h3 className="text-2xl font-black uppercase tracking-tighter">Profil Staf</h3>
-                  <button onClick={() => setIsUserModalOpen(false)}><X size={24} /></button>
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-zinc-900/50 backdrop-blur-sm">
+              <div className="bg-white rounded-lg w-full max-w-md overflow-hidden shadow-xl">
+                <div className="px-6 py-4 bg-zinc-900 text-white flex justify-between items-center">
+                  <h3 className="text-sm font-black uppercase tracking-widest">Profil Staf</h3>
+                  <button onClick={() => setIsUserModalOpen(false)} className="hover:opacity-70 transition-opacity"><X size={18} /></button>
                 </div>
-                <form onSubmit={handleUpsertUser} className="p-10 space-y-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-zinc-400 ml-1">Nama Lengkap</label>
-                    <input required value={userFormData.name} onChange={e => setUserFormData({ ...userFormData, name: e.target.value })} className="w-full bg-zinc-50 border-2 border-zinc-100 p-5 rounded-2xl font-black uppercase outline-none focus:border-zinc-900 transition-all min-h-[44px]" placeholder="Contoh: Budi Santoso" />
+                <form onSubmit={handleUpsertUser} className="p-6 space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase text-zinc-400">Nama Lengkap</label>
+                    <input required value={userFormData.name} onChange={e => setUserFormData({ ...userFormData, name: e.target.value })} className="w-full bg-zinc-50 border border-zinc-200 px-4 py-2.5 rounded-lg text-xs font-medium outline-none focus:border-zinc-900 transition-all" placeholder="Contoh: Budi Santoso" />
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-zinc-400 ml-1">Username</label>
-                      <input required value={userFormData.username} onChange={e => setUserFormData({ ...userFormData, username: e.target.value })} className="w-full bg-zinc-50 border-2 border-zinc-100 p-5 rounded-2xl font-black outline-none focus:border-zinc-900 transition-all uppercase min-h-[44px]" placeholder="userid" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase text-zinc-400">Username</label>
+                      <input required value={userFormData.username} onChange={e => setUserFormData({ ...userFormData, username: e.target.value })} className="w-full bg-zinc-50 border border-zinc-200 px-4 py-2.5 rounded-lg text-xs font-medium outline-none focus:border-zinc-900 transition-all" placeholder="userid" />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-zinc-400 ml-1">Password</label>
-                      <input value={userFormData.password} onChange={e => setUserFormData({ ...userFormData, password: e.target.value })} className="w-full bg-zinc-50 border-2 border-zinc-100 p-5 rounded-2xl font-black outline-none focus:border-zinc-900 transition-all min-h-[44px]" type="password" placeholder="••••••••" />
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase text-zinc-400">Password</label>
+                      <input value={userFormData.password} onChange={e => setUserFormData({ ...userFormData, password: e.target.value })} className="w-full bg-zinc-50 border border-zinc-200 px-4 py-2.5 rounded-lg text-xs font-medium outline-none focus:border-zinc-900 transition-all" type="password" placeholder="••••••••" />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-zinc-400 ml-1">Role / Hak Akses</label>
-                    <select value={userFormData.role} onChange={e => setUserFormData({ ...userFormData, role: e.target.value })} className="w-full bg-zinc-50 border-2 border-zinc-100 p-5 rounded-2xl font-black uppercase outline-none focus:border-zinc-900 transition-all appearance-none cursor-pointer min-h-[44px]">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase text-zinc-400">Role / Hak Akses</label>
+                    <select value={userFormData.role} onChange={e => setUserFormData({ ...userFormData, role: e.target.value })} className="w-full bg-zinc-50 border border-zinc-200 px-4 py-2.5 rounded-lg text-xs font-medium outline-none focus:border-zinc-900 transition-all appearance-none cursor-pointer">
                       <option value="admin">Admin Service</option>
                       <option value="mekanik">Mekanik Bengkel</option>
                       <option value="sparepart">Sparepart Staff</option>
@@ -1346,7 +1373,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
                       <option value="manager">Manager Hub</option>
                     </select>
                   </div>
-                  <button type="submit" disabled={isLoading} className="w-full bg-zinc-900 text-white p-6 rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 min-h-[44px]">
+                  <button type="submit" disabled={isLoading} className="w-full bg-zinc-900 text-white py-3 rounded-lg font-black text-xs uppercase tracking-widest hover:bg-zinc-800 active:scale-[0.98] transition-all disabled:opacity-50">
                     {isLoading ? 'Processing...' : 'Simpan Data Staf'}
                   </button>
                 </form>
@@ -1355,67 +1382,66 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
           )}
         </section>
       </main>
+      </div>
 
       {/* Overlays */}
 
       {selectedVehicle && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-zinc-900/80 backdrop-blur-3xl" onClick={() => setSelectedVehicle(null)}></div>
-          <div className="bg-zinc-950 w-full max-w-5xl rounded-[2rem] md:rounded-[5rem] shadow-3xl relative z-10 flex flex-col max-h-[90vh] overflow-hidden animate-in border-4 border-zinc-800">
-            <div className="p-6 md:p-16 border-b-2 border-zinc-800 bg-zinc-900 flex items-center justify-between">
-              <div className="flex items-center gap-10">
-                <div className="w-24 h-24 bg-zinc-900 text-white rounded-[2.5rem] flex items-center justify-center shadow-2xl text-black scale-110"><Car size={48} /></div>
+          <div className="absolute inset-0 bg-zinc-900/60 backdrop-blur-sm" onClick={() => setSelectedVehicle(null)}></div>
+          <div className="bg-white w-full max-w-4xl rounded-lg shadow-xl relative z-10 flex flex-col max-h-[85vh] overflow-hidden border border-zinc-200">
+            <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 bg-zinc-900 text-white rounded-lg flex items-center justify-center"><Car size={20} /></div>
                 <div>
-                  <h3 className="text-2xl md:text-6xl font-black  tracking-tighter leading-none mb-3 underline decoration-black underline-offset-8 decoration-4">{selectedVehicle}</h3>
-                  <p className="text-[12px] font-black uppercase text-zinc-400 tracking-[0.5em] mt-4">Audit Riwayat Servis Kendaraan</p>
+                  <h3 className="text-sm font-black text-zinc-900 uppercase tracking-wider">{selectedVehicle}</h3>
+                  <p className="text-[10px] font-medium text-zinc-400">Audit Riwayat Servis Kendaraan</p>
                 </div>
               </div>
-              <button onClick={() => setSelectedVehicle(null)} className="w-12 h-12 md:w-20 md:h-20 border-2 border-zinc-800 rounded-[1rem] md:rounded-[2rem] hover:bg-white hover:text-black transition-all flex items-center justify-center shadow-xl group min-w-[44px] min-h-[44px]">
-                <X size={36} className="group-hover:rotate-90 transition-transform duration-500" />
+              <button onClick={() => setSelectedVehicle(null)} className="w-8 h-8 border border-zinc-200 rounded-lg hover:bg-zinc-100 transition-all flex items-center justify-center">
+                <X size={16} />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 md:p-16 custom-scrollbar font-black uppercase ">
-              <div className="space-y-10">
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar">
+              <div className="space-y-3">
                 {rawHistory.filter(h => h.bk === selectedVehicle).sort((a, b) => parseDateToTimestamp(b.id) - parseDateToTimestamp(a.id)).map((v, i) => (
-                  <div key={i} className="bg-zinc-900 border-2 border-zinc-800 rounded-[2rem] md:rounded-[3.5rem] p-6 md:p-12 flex flex-col md:flex-row items-center gap-6 md:gap-16 group hover:bg-zinc-800 transition-all hover:shadow-2xl hover:border-zinc-700">
+                  <div key={i} className="bg-zinc-50 border border-zinc-200 rounded-lg p-4 flex flex-col md:flex-row items-start md:items-center gap-4 hover:bg-zinc-100 transition-all">
                     <div className="flex-1">
-                      <p className="text-[12px] text-zinc-500 mb-3 tracking-[0.3em] font-black underline underline-offset-4 decoration-zinc-800 ">Waktu Kedatangan</p>
-                      <p className="text-3xl tracking-tighter text-white font-black">{formatDisplayDate(v.id)}</p>
-                    </div>
-                    <div className="flex-1 space-y-3">
-                      <p className="text-[12px] text-zinc-500 mb-2 tracking-[0.3em] font-black ">Operasional Hub</p>
-                      <p className="text-sm font-black text-white">Mekanik Lead: <span className="text-zinc-300">{v.mechanicName || 'N/A'}</span></p>
-                      <p className="text-sm font-black text-zinc-500">Admin Input: {v.addedBy || 'CORE_SYSTEM'}</p>
+                      <p className="text-[9px] font-black text-zinc-400 uppercase tracking-wider mb-1">Waktu Kedatangan</p>
+                      <p className="text-sm font-black text-zinc-900">{formatDisplayDate(v.id)}</p>
                     </div>
                     <div className="flex-1">
-                      <p className="text-[12px] text-zinc-500 mb-2 tracking-[0.3em] font-black uppercase">Status</p>
-                      <p className="text-lg font-black text-white leading-tight whitespace-pre-wrap">{v.keluhan || '---'}</p>
+                      <p className="text-[9px] font-black text-zinc-400 uppercase tracking-wider mb-1">Operasional</p>
+                      <p className="text-xs font-medium text-zinc-700">Mekanik: {v.mechanicName || 'N/A'}</p>
+                      <p className="text-[10px] text-zinc-400">Input: {v.addedBy || 'CORE_SYSTEM'}</p>
                     </div>
-                    <div className="shrink-0"><span className="bg-zinc-900 text-white px-10 py-5 rounded-[1.8rem] text-[11px] shadow-2xl tracking-[0.4em] border-2 border-zinc-700 ">RIWAYAT TERVALIDASI</span></div>
+                    <div className="flex-1">
+                      <p className="text-[9px] font-black text-zinc-400 uppercase tracking-wider mb-1">Status</p>
+                      <p className="text-xs font-medium text-zinc-700 leading-relaxed">{v.keluhan || '---'}</p>
+                    </div>
+                    <div className="shrink-0"><span className="bg-zinc-900 text-white px-3 py-1.5 rounded-md text-[9px] font-black tracking-wider">TERVALIDASI</span></div>
                   </div>
                 ))}
               </div>
             </div>
-            <div className="p-12 border-t-2 border-zinc-800 text-center uppercase tracking-[1em] text-[11px] font-black text-zinc-600 bg-zinc-900 animate-pulse">Integritas Data Terjamin</div>
           </div>
         </div>
       )}
 
       <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #09090b; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #27272a; border-radius: 10px; }
-        @keyframes slideUp { from { transform: translateY(60px) scale(0.98); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
-        .animate-in { animation: slideUp 1s cubic-bezier(0.19, 1, 0.22, 1) forwards; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 10px; }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
       `}</style>
       {/* Image Preview Modal */}
       {previewImage && (
-        <div className="fixed inset-0 bg-black/95 z-[100] flex flex-col p-10 animate-in fade-in" onClick={() => setPreviewImage(null)}>
-          <button className="absolute top-10 right-10 p-5 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all backdrop-blur-xl border border-white/10"><X size={32} /></button>
-          <div className="flex-1 flex items-center justify-center p-10" onClick={e => e.stopPropagation()}>
-            <img src={previewImage} className="max-w-full max-h-full object-contain rounded-3xl shadow-[0_0_100px_rgba(255,255,255,0.1)] border-4 border-white/10" alt="Preview HD" />
+        <div className="fixed inset-0 bg-black/90 z-[100] flex flex-col p-6" onClick={() => setPreviewImage(null)}>
+          <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all backdrop-blur-sm"><X size={24} /></button>
+          <div className="flex-1 flex items-center justify-center p-6" onClick={e => e.stopPropagation()}>
+            <img src={previewImage} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" alt="Preview" />
           </div>
-          <p className="text-center text-white/40 font-black uppercase text-[10px] tracking-[0.5em] pb-10 ">Ketuk di mana saja untuk menutup</p>
+          <p className="text-center text-white/30 font-medium text-[10px] uppercase tracking-wider pb-4">Ketuk di mana saja untuk menutup</p>
         </div>
       )}
       <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
