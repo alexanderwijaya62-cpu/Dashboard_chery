@@ -427,39 +427,42 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
     };
 
     return (
-        <div className="min-h-screen bg-zinc-50 pb-24">
-            <div className="bg-zinc-900 text-white p-4 sticky top-0 z-30">
-                <div className="flex items-center gap-2 mb-3">
-                    <Car size={20} />
-                    <h1 className="text-sm font-black uppercase tracking-wider">Booking {bookingPrefix}</h1>
-                    <div className="ml-auto flex items-center gap-2">
-                        <button onClick={() => setShowPasswordModal(true)}
-                            className="p-2 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all active:scale-95"
-                            title="Ganti Password">
-                            <Key size={16} />
-                        </button>
-                        <button onClick={handleLogout}
-                            className="p-2 bg-white/10 hover:bg-red-500/80 text-white rounded-xl transition-all active:scale-95"
-                            title="Logout">
-                            <LogOut size={16} />
-                        </button>
-                        <div className="bg-white/10 rounded-full px-3 py-1 text-[10px] font-black">{staffName}</div>
-                    </div>
-                </div>
-                <div className="flex gap-1 bg-white/10 rounded-xl p-1">
-                    <button onClick={() => setActiveTab('booking')} className={`flex-1 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${activeTab === 'booking' ? 'bg-white text-zinc-900' : 'text-white/60'}`}>
-                        <Plus size={14} className="inline mr-1" />Booking Baru
+        <div className="min-h-screen bg-zinc-50 px-4 sm:px-8 py-6">
+            {/* Header Section */}
+            <div className="flex flex-row justify-between items-center mb-6 shrink-0 gap-4 w-full">
+                <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-zinc-900 leading-tight uppercase">
+                    📅 Booking {bookingPrefix}
+                </h1>
+                <div className="flex items-center gap-2">
+                    <button onClick={() => setShowPasswordModal(true)}
+                        className="px-4 py-2 border border-zinc-200 hover:bg-zinc-100 text-zinc-700 rounded-xl transition-all active:scale-95 text-xs font-bold flex items-center gap-2 shadow-sm bg-white"
+                        title="Ganti Password">
+                        <Key size={14} />
+                        <span>Ganti Password</span>
                     </button>
-                    <button onClick={() => setActiveTab('list')} className={`flex-1 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${activeTab === 'list' ? 'bg-white text-zinc-900' : 'text-white/60'}`}>
-                        <List size={14} className="inline mr-1" />Daftar Booking
-                        {myBookings.length > 0 && <span className="ml-1 bg-red-500 text-white text-[9px] px-1.5 rounded-full">{myBookings.length}</span>}
+                    <button onClick={handleLogout}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl transition-all active:scale-95 text-xs font-bold flex items-center gap-2 shadow-sm"
+                        title="Logout">
+                        <LogOut size={14} />
+                        <span>Logout</span>
                     </button>
-                    {isSpv && (
-                        <button onClick={() => setActiveTab('users')} className={`flex-1 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${activeTab === 'users' ? 'bg-white text-zinc-900' : 'text-white/60'}`}>
-                            <Users size={14} className="inline mr-1" />User
-                        </button>
-                    )}
                 </div>
+            </div>
+
+            {/* Sub Tabs Section */}
+            <div className="flex gap-1 bg-zinc-200/60 p-1.5 rounded-2xl max-w-md mb-6 border border-zinc-200/80">
+                <button onClick={() => setActiveTab('booking')} className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 ${activeTab === 'booking' ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-900'}`}>
+                    <Plus size={14} className="inline mr-1" />Booking Baru
+                </button>
+                <button onClick={() => setActiveTab('list')} className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 ${activeTab === 'list' ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-900'}`}>
+                    <List size={14} className="inline mr-1" />Daftar Booking
+                    {myBookings.length > 0 && <span className="ml-1.5 bg-red-500 text-white text-[9px] px-2 py-0.5 rounded-full font-bold">{myBookings.length}</span>}
+                </button>
+                {isSpv && (
+                    <button onClick={() => setActiveTab('users')} className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 ${activeTab === 'users' ? 'bg-white text-zinc-900 shadow-md' : 'text-zinc-500 hover:text-zinc-900'}`}>
+                        <Users size={14} className="inline mr-1" />User
+                    </button>
+                )}
             </div>
 
             {activeTab === 'booking' && (
