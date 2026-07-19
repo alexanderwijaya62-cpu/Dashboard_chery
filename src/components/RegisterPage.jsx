@@ -417,11 +417,7 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
             <>
               <div className="bg-green-50 border border-green-200 rounded-2xl p-5 mb-6 text-left">
                 <p className="text-xs text-green-700 font-bold mb-1">OTP sudah dikirim ke WhatsApp kamu!</p>
-                <ol className="text-xs text-green-800 space-y-2 font-medium">
-                  <li>1. Buka WhatsApp</li>
-                  <li>2. Cari pesan OTP dari Chery Medan</li>
-                  <li>3. <strong>Balas</strong> pesan itu dengan kode: <strong className="text-lg tracking-widest">{otpCode}</strong></li>
-                </ol>
+                <p className="text-xs text-green-600">Buka WhatsApp, cari pesan OTP dari Chery Medan, lalu balas dengan kode OTP yang kamu terima.</p>
               </div>
 
               {/* Countdown Timer */}
@@ -435,11 +431,6 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
                 <p className="text-[10px] text-zinc-400 mt-1">Sisa waktu verifikasi</p>
               </div>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-6">
-                  <p className="text-xs text-blue-700 font-bold text-center">
-                    Balas pesan OTP di WhatsApp dengan kode: <strong className="text-lg tracking-widest">{otpCode}</strong>
-                  </p>
-                </div>
 
               <button
                 onClick={handleResendOtp}

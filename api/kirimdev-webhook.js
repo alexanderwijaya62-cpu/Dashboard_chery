@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
-// Kirimdev webhook — terima & kirim pesan aja
+// Kirimdev webhook — validate sender + OTP match
 
 const WEBHOOK_SECRET = (process.env.KIRIM_WEBHOOK_SECRET || '').replace(/^whsec_/, '');
 
@@ -10,6 +10,13 @@ function getSupabase() {
     process.env.VITE_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
+}
+
+function normalizePhone(raw) {
+  let p = String(raw).replace(/[^\d]/g, '');
+  if (p.startsWith('0')) p = '62' + p.slice(1);
+  if (!p.startsWith('62')) p = '62' + p;
+  return p;
 }
 
 function verifySignature(rawBody, signatureHeader) {
@@ -72,37 +79,65 @@ export default async function handler(req, res) {
 
     if (!msg) return res.status(200).json({ ok: true, no_message: true });
 
-    const sender = (msg.from || '').replace(/[^\d]/g, '');
+    const sender = normalizePhone(msg.from || '');
     const text = (msg.text?.body || '').trim();
     const supabase = getSupabase();
 
-    console.log(`WA received from ${sender}: ${text}`);
+    console.log(`WA from ${sender}: "${text}"`);
 
-    // OTP match → activate account
-    if (msg.type === 'text' && text && sender) {
-      const formats = [sender];
-      if (sender.startsWith('62')) formats.push('0' + sender.slice(2));
-      if (sender.startsWith('0')) formats.push('62' + sender.slice(1));
+    // ── Step 1: validate sender exists in Supabase ──
+    const senderFormats = [sender, sender.replace(/^62/, '0'), '0' + sender.slice(2)];
 
-      const { data: customer } = await supabase
-        .from('customers')
-        .select('id, no_hp, otp_expires_at')
-        .in('no_hp', formats)
-        .eq('otp', text)
-        .eq('status', 'pending')
-        .maybeSingle();
+    const { data: customer } = await supabase
+      .from('customers')
+      .select('id, no_hp, status, otp, otp_expires_at, nama')
+      .in('no_hp', senderFormats)
+      .maybeSingle();
 
-      if (customer && (!customer.otp_expires_at || new Date(customer.otp_expires_at) >= new Date())) {
-        await supabase
-          .from('customers')
-          .update({ status: 'active', otp: null, otp_expires_at: null })
-          .eq('id', customer.id);
-
-        return res.status(200).json({ matched: true, activated: true });
-      }
+    if (!customer) {
+      console.log(`Sender ${sender} not found in customers`);
+      return res.status(200).json({ ok: true, unknown_sender: true });
     }
 
-    return res.status(200).json({ ok: true, received: true });
+    // ── Step 2: OTP match for pending accounts ──
+    if (customer.status === 'pending' && msg.type === 'text' && text) {
+      if (customer.otp !== text) {
+        console.log(`OTP mismatch for ${sender}: got "${text}", expected "${customer.otp}"`);
+        return res.status(200).json({ ok: true, otp_mismatch: true });
+      }
+
+      if (customer.otp_expires_at && new Date(customer.otp_expires_at) < new Date()) {
+        console.log(`OTP expired for ${sender}`);
+        return res.status(200).json({ ok: true, otp_expired: true });
+      }
+
+      // Activate account
+      await supabase
+        .from('customers')
+        .update({ status: 'active', otp: null, otp_expires_at: null })
+        .eq('id', customer.id);
+
+      console.log(`Account activated: ${sender} (${customer.nama})`);
+
+      try {
+        await supabase.from('notifications').insert({
+          type: 'registration_active',
+          message: `Akun aktif via WA: ${customer.nama || sender}`,
+          target_role: 'owner',
+          read: false,
+        });
+      } catch (_) {}
+
+      return res.status(200).json({ matched: true, activated: true });
+    }
+
+    // ── Step 3: active customer → process message ──
+    if (customer.status === 'active') {
+      console.log(`Active customer message from ${sender}: ${text}`);
+      return res.status(200).json({ ok: true, active_customer: true, sender });
+    }
+
+    return res.status(200).json({ ok: true, processed: true });
   } catch (err) {
     console.error('Webhook error:', err.message);
     return res.status(200).json({ ok: true });
