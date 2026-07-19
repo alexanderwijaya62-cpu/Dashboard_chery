@@ -222,8 +222,6 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
           setTimeLeft(OTP_DURATION);
           setIsOtpExpired(false);
           setStep('otp');
-
-          sendOtpViaWhatsApp(otp, phone);
           return;
         } else {
           alert("Nomor ini sudah terdaftar. Silakan login.");
@@ -266,33 +264,12 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
       setTimeLeft(OTP_DURATION);
       setIsOtpExpired(false);
       setStep('otp');
-
-      sendOtpViaWhatsApp(otp, phone);
     } catch (err) {
       console.error(err);
       alert("Gagal melakukan registrasi.");
     } finally {
       setIsLoading(false);
       isSubmitting.current = false;
-    }
-  };
-
-  const sendOtpViaWhatsApp = async (otp, targetPhone) => {
-    try {
-      const resp = await fetch('/api/kirimdev-send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: targetPhone,
-          text: `Kode OTP Chery Medan: ${otp}\nBerlaku 5 menit. Jangan bagikan kode ini ke siapapun.`
-        })
-      });
-      const data = await resp.json();
-      if (!resp.ok) console.error('Gagal kirim OTP:', data);
-      return resp.ok;
-    } catch (e) {
-      console.error('Gagal kirim OTP:', e);
-      return false;
     }
   };
 
@@ -316,8 +293,6 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
         target_role: 'owner',
         read: false
       }).catch(() => {});
-
-      await sendOtpViaWhatsApp(otp, phone);
 
       setOtpCode(otp);
       setOtpExpiresAt(expiresAt);
@@ -415,9 +390,13 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
 
           {!isExpired ? (
             <>
-              <div className="bg-green-50 border border-green-200 rounded-2xl p-5 mb-6 text-left">
-                <p className="text-xs text-green-700 font-bold mb-1">OTP sudah dikirim ke WhatsApp kamu!</p>
-                <p className="text-xs text-green-600">Buka WhatsApp, cari pesan OTP dari Chery Medan, lalu balas dengan kode OTP yang kamu terima.</p>
+              <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-5 mb-6 text-left">
+                <p className="text-xs text-zinc-500 font-bold mb-1">Langkah aktivasi:</p>
+                <ol className="text-xs text-zinc-700 space-y-2 font-medium">
+                  <li>1. Buka WhatsApp kamu</li>
+                  <li>2. Kirim pesan ke nomor admin</li>
+                  <li>3. Ketik kode: <strong className="text-lg tracking-widest text-blue-600">{otpCode}</strong></li>
+                </ol>
               </div>
 
               {/* Countdown Timer */}
@@ -431,17 +410,23 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
                 <p className="text-[10px] text-zinc-400 mt-1">Sisa waktu verifikasi</p>
               </div>
 
+              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-6">
+                  <p className="text-xs text-blue-700 font-bold text-center">
+                    Kirim kode <strong className="text-lg tracking-widest">{otpCode}</strong> ke nomor admin via WhatsApp
+                  </p>
+                </div>
 
               <button
-                onClick={handleResendOtp}
-                disabled={!canResend || isResending}
-                className="w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-2xl font-bold text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed mb-6"
+                onClick={() => {
+                  if (isSubmitting.current) return;
+                  isSubmitting.current = true;
+                  const waUrl = `https://wa.me/${WA_BOT_NUMBER}?text=${encodeURIComponent(otpCode)}`;
+                  window.open(waUrl, '_blank');
+                  setTimeout(() => { isSubmitting.current = false; }, 1000);
+                }}
+                className="w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-2xl font-bold text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 mb-6"
               >
-                {isResending ? 'Mengirim...' : resendCooldown > 0 ? (
-                  <>Kirim Ulang OTP ({resendCooldown}s)</>
-                ) : (
-                  <><RefreshCw size={18} /> Kirim Ulang OTP</>
-                )}
+                <Send size={18} /> Kirim OTP via WhatsApp
               </button>
 
               {manualError && (
