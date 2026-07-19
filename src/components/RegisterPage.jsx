@@ -416,10 +416,10 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
           {!isExpired ? (
             <>
               <div className="bg-green-50 border border-green-200 rounded-2xl p-5 mb-6 text-left">
-                <p className="text-xs text-green-700 font-bold mb-1">OTP sudah dikirim otomatis ke WhatsApp kamu!</p>
+                <p className="text-xs text-green-700 font-bold mb-1">OTP sudah dikirim ke WhatsApp kamu!</p>
                 <ol className="text-xs text-green-800 space-y-2 font-medium">
                   <li>1. Buka WhatsApp</li>
-                  <li>2. Cari pesan dari <strong>62895628961791</strong></li>
+                  <li>2. Cari pesan OTP dari Chery Medan</li>
                   <li>3. <strong>Balas</strong> pesan itu dengan kode: <strong className="text-lg tracking-widest">{otpCode}</strong></li>
                 </ol>
               </div>
