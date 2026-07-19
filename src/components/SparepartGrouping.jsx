@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Package, Layers, ArrowLeft, ChevronRight, Hash, Tag, Info } from 'lucide-react';
+import { Search, Package, Layers, ArrowLeft, ChevronRight, Hash, Tag, Info, Shield } from 'lucide-react';
 import Toastify from 'toastify-js';
 import { db } from '../utils/dbClient';
 
@@ -8,6 +8,7 @@ const SparepartGrouping = ({ onBack }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCategory, setSelectedCategory] = useState(null);
+    const [mandatoryFilter, setMandatoryFilter] = useState('all');
 
     useEffect(() => {
         fetchMasterParts();
@@ -83,10 +84,21 @@ const SparepartGrouping = ({ onBack }) => {
     }, [masterParts]);
 
     const filteredCategories = useMemo(() => {
-        if (!searchTerm) return categorizedParts;
+        let cats = categorizedParts;
+        
+        // Mandatory filter
+        if (mandatoryFilter !== 'all') {
+            const isMandatory = mandatoryFilter === 'mandatory';
+            cats = cats.map(cat => {
+                const filteredItems = cat.items.filter(item => !!item.mandatory === isMandatory);
+                return { ...cat, items: filteredItems, count: filteredItems.length };
+            }).filter(cat => cat.count > 0);
+        }
+        
+        if (!searchTerm) return cats;
         
         const term = searchTerm.toLowerCase();
-        return categorizedParts.filter(cat => 
+        return cats.filter(cat => 
             cat.name.toLowerCase().includes(term) || 
             cat.items.some(item => 
                 (item.part_name || '').toLowerCase().includes(term) || 
@@ -103,7 +115,7 @@ const SparepartGrouping = ({ onBack }) => {
             }
             return cat;
         });
-    }, [categorizedParts, searchTerm]);
+    }, [categorizedParts, searchTerm, mandatoryFilter]);
 
     const formatIDR = (amount) => {
         return new Intl.NumberFormat('id-ID', {
@@ -150,6 +162,15 @@ const SparepartGrouping = ({ onBack }) => {
             </div>
 
             <div className="max-w-7xl mx-auto px-6 mt-10">
+                <div className="flex items-center gap-2 mb-6">
+                    {['all', 'mandatory', 'non-mandatory'].map(tab => (
+                        <button key={tab} onClick={() => setMandatoryFilter(tab)}
+                            className={`px-4 py-2 text-xs font-black uppercase tracking-wider rounded-xl transition-colors ${mandatoryFilter === tab ? (tab === 'mandatory' ? 'bg-amber-500 text-white shadow-lg' : tab === 'non-mandatory' ? 'bg-blue-500 text-white shadow-lg' : 'bg-zinc-900 text-white shadow-lg') : 'bg-white text-zinc-500 border border-zinc-200 hover:bg-zinc-50'}`}>
+                            {tab === 'all' ? 'Semua' : tab === 'mandatory' ? 'Mandatory' : 'Non-Mandatory'}
+                        </button>
+                    ))}
+                    <span className="text-[10px] text-zinc-400 font-bold ml-2">{masterParts.length} total master data</span>
+                </div>
                 {isLoading ? (
                     <div className="flex flex-col items-center justify-center py-20 gap-4">
                         <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -198,7 +219,7 @@ const SparepartGrouping = ({ onBack }) => {
                                     <div className={`overflow-hidden transition-all duration-700 ease-in-out ${selectedCategory === cat.name ? 'max-h-[500px] mt-8 opacity-100' : 'max-h-0 opacity-0'}`}>
                                         <div className="space-y-4 pr-2 max-h-[400px] overflow-y-auto no-scrollbar pt-2">
                                             {cat.items.map((item, idx) => (
-                                                <div key={idx} className="bg-zinc-50 rounded-2xl p-4 border border-transparent hover:border-blue-200 transition-all hover:bg-white group/item">
+                                                <div key={idx} className={`rounded-2xl p-4 border transition-all hover:bg-white group/item ${item.mandatory ? 'bg-amber-50 border-amber-200 hover:border-amber-300' : 'bg-zinc-50 border-transparent hover:border-blue-200'}`}>
                                                     <div className="flex items-center gap-3 mb-2">
                                                         <Hash size={14} className="text-blue-500" />
                                                         <span className="text-[10px] font-black tracking-widest text-zinc-400 uppercase">{item.part_number}</span>
@@ -208,10 +229,16 @@ const SparepartGrouping = ({ onBack }) => {
                                                     </p>
                                                     <div className="mt-3 flex items-center justify-between">
                                                         <div className="flex items-center gap-2">
-                                                            <Tag size={12} className="text-emerald-500" />
-                                                            <span className="text-[10px] font-bold text-emerald-600">{formatIDR(item.sales_guide_price || 0)}</span>
+                                                            <Tag size={12} className={item.mandatory ? 'text-amber-500' : 'text-emerald-500'} />
+                                                            <span className={`text-[10px] font-bold ${item.mandatory ? 'text-amber-600' : 'text-emerald-600'}`}>{formatIDR(item.sales_guide_price || 0)}</span>
                                                         </div>
-                                                        <Info size={12} className="text-zinc-300 hover:text-blue-500 cursor-pointer" />
+                                                        {item.mandatory ? (
+                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[9px] font-black uppercase tracking-wider">
+                                                                <Shield size={9} /> Wajib (×{item.qty_mandatory || 1})
+                                                            </span>
+                                                        ) : (
+                                                            <Info size={12} className="text-zinc-300 hover:text-blue-500 cursor-pointer" />
+                                                        )}
                                                     </div>
                                                 </div>
                                             ))}

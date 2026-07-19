@@ -265,7 +265,7 @@ const CarouselCol = ({ title, data, colorClass, icon: Icon, formatTime, setSelec
    while (visibleItems.length < displayCount) visibleItems.push(null);
 
    return (
-        <div className="flex flex-col bg-white rounded-3xl p-4 md:p-5 border-2 border-dashed border-zinc-200 shadow-sm transition-all hover:shadow-xl min-h-0 overflow-hidden">
+        <div className="flex flex-col bg-white rounded-3xl p-4 md:p-5 border-2 border-dashed border-zinc-200 shadow-sm transition-all hover:shadow-xl min-h-[300px] md:min-h-0 overflow-hidden">
          <div className="flex items-center justify-between mb-4 shrink-0 gap-2 px-1">
             <div className="flex items-center gap-3 min-w-0">
                 <div className={`w-10 h-10 md:w-12 md:h-12 rounded-2xl flex items-center justify-center text-white shadow-xl ${colorClass} shrink-0`}>
@@ -776,80 +776,82 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
             </div>
          </header>
 
-          <main className="flex-1 overflow-y-auto px-6 py-3 md:px-8 md:py-4 flex flex-col gap-3 custom-scrollbar pb-[80px] md:pb-4">
-             <CompletedCarousel data={todayCompleted} formatTime={formatTime} setSelectedUnit={setSelectedUnit} />
+         <main className="flex-1 overflow-y-auto px-6 py-3 md:px-8 md:py-4 flex flex-col gap-3 custom-scrollbar pb-[80px] md:pb-4">
+            <div className="flex-shrink-0">
+               <CompletedCarousel data={todayCompleted} formatTime={formatTime} setSelectedUnit={setSelectedUnit} />
+            </div>
 
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-                 <div className={`rounded-3xl p-3 md:p-4 shadow-xl border-2 ${currentlyCalled.booking ? 'bg-red-50 border-red-300' : 'bg-zinc-50 border-zinc-200'}`}>
-                    <div className="flex items-center gap-2 mb-2">
-                       <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${currentlyCalled.booking ? 'bg-red-600' : 'bg-zinc-300'}`}>
-                          <Bookmark size={16} fill="white" className="text-white" />
-                       </div>
-                        <h3 className={`text-base font-black uppercase tracking-widest ${currentlyCalled.booking ? 'text-red-700' : 'text-zinc-400'}`}>Booking</h3>
-                        <span className="ml-auto text-xs font-bold text-zinc-400 uppercase">Total {categories.booking.length}</span>
-                    </div>
-                    {currentlyCalled.booking ? (
-                       (() => {
-                          const item = currentlyCalled.booking;
-                          const code = `B-${String(item.queueNumber || 0).padStart(3, '0')}`;
-                          const isLate = item.status === 'Booking (Late)';
-                          return (
-                          <div className="bg-white rounded-2xl px-4 py-3 shadow-lg flex items-center gap-4 border-2 border-red-200">
-                             <div className="w-20 h-20 rounded-2xl bg-red-600 flex flex-col items-center justify-center shrink-0 shadow-lg">
-                                <Bookmark size={22} fill="white" className="text-white" />
-                                <span className="text-xs font-black text-white/90 mt-0.5 leading-none">{code}</span>
-                             </div>
-                             <div className="min-w-0">
-                                <p className="text-base font-black text-zinc-800 font-mono truncate">{item.bk}</p>
-                                <p className="text-sm font-black text-red-500 uppercase flex items-center gap-1 mt-0.5">
-                                   <ArrowRight size={14} className="animate-pulse" /> Counter {item.counter}
-                                </p>
-                             </div>
-                          </div>
-                          );
-                       })()
-                    ) : (
-                       <div className="bg-white/60 rounded-2xl px-4 py-4 flex items-center justify-center border-2 border-dashed border-zinc-200">
-                          <p className="text-sm font-black text-zinc-300 uppercase tracking-widest">Belum Ada Panggilan</p>
-                       </div>
-                    )}
-                 </div>
-                 <div className={`rounded-3xl p-3 md:p-4 shadow-xl border-2 ${currentlyCalled.reguler ? 'bg-zinc-50 border-zinc-300' : 'bg-zinc-50 border-zinc-200'}`}>
-                    <div className="flex items-center gap-2 mb-2">
-                       <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${currentlyCalled.reguler ? 'bg-zinc-800' : 'bg-zinc-300'}`}>
-                          <Zap size={16} fill="white" className="text-white" />
-                       </div>
-                        <h3 className={`text-base font-black uppercase tracking-widest ${currentlyCalled.reguler ? 'text-zinc-800' : 'text-zinc-400'}`}>Reguler</h3>
-                        <span className="ml-auto text-xs font-bold text-zinc-400 uppercase">Total {categories.reguler.length}</span>
-                    </div>
-                    {currentlyCalled.reguler ? (
-                       (() => {
-                          const item = currentlyCalled.reguler;
-                          const code = `R-${String(item.queueNumber || 0).padStart(3, '0')}`;
-                          return (
-                          <div className="bg-white rounded-2xl px-4 py-3 shadow-lg flex items-center gap-4 border-2 border-zinc-200">
-                             <div className="w-20 h-20 rounded-2xl bg-zinc-800 flex flex-col items-center justify-center shrink-0 shadow-lg">
-                                <Zap size={22} fill="white" className="text-white" />
-                                <span className="text-xs font-black text-white/90 mt-0.5 leading-none">{code}</span>
-                             </div>
-                             <div className="min-w-0">
-                                <p className="text-base font-black text-zinc-800 font-mono truncate">{item.bk}</p>
-                                <p className="text-sm font-black text-zinc-600 uppercase flex items-center gap-1 mt-0.5">
-                                   <ArrowRight size={14} className="animate-pulse" /> Counter {item.counter}
-                                </p>
-                             </div>
-                          </div>
-                          );
-                       })()
-                    ) : (
-                       <div className="bg-white/60 rounded-2xl px-4 py-4 flex items-center justify-center border-2 border-dashed border-zinc-200">
-                          <p className="text-sm font-black text-zinc-300 uppercase tracking-widest">Belum Ada Panggilan</p>
-                       </div>
-                    )}
-                 </div>
-             </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 flex-shrink-0">
+               <div className={`rounded-3xl p-3 md:p-4 shadow-xl border-2 ${currentlyCalled.booking ? 'bg-red-50 border-red-300' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                     <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${currentlyCalled.booking ? 'bg-red-600' : 'bg-zinc-300'}`}>
+                        <Bookmark size={16} fill="white" className="text-white" />
+                     </div>
+                     <h3 className={`text-base font-black uppercase tracking-widest ${currentlyCalled.booking ? 'text-red-700' : 'text-zinc-400'}`}>Booking</h3>
+                     <span className="ml-auto text-xs font-bold text-zinc-400 uppercase">Total {categories.booking.length}</span>
+                  </div>
+                  {currentlyCalled.booking ? (
+                     (() => {
+                        const item = currentlyCalled.booking;
+                        const code = `B-${String(item.queueNumber || 0).padStart(3, '0')}`;
+                        const isLate = item.status === 'Booking (Late)';
+                        return (
+                           <div className="bg-white rounded-2xl px-4 py-3 shadow-lg flex items-center gap-4 border-2 border-red-200">
+                              <div className="w-20 h-20 rounded-2xl bg-red-600 flex flex-col items-center justify-center shrink-0 shadow-lg">
+                                 <Bookmark size={22} fill="white" className="text-white" />
+                                 <span className="text-xs font-black text-white/90 mt-0.5 leading-none">{code}</span>
+                              </div>
+                              <div className="min-w-0">
+                                 <p className="text-base font-black text-zinc-800 font-mono truncate">{item.bk}</p>
+                                 <p className="text-sm font-black text-red-500 uppercase flex items-center gap-1 mt-0.5">
+                                    <ArrowRight size={14} className="animate-pulse" /> Counter {item.counter}
+                                 </p>
+                              </div>
+                           </div>
+                        );
+                     })()
+                  ) : (
+                     <div className="bg-white/60 rounded-2xl px-4 py-4 flex items-center justify-center border-2 border-dashed border-zinc-200">
+                        <p className="text-sm font-black text-zinc-300 uppercase tracking-widest">Belum Ada Panggilan</p>
+                     </div>
+                  )}
+               </div>
+               <div className={`rounded-3xl p-3 md:p-4 shadow-xl border-2 ${currentlyCalled.reguler ? 'bg-zinc-50 border-zinc-300' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                     <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${currentlyCalled.reguler ? 'bg-zinc-800' : 'bg-zinc-300'}`}>
+                        <Zap size={16} fill="white" className="text-white" />
+                     </div>
+                     <h3 className={`text-base font-black uppercase tracking-widest ${currentlyCalled.reguler ? 'text-zinc-800' : 'text-zinc-400'}`}>Reguler</h3>
+                     <span className="ml-auto text-xs font-bold text-zinc-400 uppercase">Total {categories.reguler.length}</span>
+                  </div>
+                  {currentlyCalled.reguler ? (
+                     (() => {
+                        const item = currentlyCalled.reguler;
+                        const code = `R-${String(item.queueNumber || 0).padStart(3, '0')}`;
+                        return (
+                           <div className="bg-white rounded-2xl px-4 py-3 shadow-lg flex items-center gap-4 border-2 border-zinc-200">
+                              <div className="w-20 h-20 rounded-2xl bg-zinc-800 flex flex-col items-center justify-center shrink-0 shadow-lg">
+                                 <Zap size={22} fill="white" className="text-white" />
+                                 <span className="text-xs font-black text-white/90 mt-0.5 leading-none">{code}</span>
+                              </div>
+                              <div className="min-w-0">
+                                 <p className="text-base font-black text-zinc-800 font-mono truncate">{item.bk}</p>
+                                 <p className="text-sm font-black text-zinc-600 uppercase flex items-center gap-1 mt-0.5">
+                                    <ArrowRight size={14} className="animate-pulse" /> Counter {item.counter}
+                                 </p>
+                              </div>
+                           </div>
+                        );
+                     })()
+                  ) : (
+                     <div className="bg-white/60 rounded-2xl px-4 py-4 flex items-center justify-center border-2 border-dashed border-zinc-200">
+                        <p className="text-sm font-black text-zinc-300 uppercase tracking-widest">Belum Ada Panggilan</p>
+                     </div>
+                  )}
+               </div>
+            </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 md:h-[calc(100vh-440px)] min-h-0">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 md:h-[calc(100vh-440px)] min-h-0 flex-shrink-0">
                <CarouselCol title="Booking" data={categories.booking} colorClass="bg-red-600" icon={Bookmark} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} subtitle={(<div className="flex flex-col mt-1"><div className="flex items-center gap-2 overflow-hidden"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" /><span className="text-xl font-black text-zinc-400 uppercase tracking-widest truncate">{categories.booking.length} Unit Antrian</span></div></div>)} />
                <CarouselCol title="Reguler" data={categories.reguler} colorClass="bg-zinc-800" icon={Zap} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />
                <CarouselCol title="Menginap" data={categories.menginap} colorClass="bg-purple-600" icon={Moon} formatTime={formatTime} setSelectedUnit={setSelectedUnit} user={user} onStartWork={onStartWork} onComplete={onComplete} />

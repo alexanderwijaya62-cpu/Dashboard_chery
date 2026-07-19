@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Phone, ArrowRight, AlertCircle, Eye, EyeOff, Lock, MessageCircle, ShieldCheck, Send, RefreshCw } from 'lucide-react';
 import { db } from '../utils/dbClient';
-import { WA_BASE_URL, WA_INSTANCE } from '../utils/waClient';
 import cheryLogo from '../assets/cherylogo.png';
 
 const WA_BOT_NUMBER = import.meta.env.VITE_WA_BOT_NUMBER;
@@ -55,13 +54,11 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
   const [step, setStep] = useState(saved?.step || 'form');
   const [otpCode, setOtpCode] = useState(saved?.otpCode || '');
   const [otpVerified, setOtpVerified] = useState(saved?.otpVerified || false);
-  const [socketReady, setSocketReady] = useState(false);
   const [timeLeft, setTimeLeft] = useState(initialTimeLeft);
   const [otpExpiresAt, setOtpExpiresAt] = useState(saved?.otpExpiresAt || null);
   const [isOtpExpired, setIsOtpExpired] = useState(saved?.isOtpExpired || (initialTimeLeft <= 0 && saved?.step === 'otp') || false);
   const [resendCooldown, setResendCooldown] = useState(initialResendCooldown);
   const [isResending, setIsResending] = useState(false);
-  const socketRef = useRef(null);
   const isSubmitting = useRef(false);
 
   const generateOtp = () => String(Math.floor(100000 + Math.random() * 900000));
@@ -168,49 +165,6 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
       clearInterval(timer);
     };
   }, [step, otpVerified, phone]);
-
-  // ── Socket.IO listener ──
-  useEffect(() => {
-    if (step !== 'otp' || otpVerified || isOtpExpired) return;
-
-    let io = null;
-    let socket = null;
-    let destroyed = false;
-
-    const waNumber = formatPhone(phone);
-
-    const startSocket = async () => {
-      try {
-        const modName = 'socket.io-client';
-      io = (await import(modName)).io;
-        socket = io(WA_BASE_URL, { transports: ['websocket', 'polling'] });
-        socketRef.current = socket;
-
-        socket.on('connect', () => setSocketReady(true));
-        socket.on('disconnect', () => setSocketReady(false));
-
-        const eventName = `message:${WA_INSTANCE}`;
-        socket.on(eventName, (data) => {
-          if (destroyed) return;
-          const sender = (data.sender || '').replace(/\D/g, '');
-          const msg = (data.text || '').trim();
-
-          if (sender === waNumber && msg === otpCode) {
-            activateAccount();
-          }
-        });
-      } catch (e) {
-        console.warn('Socket.IO tidak tersedia, fallback ke manual');
-      }
-    };
-
-    startSocket();
-
-    return () => {
-      destroyed = true;
-      if (socket) socket.disconnect();
-    };
-  }, [step, otpVerified, phone, otpCode, isOtpExpired]);
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -456,23 +410,11 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
                 <p className="text-[10px] text-zinc-400 mt-1">Sisa waktu verifikasi</p>
               </div>
 
-              {socketReady ? (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-6">
-                  <div className="flex items-center justify-center gap-2 text-sm text-emerald-700 font-bold">
-                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                    Menunggu kiriman OTP via WhatsApp...
-                  </div>
-                  <p className="text-[10px] text-emerald-500 mt-2">
-                    Kirim kode <strong>{otpCode}</strong> ke {WA_BOT_NUMBER} via WhatsApp
+              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-6">
+                  <p className="text-xs text-blue-700 font-bold text-center">
+                    Kirim kode <strong className="text-lg tracking-widest">{otpCode}</strong> ke nomor <strong>{WA_BOT_NUMBER}</strong> via WhatsApp
                   </p>
                 </div>
-              ) : (
-                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
-                  <p className="text-xs text-amber-700 font-bold text-center">
-                    Kirim kode <strong>{otpCode}</strong> ke {WA_BOT_NUMBER} via WhatsApp
-                  </p>
-                </div>
-              )}
 
               <button
                 onClick={() => {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Upload, Search, Filter, RefreshCw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, TrendingUp, Layers, AlertCircle, X, FileSpreadsheet, Package, Download, Trash2, FileDown } from 'lucide-react';
+import { Upload, Search, Filter, RefreshCw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, TrendingUp, Layers, AlertCircle, X, FileSpreadsheet, Package, Download, Trash2, FileDown, Shield } from 'lucide-react';
 import { db } from '../utils/dbClient';
 import * as XLSX from 'xlsx';
 import Toastify from 'toastify-js';
@@ -50,7 +50,13 @@ export default function SparepartPredictor() {
   const [isImporting, setIsImporting] = useState(false);
   const [expandedRow, setExpandedRow] = useState(null);
   const [showFilter, setShowFilter] = useState(false);
+  const [mandatoryParts, setMandatoryParts] = useState([]);
+  const [mandatoryFilter, setMandatoryFilter] = useState('all');
+  const [showMandatoryUpload, setShowMandatoryUpload] = useState(false);
+  const [pendingMandatoryData, setPendingMandatoryData] = useState([]);
+  const [isImportingMandatory, setIsImportingMandatory] = useState(false);
   const fileInputRef = useRef(null);
+  const mandatoryFileInputRef = useRef(null);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -68,7 +74,18 @@ export default function SparepartPredictor() {
 
   useEffect(() => {
     fetchData();
+    fetchMandatoryParts();
   }, []);
+
+  const fetchMandatoryParts = async () => {
+    try {
+      const { data, error } = await db.select('sparepart_master');
+      if (error) throw error;
+      setMandatoryParts((data || []).filter(p => p.mandatory));
+    } catch (err) {
+      console.error('Gagal memuat mandatory parts:', err);
+    }
+  };
 
   const cleanExcelData = (rawRows) => {
     const dataRows = rawRows.slice(3);
@@ -265,6 +282,83 @@ export default function SparepartPredictor() {
     }
   };
 
+  const cleanMandatoryData = (rawRows) => {
+    if (!rawRows || rawRows.length === 0) return [];
+    const cleaned = [];
+    for (const row of rawRows) {
+      if (!row || (Array.isArray(row) && row.every(c => c == null || String(c).trim() === ''))) continue;
+      const cells = Array.isArray(row) ? row : Object.values(row);
+      const partNo = String(cells[0] || '').trim();
+      const partName = String(cells[1] || '').trim();
+      const partType = String(cells[2] || '').trim();
+      const qty = parseInt(cells[3]) || 1;
+      if (partNo && partName) {
+        cleaned.push({ part_number: partNo, part_name: partName, part_type: partType, qty_mandatory: qty });
+      }
+    }
+    return cleaned;
+  };
+
+  const handleMandatoryFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        const cleaned = cleanMandatoryData(rawRows);
+        if (cleaned.length === 0) {
+          Toastify({ text: 'Tidak ada data valid ditemukan. Pastikan kolom: Part Number, Part Name, Type, Qty Mandatory.', background: 'red', duration: 5000 }).showToast();
+          return;
+        }
+        setPendingMandatoryData(cleaned);
+        setShowMandatoryUpload(true);
+      } catch (err) {
+        Toastify({ text: 'Gagal baca Excel: ' + err.message, background: 'red', duration: 5000 }).showToast();
+      }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = '';
+  };
+
+  const handleImportMandatory = async () => {
+    if (pendingMandatoryData.length === 0) return;
+    setIsImportingMandatory(true);
+    try {
+      const batchSize = 500;
+      for (let i = 0; i < pendingMandatoryData.length; i += batchSize) {
+        const batch = pendingMandatoryData.slice(i, i + batchSize).map(p => ({
+          part_number: p.part_number,
+          part_name: p.part_name,
+          part_type: p.part_type,
+          mandatory: true,
+          qty_mandatory: p.qty_mandatory,
+        }));
+        const { error: err } = await db.upsert('sparepart_master', batch, { onConflict: 'part_number' });
+        if (err) throw err;
+      }
+      Toastify({ text: `Berhasil import ${pendingMandatoryData.length} sparepart mandatory!`, background: '#059669', duration: 3000 }).showToast();
+      setShowMandatoryUpload(false);
+      setPendingMandatoryData([]);
+      fetchMandatoryParts();
+    } catch (err) {
+      Toastify({ text: 'Gagal import mandatory parts: ' + err.message, background: 'red', duration: 5000 }).showToast();
+    } finally {
+      setIsImportingMandatory(false);
+    }
+  };
+
+  const mandatorySet = useMemo(() => {
+    const map = {};
+    mandatoryParts.forEach(p => {
+      map[(p.part_number || '').trim().toUpperCase()] = p;
+    });
+    return map;
+  }, [mandatoryParts]);
+
   const availableYears = useMemo(() => {
     const years = new Set();
     records.forEach(r => {
@@ -365,16 +459,21 @@ export default function SparepartPredictor() {
       avg: Math.round(item.total / monthCount),
       safeStock: Math.round(item.total / monthCount * 1.5),
       reorderPoint: Math.round(item.total / monthCount * 2),
+      isMandatory: !!mandatorySet[item.partNo?.toUpperCase()],
+      qtyMandatory: mandatorySet[item.partNo?.toUpperCase()]?.qty_mandatory || 0,
     }));
 
+    if (mandatoryFilter === 'mandatory') result = result.filter(item => item.isMandatory);
+    else if (mandatoryFilter === 'non-mandatory') result = result.filter(item => !item.isMandatory);
+
     return { pivot: result, months: allMonths, totalRecords: withDate.length, monthCount };
-  }, [filteredRecords, sortBy]);
+  }, [filteredRecords, sortBy, mandatoryFilter, mandatorySet]);
 
   const totalPages = Math.ceil(pivotData.pivot.length / pageSize);
   const displayPivot = pivotData.pivot.slice(page * pageSize, (page + 1) * pageSize);
 
-  const hasActiveFilters = search || filterMonthFrom || filterMonthTo || filterYear;
-  const clearFilters = () => { setSearch(''); setSearchInput(''); setFilterMonthFrom(''); setFilterMonthTo(''); setFilterYear(''); setPage(0); };
+  const hasActiveFilters = search || filterMonthFrom || filterMonthTo || filterYear || mandatoryFilter !== 'all';
+  const clearFilters = () => { setSearch(''); setSearchInput(''); setFilterMonthFrom(''); setFilterMonthTo(''); setFilterYear(''); setMandatoryFilter('all'); setPage(0); };
 
   const handleExportPivot = () => {
     if (pivotData.pivot.length === 0) return;
@@ -479,6 +578,66 @@ export default function SparepartPredictor() {
         </div>
       )}
 
+      {showMandatoryUpload && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !isImportingMandatory && setShowMandatoryUpload(false)}>
+          <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-6 border-b border-zinc-200">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-amber-500 rounded-xl text-white">
+                  <Shield size={20} />
+                </div>
+                <div>
+                  <h3 className="font-black text-lg uppercase tracking-tight">Import Sparepart Mandatory</h3>
+                  <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">{pendingMandatoryData.length} part ditemukan</p>
+                </div>
+              </div>
+              <button onClick={() => !isImportingMandatory && setShowMandatoryUpload(false)} className="p-2 hover:bg-zinc-100 rounded-xl transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-6">
+              <div className="overflow-x-auto border border-zinc-200 rounded-2xl">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-zinc-50 border-b border-zinc-200">
+                      <th className="text-left px-3 py-2 font-black text-zinc-500 uppercase tracking-wider whitespace-nowrap">Part Number</th>
+                      <th className="text-left px-3 py-2 font-black text-zinc-500 uppercase tracking-wider whitespace-nowrap">Part Name</th>
+                      <th className="text-left px-3 py-2 font-black text-zinc-500 uppercase tracking-wider whitespace-nowrap">Type</th>
+                      <th className="text-right px-3 py-2 font-black text-zinc-500 uppercase tracking-wider whitespace-nowrap">Qty Mandatory</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {pendingMandatoryData.slice(0, 50).map((r, i) => (
+                      <tr key={i} className="hover:bg-zinc-50">
+                        <td className="px-3 py-2 font-mono font-bold text-zinc-900 whitespace-nowrap">{r.part_number}</td>
+                        <td className="px-3 py-2 text-zinc-800 font-semibold truncate max-w-[250px]">{r.part_name}</td>
+                        <td className="px-3 py-2 text-zinc-600 whitespace-nowrap">{r.part_type || '-'}</td>
+                        <td className="px-3 py-2 text-right font-bold text-amber-600">{r.qty_mandatory}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {pendingMandatoryData.length > 50 && (
+                <p className="text-center text-[10px] text-zinc-400 font-bold mt-3">...dan {pendingMandatoryData.length - 50} part lainnya</p>
+              )}
+            </div>
+            <div className="p-6 border-t border-zinc-200 flex justify-end gap-4">
+              <button onClick={() => { setShowMandatoryUpload(false); setPendingMandatoryData([]); }} disabled={isImportingMandatory} className="px-8 py-3 border border-zinc-200 rounded-2xl font-black text-[11px] uppercase tracking-widest hover:bg-zinc-50 transition-all disabled:opacity-50">
+                Batal
+              </button>
+              <button onClick={handleImportMandatory} disabled={isImportingMandatory} className="px-8 py-3 bg-amber-500 text-white rounded-2xl font-black text-[11px] uppercase tracking-widest hover:bg-amber-600 transition-all disabled:opacity-50 flex items-center gap-2">
+                {isImportingMandatory ? (
+                  <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span> Mengimport...</>
+                ) : (
+                  <><Shield size={14} /> Import {pendingMandatoryData.length} Part Mandatory</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white border-b border-zinc-200 px-4 md:px-6 py-3 flex flex-wrap items-center gap-2 shrink-0">
         <div className="flex items-center gap-2 flex-1 flex-wrap">
           <form onSubmit={e => { e.preventDefault(); setSearch(searchInput); setPage(0); }} className="flex items-center gap-2">
@@ -494,6 +653,10 @@ export default function SparepartPredictor() {
           <input type="file" accept=".xlsx,.xls" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
           <button onClick={() => fileInputRef.current.click()} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 transition-colors">
             <Upload size={13} /> Import Excel
+          </button>
+          <input type="file" accept=".xlsx,.xls" ref={mandatoryFileInputRef} onChange={handleMandatoryFileUpload} className="hidden" />
+          <button onClick={() => mandatoryFileInputRef.current.click()} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors">
+            <Shield size={13} /> Mandatory
           </button>
         </div>
         <div className="flex items-center gap-2">
@@ -553,6 +716,18 @@ export default function SparepartPredictor() {
         </div>
       )}
 
+      <div className="bg-white border-b border-zinc-200 px-4 md:px-6 py-2 flex items-center gap-2 shrink-0">
+        {['all', 'mandatory', 'non-mandatory'].map(tab => (
+          <button key={tab} onClick={() => { setMandatoryFilter(tab); setPage(0); }}
+            className={`px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-lg transition-colors ${mandatoryFilter === tab ? (tab === 'mandatory' ? 'bg-amber-500 text-white' : tab === 'non-mandatory' ? 'bg-blue-500 text-white' : 'bg-zinc-900 text-white') : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200'}`}>
+            {tab === 'all' ? 'Semua' : tab === 'mandatory' ? `Mandatory (${mandatoryParts.length})` : 'Non-Mandatory'}
+          </button>
+        ))}
+        {mandatoryParts.length > 0 && (
+          <span className="text-[10px] text-zinc-400 font-bold ml-2">{mandatoryParts.length} part mandatory terdaftar</span>
+        )}
+      </div>
+
       <div className="flex-1 overflow-auto px-4 md:px-6 py-4">
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3">
@@ -604,6 +779,7 @@ export default function SparepartPredictor() {
                       <th className="text-right px-4 py-3 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Rata²</th>
                       <th className="text-right px-4 py-3 text-[10px] font-black uppercase tracking-wider text-emerald-600 whitespace-nowrap">Stok Aman</th>
                       <th className="text-right px-4 py-3 text-[10px] font-black uppercase tracking-wider text-amber-600 whitespace-nowrap">Reorder</th>
+                      <th className="text-center px-4 py-3 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100">
@@ -619,10 +795,19 @@ export default function SparepartPredictor() {
                           <td className="px-4 py-3 text-right font-bold text-blue-600">{item.avg}</td>
                           <td className="px-4 py-3 text-right font-black text-emerald-600">{item.safeStock}</td>
                           <td className="px-4 py-3 text-right font-black text-amber-600">{item.reorderPoint}</td>
+                          <td className="px-4 py-3 text-center">
+                            {item.isMandatory ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[10px] font-black uppercase tracking-wider">
+                                <Shield size={10} /> Wajib (×{item.qtyMandatory})
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-zinc-300 font-bold">-</span>
+                            )}
+                          </td>
                         </tr>
                         {expandedRow === i && (
                           <tr className="bg-zinc-50">
-                            <td colSpan={pivotData.months.length + 6} className="px-5 py-4">
+                            <td colSpan={pivotData.months.length + 7} className="px-5 py-4">
                               <div className="overflow-x-auto max-h-60 overflow-y-auto">
                                 <table className="w-full text-xs">
                                   <thead>

@@ -981,7 +981,12 @@ function SupabaseBookingList({ refreshTrigger }) {
     const [bookings, setBookings] = useState([]);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
-    const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
+    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+    const [endDate, setEndDate] = useState(() => {
+        const d = new Date();
+        d.setDate(d.getDate() + 30);
+        return d.toISOString().split('T')[0];
+    });
     const [editItem, setEditItem] = useState(null);
     const [editForm, setEditForm] = useState({});
 
@@ -989,22 +994,28 @@ function SupabaseBookingList({ refreshTrigger }) {
         (async () => {
             setLoading(true);
             try {
-                const today = new Date().toISOString().slice(0, 10);
-                const { data } = await db.select('booking', {
+                const filters = {
                     select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, keluhanDetail',
-                    gte: { tanggal: today },
                     order: { column: 'id', ascending: false },
-                    limit: 200,
-                });
+                    limit: 500,
+                };
+                if (startDate) {
+                    filters.gte = { tanggal: startDate };
+                }
+                if (endDate) {
+                    filters.lte = { tanggal: endDate };
+                }
+                const { data } = await db.select('booking', filters);
                 setBookings(data || []);
             } catch (e) { console.error(e); }
             setLoading(false);
         })();
-    }, [refreshTrigger]);
+    }, [refreshTrigger, startDate, endDate]);
 
     const filtered = useMemo(() => {
         let list = bookings;
-        if (filterDate) list = list.filter(b => b.tanggal === filterDate);
+        if (startDate) list = list.filter(b => b.tanggal >= startDate);
+        if (endDate) list = list.filter(b => b.tanggal <= endDate);
         if (search.trim()) {
             const q = search.toLowerCase();
             list = list.filter(b =>
@@ -1014,7 +1025,7 @@ function SupabaseBookingList({ refreshTrigger }) {
             );
         }
         return list;
-    }, [bookings, search, filterDate]);
+    }, [bookings, search, startDate, endDate]);
 
     const openEdit = (b) => {
         setEditItem(b);
@@ -1034,6 +1045,10 @@ function SupabaseBookingList({ refreshTrigger }) {
     const handleEditSave = async () => {
         if (!editItem) return;
         try {
+            const isCancelling = editForm.status === 'declined';
+            const oldPlat = editItem.noPlat;
+            const oldTanggal = editItem.tanggal;
+
             const { error } = await db.update('booking', {
                 tanggal: editForm.tanggal,
                 jam: editForm.jam.replace(':', '.'),
@@ -1048,8 +1063,52 @@ function SupabaseBookingList({ refreshTrigger }) {
             if (error) throw error;
             Toastify({ text: '✅ Booking berhasil diupdate', background: '#10b981' }).showToast();
             setEditItem(null);
-            const today = new Date().toISOString().slice(0, 10);
-            const { data } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, keluhanDetail', gte: { tanggal: today }, order: { column: 'id', ascending: false }, limit: 200 });
+
+            // Auto-cancel in DMS if status is updated to declined
+            if (isCancelling && oldPlat && oldTanggal) {
+                try {
+                    const cleanPlat = oldPlat.replace(/\s+/g, '').toUpperCase();
+                    const dmsRes = await fetch(`/api/chery_dms?endpoint=booking-data&search=${cleanPlat}&datefrom=${oldTanggal}&dateto=${oldTanggal}`);
+                    if (dmsRes.ok) {
+                        const dmsJson = await dmsRes.json();
+                        const dmsList = dmsJson?.data || [];
+                        const matched = dmsList.find(d => 
+                            (d.no_polisi || '').replace(/\s+/g, '').toUpperCase() === cleanPlat &&
+                            d.status_booking !== 'Batal'
+                        );
+                        if (matched) {
+                            const dmsId = matched.no_booking || matched.id_booking;
+                            if (dmsId) {
+                                const formDataBody = new URLSearchParams();
+                                formDataBody.set('alasan_pembatalan', 'Dibatalkan/Declined via CRO Dashboard (Supabase)');
+                                formDataBody.set('dibatalkan_oleh', 'CRO Dashboard');
+                                
+                                const cancelRes = await fetch(`/api/chery_dms?endpoint=booking-cancel&id=${dmsId}`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                    body: formDataBody.toString()
+                                });
+                                const cancelJson = await cancelRes.json();
+                                if (cancelJson.success) {
+                                    Toastify({ text: 'ℹ️ Booking di DMS juga dibatalkan otomatis', background: '#3b82f6' }).showToast();
+                                }
+                            }
+                        }
+                    }
+                } catch (dmsErr) {
+                    console.warn('Gagal membatalkan booking di DMS:', dmsErr);
+                }
+            }
+            
+            // Refresh with current date range
+            const filters = {
+                select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, keluhanDetail',
+                order: { column: 'id', ascending: false },
+                limit: 500,
+            };
+            if (startDate) filters.gte = { tanggal: startDate };
+            if (endDate) filters.lte = { tanggal: endDate };
+            const { data } = await db.select('booking', filters);
             setBookings(data || []);
         } catch (e) {
             Toastify({ text: `❌ Gagal update: ${e.message}`, background: '#ef4444' }).showToast();
@@ -1059,10 +1118,48 @@ function SupabaseBookingList({ refreshTrigger }) {
     const handleDelete = async (id) => {
         if (!window.confirm('Hapus booking ini?')) return;
         try {
+            const item = bookings.find(b => b.id === id);
+
             const { error } = await db.delete('booking', { eq: { id } });
             if (error) throw error;
             Toastify({ text: '✅ Booking berhasil dihapus', background: '#10b981' }).showToast();
             setBookings(prev => prev.filter(b => b.id !== id));
+
+            // Auto-cancel in DMS if deleted
+            if (item && item.noPlat && item.tanggal) {
+                try {
+                    const cleanPlat = item.noPlat.replace(/\s+/g, '').toUpperCase();
+                    const dmsRes = await fetch(`/api/chery_dms?endpoint=booking-data&search=${cleanPlat}&datefrom=${item.tanggal}&dateto=${item.tanggal}`);
+                    if (dmsRes.ok) {
+                        const dmsJson = await dmsRes.json();
+                        const dmsList = dmsJson?.data || [];
+                        const matched = dmsList.find(d => 
+                            (d.no_polisi || '').replace(/\s+/g, '').toUpperCase() === cleanPlat &&
+                            d.status_booking !== 'Batal'
+                        );
+                        if (matched) {
+                            const dmsId = matched.no_booking || matched.id_booking;
+                            if (dmsId) {
+                                const formDataBody = new URLSearchParams();
+                                formDataBody.set('alasan_pembatalan', 'Dihapus via CRO Dashboard (Supabase)');
+                                formDataBody.set('dibatalkan_oleh', 'CRO Dashboard');
+                                
+                                const cancelRes = await fetch(`/api/chery_dms?endpoint=booking-cancel&id=${dmsId}`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                    body: formDataBody.toString()
+                                });
+                                const cancelJson = await cancelRes.json();
+                                if (cancelJson.success) {
+                                    Toastify({ text: 'ℹ️ Booking di DMS juga dibatalkan otomatis', background: '#3b82f6' }).showToast();
+                                }
+                            }
+                        }
+                    }
+                } catch (dmsErr) {
+                    console.warn('Gagal membatalkan booking di DMS:', dmsErr);
+                }
+            }
         } catch (e) {
             Toastify({ text: `❌ Gagal hapus: ${e.message}`, background: '#ef4444' }).showToast();
         }
@@ -1071,32 +1168,40 @@ function SupabaseBookingList({ refreshTrigger }) {
     return (
         <div className="h-full flex flex-col p-4 md:p-6">
             {/* Filters */}
-            <div className="flex items-center gap-3 mb-4 shrink-0">
-                <div className="relative flex-1 max-w-xs">
+            <div className="flex items-center gap-3 mb-4 shrink-0 flex-wrap">
+                <div className="relative flex-1 min-w-[200px] max-w-xs">
                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
                     <input value={search} onChange={e => setSearch(e.target.value)}
                         placeholder="Cari plat/nama/telp..."
                         className="w-full pl-9 pr-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none transition-all" />
                 </div>
-                <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
-                    className="px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none transition-all" />
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase text-zinc-400">Dari:</span>
+                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+                        className="px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none transition-all" />
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase text-zinc-400">Sampai:</span>
+                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+                        className="px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none transition-all" />
+                </div>
                 <span className="text-[9px] font-bold text-zinc-400">{filtered.length} booking</span>
             </div>
 
             {/* Table */}
             <div className="flex-1 overflow-y-auto border border-zinc-200 rounded-2xl">
-                <table className="w-full text-[10px]">
+                <table className="w-full text-sm">
                     <thead className="bg-zinc-100 sticky top-0">
-                        <tr className="text-zinc-500 font-black uppercase tracking-wider">
-                            <th className="p-2.5 text-left">Tanggal</th>
-                            <th className="p-2.5 text-left">Jam</th>
-                            <th className="p-2.5 text-left">No Plat</th>
-                            <th className="p-2.5 text-left">Nama</th>
-                            <th className="p-2.5 text-left">Tipe</th>
-                            <th className="p-2.5 text-left max-w-[200px]">Keluhan</th>
-                            <th className="p-2.5 text-left">Via</th>
-                            <th className="p-2.5 text-left">Status</th>
-                            <th className="p-2.5 text-center w-[80px]">Aksi</th>
+                        <tr className="text-zinc-500 font-black uppercase tracking-wider text-xs border-b border-zinc-200">
+                            <th className="px-4 py-3 text-left">Tanggal</th>
+                            <th className="px-4 py-3 text-left">Jam</th>
+                            <th className="px-4 py-3 text-left">No Plat</th>
+                            <th className="px-4 py-3 text-left">Nama</th>
+                            <th className="px-4 py-3 text-left">Tipe</th>
+                            <th className="px-4 py-3 text-left max-w-[200px]">Keluhan</th>
+                            <th className="px-4 py-3 text-left">Via</th>
+                            <th className="px-4 py-3 text-left">Status</th>
+                            <th className="px-4 py-3 text-center w-[100px]">Aksi</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1106,30 +1211,30 @@ function SupabaseBookingList({ refreshTrigger }) {
                             <tr><td colSpan="9" className="p-8 text-center text-zinc-400 font-bold">Tidak ada booking</td></tr>
                         ) : filtered.map(b => (
                             <tr key={b.id} className="border-t border-zinc-100 hover:bg-zinc-50 transition-all">
-                                <td className="p-2.5 font-bold text-zinc-700">{b.tanggal || '-'}</td>
-                                <td className="p-2.5 font-bold text-zinc-700">{(b.jam || '').replace('.', ':')}</td>
-                                <td className="p-2.5 font-black text-zinc-900 uppercase">{b.noPlat || '-'}</td>
-                                <td className="p-2.5 font-bold text-zinc-700">{b.namaCustomer || '-'}</td>
-                                <td className="p-2.5 text-zinc-500">{b.tipeMobil || '-'}</td>
-                                <td className="p-2.5 text-zinc-500 max-w-[200px] truncate" title={b.keperluanService}>{b.keperluanService || '-'}</td>
-                                <td className="p-2.5">
-                                    <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${(b.bookingVia || '').includes('DMS') ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>
+                                <td className="px-4 py-3 font-bold text-zinc-700">{b.tanggal || '-'}</td>
+                                <td className="px-4 py-3 font-bold text-zinc-700">{(b.jam || '').replace('.', ':')}</td>
+                                <td className="px-4 py-3 font-black text-zinc-900 uppercase">{b.noPlat || '-'}</td>
+                                <td className="px-4 py-3 font-bold text-zinc-700">{b.namaCustomer || '-'}</td>
+                                <td className="px-4 py-3 text-zinc-500">{b.tipeMobil || '-'}</td>
+                                <td className="px-4 py-3 text-zinc-500 max-w-[200px] truncate" title={b.keperluanService}>{b.keperluanService || '-'}</td>
+                                <td className="px-4 py-3">
+                                    <span className={`text-[10px] font-black px-2 py-1 rounded ${(b.bookingVia || '').includes('DMS') ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>
                                         {(b.bookingVia || 'Supabase').length > 20 ? (b.bookingVia || '').slice(0, 18) + '...' : (b.bookingVia || 'Supabase')}
                                     </span>
                                 </td>
-                                <td className="p-2.5">
-                                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${b.status === 'synced' || (b.bookingVia || '').includes('DMS') ? 'bg-blue-50 text-blue-700' : b.status === 'accepted' ? 'bg-green-50 text-green-700' : b.status === 'declined' ? 'bg-red-50 text-red-700' : 'bg-zinc-50 text-zinc-500'}`}>
+                                <td className="px-4 py-3">
+                                    <span className={`text-[10px] font-black px-2 py-1 rounded ${b.status === 'synced' || (b.bookingVia || '').includes('DMS') ? 'bg-blue-50 text-blue-700' : b.status === 'accepted' ? 'bg-green-50 text-green-700' : b.status === 'declined' ? 'bg-red-50 text-red-700' : 'bg-zinc-50 text-zinc-500'}`}>
                                         {b.status === 'synced' || (b.bookingVia || '').includes('DMS') ? 'Synced (DMS)' : b.status || '-'}
                                     </span>
                                 </td>
-                                <td className="p-2.5">
-                                    <div className="flex items-center justify-center gap-1">
+                                <td className="px-4 py-3">
+                                    <div className="flex items-center justify-center gap-1.5">
                                         <button onClick={() => openEdit(b)}
                                             className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-800 hover:text-white transition-all text-zinc-500"
-                                            title="Edit"><Edit3 size={12} /></button>
+                                            title="Edit"><Edit3 size={14} /></button>
                                         <button onClick={() => handleDelete(b.id)}
                                             className="p-1.5 rounded-lg bg-red-50 hover:bg-red-600 hover:text-white transition-all text-red-500"
-                                            title="Hapus"><X size={12} /></button>
+                                            title="Hapus"><X size={14} /></button>
                                     </div>
                                 </td>
                             </tr>

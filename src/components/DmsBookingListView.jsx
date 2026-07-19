@@ -63,9 +63,6 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
   const [editModal, setEditModal] = useState(null);
   const [cancelModal, setCancelModal] = useState(null);
 
-  const [supabaseData, setSupabaseData] = useState([]);
-  const [supaDateFrom, setSupaDateFrom] = useState('');
-  const [supaDateTo, setSupaDateTo] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [syncingId, setSyncingId] = useState(null);
 
@@ -106,46 +103,16 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
     fetchData();
   }, [fetchData]);
 
+  // Debounce search input to perform search on change
   useEffect(() => {
-    (async () => {
-      try {
-        const filters = {
-          select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, noUrut, vin',
-          order: { column: 'id', ascending: false },
-          limit: 10,
-        };
-        if (supaDateFrom) filters.gte = { tanggal: supaDateFrom };
-        if (supaDateTo) filters.lte = { tanggal: supaDateTo };
-        const { data } = await db.select('booking', filters);
-        setSupabaseData(data || []);
-      } catch (e) {
-        console.error('Gagal fetch local bookings:', e);
-      }
-    })();
-  }, [refreshTrigger, supaDateFrom, supaDateTo]);
+    const timer = setTimeout(() => {
+      setSearch(searchInput);
+      setPage(0);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
-
-  const normalizedSupabase = useMemo(() => {
-    return supabaseData.map(b => ({
-      _source: 'local',
-      _id: b.id,
-      no_booking: `SB-${b.id}`,
-      status_booking: b.status === 'waiting confirm' ? 'Baru' : b.status === 'accepted' ? 'Aktif' : b.status === 'completed' ? 'Selesai' : b.status === 'cancelled' ? 'Batal' : b.status || '-',
-      nama_pelanggan: b.namaCustomer || '-',
-      no_polisi: b.noPlat || '-',
-      nama_kendaraan: b.tipeMobil || '-',
-      janji_datang: b.tanggal ? `${b.tanggal} ${(b.jam || '').replace('.', ':') || '00:00'}:00` : '-',
-      booking_via: b.bookingVia || '-',
-      dibuat_oleh: b.bookingVia || '-',
-      no_chassis: b.vin || '-',
-      km: b.km || '-',
-      atas_nama_booking: b.namaCustomer || '-',
-      no_telp_booking: b.noTelp || '-',
-      keluhan: b.keperluanService || '-',
-      created_at: b.tanggal,
-    }));
-  }, [supabaseData]);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -526,95 +493,6 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
                     );
                   })}
 
-                  {/* MANUAL BOOKINGS FROM SUPABASE — always show filter */}
-                  <tr className="bg-amber-50/50">
-                    <td colSpan={10} className="px-4 py-3">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-amber-700">
-                          <Database size={14} /> Manual Bookings ({normalizedSupabase.length})
-                        </div>
-                        <div className="flex items-center gap-2 ml-auto">
-                          <label className="text-[9px] font-bold uppercase tracking-wider text-amber-500">Dari</label>
-                          <input type="date" value={supaDateFrom} onChange={e => setSupaDateFrom(e.target.value)}
-                            className="text-[11px] px-2 py-1 border border-amber-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-amber-400" />
-                          <label className="text-[9px] font-bold uppercase tracking-wider text-amber-500">Sampai</label>
-                          <input type="date" value={supaDateTo} onChange={e => setSupaDateTo(e.target.value)}
-                            className="text-[11px] px-2 py-1 border border-amber-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-amber-400" />
-                          {(supaDateFrom || supaDateTo) && (
-                            <button onClick={() => { setSupaDateFrom(''); setSupaDateTo(''); }} className="text-[10px] font-bold text-amber-600 hover:text-amber-800 underline">Reset</button>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                  {normalizedSupabase.length > 0 && normalizedSupabase.map((row, i) => {
-                        const isExp = expandedRow === `local_${i}`;
-                        const s = getStatusStyle(row.status_booking);
-                        return (
-                          <React.Fragment key={`local_${row._id || i}`}>
-                            <tr
-                              className={`hover:bg-amber-50/50 transition-colors cursor-pointer ${isExp ? 'bg-amber-50/50' : ''}`}
-                              onClick={() => setExpandedRow(isExp ? null : `local_${i}`)}
-                            >
-                              <td className="pl-3 pr-1 py-3 text-zinc-400">
-                                {isExp ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                              </td>
-                              <td className="px-4 py-3 font-bold text-zinc-900 whitespace-nowrap text-sm">
-                                <span className="inline-flex items-center gap-1">
-                                  {row.no_booking}
-                                  <span className="text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">Local</span>
-                                </span>
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${s.bg} ${s.text} ${s.border}`}>
-                                  {row.status_booking || '-'}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-zinc-700 whitespace-nowrap text-sm max-w-[160px] truncate">{row.nama_pelanggan || '-'}</td>
-                              <td className="px-4 py-3 font-mono text-zinc-700 whitespace-nowrap text-sm">{row.no_polisi || '-'}</td>
-                              <td className="px-4 py-3 text-zinc-600 whitespace-nowrap text-sm max-w-[160px] truncate">{row.nama_kendaraan || '-'}</td>
-                              <td className="px-4 py-3 text-zinc-500 whitespace-nowrap text-sm">{formatDateShort(row.janji_datang)}</td>
-                              <td className="px-4 py-3 text-zinc-500 whitespace-nowrap text-sm">{row.booking_via || '-'}</td>
-                              <td className="px-4 py-3 text-zinc-400 whitespace-nowrap text-sm">{row.dibuat_oleh || '-'}</td>
-                              <td className="px-4 py-3 text-center text-xs text-zinc-400 font-bold">—</td>
-                            </tr>
-                            {isExp && (
-                              <tr className="bg-amber-50/30 border-b border-zinc-200">
-                                <td colSpan={10} className="px-6 py-5">
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
-                                    <div>
-                                      <p className="text-xs font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
-                                        <Truck size={12} /> Kendaraan
-                                      </p>
-                                      <div className="space-y-1.5">
-                                        {[['No Polisi', row.no_polisi], ['Model', row.nama_kendaraan], ['Atas Nama', row.atas_nama_booking], ['No. Telp', row.no_telp_booking]].map(([label, val]) => (
-                                          <div key={label} className="flex justify-between text-sm">
-                                            <span className="text-zinc-400 font-medium">{label}</span>
-                                            <span className="text-zinc-800 font-semibold">{val}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                    <div>
-                                      <p className="text-xs font-black uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
-                                        <FileText size={12} /> Detail
-                                      </p>
-                                      <div className="space-y-1.5">
-                                        {[['Via', row.booking_via], ['Keluhan', row.keluhan], ['Created', formatDate(row.created_at)]].map(([label, val]) => (
-                                          <div key={label} className="flex justify-between text-sm">
-                                            <span className="text-zinc-400 font-medium">{label}</span>
-                                            <span className="text-zinc-800 font-semibold max-w-[200px] truncate">{val}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                          </React.Fragment>
-                        );
-                      })}
                 </tbody>
               </table>
             </div>
@@ -726,7 +604,7 @@ function RescheduleModal({ booking, onClose, onSubmit }) {
       return;
     }
     setLoading(true);
-    await onSubmit(booking.no_booking, `${date}T${time}`, alasan);
+    await onSubmit(booking.id_booking || booking.no_booking, `${date}T${time}`, alasan);
     setLoading(false);
   };
 
@@ -809,7 +687,7 @@ function EditModal({ booking, onClose, onSubmit }) {
 
   const handleSubmit = async () => {
     setLoading(true);
-    await onSubmit(booking.no_booking, form);
+    await onSubmit(booking.id_booking || booking.no_booking, form);
     setLoading(false);
   };
 
@@ -892,7 +770,7 @@ function CancelModal({ booking, onClose, onSubmit }) {
     }
     if (!window.confirm(`Yakin ingin membatalkan booking ${booking.no_booking}?`)) return;
     setLoading(true);
-    await onSubmit(booking.no_booking, alasan);
+    await onSubmit(booking.id_booking || booking.no_booking, alasan);
     setLoading(false);
   };
 

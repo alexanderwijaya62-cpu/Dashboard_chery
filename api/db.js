@@ -5,7 +5,7 @@ const ALLOWED_TABLES = ['users','settings','antrian','history','booking','cro','
 // Default columns per table — cegah over-fetching saat client kirim select: '*'
 const DEFAULT_COLUMNS = {
   booking: 'id,tanggal,jam,status,noPlat,namaCustomer,tipeMobil,keperluanService,noTelp,bookingVia,vin,noUrut,ip_address,keluhanDetail',
-  antrian: 'id,bk,tipe,status,category,queue_number,is_called,called_at,counter,nama_sa',
+  antrian: '*',
   history: 'id,bk,tipe,status,waktuMasuk,waktuSelesai,category,mechanicName,nama_sa',
   customers: 'id,no_hp,nama,no_bk,vin,status',
   users: 'id,username,name,role,status',

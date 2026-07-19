@@ -18,6 +18,68 @@ export default function StockComparison({ user, setCurrentPage }) {
     const dmsInputRef = useRef(null);
     const internalInputRef = useRef(null);
 
+    const [comparisonMode, setComparisonMode] = useState('live'); // 'live' or 'excel'
+    const [pageSize, setPageSize] = useState(100);
+
+    const fetchLiveComparison = async (q = '') => {
+        setIsLoading(true);
+        try {
+            // 1. Fetch DMS Chery Stocks
+            const dmsUrl = `/api/chery_dms?endpoint=dms-part-stocks&pageIndex=0&pageSize=${pageSize}&code=${q}&name=${q}`;
+            const dmsRes = await fetch(dmsUrl);
+            if (!dmsRes.ok) throw new Error(`DMS Chery API returned ${dmsRes.status}`);
+            const dmsJson = await dmsRes.json();
+            
+            const dmsRawList = dmsJson?.payload?.content || dmsJson?.content || dmsJson?.data || dmsJson || [];
+            const dmsMap = {};
+            dmsRawList.forEach(item => {
+                const pNum = String(item.partCode || item.partNo || item.part_no || item.code || '').trim();
+                const pName = String(item.partName || item.part_name || item.name || '').trim();
+                const qty = parseInt(item.forRetailQty !== undefined ? item.forRetailQty : (item.inventoryQty || item.qty || 0)) || 0;
+                if (pNum) {
+                    dmsMap[pNum] = { part_number: pNum, part_name: pName, qty };
+                }
+            });
+
+            // 2. Fetch Internal DMS Stocks
+            const intUrl = `/api/chery_dms?endpoint=internal-part-stocks&draw=1&start=0&length=${pageSize}&q=${q}`;
+            const intRes = await fetch(intUrl);
+            if (!intRes.ok) throw new Error(`Internal DMS API returned ${intRes.status}`);
+            const intJson = await intRes.json();
+            
+            const intRawList = intJson?.data || [];
+            const intMap = {};
+            intRawList.forEach(item => {
+                const pNum = String(item.part_no_stok || '').trim();
+                const pName = String(item.part_name_stok || '').trim();
+                const qty = parseInt(item.saldo_akhir_stok) || 0;
+                if (pNum) {
+                    intMap[pNum] = { part_number: pNum, part_name: pName, qty };
+                }
+            });
+
+            setDmsData(dmsMap);
+            setInternalData(intMap);
+            
+            Toastify({ 
+                text: `✅ Perbandingan Berhasil: DMS (${Object.keys(dmsMap).length} item) vs Internal (${Object.keys(intMap).length} item)`, 
+                style: { background: "#10b981" } 
+            }).showToast();
+
+        } catch (err) {
+            console.error("Live fetch error:", err);
+            Toastify({ text: `Gagal memuat data live: ${err.message}`, style: { background: "#ef4444" } }).showToast();
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    React.useEffect(() => {
+        if (comparisonMode === 'live') {
+            fetchLiveComparison('');
+        }
+    }, [comparisonMode, pageSize]);
+
     const handleFileUpload = (e, type) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -269,9 +331,22 @@ export default function StockComparison({ user, setCurrentPage }) {
                         </button>
                         <div>
                             <h1 className="text-xl md:text-2xl font-black tracking-tight text-white uppercase italic">
-                                Stock Comparison <span className="text-indigo-500">Excel Mode</span>
+                                Stock Comparison <span className="text-indigo-500">{comparisonMode === 'live' ? 'Live Connection' : 'Excel Mode'}</span>
                             </h1>
-                            <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mt-0.5">Inventory Accuracy Hub</p>
+                            <div className="flex gap-2 mt-2">
+                                <button 
+                                    onClick={() => { setComparisonMode('live'); clearData(); }}
+                                    className={`px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all ${comparisonMode === 'live' ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' : 'bg-transparent text-zinc-500 border-zinc-800 hover:text-zinc-300'}`}
+                                >
+                                    Live Connection
+                                </button>
+                                <button 
+                                    onClick={() => { setComparisonMode('excel'); clearData(); }}
+                                    className={`px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all ${comparisonMode === 'excel' ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' : 'bg-transparent text-zinc-500 border-zinc-800 hover:text-zinc-300'}`}
+                                >
+                                    Excel Import
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -302,66 +377,125 @@ export default function StockComparison({ user, setCurrentPage }) {
 
             <main className="max-w-7xl mx-auto p-6 md:p-12 space-y-8">
                 
-                {/* Upload Buttons */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <label className="group relative flex flex-col items-center justify-center p-10 bg-[#18181B] border-2 border-dashed border-indigo-500/30 rounded-[2rem] cursor-pointer hover:border-indigo-500/60 hover:bg-indigo-500/[0.02] transition-all">
-                        <input type="file" ref={dmsInputRef} onChange={(e) => handleFileUpload(e, 'DMS')} className="hidden" accept=".xlsx,.xls,.csv" />
-                        <div className={`p-4 rounded-2xl mb-4 transition-all ${Object.keys(dmsData).length > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-indigo-500/10 text-indigo-400 group-hover:scale-110'}`}>
-                            <Database size={32} />
-                        </div>
-                        <h3 className="text-white font-black text-sm uppercase tracking-widest text-center">1. Import DMS (CSI)<br/><span className="text-[10px] text-zinc-500">Inventory quantity</span></h3>
-                        <button 
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); downloadTemplate('DMS'); }}
-                            className="mt-4 px-4 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 text-[10px] font-black uppercase tracking-widest rounded-xl border border-indigo-500/20 transition-all flex items-center gap-2"
-                        >
-                            <Download size={14} />
-                            Download Template
-                        </button>
-                    </label>
+                {comparisonMode === 'excel' ? (
+                    /* Upload Buttons for Excel */
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <label className="group relative flex flex-col items-center justify-center p-10 bg-[#18181B] border-2 border-dashed border-indigo-500/30 rounded-[2rem] cursor-pointer hover:border-indigo-500/60 hover:bg-indigo-500/[0.02] transition-all">
+                            <input type="file" ref={dmsInputRef} onChange={(e) => handleFileUpload(e, 'DMS')} className="hidden" accept=".xlsx,.xls,.csv" />
+                            <div className={`p-4 rounded-2xl mb-4 transition-all ${Object.keys(dmsData).length > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-indigo-500/10 text-indigo-400 group-hover:scale-110'}`}>
+                                <Database size={32} />
+                            </div>
+                            <h3 className="text-white font-black text-sm uppercase tracking-widest text-center">1. Import DMS (CSI)<br/><span className="text-[10px] text-zinc-500">Inventory quantity</span></h3>
+                            <button 
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); downloadTemplate('DMS'); }}
+                                className="mt-4 px-4 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 text-[10px] font-black uppercase tracking-widest rounded-xl border border-indigo-500/20 transition-all flex items-center gap-2"
+                            >
+                                <Download size={14} />
+                                Download Template
+                            </button>
+                        </label>
 
-                    <label className="group relative flex flex-col items-center justify-center p-10 bg-[#18181B] border-2 border-dashed border-blue-500/30 rounded-[2rem] cursor-pointer hover:border-blue-500/60 hover:bg-blue-500/[0.02] transition-all">
-                        <input type="file" ref={internalInputRef} onChange={(e) => handleFileUpload(e, 'Internal')} className="hidden" accept=".xlsx,.xls,.csv" />
-                        <div className={`p-4 rounded-2xl mb-4 transition-all ${Object.keys(internalData).length > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/10 text-blue-400 group-hover:scale-110'}`}>
-                            <HardDrive size={32} />
+                        <label className="group relative flex flex-col items-center justify-center p-10 bg-[#18181B] border-2 border-dashed border-blue-500/30 rounded-[2rem] cursor-pointer hover:border-blue-500/60 hover:bg-blue-500/[0.02] transition-all">
+                            <input type="file" ref={internalInputRef} onChange={(e) => handleFileUpload(e, 'Internal')} className="hidden" accept=".xlsx,.xls,.csv" />
+                            <div className={`p-4 rounded-2xl mb-4 transition-all ${Object.keys(internalData).length > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/10 text-blue-400 group-hover:scale-110'}`}>
+                                <HardDrive size={32} />
+                            </div>
+                            <h3 className="text-white font-black text-sm uppercase tracking-widest text-center">2. Import Internal<br/><span className="text-[10px] text-zinc-500">Qty</span></h3>
+                            <button 
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); downloadTemplate('Internal'); }}
+                                className="mt-4 px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase tracking-widest rounded-xl border border-blue-500/20 transition-all flex items-center gap-2"
+                            >
+                                <Download size={14} />
+                                Download Template
+                            </button>
+                        </label>
+                    </div>
+                ) : (
+                    /* Live Controls Card */
+                    <div className="bg-[#18181B] border border-white/5 rounded-[2rem] p-8 flex flex-col md:flex-row items-center gap-6 shadow-xl">
+                        <div className="flex-1 w-full space-y-2">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Pencarian Sparepart</label>
+                            <div className="relative">
+                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                                <input 
+                                    type="text" 
+                                    placeholder="Cari part number atau nama (kosongkan untuk memuat semua)..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') fetchLiveComparison(searchTerm); }}
+                                    className="w-full bg-[#09090B] border border-white/5 rounded-2xl py-4 pl-12 pr-4 text-sm font-medium focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all placeholder:text-zinc-700 text-white"
+                                />
+                            </div>
                         </div>
-                        <h3 className="text-white font-black text-sm uppercase tracking-widest text-center">2. Import Internal<br/><span className="text-[10px] text-zinc-500">Qty</span></h3>
-                        <button 
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); downloadTemplate('Internal'); }}
-                            className="mt-4 px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase tracking-widest rounded-xl border border-blue-500/20 transition-all flex items-center gap-2"
+                        <div className="w-full md:w-48 space-y-2">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Jumlah Data</label>
+                            <select
+                                value={pageSize}
+                                onChange={(e) => setPageSize(Number(e.target.value))}
+                                className="w-full appearance-none bg-[#09090B] border border-white/5 rounded-2xl py-4 px-4 text-sm font-bold uppercase tracking-widest focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all cursor-pointer text-zinc-300"
+                            >
+                                <option value={50}>50 Items</option>
+                                <option value={100}>100 Items</option>
+                                <option value={200}>200 Items</option>
+                                <option value={500}>500 Items</option>
+                            </select>
+                        </div>
+                        <button
+                            onClick={() => fetchLiveComparison(searchTerm)}
+                            disabled={isLoading}
+                            className="w-full md:w-auto self-end px-8 py-4 bg-indigo-500 hover:bg-indigo-600 disabled:bg-indigo-500/50 text-white font-black text-sm uppercase tracking-widest rounded-2xl transition-all shadow-lg shadow-indigo-500/20 active:scale-95 flex items-center justify-center gap-2"
                         >
-                            <Download size={14} />
-                            Download Template
+                            <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+                            {isLoading ? 'Loading...' : 'Bandingkan Stock'}
                         </button>
-                    </label>
-                </div>
+                    </div>
+                )}
 
                 {/* Search & Filter Bar */}
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                    <div className="md:col-span-8 relative">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                        <input 
-                            type="text" 
-                            placeholder="Cari part number atau nama sparepart..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full bg-[#18181B] border border-white/5 rounded-2xl py-4 pl-12 pr-4 text-sm font-medium focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all placeholder:text-zinc-600"
-                        />
-                    </div>
-                    <div className="md:col-span-4 relative">
-                        <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                        <select 
-                            value={filterReason}
-                            onChange={(e) => setFilterReason(e.target.value)}
-                            className="w-full appearance-none bg-[#18181B] border border-white/5 rounded-2xl py-4 pl-12 pr-10 text-sm font-bold uppercase tracking-widest focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all cursor-pointer"
-                        >
-                            <option value="all">Semua Status</option>
-                            <option value="miss">Hanya Miss Stock</option>
-                            <option value="not_found">Hanya Tidak Terdaftar</option>
-                            <option value="match">Hanya Sesuai</option>
-                        </select>
-                    </div>
+                    {comparisonMode === 'excel' ? (
+                        <>
+                            <div className="md:col-span-8 relative">
+                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                                <input 
+                                    type="text" 
+                                    placeholder="Cari part number atau nama sparepart..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="w-full bg-[#18181B] border border-white/5 rounded-2xl py-4 pl-12 pr-4 text-sm font-medium focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all placeholder:text-zinc-600"
+                                />
+                            </div>
+                            <div className="md:col-span-4 relative">
+                                <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                                <select 
+                                    value={filterReason}
+                                    onChange={(e) => setFilterReason(e.target.value)}
+                                    className="w-full appearance-none bg-[#18181B] border border-white/5 rounded-2xl py-4 pl-12 pr-10 text-sm font-bold uppercase tracking-widest focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all cursor-pointer"
+                                >
+                                    <option value="all">Semua Status</option>
+                                    <option value="miss">Hanya Miss Stock</option>
+                                    <option value="not_found">Hanya Tidak Terdaftar</option>
+                                    <option value="match">Hanya Sesuai</option>
+                                </select>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="w-full md:col-span-12 relative">
+                            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                            <select 
+                                value={filterReason}
+                                onChange={(e) => setFilterReason(e.target.value)}
+                                className="w-full appearance-none bg-[#18181B] border border-white/5 rounded-2xl py-4 pl-12 pr-10 text-sm font-bold uppercase tracking-widest focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all cursor-pointer"
+                            >
+                                <option value="all">Semua Status (Filter Lokal)</option>
+                                <option value="miss">Hanya Miss Stock</option>
+                                <option value="not_found">Hanya Tidak Terdaftar</option>
+                                <option value="match">Hanya Sesuai</option>
+                            </select>
+                        </div>
+                    )}
                 </div>
 
                 {/* Table Container */}

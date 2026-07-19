@@ -27,6 +27,10 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
   const [manualTipe, setManualTipe] = useState('');
   const [manualNoTelp, setManualNoTelp] = useState('');
   const [manualKeluhan, setManualKeluhan] = useState('');
+  const [listDate, setListDate] = useState(() => new Date().toLocaleDateString('en-CA'));
+  const [listBookings, setListBookings] = useState([]);
+  const [listLoading, setListLoading] = useState(false);
+  const [listSearch, setListSearch] = useState('');
 
   const handleCallAntrian = async (item) => {
     const cooldownMs = 60000;
@@ -165,6 +169,86 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
              (b.jam || '').includes(q);
     });
   }, [bookings, searchBooking]);
+
+  const fetchListBookings = useCallback(async (date) => {
+    setListLoading(true);
+    try {
+      const results = await Promise.allSettled([
+        (async () => {
+          const { data } = await db.select('booking', {
+            select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, noTelp, keperluanService',
+          });
+          return (data || []).filter(b => b.tanggal === date).map(b => ({ ...b, _source: 'supabase' }));
+        })(),
+        (async () => {
+          const res = await fetch(`/api/chery_dms?endpoint=booking-data&draw=1&start=0&length=200&datefrom=${date}&dateto=${date}&_=${Date.now()}`);
+          if (!res.ok) return [];
+          const json = await res.json();
+          if (!Array.isArray(json.data)) return [];
+          return json.data
+            .filter(b => {
+              const s = (b.status_booking || '').toLowerCase();
+              return !['batal', 'expired', 'declined', 'cancelled'].includes(s);
+            })
+            .map(b => {
+              const tanggal = (b.janji_datang || '').trim().split(' ')[0] || date;
+              const jamRaw = (b.janji_datang || '').trim().split(' ')[1] || '';
+              const jam = jamRaw ? jamRaw.slice(0, 5).replace(':', '.') : '';
+              const parts = tanggal.split('/');
+              const tgl = parts.length === 3 && parts[2].length === 4 ? `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}` : tanggal;
+              return {
+                id: `dms_${b.no_booking || b.id || Math.random()}`,
+                tanggal: tgl,
+                jam,
+                noPlat: b.no_polisi || '',
+                namaCustomer: b.nama_pelanggan || '',
+                tipeMobil: b.nama_kendaraan || '',
+                status: 'accepted',
+                noTelp: b.no_telp_booking || '',
+                keperluanService: b.keperluan || b.keterangan || '',
+                _source: 'dms',
+                bookingVia: b.booking_via || 'DMS Internal',
+              };
+            });
+        })(),
+      ]);
+
+      let merged = [];
+      const seenPlates = new Set();
+      results.forEach(r => {
+        if (r.status !== 'fulfilled' || !r.value) return;
+        if (Array.isArray(r.value)) {
+          r.value.forEach(b => {
+            const plat = (b.noPlat || '').replace(/\s+/g, '').toUpperCase();
+            if (!plat) return;
+            if (seenPlates.has(plat)) return;
+            seenPlates.add(plat);
+            merged.push(b);
+          });
+        }
+      });
+      setListBookings(merged);
+    } catch (e) {
+      console.error('Gagal fetch list booking:', e);
+    } finally {
+      setListLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'daftar') fetchListBookings(listDate);
+  }, [tab, listDate, fetchListBookings]);
+
+  const filteredListBookings = useMemo(() => {
+    return listBookings.filter(b => {
+      if (!listSearch.trim()) return true;
+      const q = listSearch.toLowerCase();
+      return (b.noPlat || '').toLowerCase().includes(q) ||
+             (b.namaCustomer || '').toLowerCase().includes(q) ||
+             (b.jam || '').includes(q) ||
+             (b.tipeMobil || '').toLowerCase().includes(q);
+    });
+  }, [listBookings, listSearch]);
 
   const isLate = (jam) => {
     if (!jam) return false;
@@ -424,6 +508,10 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
           className={`flex-1 py-3.5 text-[9px] font-black uppercase tracking-widest transition-all ${tab === 'booking' ? 'bg-black text-white' : 'text-zinc-500'}`}>
           Booking
         </button>
+        <button onClick={() => setTab('daftar')}
+          className={`flex-1 py-3.5 text-[9px] font-black uppercase tracking-widest transition-all ${tab === 'daftar' ? 'bg-black text-white' : 'text-zinc-500'}`}>
+          Daftar Booking
+        </button>
       </div>
 
       <div className="flex-1 px-4 pb-20 mt-4">
@@ -449,7 +537,7 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
               </button>
             </div>
           </div>
-        ) : (
+        ) : tab === 'booking' ? (
           <div className="space-y-3">
             <div className="bg-white border-2 border-zinc-200 rounded-2xl p-4">
               <div className="flex items-center justify-between mb-3">
@@ -557,7 +645,68 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
               </button>
             )}
           </div>
-        )}
+        ) : tab === 'daftar' ? (
+          <div className="space-y-3">
+            <div className="bg-white border-2 border-zinc-200 rounded-2xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Daftar Booking</h2>
+                <span className="text-[9px] font-bold text-zinc-400">{filteredListBookings.length} total</span>
+              </div>
+
+              <div className="flex items-center gap-2 mb-3">
+                <div className="relative flex-1">
+                  <Calendar size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <input type="date" value={listDate} onChange={e => setListDate(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2.5 bg-zinc-50 border-2 border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:outline-none focus:border-black transition-all" />
+                </div>
+              </div>
+
+              <div className="relative mb-3">
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                <input value={listSearch} onChange={e => setListSearch(e.target.value)}
+                  placeholder="Cari nama/plat/tipe..."
+                  className="w-full pl-9 pr-4 py-2.5 bg-zinc-50 border-2 border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-black transition-all" />
+              </div>
+
+              {listLoading ? (
+                <div className="text-center py-8">
+                  <div className="w-6 h-6 border-2 border-zinc-300 border-t-black rounded-full animate-spin mx-auto mb-2" />
+                  <p className="text-xs font-bold text-zinc-400">Memuat data...</p>
+                </div>
+              ) : filteredListBookings.length === 0 ? (
+                <div className="text-center py-8">
+                  <Calendar size={28} className="text-zinc-300 mx-auto mb-2" />
+                  <p className="text-xs font-bold text-zinc-400">Tidak ada booking di tanggal ini</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[65vh] overflow-y-auto">
+                  {filteredListBookings.map((b, idx) => {
+                    const fromDms = b._source === 'dms';
+                    return (
+                      <div key={b.id} className="flex items-center gap-3 px-3 py-3 rounded-xl border-2 border-zinc-100 bg-zinc-50">
+                        <div className="w-8 h-8 rounded-lg bg-zinc-200 flex items-center justify-center shrink-0">
+                          <span className="text-[10px] font-black text-zinc-500">{idx + 1}</span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-sm leading-tight text-black">{b.noPlat || '-'}</span>
+                            {b.jam ? <span className="text-[8px] font-bold text-zinc-400">{b.jam}</span> : null}
+                            {fromDms && <Database size={10} className="text-zinc-400" />}
+                          </div>
+                          <p className="text-[8px] font-bold text-zinc-500 truncate">{b.namaCustomer || 'Tanpa nama'}</p>
+                          {b.tipeMobil ? <p className="text-[7px] font-bold text-zinc-400 truncate">{b.tipeMobil}</p> : null}
+                        </div>
+                        {b.keperluanService ? (
+                          <span className="text-[7px] font-bold text-zinc-400 bg-zinc-100 px-2 py-1 rounded-lg shrink-0 max-w-[100px] truncate">{b.keperluanService}</span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
 
         {/* Antrian Status List */}
         <div className="mt-4 bg-white border-2 border-zinc-200 rounded-2xl p-4">

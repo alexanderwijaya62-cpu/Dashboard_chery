@@ -4,7 +4,7 @@ import {
   LogOut, LogIn, RefreshCw, Globe, MapPin, Clock, Lock,
   AlertTriangle, CheckCircle, Trash2, Key, Eye, EyeOff,
   Activity, Crown, XCircle, Menu, X, Car, Upload, Volume2, Play, Square, Edit3, Layers, ShieldCheck,
-  PackageSearch, Search, ExternalLink, MessageSquare, Truck, Package, Printer, Download, FileSpreadsheet, ArrowLeft, ArrowRight, Plus, Settings, Copy, Bookmark
+  PackageSearch, Search, ExternalLink, MessageSquare, Truck, Package, Printer, Download, FileSpreadsheet, ArrowLeft, ArrowRight, Plus, Settings, Copy, Bookmark, BarChart3, TrendingUp, Info
 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import ChangePasswordModal from './ChangePasswordModal';
@@ -14,6 +14,7 @@ import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL } from '../utils/conf
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import Chart from 'react-apexcharts';
 
 const CHERY_MODELS = [
   "T1D", "TID", "T19C", "T19CEV", "T13J", "T1EJ", "TIEJ", "T1C", "TIC", "S56", "S56EV", "T19", "T19FL2", "T28", "T26", "T18FL4", "T18"
@@ -170,6 +171,110 @@ export default function OwnerPanel({
   const [inAppTrackingData, setInAppTrackingData] = useState(null);
   const [isInAppTrackingLoading, setIsInAppTrackingLoading] = useState(false);
   const [inAppTrackingError, setInAppTrackingError] = useState(null);
+
+  // Unit Entry States
+  const [ueYear, setUeYear] = useState(() => new Date().getFullYear());
+  const [ueLoading, setUeLoading] = useState(false);
+  const [ueData, setUeData] = useState([]); // Array of { month, monthName, internalCount, dmsCount, totalUnits, vehicles }
+  const [selectedUeMonth, setSelectedUeMonth] = useState(null);
+
+  const fetchUnitEntryData = useCallback(async (year) => {
+    setUeLoading(true);
+    try {
+      const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
+      const months = Array.from({ length: 12 }, (_, i) => i + 1);
+
+      const results = [];
+      for (let i = 0; i < months.length; i += 3) {
+        const batch = months.slice(i, i + 3);
+        const batchResults = await Promise.all(batch.map(async (month) => {
+          const lastDay = new Date(year, month, 0).getDate();
+          const dStart = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0) - 7 * 60 * 60 * 1000);
+          const dEnd = new Date(Date.UTC(year, month - 1, lastDay, 23, 59, 59, 999) - 7 * 60 * 60 * 1000);
+          
+          const beginCreateTime = dStart.toISOString();
+          const endCreateTime = dEnd.toISOString();
+          const tsStart = dStart.getTime();
+          const tsEnd = dEnd.getTime();
+
+          let dmsList = [];
+          try {
+            const resp = await fetch(`/api/chery_dms?endpoint=repair-contracts&pageSize=1000&pageIndex=0&beginCreateTime=${beginCreateTime}&endCreateTime=${endCreateTime}`);
+            const json = await resp.json();
+            dmsList = json.payload?.content || json.payload || json.content || json || [];
+            if (!Array.isArray(dmsList)) dmsList = [];
+          } catch (e) {
+            console.error(`Error fetching DMS for month ${month}:`, e);
+          }
+
+          let internalPlates = new Set();
+          try {
+            const [historyResult, antrianResult] = await Promise.all([
+              db.select('history', { select: 'id,bk', gte: { id: tsStart }, lte: { id: tsEnd }, limit: 1000 }),
+              db.select('antrian', { select: 'id,bk', gte: { id: tsStart }, lte: { id: tsEnd }, limit: 1000 })
+            ]);
+            const historyRows = historyResult.data || [];
+            const antrianRows = antrianResult.data || [];
+            [...historyRows, ...antrianRows].forEach(row => {
+              const plate = (row.bk || '').trim().toUpperCase();
+              if (plate) internalPlates.add(plate);
+            });
+          } catch (e) {
+            console.error(`Error fetching internal data for month ${month}:`, e);
+          }
+
+          const uniqueVehicles = {};
+          dmsList.forEach(item => {
+            const vin = (item.vin || '').trim().toUpperCase();
+            if (!vin) return;
+            if (!uniqueVehicles[vin]) {
+              uniqueVehicles[vin] = {
+                vin,
+                plate: item.licensePlate || '-',
+                customer: item.customerName || '-',
+                vehicleName: item.productCategoryName || item.productCategoryCode || '-',
+                date: item.createTime || item.arriveTime || '-',
+                source: 'DMS',
+                workOrders: [item.code]
+              };
+            } else {
+              uniqueVehicles[vin].workOrders.push(item.code);
+            }
+          });
+
+          const vehicles = Object.values(uniqueVehicles);
+          return {
+            month,
+            monthName: MONTH_NAMES[month - 1],
+            internalCount: internalPlates.size,
+            dmsCount: dmsList.length,
+            totalUnits: vehicles.length,
+            vehicles
+          };
+        }));
+        results.push(...batchResults);
+      }
+
+      setUeData(results);
+
+      if (results.length > 0) {
+        setSelectedUeMonth(results[new Date().getMonth()] || results[0]);
+      } else {
+        setSelectedUeMonth(null);
+      }
+    } catch (err) {
+      console.error(err);
+      Toastify({ text: "Gagal memuat data Unit Entry: " + err.message, style: { background: "#ef4444" } }).showToast();
+    } finally {
+      setUeLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'unit_entry') {
+      fetchUnitEntryData(ueYear);
+    }
+  }, [activeTab, ueYear, fetchUnitEntryData]);
 
   const handleInAppTracking = async (resi) => {
     const cleanResi = (resi || '').toString().replace(/^0+/, '');
@@ -1514,15 +1619,16 @@ export default function OwnerPanel({
           <div className="flex items-center gap-3">
             <div>
               <h2 className="text-zinc-900 font-black text-base md:text-lg">
-                {activeTab === 'monitoring' ? '🔴 Live Session Monitoring' : 
-                 activeTab === 'workshop' ? '🚗 Antrian Workshop Realtime' : 
-                 activeTab === 'users' ? '👥 Manajemen User' : 
-                 activeTab === 'notification_sound' ? '⚙️ Settings' : 
-                 activeTab === 'dms_search' ? '🔍 DMS & EPCM Search' :
-                 activeTab === 'sparepart_cost' ? '💰 Sparepart Cost Calculator' :
-                 activeTab === 'warranty_search' ? '🛡️ Warranty Claim Search' :
-                 activeTab === 'part_orders' ? '📦 Tracking Pemesanan Part' :
-                 '🗑️ Riwayat Penghapusan Data'}
+                 {activeTab === 'monitoring' ? '🔴 Live Session Monitoring' : 
+                  activeTab === 'workshop' ? '🚗 Antrian Workshop Realtime' : 
+                  activeTab === 'users' ? '👥 Manajemen User' : 
+                  activeTab === 'notification_sound' ? '⚙️ Settings' : 
+                  activeTab === 'dms_search' ? '🔍 DMS & EPCM Search' :
+                  activeTab === 'sparepart_cost' ? '💰 Sparepart Cost Calculator' :
+                  activeTab === 'warranty_search' ? '🛡️ Warranty Claim Search' :
+                  activeTab === 'part_orders' ? '📦 Tracking Pemesanan Part' :
+                  activeTab === 'unit_entry' ? '📊 Unit Entry Statistics' :
+                  '🗑️ Riwayat Penghapusan Data'}
               </h2>
               <p className="text-zinc-500 text-xs font-medium">
                 {activeTab === 'monitoring'
@@ -1541,7 +1647,9 @@ export default function OwnerPanel({
                             ? 'Monitoring Klaim Warranty Realtime'
                             : activeTab === 'part_orders'
                               ? 'Status Pesanan & Pengiriman SAP Split'
-                              : `${deletedBookings.length} data yang terhapus`}
+                              : activeTab === 'unit_entry'
+                                ? 'Analisis Trend Unit Entry Bulanan & Deduplikasi VIN'
+                                : `${deletedBookings.length} data yang terhapus`}
               </p>
             </div>
           </div>
@@ -3310,6 +3418,276 @@ export default function OwnerPanel({
                     </div>
                   </div>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* ====== TAB: UNIT ENTRY ====== */}
+          {activeTab === 'unit_entry' && (
+            <div className="space-y-6 animate-in fade-in duration-500">
+              
+              {/* Year & Fetch Control */}
+              <div className="bg-white border border-zinc-200 rounded-lg p-6 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h3 className="text-lg font-black text-zinc-900 tracking-tight">Unit Entry Trend Analysis</h3>
+                  <p className="text-xs text-zinc-500 font-medium">Monitoring pergerakan unit masuk (DMS & Internal) ter-deduplikasi berdasarkan VIN</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 bg-zinc-50 border border-zinc-200 rounded-md p-1 pr-3">
+                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest pl-3">Tahun</span>
+                    <select 
+                      value={ueYear} 
+                      onChange={(e) => setUeYear(parseInt(e.target.value))}
+                      className="bg-transparent border-none text-sm font-black text-zinc-900 focus:ring-0 outline-none pr-6 py-1"
+                    >
+                      {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                  </div>
+                  <button 
+                    onClick={() => fetchUnitEntryData(ueYear)}
+                    disabled={ueLoading}
+                    className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white font-black text-xs uppercase tracking-widest px-5 py-3 rounded-md transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    <RefreshCw size={14} className={ueLoading ? "animate-spin" : ""} />
+                    Reload Data
+                  </button>
+                </div>
+              </div>
+
+              {ueLoading ? (
+                <div className="bg-white border border-zinc-200 rounded-lg p-20 flex flex-col items-center justify-center gap-4">
+                  <div className="w-10 h-10 border-4 border-zinc-900 border-t-transparent rounded-full animate-spin"></div>
+                  <p className="text-sm text-zinc-500 font-bold uppercase tracking-wider animate-pulse">Menghitung Unit Entry Bulanan...</p>
+                </div>
+              ) : ueData.length === 0 ? (
+                <div className="bg-white border border-zinc-200 rounded-lg p-16 text-center text-zinc-400">
+                  <BarChart3 size={48} className="mx-auto mb-4 opacity-25" />
+                  <p className="text-sm font-bold uppercase tracking-wide">Tidak Ada Data Ditemukan</p>
+                  <p className="text-xs text-zinc-500 mt-1">Coba ganti tahun pencarian atau refresh halaman.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Stats Cards */}
+                  {(() => {
+                    const totalVinList = new Set();
+                    ueData.forEach(m => m.vehicles.forEach(v => totalVinList.add(v.vin)));
+                    const ytdUnique = totalVinList.size;
+                    
+                    const sortedByUnits = [...ueData].sort((a, b) => b.totalUnits - a.totalUnits);
+                    const peakMonth = sortedByUnits[0];
+                    const lowestMonth = sortedByUnits[sortedByUnits.length - 1];
+                    const avgUnits = Math.round(ueData.reduce((sum, m) => sum + m.totalUnits, 0) / ueData.length);
+
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="bg-white border border-zinc-200 rounded-lg p-5">
+                          <div className="w-10 h-10 bg-zinc-50 rounded-md flex items-center justify-center mb-4 border border-zinc-200">
+                            <Car size={20} className="text-black" />
+                          </div>
+                          <p className="text-3xl font-black text-zinc-900">{ytdUnique}</p>
+                          <p className="text-zinc-500 text-[10px] font-black uppercase mt-1">Total Unit Unik (YTD)</p>
+                        </div>
+                        <div className="bg-white border border-zinc-200 rounded-lg p-5">
+                          <div className="w-10 h-10 bg-zinc-50 rounded-md flex items-center justify-center mb-4 border border-zinc-200">
+                            <TrendingUp size={20} className="text-black" />
+                          </div>
+                          <p className="text-3xl font-black text-zinc-900">{avgUnits}</p>
+                          <p className="text-zinc-500 text-[10px] font-black uppercase mt-1">Rata-Rata Unit / Bulan</p>
+                        </div>
+                        <div className="bg-white border border-zinc-200 rounded-lg p-5">
+                          <div className="w-10 h-10 bg-zinc-50 rounded-md flex items-center justify-center mb-4 border border-zinc-200">
+                            <Crown size={20} className="text-black" />
+                          </div>
+                          <p className="text-3xl font-black text-zinc-900">{peakMonth?.totalUnits || 0}</p>
+                          <p className="text-zinc-500 text-[10px] font-black uppercase mt-1">Puncak Terbanyak ({peakMonth?.monthName || '-'})</p>
+                        </div>
+                        <div className="bg-white border border-zinc-200 rounded-lg p-5">
+                          <div className="w-10 h-10 bg-zinc-50 rounded-md flex items-center justify-center mb-4 border border-zinc-200">
+                            <AlertTriangle size={20} className="text-black" />
+                          </div>
+                          <p className="text-3xl font-black text-zinc-900">{lowestMonth?.totalUnits || 0}</p>
+                          <p className="text-zinc-500 text-[10px] font-black uppercase mt-1">Terendah ({lowestMonth?.monthName || '-'})</p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Chart Section */}
+                  <div className="bg-white border border-zinc-200 rounded-lg p-6 shadow-sm">
+                    <h4 className="text-sm font-black uppercase tracking-wider text-zinc-500 mb-4">Grafik Trend Unit Entry (Deduplikasi VIN)</h4>
+                    <div className="h-80 w-full">
+                      <Chart 
+                        type="area"
+                        height="100%"
+                        series={[
+                          {
+                            name: 'Unit Entry Unik',
+                            data: ueData.map(m => m.totalUnits)
+                          },
+                          {
+                            name: 'Internal Work Orders',
+                            data: ueData.map(m => m.internalCount)
+                          },
+                          {
+                            name: 'DMS Repair Contracts',
+                            data: ueData.map(m => m.dmsCount)
+                          }
+                        ]}
+                        options={{
+                          chart: {
+                            id: 'unit-entry-trend',
+                            toolbar: { show: false },
+                            events: {
+                              markerClick: function(event, chartContext, { dataPointIndex }) {
+                                setSelectedUeMonth(ueData[dataPointIndex]);
+                              },
+                              dataPointSelection: function(event, chartContext, { dataPointIndex }) {
+                                setSelectedUeMonth(ueData[dataPointIndex]);
+                              }
+                            }
+                          },
+                          colors: ['#000000', '#6b7280', '#e4e4e7'],
+                          stroke: { curve: 'smooth', width: [3, 2, 2], dashArray: [0, 4, 4] },
+                          fill: {
+                            type: 'gradient',
+                            gradient: {
+                              shadeIntensity: 1,
+                              opacityFrom: 0.3,
+                              opacityTo: 0.05,
+                              stops: [0, 90, 100]
+                            }
+                          },
+                          xaxis: {
+                            categories: ueData.map(m => m.monthName),
+                            labels: {
+                              style: { colors: '#71717a', fontSize: '11px', fontWeight: 600 }
+                            }
+                          },
+                          yaxis: {
+                            labels: {
+                              style: { colors: '#71717a', fontSize: '11px', fontWeight: 600 }
+                            }
+                          },
+                          tooltip: {
+                            theme: 'light',
+                            y: {
+                              formatter: function (val) { return val + " unit"; }
+                            }
+                          },
+                          grid: { borderColor: '#f4f4f5' }
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Monthly Details Grid & List */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Month Picker / Summary List */}
+                    <div className="bg-white border border-zinc-200 rounded-lg p-5 space-y-4">
+                      <h4 className="text-sm font-black uppercase tracking-wider text-zinc-500">Pilih Bulan Detail</h4>
+                      <div className="space-y-2 max-h-96 overflow-y-auto pr-1 custom-scrollbar">
+                        {ueData.map((m) => (
+                          <button
+                            key={m.month}
+                            onClick={() => setSelectedUeMonth(m)}
+                            className={`w-full flex items-center justify-between p-3.5 rounded-lg border text-left transition-all ${
+                              selectedUeMonth?.month === m.month
+                                ? 'bg-zinc-900 border-zinc-900 text-white shadow-md scale-[1.02]'
+                                : 'bg-zinc-50 border-zinc-200 text-zinc-800 hover:bg-zinc-100 hover:border-zinc-300'
+                            }`}
+                          >
+                            <div className="space-y-0.5">
+                              <p className="text-sm font-bold">{m.monthName} {ueYear}</p>
+                              <p className={`text-[9px] font-black uppercase ${
+                                selectedUeMonth?.month === m.month ? 'text-zinc-400' : 'text-zinc-400'
+                              }`}>
+                                WO: {m.internalCount} · DMS: {m.dmsCount}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-lg font-black">{m.totalUnits}</span>
+                              <span className="text-[10px] font-medium block">Mobil</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Vehicle Table for Selected Month */}
+                    <div className="lg:col-span-2 bg-white border border-zinc-200 rounded-lg p-5 flex flex-col h-[480px]">
+                      {selectedUeMonth ? (
+                        <>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 pb-4 mb-4 shrink-0">
+                            <div>
+                              <h4 className="text-zinc-900 font-black text-base uppercase">Rincian Mobil: {selectedUeMonth.monthName} {ueYear}</h4>
+                              <p className="text-zinc-500 text-[10px] font-bold uppercase">{selectedUeMonth.vehicles.length} Unit Kendaraan Unik terdeteksi</p>
+                            </div>
+                            <div className="relative w-full sm:w-60">
+                              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={14} />
+                              <input 
+                                type="text"
+                                placeholder="Cari Plat atau VIN..."
+                                onChange={(e) => {
+                                  const val = e.target.value.toUpperCase();
+                                  setSelectedUeMonth(prev => ({
+                                    ...prev,
+                                    filteredVehicles: selectedUeMonth.vehicles.filter(v => 
+                                      v.plate.toUpperCase().includes(val) || 
+                                      v.vin.toUpperCase().includes(val) ||
+                                      v.customer.toUpperCase().includes(val) ||
+                                      v.vehicleName.toUpperCase().includes(val)
+                                    )
+                                  }));
+                                }}
+                                className="w-full bg-zinc-50 border border-zinc-200 rounded-md pl-9 pr-4 py-2 text-xs text-zinc-900 font-bold focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex-1 overflow-auto custom-scrollbar border border-zinc-200 rounded-md">
+                            <table className="w-full text-left border-collapse text-xs">
+                              <thead>
+                                <tr className="bg-zinc-50 text-zinc-600 text-[9px] font-black uppercase tracking-wider border-b border-zinc-200">
+                                  <th className="px-4 py-3">No</th>
+                                  <th className="px-4 py-3">Plat BK</th>
+                                  <th className="px-4 py-3">Nomor Rangka (VIN)</th>
+                                  <th className="px-4 py-3">Customer</th>
+                                  <th className="px-4 py-3">Kendaraan</th>
+                                  <th className="px-4 py-3 text-center">Sumber</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-zinc-200 font-medium text-zinc-800">
+                                {(selectedUeMonth.filteredVehicles || selectedUeMonth.vehicles).map((v, idx) => (
+                                  <tr key={v.vin} className="hover:bg-zinc-50/50 transition-colors">
+                                    <td className="px-4 py-3 text-zinc-500 font-bold">{idx + 1}</td>
+                                    <td className="px-4 py-3 font-black text-zinc-900 font-mono">{v.plate}</td>
+                                    <td className="px-4 py-3 font-mono font-bold text-zinc-700">{v.vin}</td>
+                                    <td className="px-4 py-3 truncate max-w-[120px]" title={v.customer}>{v.customer}</td>
+                                    <td className="px-4 py-3 font-bold truncate max-w-[120px] text-zinc-600" title={v.vehicleName}>{v.vehicleName}</td>
+                                    <td className="px-4 py-3 text-center">
+                                      <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                                        v.source === 'DMS' 
+                                          ? 'bg-zinc-100 text-black border border-zinc-300' 
+                                          : 'bg-zinc-50 text-zinc-800 border border-zinc-200'
+                                      }`}>
+                                        {v.source}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-full text-zinc-400">
+                          <Car size={36} className="opacity-25 mb-2" />
+                          <p className="text-xs font-bold uppercase tracking-wider">Silakan pilih bulan di samping untuk melihat rincian.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           )}

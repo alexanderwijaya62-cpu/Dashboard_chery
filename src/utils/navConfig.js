@@ -28,6 +28,7 @@ import {
   BarChart3,
   MessageCircle,
   Home,
+  RefreshCw,
 } from 'lucide-react';
 
 /**
@@ -74,6 +75,7 @@ export const NAV_CONFIG = {
     { id: 'sparepart-dms', icon: Search, label: 'DMS Search', page: 'sparepart-dms', ariaLabel: 'DMS Search' },
     { id: 'sparepart-cost', icon: DollarSign, label: 'Sparepart Cost', page: 'sparepart-cost', ariaLabel: 'Sparepart Cost' },
     { id: 'sparepart-profit', icon: Layers, label: 'Predictor', page: 'sparepart-profit', ariaLabel: 'Stock Predictor' },
+    { id: 'sparepart-stock-comparison', icon: RefreshCw, label: 'Stock Comparison', page: 'stock-comparison', ariaLabel: 'Stock Comparison' },
   ],
   owner: [
     { id: 'owner-monitoring', icon: Activity, label: 'Live Monitoring', page: 'owner', ariaLabel: 'Live Monitoring' },
@@ -83,6 +85,7 @@ export const NAV_CONFIG = {
     { id: 'owner-warranty', icon: ShieldCheck, label: 'Warranty Search', page: 'owner-warranty', ariaLabel: 'Warranty Search' },
     { id: 'owner-parts', icon: Truck, label: 'Tracking Pemesanan Part', page: 'owner-parts', ariaLabel: 'Tracking Pemesanan Part' },
     { id: 'owner-users', icon: Users, label: 'Manajemen User', page: 'owner-users', ariaLabel: 'Manajemen User' },
+    { id: 'owner-unit-entry', icon: BarChart3, label: 'Unit Entry', page: 'owner-unit-entry', ariaLabel: 'Unit Entry' },
     { id: 'owner-sound', icon: Settings, label: 'Settings', page: 'owner-sound', ariaLabel: 'Settings' },
     { id: 'owner-deleted', icon: Trash2, label: 'Riwayat Hapus Booking', page: 'owner-deleted', ariaLabel: 'Riwayat Hapus Booking' },
   ],

@@ -17,8 +17,8 @@ const CustomerProfile = ({ user, setUser }) => {
       alert("Semua data wajib diisi!");
       return;
     }
-    if (formData.vin.length !== 17) {
-      setVinError('Nomor rangka (VIN) harus 17 karakter.');
+    if (formData.vin.length !== 4) {
+      setVinError('Nomor rangka (VIN) harus 4 digit terakhir.');
       return;
     }
     setVinError('');
@@ -104,19 +104,19 @@ const CustomerProfile = ({ user, setUser }) => {
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest ml-2">Nomor Rangka (VIN)</label>
+              <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest ml-2">4 Digit Terakhir Nomor Rangka (VIN)</label>
               <div className="relative">
                 <FileText className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-300" size={18} />
                 <input
                   type="text"
                   required
-                  maxLength={17}
+                  maxLength={4}
                   className="w-full bg-zinc-50 border border-zinc-200 p-4 pl-12 rounded-2xl focus:bg-white focus:ring-4 focus:ring-zinc-100 focus:border-black outline-none transition-all font-bold text-black uppercase tracking-wider"
-                  placeholder="17 digit nomor rangka (VIN)"
+                  placeholder="4 digit terakhir VIN"
                   value={formData.vin}
                   onChange={(e) => {
                     setVinError('');
-                    setFormData({ ...formData, vin: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 17) });
+                    setFormData({ ...formData, vin: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) });
                   }}
                 />
                 {vinError && (

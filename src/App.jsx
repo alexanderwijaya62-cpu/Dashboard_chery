@@ -365,7 +365,7 @@ const App = () => {
             manager: ['manager', 'manager-financial', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'display', 'booking-public'],
             cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-booking-approval', 'cro-holidays', 'cro-csi', 'cro-customers', 'display', 'booking-public', 'sa-booking', 'booking-settings'],
             sparepart: ['sparepart-dms-order', 'sparepart-dms', 'sparepart-cost', 'sparepart-profit', 'display', 'booking-public', 'stock-comparison'],
-            owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-sparepart-cost', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'display', 'booking-public', 'stock-comparison'],
+            owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-sparepart-cost', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'owner-unit-entry', 'display', 'booking-public', 'stock-comparison'],
             warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-proforma'],
             foreman: ['foreman', 'booking-public', 'display'],
             security: ['security', 'display', 'booking-public'],
@@ -541,7 +541,7 @@ const App = () => {
       const bookingDateLimit = thirtyDaysAgo.toISOString().split('T')[0];
 
       const [queueResult, historyResult, bookingResult] = await Promise.allSettled([
-        db.select('antrian', { select: 'id,bk,tipe,status,category,queue_number,is_called,called_at,counter,nama_sa' }),
+        db.select('antrian'),
         db.select('history', { select: 'id,bk,tipe,status,waktuMasuk,waktuSelesai,category,mechanicName,nama_sa', order: { column: 'targetTime', ascending: false }, limit: 100 }),
         db.select('booking', { select: 'id,tanggal,jam,status,noPlat,namaCustomer,tipeMobil,keperluanService,noTelp,bookingVia,vin,noUrut,ip_address', gte: { tanggal: bookingDateLimit } }),
       ]);
@@ -599,7 +599,12 @@ const App = () => {
 
       setQueue((activeQueue || []).map(mapDbToApp));
       setRawHistory((historyData || []).map(mapDbToApp));
-      setBookings((bookingData || []).map(mapDbToApp));
+      const todayStr = new Date().toISOString().split('T')[0];
+      const filteredBookings = (bookingData || []).map(mapDbToApp).filter(b => {
+        if (b.status === 'no_show' && b.tanggal && b.tanggal < todayStr) return false;
+        return true;
+      });
+      setBookings(filteredBookings);
     } catch (error) {
       console.error("Gagal mengambil data operasional Supabase", error);
     }
@@ -1167,7 +1172,7 @@ const App = () => {
         const userData = { 
           name: json.name, 
           username: json.username, 
-          role: json.role,
+          role: json.role?.toLowerCase(),
           plat_bk: json.plat_bk,
           vin: json.vin,
           status: json.status || 'active'
@@ -2447,8 +2452,8 @@ const App = () => {
       )}
       {currentPage === 'booking-public' && <PublicBooking user={user} setCurrentPage={navigate} />}
       {currentPage === 'sa-booking' && <SABookingPanel />}
-      {currentPage === 'sales-booking' && user?.role === 'sales' && <StaffBookingPanel user={user} handleChangePassword={handleChangePassword} handleLogout={handleLogout} />}
-      {currentPage === 'spv-booking' && user?.role === 'spv' && <StaffBookingPanel user={user} handleChangePassword={handleChangePassword} handleLogout={handleLogout} />}
+      {currentPage === 'sales-booking' && user?.role?.toLowerCase() === 'sales' && <StaffBookingPanel user={user} handleChangePassword={handleChangePassword} handleLogout={handleLogout} />}
+      {currentPage === 'spv-booking' && user?.role?.toLowerCase() === 'spv' && <StaffBookingPanel user={user} handleChangePassword={handleChangePassword} handleLogout={handleLogout} />}
       {currentPage === 'booking-settings' && <BookingSettings />}
       {currentPage === 'promo' && <PromosiSparepart />}
       {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="performance" />}
@@ -2484,6 +2489,9 @@ const App = () => {
       )}
       {currentPage === 'owner-deleted' && user?.role === 'owner' && (
         <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="deleted_bookings" />
+      )}
+      {currentPage === 'owner-unit-entry' && user?.role === 'owner' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="unit_entry" />
       )}
       {currentPage === 'stock-comparison' && (
         <StockComparison user={user} setCurrentPage={navigate} />

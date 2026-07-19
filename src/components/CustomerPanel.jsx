@@ -174,11 +174,16 @@ const CustomerPanel = ({ user, handleLogout, handleChangePassword, setCurrentPag
             }
           }
         } else {
-          const today = new Date().toDateString();
-          if (!completedShownRef.current) {
-            completedShownRef.current = true;
-            setCompletedInfo({ ...lastQueueRef.current, bk: user.plat_bk, time: Date.now(), day: today });
+          if (lastQueueRef.current) {
+            const today = new Date().toDateString();
+            if (!completedShownRef.current) {
+              completedShownRef.current = true;
+              setCompletedInfo({ ...lastQueueRef.current, bk: user.plat_bk, time: Date.now(), day: today });
+            } else {
+              setMyQueue(null);
+            }
           } else {
+            setCompletedInfo(null);
             setMyQueue(null);
           }
         }

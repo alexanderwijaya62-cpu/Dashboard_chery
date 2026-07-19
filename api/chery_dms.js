@@ -631,6 +631,53 @@ async function handleVehicleSelect(req, res) {
     return res.status(500).json({ error: 'CRO login failed after 2 attempts' });
 }
 
+async function handleInternalPartStocks(req, res) {
+    const BASE = process.env.WARRANTY_BASE_URL;
+    const draw = req.query.draw || 1;
+    const start = req.query.start || 0;
+    const length = req.query.length || 100;
+    const q = req.query.q || '';
+
+    const targetUrl = `${BASE}/aftersales/part/data?draw=${draw}&start=${start}&length=${length}` +
+        `&columns[0][data]=action&columns[0][name]=action&columns[0][searchable]=false&columns[0][orderable]=false&columns[0][search][value]=&columns[0][search][regex]=false` +
+        `&columns[1][data]=part_no_stok&columns[1][name]=part_no_stok&columns[1][searchable]=true&columns[1][orderable]=true&columns[1][search][value]=&columns[1][search][regex]=false` +
+        `&columns[2][data]=part_name_stok&columns[2][name]=part_name_stok&columns[2][searchable]=true&columns[2][orderable]=true&columns[2][search][value]=&columns[2][search][regex]=false` +
+        `&columns[3][data]=hrg_jual_stok&columns[3][name]=hrg_jual_stok&columns[3][searchable]=true&columns[3][orderable]=true&columns[3][search][value]=&columns[3][search][regex]=false` +
+        `&columns[4][data]=saldo_akhir_stok&columns[4][name]=saldo_akhir_stok&columns[4][searchable]=true&columns[4][orderable]=true&columns[4][search][value]=&columns[4][search][regex]=false` +
+        `&columns[5][data]=lokasi_gudang_stok&columns[5][name]=lokasi_gudang_stok&columns[5][searchable]=true&columns[5][orderable]=true&columns[5][search][value]=&columns[5][search][regex]=false` +
+        `&columns[6][data]=gudang_stok&columns[6][name]=gudang_stok&columns[6][searchable]=true&columns[6][orderable]=true&columns[6][search][value]=&columns[6][search][regex]=false` +
+        `&order[0][column]=1&order[0][dir]=asc&search[value]=${encodeURIComponent(q)}&search[regex]=false`;
+
+    let attempts = 0;
+    while (attempts < 2) {
+        if (!croCookie || Date.now() > croCookieExpiry) {
+            croCookie = await croLogin();
+        }
+        const response = await fetchWithHttps(targetUrl, {
+            headers: {
+                'Cookie': croCookie,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': `${BASE}/aftersales/part`,
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        });
+        const body = await response.text();
+        const isHtml = body.trimStart().startsWith('<');
+        if (response.status === 302 || response.status === 401 || isHtml) {
+            croCookie = null;
+            attempts++;
+            continue;
+        }
+        try {
+            return res.status(200).json(JSON.parse(body));
+        } catch {
+            return res.status(500).json({ error: 'Non-JSON response from internal parts select', snippet: body.slice(0, 200) });
+        }
+    }
+    return res.status(500).json({ error: 'CRO login failed after 2 attempts' });
+}
+
 async function handleBookingCreate(req, res) {
     const BASE = process.env.WARRANTY_BASE_URL;
     let attempts = 0;
@@ -1186,9 +1233,10 @@ export default async function handler(req, res) {
         return res.status(200).json({ data: allData });
     }
 
-    if (endpoint === 'vehicle-select' || endpoint.startsWith('booking-')) {
+    if (endpoint === 'vehicle-select' || endpoint === 'internal-part-stocks' || endpoint.startsWith('booking-')) {
         try {
             if (endpoint === 'vehicle-select') return await handleVehicleSelect(req, res);
+            if (endpoint === 'internal-part-stocks') return await handleInternalPartStocks(req, res);
             if (endpoint === 'booking-create') return await handleBookingCreate(req, res);
             if (endpoint === 'booking-reschedule') return await handleBookingReschedule(req, res);
             if (endpoint === 'booking-edit') return await handleBookingEdit(req, res);
@@ -1294,6 +1342,13 @@ export default async function handler(req, res) {
             } else if (endpoint === 'proforma-detail') {
                 const id = req.query.id || '';
                 targetUrl = `https://dms.chery.co.id/afterSales/api/v1/claimSettlements/${id}`;
+            } else if (endpoint === 'repair-contracts') {
+                const beginCreateTime = req.query.beginCreateTime || '';
+                const endCreateTime = req.query.endCreateTime || '';
+                const rcPageSize = 50;
+                targetUrl = `https://dms.chery.co.id/dms/afterSales/api/v1/repairContracts?pageIndex=0&pageSize=${rcPageSize}`;
+                if (beginCreateTime) targetUrl += `&beginCreateTime=${encodeURIComponent(beginCreateTime)}`;
+                if (endCreateTime) targetUrl += `&endCreateTime=${encodeURIComponent(endCreateTime)}`;
             } else if (endpoint === 'repair-contract-detail') {
                 const id = req.query.id || '';
                 targetUrl = `https://dms.chery.co.id/afterSales/api/v1/repairContracts/${id}`;
@@ -1362,6 +1417,10 @@ export default async function handler(req, res) {
                     } catch { return o; }
                 }));
                 data = { payload: { content: withDetails, totalPages: 1, totalElements: withDetails.length } };
+            } else if (endpoint === 'dms-part-stocks') {
+                targetUrl = `https://dms.chery.co.id/dms/parts/api/v1/partStocks/forRetail?pageIndex=${pageIndex}&pageSize=${pageSize}`;
+                if (code) targetUrl += `&partCode=${encodeURIComponent(code)}`;
+                if (name) targetUrl += `&partName=${encodeURIComponent(name)}`;
             } else if (endpoint === 'part_orders') {
                 const orderCode = req.query.orderCode || '';
                 targetUrl = `https://dms.chery.co.id/parts/api/v1/partSaleOrders/forCurrentUser?pageIndex=${pageIndex}&pageSize=${pageSize}&isBuyer=true`;
@@ -1421,6 +1480,62 @@ export default async function handler(req, res) {
 
             data = await response.json();
             break;
+        }
+
+        if (endpoint === 'repair-contracts' && data?.payload) {
+            const rcPayload = data.payload;
+            const totalPages = rcPayload.totalPages || 1;
+            if (totalPages > 1) {
+                let allContent = rcPayload.content || [];
+                const beginCreateTime = req.query.beginCreateTime || '';
+                const endCreateTime = req.query.endCreateTime || '';
+                let urlSuffix = '';
+                if (beginCreateTime) urlSuffix += `&beginCreateTime=${encodeURIComponent(beginCreateTime)}`;
+                if (endCreateTime) urlSuffix += `&endCreateTime=${encodeURIComponent(endCreateTime)}`;
+
+                const rcHeaders = {
+                    'Cookie': cachedCookie,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+                    'Referer': 'https://dms.chery.co.id/',
+                    'Origin': 'https://dms.chery.co.id',
+                    'Accept': 'application/json, application/vnd.api+json',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Content-Type': 'application/json',
+                    'Connection': 'keep-alive'
+                };
+                const rcPageSize = 50;
+
+                for (let p = 1; p < totalPages && p < 50; p += 5) {
+                    const batch = [];
+                    for (let j = p; j < Math.min(p + 5, totalPages); j++) {
+                        batch.push(j);
+                    }
+                    const results = await Promise.allSettled(
+                        batch.map(pg =>
+                            fetchWithHttps(
+                                `https://dms.chery.co.id/dms/afterSales/api/v1/repairContracts?pageIndex=${pg}&pageSize=${rcPageSize}${urlSuffix}`,
+                                { method: 'GET', headers: rcHeaders }
+                            ).then(r => r.json())
+                        )
+                    );
+                    results.forEach(r => {
+                        if (r.status === 'fulfilled') {
+                            const items = r.value?.payload?.content || r.value?.content || [];
+                            allContent = allContent.concat(items);
+                        }
+                    });
+                }
+
+                data = {
+                    payload: {
+                        content: allContent,
+                        pageSize: allContent.length,
+                        pageIndex: 0,
+                        totalPages: 1,
+                        totalElements: allContent.length
+                    }
+                };
+            }
         }
 
         return res.status(200).json(data);
