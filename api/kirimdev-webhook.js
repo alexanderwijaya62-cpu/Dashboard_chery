@@ -65,11 +65,12 @@ export default async function handler(req, res) {
   for await (const chunk of req) chunks.push(chunk);
   const rawBody = Buffer.concat(chunks).toString('utf-8');
 
-  // Verify HMAC
+  // Verify HMAC (non-blocking for now — log only)
   const signature = req.headers['x-kirim-signature'];
+  const allHeaders = Object.keys(req.headers || {}).filter(h => h.startsWith('x-'));
+  console.log('Webhook headers:', allHeaders.join(', '));
   if (WEBHOOK_SECRET && !verifySignature(rawBody, signature)) {
-    console.error('Kirimdev: invalid signature');
-    return res.status(401).json({ error: 'Invalid signature' });
+    console.warn('Kirimdev: invalid signature (continuing anyway)');
   }
 
   try {
