@@ -135,12 +135,10 @@ export default function SparepartPredictor() {
         }
       }
 
-      // Qty dari gabungan kolom Q (16) dan R (17)
+      // Qty dari kolom Q (index 16) saja
       const colQ = row[16] != null ? String(row[16]).trim() : '';
-      const colR = row[17] != null ? String(row[17]).trim() : '';
-      const combined = (colQ + colR).replace(/\s/g, '');
-      if (combined !== '') {
-        record.Qty = isNaN(Number(combined)) ? combined : Number(combined);
+      if (colQ !== '') {
+        record.Qty = isNaN(Number(colQ)) ? colQ : Number(colQ);
       }
 
       if (record.NoTransaksi || record.PartNo || record.PartName) {
