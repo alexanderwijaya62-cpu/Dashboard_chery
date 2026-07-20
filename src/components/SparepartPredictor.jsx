@@ -106,7 +106,7 @@ export default function SparepartPredictor() {
     };
 
     const cleaned = [];
-    rows.forEach((row, ri) => {
+    rows.forEach((row) => {
       if (!row || typeof row.some !== 'function') return;
       if (row.every(cell => cell == null || String(cell).trim() === '')) return;
 
@@ -118,20 +118,15 @@ export default function SparepartPredictor() {
       }
 
       if (record.Qty == null || record.Qty === '') {
-        const colQ = row[16] != null ? String(row[16]).trim() : '';
-        const colR = row[17] != null ? String(row[17]).trim() : '';
-        const qtyVal = colQ || colR;
-        if (qtyVal !== '') {
-          record.Qty = isNaN(Number(qtyVal)) ? qtyVal : Number(qtyVal);
+        for (const ci of [15, 16, 17]) {
+          if (ci < row.length && row[ci] != null && String(row[ci]).trim() !== '') {
+            const v = Number(String(row[ci]).trim());
+            if (!isNaN(v)) {
+              record.Qty = v;
+              break;
+            }
+          }
         }
-      }
-
-      if (ri === 0) {
-        console.log('=== SPAREPART PREDICTOR DEBUG ===');
-        console.log('Headers:', rawHeaders);
-        console.log('Headers (cleaned):', headers);
-        console.log('Header positions:', pos);
-        console.log('First data row:', row);
       }
 
       if (record.NoTransaksi || record.PartNo || record.PartName) {
