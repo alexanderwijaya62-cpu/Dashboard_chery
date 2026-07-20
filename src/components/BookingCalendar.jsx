@@ -109,7 +109,7 @@ export default function BookingCalendar({
                         className="p-2 bg-white border border-zinc-100 rounded-xl hover:bg-zinc-900 hover:text-white transition-all shadow-sm">
                         <ChevronLeft size={16} />
                     </button>
-                    <h4 className="text-[11px] font-black uppercase tracking-[0.15em] text-zinc-900">
+                    <h4 className="text-xs font-black uppercase tracking-[0.15em] text-zinc-900">
                         {currentCalMonth.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
                     </h4>
                     <button type="button" onClick={() => changeCalMonth(1)}
@@ -117,7 +117,7 @@ export default function BookingCalendar({
                         <ChevronRight size={16} />
                     </button>
                 </div>
-                <div className="grid grid-cols-7 gap-1 text-center text-[8px] font-black uppercase text-zinc-400 mb-2">
+                <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black uppercase text-zinc-400 mb-2">
                     {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sat'].map(d => <div key={d}>{d}</div>)}
                 </div>
                 <div className="grid grid-cols-7 gap-2">
@@ -139,12 +139,12 @@ export default function BookingCalendar({
                                     isActive ? 'bg-black border-black text-white shadow-lg z-10 scale-110' : fillBg || 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
                                 } ${!disabled && satDay && !isActive ? 'border-amber-300 bg-amber-50' : ''}`}
                             >
-                                <span className="text-[11px] font-black">{item.day}</span>
+                                <span className="text-sm font-black">{item.day}</span>
                                 {!disabled && satDay && (
-                                    <span className="text-[5px] font-black text-amber-500 leading-none uppercase">Sab</span>
+                                    <span className="text-[8px] font-black text-amber-500 leading-none uppercase">Sab</span>
                                 )}
                                 {!disabled && fill && (
-                                    <span className="text-[6px] opacity-70 leading-none">{fill.count}/{fill.total}</span>
+                                    <span className="text-[9px] opacity-70 leading-none">{fill.count}/{fill.total}</span>
                                 )}
                             </button>
                         );
@@ -155,7 +155,7 @@ export default function BookingCalendar({
             {/* Time Slots */}
             {showTimeSlots && selectedDate && (
                 <div className="space-y-2">
-                    <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1 flex items-center gap-2">
+                    <h4 className="text-xs font-black uppercase tracking-widest text-zinc-400 ml-1 flex items-center gap-2">
                         Jam Kedatangan
                         {satHighlight && <span className="text-amber-500 normal-case tracking-normal">(Sabtu — jam terbatas)</span>}
                     </h4>
@@ -169,12 +169,12 @@ export default function BookingCalendar({
                             return (
                                 <button key={slot} type="button" disabled={isPastTime || isFull}
                                     onClick={() => onTimeSelect?.(slot)}
-                                    className={`py-3 px-2 rounded-xl border-2 font-black text-[9px] uppercase tracking-widest transition-all ${selectedTime === slot ? 'bg-black border-black text-white shadow-lg' :
+                                    className={`py-3 px-2 rounded-xl border-2 font-black text-sm uppercase tracking-widest transition-all ${selectedTime === slot ? 'bg-black border-black text-white shadow-lg' :
                                         isPastTime || isFull ? 'bg-zinc-50 border-transparent text-zinc-200 cursor-not-allowed' : satHighlight ? 'bg-white border-amber-200 text-amber-500 hover:border-amber-500 hover:text-amber-900' : 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
                                     }`}
                                 >
                                     {h}:{m} WIB
-                                    <span className="text-[6px] opacity-70 block">{count}/{selectedCapacity}</span>
+                                    <span className="text-[10px] opacity-70 block">{count}/{selectedCapacity}</span>
                                 </button>
                             );
                         })}

@@ -686,13 +686,13 @@ export default function PublicBooking({ user, setCurrentPage }) {
                                 </div>
                                  <div className="flex items-center gap-3 md:gap-4 shrink-0">
                                      <div className="bg-[#2A2A2A] px-3 md:px-5 py-3 md:py-4 rounded-2xl md:rounded-3xl border border-white/5 text-center flex flex-col items-center">
-                                         <p className="text-[6.5px] md:text-[8px] font-black text-zinc-500 uppercase tracking-widest mb-1 leading-none">Total Slots</p>
+                                         <p className="text-[8px] md:text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1 leading-none">Total Slots</p>
                                          <p className="text-sm md:text-base font-black text-white leading-none">
                                             {JAM_PILIHAN.length}
                                          </p>
                                      </div>
                                      <div className="bg-emerald-500/10 px-3 md:px-5 py-3 md:py-4 rounded-2xl md:rounded-3xl border border-emerald-500/20 text-center flex flex-col items-center">
-                                          <p className="text-[6.5px] md:text-[8px] font-black text-emerald-500 uppercase tracking-widest mb-1 leading-none">Sisa Slot</p>
+                                           <p className="text-[8px] md:text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1 leading-none">Sisa Slot</p>
                                           <p className="text-sm md:text-base font-black text-emerald-400 leading-none">
                                              {!isSlotsReady ? '...' :
                                              (() => {
@@ -730,10 +730,10 @@ export default function PublicBooking({ user, setCurrentPage }) {
                                                         {jam}
                                                     </div>
                                                     <div className="flex flex-col justify-center">
-                                                        <p className={`text-[8.5px] md:text-[10px] font-black uppercase tracking-widest mb-1 text-white opacity-80`}>
+                                                        <p className={`text-[10px] md:text-xs font-black uppercase tracking-widest mb-1 text-white opacity-80`}>
                                                              {!isSlotsReady ? 'Memuat data...' : isOccupied ? `Slot Penuh (${bookingsAtThisTime.length}/${getCapacityForDate(selectedDate, bookingConfig) || 1})` : isPastTime ? 'Waktu Terlewati' : `Sisa Slot: ${Math.max(0, (getCapacityForDate(selectedDate, bookingConfig) || 1) - bookingsAtThisTime.length)} Unit`}
                                                         </p>
-                                                        <h4 className={`text-sm md:text-base font-black tracking-tight text-white`}>
+                                                        <h4 className={`text-base md:text-lg font-black tracking-tight text-white`}>
                                                             {!isSlotsReady ? 'LOADING' : isOccupied ? 'FULL BOOKED' : isPastTime ? 'CLOSED' : 'Klik Reservasi'}
                                                         </h4>
                                                     </div>

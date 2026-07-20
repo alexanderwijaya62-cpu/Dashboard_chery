@@ -843,7 +843,7 @@ export default function CroBookingPanel({ user }) {
 
                                             {/* Quick time slots */}
                                             <div className="space-y-2">
-                                                <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Jam Kedatangan</h4>
+                                                <h4 className="text-xs font-black uppercase tracking-widest text-zinc-400 ml-1">Jam Kedatangan</h4>
                                                 <div className="grid grid-cols-3 gap-2">
                                                     {getSlotsForDate(formData.tanggal, slotConfig).map((slot) => {
                                                         const [h, m] = slot.split('.');
@@ -858,12 +858,12 @@ export default function CroBookingPanel({ user }) {
                                                         return (
                                                             <button key={slot} type="button" disabled={isPastTime || (isFull && formData.jam !== slot)}
                                                                 onClick={() => setFormData({ ...formData, jam: slot })}
-                                                                className={`py-2.5 px-2 rounded-xl border-2 font-black text-[9px] uppercase tracking-widest transition-all ${formData.jam === slot ? 'bg-black border-black text-white shadow-lg' :
+                                                                className={`py-3 px-2 rounded-xl border-2 font-black text-sm uppercase tracking-widest transition-all ${formData.jam === slot ? 'bg-black border-black text-white shadow-lg' :
                                                                     isPastTime || isFull ? 'bg-zinc-50 border-transparent text-zinc-200 cursor-not-allowed' : 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
                                                                 }`}
                                                             >
                                                                 {h}:{m} WIB
-                                                                <span className="text-[6px] opacity-70 block">{count}/{cap}</span>
+                                                                <span className="text-[10px] opacity-70 block">{count}/{cap}</span>
                                                             </button>
                                                         );
                                                     })}
