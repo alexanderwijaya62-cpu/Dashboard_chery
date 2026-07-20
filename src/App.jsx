@@ -308,6 +308,7 @@ const App = () => {
 
     // Map public paths to pages (No Login Required)
     if (path === '/booking') { setCurrentPage('booking-public'); return; }
+    if (path === '/display') { setCurrentPage('display'); return; }
 
     // 1. PUBLIC ROUTES — hanya login yang bisa diakses tanpa auth
     const publicPaths = ['/login', '/register'];
@@ -534,7 +535,8 @@ const App = () => {
   }, []);
 
   const fetchQueue = React.useCallback(async () => {
-    if (!user) return;
+    const isPublicDisplay = window.location.pathname === '/display';
+    if (!user && !isPublicDisplay) return;
     try {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -643,19 +645,21 @@ const App = () => {
 
   // Sinkronisasi dengan Supabase Realtime
   useEffect(() => {
-    if (userRef.current && userRef.current.role !== 'customer') fetchQueue();
+    const isPublicDisplay = window.location.pathname === '/display';
+    const shouldFetch = isPublicDisplay || (userRef.current && userRef.current.role !== 'customer');
+    if (shouldFetch) fetchQueue();
 
     const antrianSubscription = supabase
       .channel('antrian-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'antrian' }, (payload) => {
-        if (userRef.current && userRef.current.role !== 'customer') debouncedFetchQueue();
+        if (isPublicDisplay || (userRef.current && userRef.current.role !== 'customer')) debouncedFetchQueue();
       })
       .subscribe();
 
     const historySubscription = supabase
       .channel('history-changes')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'history' }, () => {
-        if (userRef.current && userRef.current.role !== 'customer') debouncedFetchQueue();
+        if (isPublicDisplay || (userRef.current && userRef.current.role !== 'customer')) debouncedFetchQueue();
       })
       .subscribe();
 
@@ -663,7 +667,7 @@ const App = () => {
       .channel('booking-changes-global')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'booking' }, (payload) => {
         if (payload.eventType === 'UPDATE' && payload.new?.status === payload.old?.status) return;
-        if (userRef.current && userRef.current.role !== 'customer') debouncedFetchQueue();
+        if (isPublicDisplay || (userRef.current && userRef.current.role !== 'customer')) debouncedFetchQueue();
       })
       .subscribe();
 
@@ -2356,7 +2360,7 @@ const App = () => {
   }
 
   // Determine if navbars should be shown
-  const showNavbar = currentPage !== 'login' && currentPage !== 'register' && user?.role?.toLowerCase() !== 'display';
+  const showNavbar = user && currentPage !== 'login' && currentPage !== 'register' && user?.role?.toLowerCase() !== 'display';
   // Check if on a dashboard page (not public)
   const publicPages = ['display', 'booking-public', 'login', 'register'];
   const isOnDashboard = user && !publicPages.includes(currentPage);
