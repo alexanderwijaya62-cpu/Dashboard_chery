@@ -116,7 +116,7 @@ export default function SparepartPredictor() {
       PartNo: findPos('partno', 'part_no', 'partnumber'),
       PartName: findPos('partname', 'part_name', 'nama_part'),
       Type: findPos('type', 'tipe'),
-      // Qty diambil langsung dari gabungan kolom Q+R, bukan dari header
+      Qty: findPos('qty', 'quantity'),
       HargaSatuan: findPos('hargasatuan', 'harga_satuan', 'price'),
       Discount: findPos('discount', 'diskon'),
       HargaJual: findPos('hargajual', 'harga_jual'),
@@ -135,12 +135,22 @@ export default function SparepartPredictor() {
         }
       }
 
-      // Qty dari kolom Q (index 16) atau R (index 17), posisi tidak konsisten
-      const colQ = row[16] != null ? String(row[16]).trim() : '';
-      const colR = row[17] != null ? String(row[17]).trim() : '';
-      const qtyVal = colQ || colR;
-      if (qtyVal !== '') {
-        record.Qty = isNaN(Number(qtyVal)) ? qtyVal : Number(qtyVal);
+      // Qty dari kolom Q (index 16) atau R (index 17), fallback jika findPos salah
+      if (record.Qty == null || record.Qty === '') {
+        const colQ = row[16] != null ? String(row[16]).trim() : '';
+        const colR = row[17] != null ? String(row[17]).trim() : '';
+        const qtyVal = colQ || colR;
+        if (qtyVal !== '') {
+          record.Qty = isNaN(Number(qtyVal)) ? qtyVal : Number(qtyVal);
+        }
+      }
+
+      if (ri === 0) {
+        console.log('=== SPAREPART PREDICTOR DEBUG ===');
+        console.log('Headers:', rawHeaders);
+        console.log('Headers (cleaned):', headers);
+        console.log('Header positions:', pos);
+        console.log('First data row:', row);
       }
 
       if (record.NoTransaksi || record.PartNo || record.PartName) {
