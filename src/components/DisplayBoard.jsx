@@ -14,26 +14,26 @@ const SLIDE_INTERVAL = 5000;
 
 
 
-const isSameDate = (d1, d2) => {
-   const normalize = (d) => {
-      if (!d) return "";
-      if (d instanceof Date) return d.toLocaleDateString('en-CA');
-      let str = String(d).split(/[T ]/)[0];
-      if (str.includes("/")) {
-         const parts = str.split("/");
-         if (parts.length === 3) {
-            const [dd, mm, yyyy] = parts;
-            return `${yyyy.split(',')[0]}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
-         }
-      }
-      if (!isNaN(str) && str.length >= 10) {
-         const ms = parseInt(str);
-         const date = ms < 10000000000 ? new Date(ms * 1000) : new Date(ms);
-         return date.toLocaleDateString('en-CA');
-      }
-      return str;
-   };
-   return normalize(d1) === normalize(d2);
+const isSameDate = (dateA, dateB) => {
+    const normalize = (d) => {
+        if (!d) return "";
+        if (d instanceof Date) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        };
+        const str = String(d);
+        if (str.includes("/")) {
+            const parts = str.split(/[ /,-]/);
+            if (parts.length === 3) {
+                if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+                return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+            }
+        }
+        return str.split(/[T ]/)[0];
+    };
+    return normalize(dateA) === normalize(dateB);
 };
 
 const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onComplete }) => {
@@ -536,6 +536,7 @@ const bScore = b.status === 'working' ? 0 : b.status === 'istirahat' ? 1 : 2;
 
       const todayBookingsRaw = bookings.filter(b => {
          if (!b.tanggal || !isSameDate(b.tanggal, todayStr)) return false;
+         if (['synced', 'no_show', 'cancelled', 'declined', 'deleted'].includes(b.status)) return false;
          if (queueToUse.some(pq => pq.bk === b.bk)) return false;
          return true;
       });

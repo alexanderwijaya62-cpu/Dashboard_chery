@@ -334,7 +334,7 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
 
         // Get all booked entries for today
         const bookedEntries = mergedTodayBookings
-            .filter(b => isSameDay(b.tanggal, todayStr) && b.status !== 'completed' && b.status !== 'declined' && b.status !== 'deleted' && b.status !== 'cancelled')
+            .filter(b => isSameDay(b.tanggal, todayStr) && b.status !== 'completed' && b.status !== 'declined' && b.status !== 'deleted' && b.status !== 'cancelled' && b.status !== 'synced' && b.status !== 'no_show')
             .map(b => {
                 const plat = normalizeBK(b.noPlat);
                 const isArrived = activePlates.has(plat) || historyPlatesToday.has(plat);

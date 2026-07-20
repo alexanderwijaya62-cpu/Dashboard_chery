@@ -110,6 +110,9 @@ const isToday = (time) => {
 const App = () => {
   // --- 1. STATE DEFINITIONS ---
   const [currentPage, setCurrentPage] = useState(() => {
+        const path = window.location.pathname.toLowerCase();
+        if (path === '/display') return 'display';
+        if (path === '/booking') return 'booking-public';
         return localStorage.getItem('chery_current_page') || 'login';
   });
   const [user, setUser] = useState(() => {
