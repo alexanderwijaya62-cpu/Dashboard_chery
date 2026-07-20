@@ -27,7 +27,7 @@ const normalizeJam = (j) => {
     return `${h}.${m}`;
 };
 
-const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistory = [], deleteItem, clearQueue, editItem, handleSave, handleCancelEdit, formData, setFormData, isEditing, setIsEditing, errorMessage, isLoadingProcess, formatTime, handleComplete, handleConfirmCompletion, handleSetOvernight, handleCancelOvernight, breakSettings, setBreakSettings, handleAddTask, handleRemoveTask, handleToggleTask, playNotificationSound, handleCallQueue, activeTab: activeTabProp, callCooldown = 120, onApproveExtension, onRejectExtension, handleStartCuci, handleCompleteCuci }) => {
+const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistory = [], deleteItem, clearQueue, editItem, handleSave, handleCancelEdit, formData, setFormData, isEditing, setIsEditing, errorMessage, isLoadingProcess, formatTime, handleComplete, handleConfirmCompletion, handleSetOvernight, handleCancelOvernight, breakSettings, setBreakSettings, handleAddTask, handleRemoveTask, handleToggleTask, playNotificationSound, handleCallQueue, activeTab: activeTabProp, callCooldown = 120, onApproveExtension, onRejectExtension, handleStartCuci, handleCompleteCuci, showJenis = true, showChecklist = true }) => {
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [bookingConfigState, setBookingConfigState] = useState({ slotCount: 8, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 });
     const [currentDay, setCurrentDay] = useState(new Date().toDateString());
@@ -418,7 +418,7 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
             ...formData,
             bk: (booking.noPlat || '').toUpperCase().replace(/\s+/g, ''),
             tipe: (booking.tipeMobil || '').toUpperCase(),
-            category: booking.isLate ? 'Reguler' : 'Booking',
+            category: 'Booking',
             keluhan: booking.keperluanService || '',
             jam: 0, menit: 30, detik: 0, mechanicName: ''
         });
@@ -618,7 +618,7 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
                                                             <CheckCircle2 size={8} /> Sudah Datang
                                                         </span>
                                                     </div>
-                                                ) : !b.isEmpty && (b.isLate || b.status === 'dipindahkan_reguler') ? (
+                                                ) : !b.isEmpty && b.status === 'dipindahkan_reguler' ? (
                                                     <div className="ml-10 mt-1 flex flex-col gap-1">
                                                         <span className="bg-amber-400/80 text-white text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest flex items-center gap-0.5 w-fit border border-amber-300/50">
                                                             <AlertCircle size={8} /> Terlambat 30m+
@@ -795,6 +795,7 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
                             </div>
 
                             {/* Row: Jenis Pekerjaan */}
+                            {showJenis && (
                             <div>
                                 <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">Jenis Pekerjaan</label>
                                 <div className="flex flex-col gap-3">
@@ -851,8 +852,10 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
                                         className="w-full bg-zinc-50 border border-zinc-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-black focus:bg-white transition-all min-h-[60px] mt-2" />
                                 )}
                             </div>
+                            )}
 
                             {/* Checklist */}
+                            {showChecklist && (
                             <div>
                                 <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">Job Checklist</label>
                                 <div className="flex gap-2 mb-2">
@@ -892,6 +895,7 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
                                     )}
                                 </div>
                             </div>
+                            )}
 
                             {/* Reason Menginap (edit mode only) */}
                             {isEditing && formData.status === 'menginap' && (

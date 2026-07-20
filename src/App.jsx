@@ -700,6 +700,8 @@ const App = () => {
   const customSoundChecked = React.useRef(false);
   const autoMenginapEnabledRef = React.useRef(true);
   const callCooldownRef = React.useRef(120);
+  const adminShowJenisRef = React.useRef(true);
+  const adminShowChecklistRef = React.useRef(true);
 
   // Fetch custom notification sound URL — only when logged in
   React.useEffect(() => {
@@ -713,6 +715,8 @@ const App = () => {
             { op: 'eq', column: 'key', value: 'notification_sound_enabled' },
             { op: 'eq', column: 'key', value: 'auto_menginap_enabled' },
             { op: 'eq', column: 'key', value: 'call_cooldown_seconds' },
+            { op: 'eq', column: 'key', value: 'admin_show_jenis' },
+            { op: 'eq', column: 'key', value: 'admin_show_checklist' },
           ]
         });
         if (Array.isArray(data)) {
@@ -721,6 +725,8 @@ const App = () => {
           if (map.notification_sound_enabled) setIsSoundEnabled(map.notification_sound_enabled === 'true');
           autoMenginapEnabledRef.current = map.auto_menginap_enabled ? map.auto_menginap_enabled === 'true' : true;
           if (map.call_cooldown_seconds) callCooldownRef.current = parseInt(map.call_cooldown_seconds) || 120;
+          if (map.admin_show_jenis) adminShowJenisRef.current = map.admin_show_jenis === 'true';
+          if (map.admin_show_checklist) adminShowChecklistRef.current = map.admin_show_checklist === 'true';
         }
       } catch (e) {
         // Silently skip if table missing or other error
@@ -745,6 +751,12 @@ const App = () => {
           if (payload.new.key === 'call_cooldown_seconds') {
             callCooldownRef.current = parseInt(payload.new.value) || 120;
           }
+          if (payload.new.key === 'admin_show_jenis') {
+            adminShowJenisRef.current = payload.new.value === 'true';
+          }
+          if (payload.new.key === 'admin_show_checklist') {
+            adminShowChecklistRef.current = payload.new.value === 'true';
+          }
         }
         if (payload.eventType === 'DELETE') {
           if (payload.old?.key === 'notification_sound_url') {
@@ -755,6 +767,12 @@ const App = () => {
           }
           if (payload.old?.key === 'call_cooldown_seconds') {
             callCooldownRef.current = 120;
+          }
+          if (payload.old?.key === 'admin_show_jenis') {
+            adminShowJenisRef.current = true;
+          }
+          if (payload.old?.key === 'admin_show_checklist') {
+            adminShowChecklistRef.current = true;
           }
         }
       })
@@ -2380,7 +2398,7 @@ const App = () => {
         </button>
       )}
       {currentPage === 'login' && <LoginPage loginForm={loginForm} setLoginForm={setLoginForm} handleLogin={handleLogin} errorMessage={errorMessage} setCurrentPage={navigate} />}
-      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleConfirmCompletion={handleConfirmCompletion} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} handleCallQueue={handleCallQueue} activeTab="dashboard" callCooldown={callCooldownRef.current} onApproveExtension={handleApproveExtension} onRejectExtension={handleRejectExtension} handleStartCuci={handleStartCuci} handleCompleteCuci={handleCompleteCuci} />}
+      {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleConfirmCompletion={handleConfirmCompletion} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} handleCallQueue={handleCallQueue} activeTab="dashboard" callCooldown={callCooldownRef.current} onApproveExtension={handleApproveExtension} onRejectExtension={handleRejectExtension} handleStartCuci={handleStartCuci} handleCompleteCuci={handleCompleteCuci} showJenis={adminShowJenisRef.current} showChecklist={adminShowChecklistRef.current} />}
       {currentPage === 'admin-booking' && <CroBookingPanel user={user} />}
       {currentPage === 'admin-wo' && <WarrantyWorkOrderPage />}
       {currentPage === 'mechanic' && (

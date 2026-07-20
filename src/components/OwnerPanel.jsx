@@ -66,6 +66,8 @@ export default function OwnerPanel({
   const [isCroImagesEnabled, setIsCroImagesEnabled] = useState(true);
   const [isAutoMenginapEnabled, setIsAutoMenginapEnabled] = useState(true);
   const [callCooldown, setCallCooldown] = useState(120);
+  const [isAdminJenisEnabled, setIsAdminJenisEnabled] = useState(true);
+  const [isAdminChecklistEnabled, setIsAdminChecklistEnabled] = useState(true);
   const [mechanics, setMechanics] = useState([]);
   const soundFileRef = React.useRef(null);
   const audioRef = React.useRef(null);
@@ -1345,6 +1347,8 @@ export default function OwnerPanel({
           { op: 'eq', column: 'key', value: 'notification_sound_enabled' },
           { op: 'eq', column: 'key', value: 'auto_menginap_enabled' },
           { op: 'eq', column: 'key', value: 'call_cooldown_seconds' },
+          { op: 'eq', column: 'key', value: 'admin_show_jenis' },
+          { op: 'eq', column: 'key', value: 'admin_show_checklist' },
         ]
       });
       if (Array.isArray(data)) {
@@ -1353,11 +1357,13 @@ export default function OwnerPanel({
         if (map.notification_sound_enabled) setIsSoundEnabled(map.notification_sound_enabled === 'true');
         if (map.auto_menginap_enabled) setIsAutoMenginapEnabled(map.auto_menginap_enabled === 'true');
         if (map.call_cooldown_seconds) setCallCooldown(parseInt(map.call_cooldown_seconds) || 120);
+        if (map.admin_show_jenis) setIsAdminJenisEnabled(map.admin_show_jenis === 'true');
+        if (map.admin_show_checklist) setIsAdminChecklistEnabled(map.admin_show_checklist === 'true');
       }
     } catch (e) { 
       // Silently ignore table errors
     }
-  }, [setNotifSoundUrl, setIsSoundEnabled, setIsAutoMenginapEnabled, setCallCooldown]);
+  }, []);
 
   useEffect(() => {
     fetchNotifSettings();
@@ -1452,6 +1458,28 @@ export default function OwnerPanel({
     try {
       await db.upsert('settings', { key: 'call_cooldown_seconds', value: String(sec) }, { onConflict: 'key' });
       Toastify({ text: `⏱ Cooldown panggilan: ${sec} detik`, style: { background: '#10b981' } }).showToast();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleToggleAdminJenis = async () => {
+    const newState = !isAdminJenisEnabled;
+    setIsAdminJenisEnabled(newState);
+    try {
+      await db.upsert('settings', { key: 'admin_show_jenis', value: newState.toString() }, { onConflict: 'key' });
+      Toastify({ text: `🔧 Jenis Pekerjaan di Admin ${newState ? 'AKTIF' : 'NONAKTIF'}`, style: { background: newState ? '#10b981' : '#ef4444' } }).showToast();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleToggleAdminChecklist = async () => {
+    const newState = !isAdminChecklistEnabled;
+    setIsAdminChecklistEnabled(newState);
+    try {
+      await db.upsert('settings', { key: 'admin_show_checklist', value: newState.toString() }, { onConflict: 'key' });
+      Toastify({ text: `🔧 Checklist di Admin ${newState ? 'AKTIF' : 'NONAKTIF'}`, style: { background: newState ? '#10b981' : '#ef4444' } }).showToast();
     } catch (err) {
       console.error(err);
     }
@@ -3848,6 +3876,44 @@ export default function OwnerPanel({
                         onKeyDown={(e) => { if (e.key === 'Enter') handleSaveCooldown(e.target.value); }}
                         className="w-20 bg-white border border-zinc-300 rounded-md px-3 py-2 text-center font-black text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20" />
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Detik</span>
+                    </div>
+                  </div>
+
+                  {/* Admin: Jenis Pekerjaan Toggle */}
+                  <div className="flex-1 bg-zinc-100 border border-zinc-200 rounded-md p-6 flex items-center justify-between">
+                    <div>
+                      <p className="text-zinc-900 font-black text-sm mb-1 uppercase tracking-tight">Admin: Jenis Pekerjaan</p>
+                      <p className="text-zinc-500 text-[10px] font-medium">Tampilkan field jenis pekerjaan di form Admin. OFF = admin hanya panggil + atur waktu.</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${isAdminJenisEnabled ? 'text-black' : 'text-zinc-400'}`}>
+                        {isAdminJenisEnabled ? 'Active' : 'Disabled'}
+                      </span>
+                      <button 
+                        onClick={handleToggleAdminJenis}
+                        className={`relative w-14 h-8 rounded-full transition-all duration-300 border-2 ${isAdminJenisEnabled ? 'bg-black border-black shadow-lg' : 'bg-zinc-200 border-zinc-300'}`}
+                      >
+                        <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all duration-300 shadow-sm ${isAdminJenisEnabled ? 'left-7' : 'left-1'}`}></div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Admin: Checklist Toggle */}
+                  <div className="flex-1 bg-zinc-100 border border-zinc-200 rounded-md p-6 flex items-center justify-between">
+                    <div>
+                      <p className="text-zinc-900 font-black text-sm mb-1 uppercase tracking-tight">Admin: Checklist</p>
+                      <p className="text-zinc-500 text-[10px] font-medium">Tampilkan field checklist di form Admin. OFF = admin tidak perlu isi checklist.</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${isAdminChecklistEnabled ? 'text-black' : 'text-zinc-400'}`}>
+                        {isAdminChecklistEnabled ? 'Active' : 'Disabled'}
+                      </span>
+                      <button 
+                        onClick={handleToggleAdminChecklist}
+                        className={`relative w-14 h-8 rounded-full transition-all duration-300 border-2 ${isAdminChecklistEnabled ? 'bg-black border-black shadow-lg' : 'bg-zinc-200 border-zinc-300'}`}
+                      >
+                        <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all duration-300 shadow-sm ${isAdminChecklistEnabled ? 'left-7' : 'left-1'}`}></div>
+                      </button>
                     </div>
                   </div>
 
