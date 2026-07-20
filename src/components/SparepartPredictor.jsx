@@ -116,7 +116,7 @@ export default function SparepartPredictor() {
       PartNo: findPos('partno', 'part_no', 'partnumber'),
       PartName: findPos('partname', 'part_name', 'nama_part'),
       Type: findPos('type', 'tipe'),
-      Qty: findPos('qty', 'quantity'),
+      // Qty diambil langsung dari gabungan kolom Q+R, bukan dari header
       HargaSatuan: findPos('hargasatuan', 'harga_satuan', 'price'),
       Discount: findPos('discount', 'diskon'),
       HargaJual: findPos('hargajual', 'harga_jual'),
@@ -135,14 +135,12 @@ export default function SparepartPredictor() {
         }
       }
 
-      // Jika Qty kosong, coba gabung kolom Q (16) dan R (17)
-      if (!record.Qty || String(record.Qty).trim() === '') {
-        const colQ = row[16] != null ? String(row[16]).trim() : '';
-        const colR = row[17] != null ? String(row[17]).trim() : '';
-        const combined = (colQ + colR).replace(/\s/g, '');
-        if (combined !== '') {
-          record.Qty = isNaN(Number(combined)) ? combined : Number(combined);
-        }
+      // Qty dari gabungan kolom Q (16) dan R (17)
+      const colQ = row[16] != null ? String(row[16]).trim() : '';
+      const colR = row[17] != null ? String(row[17]).trim() : '';
+      const combined = (colQ + colR).replace(/\s/g, '');
+      if (combined !== '') {
+        record.Qty = isNaN(Number(combined)) ? combined : Number(combined);
       }
 
       if (record.NoTransaksi || record.PartNo || record.PartName) {
