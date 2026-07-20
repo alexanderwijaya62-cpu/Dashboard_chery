@@ -27,6 +27,7 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
   const [manualTipe, setManualTipe] = useState('');
   const [manualNoTelp, setManualNoTelp] = useState('');
   const [manualKeluhan, setManualKeluhan] = useState('');
+  const [bookingDate, setBookingDate] = useState(() => new Date().toLocaleDateString('en-CA'));
   const [listDate, setListDate] = useState(() => new Date().toLocaleDateString('en-CA'));
   const [listBookings, setListBookings] = useState([]);
   const [listLoading, setListLoading] = useState(false);
@@ -69,116 +70,33 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
 
   const todayStr = new Date().toLocaleDateString('en-CA');
 
-  const fetchData = useCallback(async () => {
+  const fetchAntrian = useCallback(async () => {
     try {
-      const results = await Promise.allSettled([
-        (async () => {
-          const { data } = await db.select('booking', {
-            select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, noTelp, keperluanService',
-          });
-          return ((data || []).filter(b => b.tanggal === todayStr)).map(b => ({ ...b, _source: 'supabase' }));
-        })(),
-        (async () => {
-          const res = await fetch(`/api/chery_dms?endpoint=booking-data&draw=1&start=0&length=200&datefrom=${todayStr}&dateto=${todayStr}&_=${Date.now()}`);
-          if (!res.ok) return [];
-          const json = await res.json();
-          if (!Array.isArray(json.data)) return [];
-          return json.data
-            .filter(b => {
-              const s = (b.status_booking || '').toLowerCase();
-              return !['batal', 'expired', 'declined', 'cancelled'].includes(s);
-            })
-            .map(b => {
-              const sBooking = (b.status_booking || '').toLowerCase();
-              if (['batal', 'expired', 'declined', 'cancelled'].includes(sBooking)) return null;
-              const tanggal = (b.janji_datang || '').trim().split(' ')[0] || todayStr;
-              const jamRaw = (b.janji_datang || '').trim().split(' ')[1] || '';
-              const jam = jamRaw ? jamRaw.slice(0, 5).replace(':', '.') : '';
-              // Parse DD/MM/YYYY to YYYY-MM-DD
-              const parts = tanggal.split('/');
-              const tgl = parts.length === 3 && parts[2].length === 4 ? `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}` : tanggal;
-              return {
-                id: `dms_${b.no_booking || b.id || Math.random()}`,
-                tanggal: tgl,
-                jam,
-                noPlat: b.no_polisi || '',
-                namaCustomer: b.nama_pelanggan || '',
-                tipeMobil: b.nama_kendaraan || '',
-                status: 'accepted',
-                noTelp: b.no_telp_booking || '',
-                keperluanService: b.keperluan || b.keterangan || '',
-                _source: 'dms',
-                bookingVia: b.booking_via || 'DMS Internal',
-              };
-            });
-        })(),
-        (async () => {
-          const { data } = await db.select('antrian', {
-            select: 'bk, category, queue_number, id, status, tipe',
-          });
-          const bookingMap = new Map();
-          (data || []).forEach(a => {
-            const plat = (a.bk || '').replace(/\s+/g, '').toUpperCase();
-            if (a.category === 'Booking' && plat) {
-              bookingMap.set(plat, formatQueueCode('Booking', a.queue_number || 0));
-            }
-          });
-          setConfirmedPlates(bookingMap);
-          setAntrianList(data || []);
-          return null;
-        })(),
-      ]);
-
-      let merged = [];
-      const seenPlates = new Set();
-
-      results.forEach(r => {
-        if (r.status !== 'fulfilled' || !r.value) return;
-        if (Array.isArray(r.value)) {
-          r.value.forEach(b => {
-            const plat = (b.noPlat || '').replace(/\s+/g, '').toUpperCase();
-            if (!plat) return;
-            if (seenPlates.has(plat)) return;
-            seenPlates.add(plat);
-            if (b.tanggal === todayStr) merged.push(b);
-          });
+      const { data } = await db.select('antrian', {
+        select: 'bk, category, queue_number, id, status, tipe',
+      });
+      const bookingMap = new Map();
+      (data || []).forEach(a => {
+        const plat = (a.bk || '').replace(/\s+/g, '').toUpperCase();
+        if (a.category === 'Booking' && plat) {
+          bookingMap.set(plat, formatQueueCode('Booking', a.queue_number || 0));
         }
       });
-
-      setBookings(merged);
+      setConfirmedPlates(bookingMap);
+      setAntrianList(data || []);
     } catch (e) {
-      console.error('Gagal fetch data:', e);
+      console.error('Gagal fetch antrian:', e);
     }
-  }, [todayStr]);
+  }, []);
 
-  useEffect(() => {
-    fetchData();
-    const channel = supabase?.channel('security-bookings')
-      ?.on('postgres_changes', { event: '*', schema: 'public', table: 'booking' }, fetchData)
-      ?.on('postgres_changes', { event: '*', schema: 'public', table: 'antrian' }, fetchData)
-      ?.subscribe();
-    return () => { channel?.unsubscribe(); };
-  }, [fetchData]);
-
-  const filteredBookings = useMemo(() => {
-    return bookings.filter(b => {
-      if (!searchBooking.trim()) return true;
-      const q = searchBooking.toLowerCase();
-      return (b.noPlat || '').toLowerCase().includes(q) ||
-             (b.namaCustomer || '').toLowerCase().includes(q) ||
-             (b.jam || '').includes(q);
-    });
-  }, [bookings, searchBooking]);
-
-  const fetchListBookings = useCallback(async (date) => {
-    setListLoading(true);
+  const fetchBookingsByDate = useCallback(async (date) => {
     try {
       const results = await Promise.allSettled([
         (async () => {
           const { data } = await db.select('booking', {
             select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, noTelp, keperluanService',
           });
-          return (data || []).filter(b => b.tanggal === date).map(b => ({ ...b, _source: 'supabase' }));
+          return ((data || []).filter(b => b.tanggal === date)).map(b => ({ ...b, _source: 'supabase' }));
         })(),
         (async () => {
           const res = await fetch(`/api/chery_dms?endpoint=booking-data&draw=1&start=0&length=200&datefrom=${date}&dateto=${date}&_=${Date.now()}`);
@@ -191,6 +109,8 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
               return !['batal', 'expired', 'declined', 'cancelled'].includes(s);
             })
             .map(b => {
+              const sBooking = (b.status_booking || '').toLowerCase();
+              if (['batal', 'expired', 'declined', 'cancelled'].includes(sBooking)) return null;
               const tanggal = (b.janji_datang || '').trim().split(' ')[0] || date;
               const jamRaw = (b.janji_datang || '').trim().split(' ')[1] || '';
               const jam = jamRaw ? jamRaw.slice(0, 5).replace(':', '.') : '';
@@ -215,6 +135,7 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
 
       let merged = [];
       const seenPlates = new Set();
+
       results.forEach(r => {
         if (r.status !== 'fulfilled' || !r.value) return;
         if (Array.isArray(r.value)) {
@@ -223,17 +144,53 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
             if (!plat) return;
             if (seenPlates.has(plat)) return;
             seenPlates.add(plat);
-            merged.push(b);
+            if (b.tanggal === date) merged.push(b);
           });
         }
       });
+
+      return merged;
+    } catch (e) {
+      console.error('Gagal fetch data:', e);
+      return [];
+    }
+  }, []);
+
+  const fetchData = useCallback(async () => {
+    const [merged] = await Promise.all([fetchBookingsByDate(bookingDate), fetchAntrian()]);
+    setBookings(merged);
+  }, [bookingDate, fetchBookingsByDate, fetchAntrian]);
+
+  useEffect(() => {
+    fetchData();
+    const channel = supabase?.channel('security-bookings')
+      ?.on('postgres_changes', { event: '*', schema: 'public', table: 'booking' }, fetchData)
+      ?.on('postgres_changes', { event: '*', schema: 'public', table: 'antrian' }, fetchData)
+      ?.subscribe();
+    return () => { channel?.unsubscribe(); };
+  }, [fetchData, bookingDate]);
+
+  const filteredBookings = useMemo(() => {
+    return bookings.filter(b => {
+      if (!searchBooking.trim()) return true;
+      const q = searchBooking.toLowerCase();
+      return (b.noPlat || '').toLowerCase().includes(q) ||
+             (b.namaCustomer || '').toLowerCase().includes(q) ||
+             (b.jam || '').includes(q);
+    });
+  }, [bookings, searchBooking]);
+
+  const fetchListBookings = useCallback(async (date) => {
+    setListLoading(true);
+    try {
+      const merged = await fetchBookingsByDate(date);
       setListBookings(merged);
     } catch (e) {
       console.error('Gagal fetch list booking:', e);
     } finally {
       setListLoading(false);
     }
-  }, []);
+  }, [fetchBookingsByDate]);
 
   useEffect(() => {
     if (tab === 'daftar') fetchListBookings(listDate);
@@ -541,7 +498,7 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
           <div className="space-y-3">
             <div className="bg-white border-2 border-zinc-200 rounded-2xl p-4">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Booking Hari Ini</h2>
+                <h2 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Daftar Booking</h2>
                 <div className="flex items-center gap-2">
                   <button onClick={() => setShowManualBooking(prev => !prev)}
                     className="text-[7px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border-2 transition-all active:scale-95"
@@ -549,6 +506,14 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
                     Isi Manual
                   </button>
                   <span className="text-[9px] font-bold text-zinc-400">{filteredBookings.length} total</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 mb-3">
+                <div className="relative flex-1">
+                  <Calendar size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <input type="date" value={bookingDate} onChange={e => setBookingDate(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2.5 bg-zinc-50 border-2 border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:outline-none focus:border-black transition-all" />
                 </div>
               </div>
 
@@ -592,7 +557,7 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
               {filteredBookings.length === 0 ? (
                 <div className="text-center py-8">
                   <Calendar size={28} className="text-zinc-300 mx-auto mb-2" />
-                  <p className="text-xs font-bold text-zinc-400">Tidak ada booking hari ini</p>
+                  <p className="text-xs font-bold text-zinc-400">Tidak ada booking di tanggal ini</p>
                 </div>
               ) : (
                 <div className="space-y-2 max-h-[60vh] overflow-y-auto">

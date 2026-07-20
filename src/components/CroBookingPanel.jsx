@@ -4,7 +4,7 @@ import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import DmsBookingListView from './DmsBookingListView';
 import { db } from '../utils/dbClient';
-import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
+import { fetchBookingConfig, generateSlots, getSlotsForDate, getCapacityForDate } from '../utils/bookingConfig';
 import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
 import { normalizeDmsBooking } from '../utils/dateHelpers';
 import BookingCalendar from './BookingCalendar';
@@ -26,7 +26,7 @@ export default function CroBookingPanel({ user }) {
     const [step, setStep] = useState('search'); // 'search' | 'form'
 
     // Slot config from Supabase
-    const [slotConfig, setSlotConfig] = useState({ count: 4, gap: 30, startH: 8, startM: 0, capacity: 1 });
+    const [slotConfig, setSlotConfig] = useState({ count: 4, gap: 30, startH: 8, startM: 0, capacity: 1, saturdayEnabled: true, satSlotCount: 4, satGap: 30, satStartH: 8, satStartM: 0, satCapacity: 1 });
     const [bookings, setBookings] = useState([]);
     useEffect(() => {
         (async () => {
@@ -38,6 +38,12 @@ export default function CroBookingPanel({ user }) {
                     startH: config.startHour,
                     startM: config.startMinute,
                     capacity: config.slotCapacity,
+                    saturdayEnabled: config.saturdayEnabled,
+                    satSlotCount: config.satSlotCount,
+                    satGap: config.satGapMinutes,
+                    satStartH: config.satStartHour,
+                    satStartM: config.satStartMinute,
+                    satCapacity: config.satSlotCapacity,
                 });
             } catch (_) {}
         })();
@@ -365,14 +371,24 @@ export default function CroBookingPanel({ user }) {
 
     const dateFillMap = useMemo(() => {
         const map = {};
-        const allSlots = generateSlots(slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM);
-        const totalCapacity = allSlots.length * slotConfig.capacity;
         bookings.forEach(b => {
             if (b.status !== 'waiting confirm' && b.status !== 'accepted' && b.status !== 'completed') return;
             if (!b.tanggal) return;
-            map[b.tanggal] = (map[b.tanggal] || 0) + 1;
+            const capacity = getCapacityForDate(b.tanggal, slotConfig);
+            const slots = getSlotsForDate(b.tanggal, slotConfig);
+            const dayTotal = slots.length * capacity;
+            map[b.tanggal] = (map[b.tanggal] || { count: 0, total: dayTotal });
+            map[b.tanggal].count += 1;
+            map[b.tanggal].total = dayTotal;
         });
-        Object.keys(map).forEach(d => { map[d] = { count: map[d], total: totalCapacity, full: map[d] >= totalCapacity, partial: map[d] > 0 && map[d] < totalCapacity }; });
+        Object.keys(map).forEach(d => {
+            map[d] = {
+                count: map[d].count,
+                total: map[d].total,
+                full: map[d].count >= map[d].total,
+                partial: map[d].count > 0 && map[d].count < map[d].total,
+            };
+        });
         return map;
     }, [bookings, slotConfig]);
 
@@ -841,15 +857,16 @@ export default function CroBookingPanel({ user }) {
                                             <div className="space-y-2">
                                                 <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Jam Kedatangan</h4>
                                                 <div className="grid grid-cols-3 gap-2">
-                                                    {generateSlots(slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM).map((slot) => {
+                                                    {getSlotsForDate(formData.tanggal, slotConfig).map((slot) => {
                                                         const [h, m] = slot.split('.');
                                                         const isPastTime = formData.tanggal === new Date().toISOString().split('T')[0] && parseFloat(slot) < (new Date().getHours() + new Date().getMinutes() / 60);
+                                                        const cap = getCapacityForDate(formData.tanggal, slotConfig);
                                                         const count = bookings.filter(b =>
                                                             b.tanggal === formData.tanggal &&
                                                             String(b.jam).replace(':', '.') === slot &&
                                                             (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed')
                                                         ).length;
-                                                        const isFull = count >= slotConfig.capacity;
+                                                        const isFull = count >= cap;
                                                         return (
                                                             <button key={slot} type="button" disabled={isPastTime || (isFull && formData.jam !== slot)}
                                                                 onClick={() => setFormData({ ...formData, jam: slot })}
@@ -858,7 +875,7 @@ export default function CroBookingPanel({ user }) {
                                                                 }`}
                                                             >
                                                                 {h}:{m} WIB
-                                                                <span className="text-[6px] opacity-70 block">{count}/{slotConfig.capacity}</span>
+                                                                <span className="text-[6px] opacity-70 block">{count}/{cap}</span>
                                                             </button>
                                                         );
                                                     })}

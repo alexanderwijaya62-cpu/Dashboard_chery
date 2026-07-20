@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { generateSlots } from '../utils/bookingConfig';
+import { generateSlots, getSlotsForDate, getCapacityForDate, isSaturday } from '../utils/bookingConfig';
 import { isHolidayOrSunday } from '../utils/holidayHelpers';
 
 const daysInMonth = (month, year) => new Date(year, month + 1, 0).getDate();
@@ -49,27 +49,35 @@ export default function BookingCalendar({
 
     const dateFillMap = useMemo(() => {
         const map = {};
-        const allSlots = generateSlots(slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM);
-        const totalCapacity = allSlots.length * slotConfig.capacity;
         bookings.forEach(b => {
             if (!STATUS_ACTIVE.includes(b.status)) return;
             if (!b.tanggal) return;
-            map[b.tanggal] = (map[b.tanggal] || 0) + 1;
+            const capacity = getCapacityForDate(b.tanggal, slotConfig);
+            const slots = getSlotsForDate(b.tanggal, slotConfig);
+            const dayTotal = slots.length * capacity;
+            map[b.tanggal] = (map[b.tanggal] || { count: 0, total: dayTotal });
+            map[b.tanggal].count += 1;
+            map[b.tanggal].total = dayTotal;
         });
         Object.keys(map).forEach(d => {
             map[d] = {
-                count: map[d],
-                total: totalCapacity,
-                full: map[d] >= totalCapacity,
-                partial: map[d] > 0 && map[d] < totalCapacity,
+                count: map[d].count,
+                total: map[d].total,
+                full: map[d].count >= map[d].total,
+                partial: map[d].count > 0 && map[d].count < map[d].total,
             };
         });
         return map;
     }, [bookings, slotConfig]);
 
     const JAM_PILIHAN = useMemo(
-        () => generateSlots(slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM),
-        [slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM]
+        () => getSlotsForDate(selectedDate, slotConfig),
+        [selectedDate, slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM, slotConfig.saturdayEnabled, slotConfig.satSlotCount, slotConfig.satGap, slotConfig.satStartH, slotConfig.satStartM]
+    );
+
+    const selectedCapacity = useMemo(
+        () => getCapacityForDate(selectedDate, slotConfig),
+        [selectedDate, slotConfig.capacity, slotConfig.saturdayEnabled, slotConfig.satCapacity]
     );
 
     const timeSlotCounts = useMemo(() => {
@@ -89,6 +97,8 @@ export default function BookingCalendar({
         next.setMonth(next.getMonth() + offset);
         setCurrentCalMonth(next);
     };
+
+    const satHighlight = isSaturday(selectedDate) && slotConfig.saturdayEnabled;
 
     return (
         <div className="space-y-3">
@@ -116,6 +126,7 @@ export default function BookingCalendar({
                         const isActive = selectedDate === item.date;
                         const past = isPastDate(item.date);
                         const holiday = isHolidayOrSunday(item.date, holidays);
+                        const satDay = isSaturday(item.date);
                         const disabled = past || holiday;
                         const fill = dateFillMap[item.date];
                         const fillBg = !disabled && fill?.full ? 'bg-red-500 border-red-600 text-white' :
@@ -126,9 +137,12 @@ export default function BookingCalendar({
                                 onClick={() => onDateSelect?.(item.date)}
                                 className={`relative aspect-[4/5] rounded-xl flex flex-col items-center justify-center transition-all border-2 ${disabled ? 'bg-zinc-100/30 border-transparent text-zinc-200 cursor-not-allowed opacity-20' :
                                     isActive ? 'bg-black border-black text-white shadow-lg z-10 scale-110' : fillBg || 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
-                                }`}
+                                } ${!disabled && satDay && !isActive ? 'border-amber-300 bg-amber-50' : ''}`}
                             >
                                 <span className="text-[11px] font-black">{item.day}</span>
+                                {!disabled && satDay && (
+                                    <span className="text-[5px] font-black text-amber-500 leading-none uppercase">Sab</span>
+                                )}
                                 {!disabled && fill && (
                                     <span className="text-[6px] opacity-70 leading-none">{fill.count}/{fill.total}</span>
                                 )}
@@ -141,23 +155,26 @@ export default function BookingCalendar({
             {/* Time Slots */}
             {showTimeSlots && selectedDate && (
                 <div className="space-y-2">
-                    <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Jam Kedatangan</h4>
+                    <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1 flex items-center gap-2">
+                        Jam Kedatangan
+                        {satHighlight && <span className="text-amber-500 normal-case tracking-normal">(Sabtu — jam terbatas)</span>}
+                    </h4>
                     <div className="grid grid-cols-3 gap-2">
                         {JAM_PILIHAN.map((slot) => {
                             const [h, m] = slot.split('.');
                             const isToday = selectedDate === new Date().toISOString().split('T')[0];
                             const isPastTime = isToday && parseFloat(slot) < (new Date().getHours() + new Date().getMinutes() / 60);
                             const count = timeSlotCounts[slot] || 0;
-                            const isFull = count >= slotConfig.capacity;
+                            const isFull = count >= selectedCapacity;
                             return (
                                 <button key={slot} type="button" disabled={isPastTime || isFull}
                                     onClick={() => onTimeSelect?.(slot)}
                                     className={`py-3 px-2 rounded-xl border-2 font-black text-[9px] uppercase tracking-widest transition-all ${selectedTime === slot ? 'bg-black border-black text-white shadow-lg' :
-                                        isPastTime || isFull ? 'bg-zinc-50 border-transparent text-zinc-200 cursor-not-allowed' : 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
+                                        isPastTime || isFull ? 'bg-zinc-50 border-transparent text-zinc-200 cursor-not-allowed' : satHighlight ? 'bg-white border-amber-200 text-amber-500 hover:border-amber-500 hover:text-amber-900' : 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
                                     }`}
                                 >
                                     {h}:{m} WIB
-                                    <span className="text-[6px] opacity-70 block">{count}/{slotConfig.capacity}</span>
+                                    <span className="text-[6px] opacity-70 block">{count}/{selectedCapacity}</span>
                                 </button>
                             );
                         })}

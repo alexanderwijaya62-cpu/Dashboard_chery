@@ -3,7 +3,7 @@ import { Calendar as CalendarIcon, Clock, Send, User, ChevronLeft, ChevronRight,
 import Toastify from 'toastify-js';
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
-import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
+import { fetchBookingConfig, generateSlots, getSlotsForDate, getCapacityForDate } from '../utils/bookingConfig';
 import cheryLogo from '../assets/chery.png';
 
 const isSameDate = (dateA, dateB) => {
@@ -233,8 +233,8 @@ export default function PublicBooking({ user, setCurrentPage }) {
 
     const getDateAvailability = useCallback((dateStr) => {
         if (isClosed(dateStr)) return 'closed';
-        const { slotCount: maxSlots, gapMinutes, startHour, startMinute, slotCapacity } = bookingConfig;
-        const dynamicJam = generateSlots(maxSlots, gapMinutes, startHour, startMinute);
+        const dynamicJam = getSlotsForDate(dateStr, bookingConfig);
+        const dayCapacity = getCapacityForDate(dateStr, bookingConfig);
         
         const isToday = isSameDate(dateStr, new Date());
         const now = new Date();
@@ -268,17 +268,16 @@ export default function PublicBooking({ user, setCurrentPage }) {
                 const [h, m] = dynamicJam[i].split('.');
                 const slotDate = new Date();
                 slotDate.setHours(parseInt(h), parseInt(m), 0, 0);
-                if (slotDate < now && effective < slotCapacity) effective = slotCapacity;
+                if (slotDate < now && effective < dayCapacity) effective = dayCapacity;
             }
-            if (effective >= slotCapacity) fullSlotsCount++;
+            if (effective >= dayCapacity) fullSlotsCount++;
         }
         
         if (fullSlotsCount >= dynamicJam.length) return 'full';
         return 'partial';
     }, [bookings, holidays, bookingConfig]);
 
-    const { slotCount: maxSlotsCount, gapMinutes: gapConfig, startHour: startConfigH, startMinute: startConfigM, slotCapacity } = bookingConfig;
-    const JAM_PILIHAN = useMemo(() => generateSlots(maxSlotsCount, gapConfig, startConfigH, startConfigM), [maxSlotsCount, gapConfig, startConfigH, startConfigM]);
+    const JAM_PILIHAN = useMemo(() => selectedDate ? getSlotsForDate(selectedDate, bookingConfig) : generateSlots(bookingConfig.slotCount || 4, bookingConfig.gapMinutes || 30, bookingConfig.startHour || 8, bookingConfig.startMinute || 0), [selectedDate, bookingConfig]);
 
     const getIsPastTime = useCallback((slotJam) => {
         if (!isSameDate(selectedDate, new Date())) return false;
@@ -383,7 +382,7 @@ export default function PublicBooking({ user, setCurrentPage }) {
             (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed')
         ).length;
 
-        if (bookedAtThisTime >= (bookingConfig.slotCapacity || 1)) { 
+        if (bookedAtThisTime >= (getCapacityForDate(selectedDate, bookingConfig) || 1)) { 
             Toastify({ text: `Maaf, slot jam ${formData.jam} baru saja terisi penuh!`, background: "orange" }).showToast();
             setIsBookingMode(false);
             fetchBookings();
@@ -423,7 +422,7 @@ export default function PublicBooking({ user, setCurrentPage }) {
 
         const { data: allBookings } = await db.select('booking', { select: 'jam, status', eq: { tanggal: selectedDate }, in: { status: ['waiting confirm', 'accepted', 'completed'] } });
 
-        const isConflict = allBookings?.filter(b => normalizeJam(b.jam) === targetJam).length >= (bookingConfig.slotCapacity || 1);
+        const isConflict = allBookings?.filter(b => normalizeJam(b.jam) === targetJam).length >= (getCapacityForDate(selectedDate, bookingConfig) || 1);
 
         if (isConflict) {
             Toastify({ text: `⚠️ Konflik: Slot jam ${formData.jam} baru saja terisi orang lain!`, style: { background: '#f97316' }, duration: 5000 }).showToast();
@@ -698,7 +697,7 @@ export default function PublicBooking({ user, setCurrentPage }) {
                                              {!isSlotsReady ? '...' :
                                              (() => {
                                                   const occupiedCount = (bookingsForDate || []).length;
-                                                  const totalCapacity = (JAM_PILIHAN.length || 0) * slotCapacity;
+                                                   const totalCapacity = (JAM_PILIHAN.length || 0) * (getCapacityForDate(selectedDate, bookingConfig) || 1);
                                                  return Math.max(0, totalCapacity - occupiedCount);
                                              })()}
                                           </p>
@@ -718,7 +717,7 @@ export default function PublicBooking({ user, setCurrentPage }) {
                                             return bMin >= slotMin && bMin < nextMin;
                                         });
 
-                                        const isOccupied = bookingsAtThisTime.length >= slotCapacity;
+                                         const isOccupied = bookingsAtThisTime.length >= (getCapacityForDate(selectedDate, bookingConfig) || 1);
                                         const isPastTime = getIsPastTime(jam);
                                         const isDisabled = isOccupied || isPastTime || !isSlotsReady;
 
@@ -732,7 +731,7 @@ export default function PublicBooking({ user, setCurrentPage }) {
                                                     </div>
                                                     <div className="flex flex-col justify-center">
                                                         <p className={`text-[8.5px] md:text-[10px] font-black uppercase tracking-widest mb-1 text-white opacity-80`}>
-                                                            {!isSlotsReady ? 'Memuat data...' : isOccupied ? `Slot Penuh (${bookingsAtThisTime.length}/${slotCapacity})` : isPastTime ? 'Waktu Terlewati' : `Sisa Slot: ${Math.max(0, slotCapacity - bookingsAtThisTime.length)} Unit`}
+                                                             {!isSlotsReady ? 'Memuat data...' : isOccupied ? `Slot Penuh (${bookingsAtThisTime.length}/${getCapacityForDate(selectedDate, bookingConfig) || 1})` : isPastTime ? 'Waktu Terlewati' : `Sisa Slot: ${Math.max(0, (getCapacityForDate(selectedDate, bookingConfig) || 1) - bookingsAtThisTime.length)} Unit`}
                                                         </p>
                                                         <h4 className={`text-sm md:text-base font-black tracking-tight text-white`}>
                                                             {!isSlotsReady ? 'LOADING' : isOccupied ? 'FULL BOOKED' : isPastTime ? 'CLOSED' : 'Klik Reservasi'}

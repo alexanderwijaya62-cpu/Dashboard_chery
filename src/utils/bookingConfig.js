@@ -6,6 +6,12 @@ const CONFIG_KEYS = {
   startHour: 'booking_start_hour',
   startMinute: 'booking_start_minute',
   slotCapacity: 'booking_slot_capacity',
+  saturdayEnabled: 'booking_saturday_enabled',
+  satSlotCount: 'booking_sat_slot_count',
+  satGapMinutes: 'booking_sat_gap_minutes',
+  satStartHour: 'booking_sat_start_hour',
+  satStartMinute: 'booking_sat_start_minute',
+  satSlotCapacity: 'booking_sat_slot_capacity',
 };
 
 const DEFAULTS = {
@@ -14,6 +20,12 @@ const DEFAULTS = {
   startHour: 8,
   startMinute: 30,
   slotCapacity: 1,
+  saturdayEnabled: true,
+  satSlotCount: 4,
+  satGapMinutes: 30,
+  satStartHour: 8,
+  satStartMinute: 0,
+  satSlotCapacity: 1,
 };
 
 export async function fetchBookingConfig() {
@@ -34,6 +46,12 @@ export async function fetchBookingConfig() {
       startHour: parseInt(map[CONFIG_KEYS.startHour]) || DEFAULTS.startHour,
       startMinute: parseInt(map[CONFIG_KEYS.startMinute]) || DEFAULTS.startMinute,
       slotCapacity: parseInt(map[CONFIG_KEYS.slotCapacity]) || DEFAULTS.slotCapacity,
+      saturdayEnabled: (map[CONFIG_KEYS.saturdayEnabled] ?? String(DEFAULTS.saturdayEnabled)) !== 'false',
+      satSlotCount: parseInt(map[CONFIG_KEYS.satSlotCount]) || DEFAULTS.satSlotCount,
+      satGapMinutes: parseInt(map[CONFIG_KEYS.satGapMinutes]) || DEFAULTS.satGapMinutes,
+      satStartHour: parseInt(map[CONFIG_KEYS.satStartHour]) || DEFAULTS.satStartHour,
+      satStartMinute: parseInt(map[CONFIG_KEYS.satStartMinute]) || DEFAULTS.satStartMinute,
+      satSlotCapacity: parseInt(map[CONFIG_KEYS.satSlotCapacity]) || DEFAULTS.satSlotCapacity,
     };
   } catch (e) {
     console.error('Gagal fetch booking config:', e);
@@ -48,6 +66,12 @@ export async function saveBookingConfig(config) {
     { key: CONFIG_KEYS.startHour, value: String(config.startHour) },
     { key: CONFIG_KEYS.startMinute, value: String(config.startMinute) },
     { key: CONFIG_KEYS.slotCapacity, value: String(config.slotCapacity) },
+    { key: CONFIG_KEYS.saturdayEnabled, value: String(config.saturdayEnabled) },
+    { key: CONFIG_KEYS.satSlotCount, value: String(config.satSlotCount) },
+    { key: CONFIG_KEYS.satGapMinutes, value: String(config.satGapMinutes) },
+    { key: CONFIG_KEYS.satStartHour, value: String(config.satStartHour) },
+    { key: CONFIG_KEYS.satStartMinute, value: String(config.satStartMinute) },
+    { key: CONFIG_KEYS.satSlotCapacity, value: String(config.satSlotCapacity) },
   ];
 
   for (const entry of entries) {
@@ -74,4 +98,23 @@ export function generateSlots(count, gapMinutes = 30, startHour = 8, startMin = 
     }
   }
   return slots;
+}
+
+export function isSaturday(dateStr) {
+  if (!dateStr) return false;
+  return new Date(dateStr).getDay() === 6;
+}
+
+export function getSlotsForDate(dateStr, config) {
+  if (isSaturday(dateStr) && config.saturdayEnabled) {
+    return generateSlots(config.satSlotCount, config.satGapMinutes, config.satStartHour, config.satStartMinute);
+  }
+  return generateSlots(config.slotCount, config.gapMinutes, config.startHour, config.startMinute);
+}
+
+export function getCapacityForDate(dateStr, config) {
+  if (isSaturday(dateStr) && config.saturdayEnabled) {
+    return config.satSlotCapacity;
+  }
+  return config.slotCapacity;
 }

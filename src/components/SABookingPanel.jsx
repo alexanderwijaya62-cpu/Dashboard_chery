@@ -4,7 +4,7 @@ import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
-import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
+import { fetchBookingConfig, generateSlots, getSlotsForDate, getCapacityForDate } from '../utils/bookingConfig';
 import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
 import { normalizeDmsBooking } from '../utils/dateHelpers';
 import BookingCalendar from './BookingCalendar';
@@ -33,7 +33,7 @@ export default function SABookingPanel() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [currentCalMonth, setCurrentCalMonth] = useState(new Date());
-  const [slotConfig, setSlotConfig] = useState({ count: 4, gap: 30, startH: 8, startM: 30, capacity: 1 });
+  const [slotConfig, setSlotConfig] = useState({ count: 4, gap: 30, startH: 8, startM: 30, capacity: 1, saturdayEnabled: true, satSlotCount: 4, satGap: 30, satStartH: 8, satStartM: 0, satCapacity: 1 });
   const [bookings, setBookings] = useState([]);
   const [holidays, setHolidays] = useState([]);
 
@@ -61,14 +61,24 @@ export default function SABookingPanel() {
 
   const dateFillMap = useMemo(() => {
     const map = {};
-    const allSlots = generateSlots(slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM);
-    const totalCapacity = allSlots.length * slotConfig.capacity;
     bookings.forEach(b => {
       if (b.status !== 'waiting confirm' && b.status !== 'accepted' && b.status !== 'completed') return;
       if (!b.tanggal) return;
-      map[b.tanggal] = (map[b.tanggal] || 0) + 1;
+      const capacity = getCapacityForDate(b.tanggal, slotConfig);
+      const slots = getSlotsForDate(b.tanggal, slotConfig);
+      const dayTotal = slots.length * capacity;
+      map[b.tanggal] = (map[b.tanggal] || { count: 0, total: dayTotal });
+      map[b.tanggal].count += 1;
+      map[b.tanggal].total = dayTotal;
     });
-    Object.keys(map).forEach(d => { map[d] = { count: map[d], total: totalCapacity, full: map[d] >= totalCapacity, partial: map[d] > 0 && map[d] < totalCapacity }; });
+    Object.keys(map).forEach(d => {
+      map[d] = {
+        count: map[d].count,
+        total: map[d].total,
+        full: map[d].count >= map[d].total,
+        partial: map[d].count > 0 && map[d].count < map[d].total,
+      };
+    });
     return map;
   }, [bookings, slotConfig]);
 
@@ -81,6 +91,12 @@ export default function SABookingPanel() {
         startH: config.startHour,
         startM: config.startMinute,
         capacity: config.slotCapacity,
+        saturdayEnabled: config.saturdayEnabled,
+        satSlotCount: config.satSlotCount,
+        satGap: config.satGapMinutes,
+        satStartH: config.satStartHour,
+        satStartM: config.satStartMinute,
+        satCapacity: config.satSlotCapacity,
       });
     })();
   }, []);
@@ -135,7 +151,7 @@ export default function SABookingPanel() {
     return () => { supabase.removeChannel(channel); };
   }, [fetchBookings]);
 
-  const JAM_PILIHAN = useMemo(() => generateSlots(slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM), [slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM]);
+  const JAM_PILIHAN = useMemo(() => getSlotsForDate(formData.tanggal, slotConfig), [formData.tanggal, slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM, slotConfig.saturdayEnabled, slotConfig.satSlotCount, slotConfig.satGap, slotConfig.satStartH, slotConfig.satStartM]);
 
   const changeCalMonth = (offset) => {
     const next = new Date(currentCalMonth);
