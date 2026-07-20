@@ -76,7 +76,7 @@ const saveCache = (data) => {
 
 export default function PublicBooking({ user, setCurrentPage }) {
     const [bookings, setBookings] = useState([]);
-    const [bookingConfig, setBookingConfig] = useState({ slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 });
+    const [bookingConfig, setBookingConfig] = useState({ slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1, saturdayEnabled: true, satSlotCount: 4, satGapMinutes: 30, satStartHour: 8, satStartMinute: 0, satSlotCapacity: 1 });
     const [isLoading, setIsLoading] = useState(false);
     const [isSlotsReady, setIsSlotsReady] = useState(false);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);

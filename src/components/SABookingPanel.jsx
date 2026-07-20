@@ -33,7 +33,7 @@ export default function SABookingPanel() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [currentCalMonth, setCurrentCalMonth] = useState(new Date());
-  const [slotConfig, setSlotConfig] = useState({ count: 4, gap: 30, startH: 8, startM: 30, capacity: 1, saturdayEnabled: true, satSlotCount: 4, satGap: 30, satStartH: 8, satStartM: 0, satCapacity: 1 });
+  const [slotConfig, setSlotConfig] = useState({ slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1, saturdayEnabled: true, satSlotCount: 4, satGapMinutes: 30, satStartHour: 8, satStartMinute: 0, satSlotCapacity: 1 });
   const [bookings, setBookings] = useState([]);
   const [holidays, setHolidays] = useState([]);
 
@@ -85,19 +85,7 @@ export default function SABookingPanel() {
   useEffect(() => {
     (async () => {
       const config = await fetchBookingConfig();
-      setSlotConfig({
-        count: config.slotCount,
-        gap: config.gapMinutes,
-        startH: config.startHour,
-        startM: config.startMinute,
-        capacity: config.slotCapacity,
-        saturdayEnabled: config.saturdayEnabled,
-        satSlotCount: config.satSlotCount,
-        satGap: config.satGapMinutes,
-        satStartH: config.satStartHour,
-        satStartM: config.satStartMinute,
-        satCapacity: config.satSlotCapacity,
-      });
+      setSlotConfig(config);
     })();
   }, []);
 
@@ -151,7 +139,7 @@ export default function SABookingPanel() {
     return () => { supabase.removeChannel(channel); };
   }, [fetchBookings]);
 
-  const JAM_PILIHAN = useMemo(() => getSlotsForDate(formData.tanggal, slotConfig), [formData.tanggal, slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM, slotConfig.saturdayEnabled, slotConfig.satSlotCount, slotConfig.satGap, slotConfig.satStartH, slotConfig.satStartM]);
+  const JAM_PILIHAN = useMemo(() => getSlotsForDate(formData.tanggal, slotConfig), [formData.tanggal, slotConfig.slotCount, slotConfig.gapMinutes, slotConfig.startHour, slotConfig.startMinute, slotConfig.saturdayEnabled, slotConfig.satSlotCount, slotConfig.satGapMinutes, slotConfig.satStartHour, slotConfig.satStartMinute]);
 
   const changeCalMonth = (offset) => {
     const next = new Date(currentCalMonth);

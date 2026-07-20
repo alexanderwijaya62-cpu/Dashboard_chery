@@ -17,7 +17,7 @@ const STATUS_ACTIVE = ['waiting confirm', 'waiting_approval', 'accepted', 'compl
 
 export default function BookingCalendar({
     bookings = [],
-    slotConfig = { count: 4, gap: 30, startH: 8, startM: 30, capacity: 1 },
+    slotConfig = { slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1, saturdayEnabled: true, satSlotCount: 4, satGapMinutes: 30, satStartHour: 8, satStartMinute: 0, satSlotCapacity: 1 },
     selectedDate = '',
     selectedTime = '',
     holidays = [],
@@ -72,12 +72,12 @@ export default function BookingCalendar({
 
     const JAM_PILIHAN = useMemo(
         () => getSlotsForDate(selectedDate, slotConfig),
-        [selectedDate, slotConfig.count, slotConfig.gap, slotConfig.startH, slotConfig.startM, slotConfig.saturdayEnabled, slotConfig.satSlotCount, slotConfig.satGap, slotConfig.satStartH, slotConfig.satStartM]
+        [selectedDate, slotConfig.slotCount, slotConfig.gapMinutes, slotConfig.startHour, slotConfig.startMinute, slotConfig.saturdayEnabled, slotConfig.satSlotCount, slotConfig.satGapMinutes, slotConfig.satStartHour, slotConfig.satStartMinute]
     );
 
     const selectedCapacity = useMemo(
         () => getCapacityForDate(selectedDate, slotConfig),
-        [selectedDate, slotConfig.capacity, slotConfig.saturdayEnabled, slotConfig.satCapacity]
+        [selectedDate, slotConfig.slotCapacity, slotConfig.saturdayEnabled, slotConfig.satSlotCapacity]
     );
 
     const timeSlotCounts = useMemo(() => {

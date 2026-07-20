@@ -26,25 +26,13 @@ export default function CroBookingPanel({ user }) {
     const [step, setStep] = useState('search'); // 'search' | 'form'
 
     // Slot config from Supabase
-    const [slotConfig, setSlotConfig] = useState({ count: 4, gap: 30, startH: 8, startM: 0, capacity: 1, saturdayEnabled: true, satSlotCount: 4, satGap: 30, satStartH: 8, satStartM: 0, satCapacity: 1 });
+    const [slotConfig, setSlotConfig] = useState({ slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1, saturdayEnabled: true, satSlotCount: 4, satGapMinutes: 30, satStartHour: 8, satStartMinute: 0, satSlotCapacity: 1 });
     const [bookings, setBookings] = useState([]);
     useEffect(() => {
         (async () => {
             try {
                 const config = await fetchBookingConfig();
-                setSlotConfig({
-                    count: config.slotCount,
-                    gap: config.gapMinutes,
-                    startH: config.startHour,
-                    startM: config.startMinute,
-                    capacity: config.slotCapacity,
-                    saturdayEnabled: config.saturdayEnabled,
-                    satSlotCount: config.satSlotCount,
-                    satGap: config.satGapMinutes,
-                    satStartH: config.satStartHour,
-                    satStartM: config.satStartMinute,
-                    satCapacity: config.satSlotCapacity,
-                });
+                setSlotConfig(config);
             } catch (_) {}
         })();
     }, []);

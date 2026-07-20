@@ -28,6 +28,12 @@ const DEFAULTS = {
   satSlotCapacity: 1,
 };
 
+function parseDbInt(raw, fallback) {
+  if (raw == null) return fallback;
+  const n = parseInt(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 export async function fetchBookingConfig() {
   try {
     const keys = Object.values(CONFIG_KEYS);
@@ -41,17 +47,17 @@ export async function fetchBookingConfig() {
     (data || []).forEach(row => { map[row.key] = row.value; });
 
     return {
-      slotCount: parseInt(map[CONFIG_KEYS.slotCount]) || DEFAULTS.slotCount,
-      gapMinutes: parseInt(map[CONFIG_KEYS.gapMinutes]) || DEFAULTS.gapMinutes,
-      startHour: safeNum(map[CONFIG_KEYS.startHour], null, DEFAULTS.startHour),
-      startMinute: safeNum(map[CONFIG_KEYS.startMinute], null, DEFAULTS.startMinute),
-      slotCapacity: parseInt(map[CONFIG_KEYS.slotCapacity]) || DEFAULTS.slotCapacity,
+      slotCount: parseDbInt(map[CONFIG_KEYS.slotCount], DEFAULTS.slotCount),
+      gapMinutes: parseDbInt(map[CONFIG_KEYS.gapMinutes], DEFAULTS.gapMinutes),
+      startHour: parseDbInt(map[CONFIG_KEYS.startHour], DEFAULTS.startHour),
+      startMinute: parseDbInt(map[CONFIG_KEYS.startMinute], DEFAULTS.startMinute),
+      slotCapacity: parseDbInt(map[CONFIG_KEYS.slotCapacity], DEFAULTS.slotCapacity),
       saturdayEnabled: (map[CONFIG_KEYS.saturdayEnabled] ?? String(DEFAULTS.saturdayEnabled)) !== 'false',
-      satSlotCount: parseInt(map[CONFIG_KEYS.satSlotCount]) || DEFAULTS.satSlotCount,
-      satGapMinutes: parseInt(map[CONFIG_KEYS.satGapMinutes]) || DEFAULTS.satGapMinutes,
-      satStartHour: safeNum(map[CONFIG_KEYS.satStartHour], null, DEFAULTS.satStartHour),
-      satStartMinute: safeNum(map[CONFIG_KEYS.satStartMinute], null, DEFAULTS.satStartMinute),
-      satSlotCapacity: parseInt(map[CONFIG_KEYS.satSlotCapacity]) || DEFAULTS.satSlotCapacity,
+      satSlotCount: parseDbInt(map[CONFIG_KEYS.satSlotCount], DEFAULTS.satSlotCount),
+      satGapMinutes: parseDbInt(map[CONFIG_KEYS.satGapMinutes], DEFAULTS.satGapMinutes),
+      satStartHour: parseDbInt(map[CONFIG_KEYS.satStartHour], DEFAULTS.satStartHour),
+      satStartMinute: parseDbInt(map[CONFIG_KEYS.satStartMinute], DEFAULTS.satStartMinute),
+      satSlotCapacity: parseDbInt(map[CONFIG_KEYS.satSlotCapacity], DEFAULTS.satSlotCapacity),
     };
   } catch (e) {
     console.error('Gagal fetch booking config:', e);
@@ -60,7 +66,7 @@ export async function fetchBookingConfig() {
 }
 
 export async function saveBookingConfig(config) {
-  const entries = [
+  const values = [
     { key: CONFIG_KEYS.slotCount, value: String(config.slotCount) },
     { key: CONFIG_KEYS.gapMinutes, value: String(config.gapMinutes) },
     { key: CONFIG_KEYS.startHour, value: String(config.startHour) },
@@ -74,13 +80,10 @@ export async function saveBookingConfig(config) {
     { key: CONFIG_KEYS.satSlotCapacity, value: String(config.satSlotCapacity) },
   ];
 
-  const results = await Promise.all(
-    entries.map(entry => db.upsert('settings', entry, { onConflict: 'key' }))
-  );
-  const failed = results.find(r => r.error);
-  if (failed) {
-    console.error('Gagal save booking config:', failed.error);
-    throw failed.error;
+  const { error } = await db.upsert('settings', values, { onConflict: 'key' });
+  if (error) {
+    console.error('Gagal save booking config:', error);
+    throw error;
   }
 }
 

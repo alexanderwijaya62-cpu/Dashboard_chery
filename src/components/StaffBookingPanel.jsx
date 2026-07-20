@@ -52,7 +52,7 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
     });
 
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [slotConfig, setSlotConfig] = useState({ count: 4, gap: 30, startH: 8, startM: 30, capacity: 1 });
+    const [slotConfig, setSlotConfig] = useState({ slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1, saturdayEnabled: true, satSlotCount: 4, satGapMinutes: 30, satStartHour: 8, satStartMinute: 0, satSlotCapacity: 1 });
     const [holidays, setHolidays] = useState([]);
 
     const [bookings, setBookings] = useState([]);
@@ -72,7 +72,7 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
         (async () => {
             try {
                 const config = await fetchBookingConfig();
-                setSlotConfig({ count: config.slotCount, gap: config.gapMinutes, startH: config.startHour, startM: config.startMinute, capacity: config.slotCapacity });
+                setSlotConfig(config);
             } catch (e) {
                 console.warn('Gagal fetch booking config:', e);
             }
