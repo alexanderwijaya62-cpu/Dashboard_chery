@@ -43,14 +43,14 @@ export async function fetchBookingConfig() {
     return {
       slotCount: parseInt(map[CONFIG_KEYS.slotCount]) || DEFAULTS.slotCount,
       gapMinutes: parseInt(map[CONFIG_KEYS.gapMinutes]) || DEFAULTS.gapMinutes,
-      startHour: parseInt(map[CONFIG_KEYS.startHour]) || DEFAULTS.startHour,
-      startMinute: parseInt(map[CONFIG_KEYS.startMinute]) || DEFAULTS.startMinute,
+      startHour: safeNum(map[CONFIG_KEYS.startHour], null, DEFAULTS.startHour),
+      startMinute: safeNum(map[CONFIG_KEYS.startMinute], null, DEFAULTS.startMinute),
       slotCapacity: parseInt(map[CONFIG_KEYS.slotCapacity]) || DEFAULTS.slotCapacity,
       saturdayEnabled: (map[CONFIG_KEYS.saturdayEnabled] ?? String(DEFAULTS.saturdayEnabled)) !== 'false',
       satSlotCount: parseInt(map[CONFIG_KEYS.satSlotCount]) || DEFAULTS.satSlotCount,
       satGapMinutes: parseInt(map[CONFIG_KEYS.satGapMinutes]) || DEFAULTS.satGapMinutes,
-      satStartHour: parseInt(map[CONFIG_KEYS.satStartHour]) || DEFAULTS.satStartHour,
-      satStartMinute: parseInt(map[CONFIG_KEYS.satStartMinute]) || DEFAULTS.satStartMinute,
+      satStartHour: safeNum(map[CONFIG_KEYS.satStartHour], null, DEFAULTS.satStartHour),
+      satStartMinute: safeNum(map[CONFIG_KEYS.satStartMinute], null, DEFAULTS.satStartMinute),
       satSlotCapacity: parseInt(map[CONFIG_KEYS.satSlotCapacity]) || DEFAULTS.satSlotCapacity,
     };
   } catch (e) {
@@ -74,12 +74,13 @@ export async function saveBookingConfig(config) {
     { key: CONFIG_KEYS.satSlotCapacity, value: String(config.satSlotCapacity) },
   ];
 
-  for (const entry of entries) {
-    const { error } = await db.upsert('settings', entry, { onConflict: 'key' });
-    if (error) {
-      console.error(`Gagal save config ${entry.key}:`, error);
-      throw error;
-    }
+  const results = await Promise.all(
+    entries.map(entry => db.upsert('settings', entry, { onConflict: 'key' }))
+  );
+  const failed = results.find(r => r.error);
+  if (failed) {
+    console.error('Gagal save booking config:', failed.error);
+    throw failed.error;
   }
 }
 
@@ -105,25 +106,24 @@ export function isSaturday(dateStr) {
   return new Date(dateStr).getDay() === 6;
 }
 
-function num(val, fallback) {
-  if (fallback === undefined) fallback = 1;
-  const n = Number(val);
-  return Number.isFinite(n) ? n : fallback;
+function safeNum(primary, fallback, def) {
+  const v = Number(primary ?? fallback);
+  return Number.isFinite(v) ? v : def;
 }
 
 function resolveConfig(c) {
   return {
-    slotCount: num(c.slotCount) || num(c.count) || 4,
-    gapMinutes: num(c.gapMinutes) || num(c.gap) || 30,
-    startHour: num(c.startHour) || num(c.startH) || 8,
-    startMinute: Number.isFinite(Number(c.startMinute)) ? Number(c.startMinute) : Number.isFinite(Number(c.startM)) ? Number(c.startM) : 0,
-    slotCapacity: num(c.slotCapacity) || num(c.capacity) || 1,
+    slotCount: safeNum(c.slotCount, c.count, 4),
+    gapMinutes: safeNum(c.gapMinutes, c.gap, 30),
+    startHour: safeNum(c.startHour, c.startH, 8),
+    startMinute: safeNum(c.startMinute, c.startM, 0),
+    slotCapacity: safeNum(c.slotCapacity, c.capacity, 1),
     saturdayEnabled: c.saturdayEnabled ?? true,
-    satSlotCount: num(c.satSlotCount) || num(c.count) || 4,
-    satGapMinutes: num(c.satGapMinutes) || num(c.satGap) || 30,
-    satStartHour: num(c.satStartHour) || num(c.satStartH) || 8,
-    satStartMinute: Number.isFinite(Number(c.satStartMinute)) ? Number(c.satStartMinute) : Number.isFinite(Number(c.satStartM)) ? Number(c.satStartM) : 0,
-    satSlotCapacity: num(c.satSlotCapacity) || num(c.satCapacity) || 1,
+    satSlotCount: safeNum(c.satSlotCount, c.count, 4),
+    satGapMinutes: safeNum(c.satGapMinutes, c.satGap, 30),
+    satStartHour: safeNum(c.satStartHour, c.satStartH, 8),
+    satStartMinute: safeNum(c.satStartMinute, c.satStartM, 0),
+    satSlotCapacity: safeNum(c.satSlotCapacity, c.satCapacity, 1),
   };
 }
 
