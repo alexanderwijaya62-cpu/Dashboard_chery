@@ -828,18 +828,16 @@ export default function CroBookingPanel({ user }) {
                                                 <div className="w-6 h-6 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">1</div> Pilih Tanggal
                                             </h3>
 
-                                            <div className="bg-zinc-50 border border-zinc-100 rounded-3xl p-5 shadow-sm">
-                                                <BookingCalendar
-                                                    bookings={bookings}
-                                                    slotConfig={slotConfig}
-                                                    selectedDate={formData.tanggal}
-                                                    selectedTime={formData.jam}
-                                                    holidays={holidays}
-                                                    onDateSelect={(date) => setFormData({ ...formData, tanggal: date, jam: '' })}
-                                                    onTimeSelect={(slot) => setFormData({ ...formData, jam: slot })}
-                                                    showTimeSlots={false}
-                                                />
-                                            </div>
+                                            <BookingCalendar
+                                                bookings={bookings}
+                                                slotConfig={slotConfig}
+                                                selectedDate={formData.tanggal}
+                                                selectedTime={formData.jam}
+                                                holidays={holidays}
+                                                onDateSelect={(date) => setFormData({ ...formData, tanggal: date, jam: '' })}
+                                                onTimeSelect={(slot) => setFormData({ ...formData, jam: slot })}
+                                                showTimeSlots={false}
+                                            />
 
                                             {/* Quick time slots */}
                                             <div className="space-y-2">

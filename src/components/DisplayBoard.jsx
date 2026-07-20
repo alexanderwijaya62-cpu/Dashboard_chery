@@ -67,7 +67,7 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
    const isWaiting = item.status === 'waiting';
    const isIstirahatExpired = item.status === 'istirahat' && (!parseInt(item.estimasiDefault) || parseInt(item.estimasiDefault) <= 0);
  
-   const isScheduled = !item.status || item.status === 'accepted' || item.status === 'waiting confirm';
+   const isScheduled = !item.status || ['accepted', 'waiting confirm', 'synced', 'waiting_approval'].includes(item.status);
 
    return (
       <div className={`bg-white rounded-2xl border-4 shadow-lg overflow-y-auto flex flex-col group/card hover:border-zinc-300 transition-all flex-1 ${isScheduled ? 'border-dashed border-zinc-300 opacity-80' : 'border-zinc-100'}`}>

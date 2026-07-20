@@ -554,6 +554,23 @@ const App = () => {
       if (historyResult.status === 'rejected') console.error('History error:', historyResult.reason);
       if (bookingResult.status === 'rejected') console.error('Booking error:', bookingResult.reason);
 
+      // Auto-clean old menginap items (not from today) to prevent queue buildup
+      if (Array.isArray(activeQueue)) {
+        const startOfTodayMs = new Date(); startOfTodayMs.setHours(0,0,0,0);
+        const staleItems = activeQueue.filter(q => {
+          if (q.status !== 'menginap') return false;
+          const itemTime = parseInt(q.id);
+          if (!itemTime) return false;
+          const ts = itemTime < 2000000000 ? itemTime * 1000 : itemTime;
+          return ts < startOfTodayMs.getTime();
+        });
+        if (staleItems.length > 0) {
+          for (const item of staleItems) {
+            db.delete('antrian', { eq: { id: item.id } }).catch(() => {});
+          }
+        }
+      }
+
       const mapDbToApp = (item) => {
         if (!item) return {};
         
@@ -593,7 +610,8 @@ const App = () => {
           isCalled: item.is_called || false,
           calledAt: item.called_at || null,
           counter: item.counter || 0,
-          nama_sa: item.nama_sa || ''
+          nama_sa: item.nama_sa || '',
+          cuci_required: item.cuci_required === true
         };
       };
 
@@ -630,7 +648,6 @@ const App = () => {
     const antrianSubscription = supabase
       .channel('antrian-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'antrian' }, (payload) => {
-        if (payload.eventType === 'UPDATE' && payload.new?.status === payload.old?.status && payload.new?.is_called === payload.old?.is_called) return;
         if (userRef.current && userRef.current.role !== 'customer') debouncedFetchQueue();
       })
       .subscribe();
