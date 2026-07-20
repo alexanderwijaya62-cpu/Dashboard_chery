@@ -105,16 +105,40 @@ export function isSaturday(dateStr) {
   return new Date(dateStr).getDay() === 6;
 }
 
+function num(val, fallback) {
+  if (fallback === undefined) fallback = 1;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function resolveConfig(c) {
+  return {
+    slotCount: num(c.slotCount) || num(c.count) || 4,
+    gapMinutes: num(c.gapMinutes) || num(c.gap) || 30,
+    startHour: num(c.startHour) || num(c.startH) || 8,
+    startMinute: Number.isFinite(Number(c.startMinute)) ? Number(c.startMinute) : Number.isFinite(Number(c.startM)) ? Number(c.startM) : 0,
+    slotCapacity: num(c.slotCapacity) || num(c.capacity) || 1,
+    saturdayEnabled: c.saturdayEnabled ?? true,
+    satSlotCount: num(c.satSlotCount) || num(c.count) || 4,
+    satGapMinutes: num(c.satGapMinutes) || num(c.satGap) || 30,
+    satStartHour: num(c.satStartHour) || num(c.satStartH) || 8,
+    satStartMinute: Number.isFinite(Number(c.satStartMinute)) ? Number(c.satStartMinute) : Number.isFinite(Number(c.satStartM)) ? Number(c.satStartM) : 0,
+    satSlotCapacity: num(c.satSlotCapacity) || num(c.satCapacity) || 1,
+  };
+}
+
 export function getSlotsForDate(dateStr, config) {
-  if (isSaturday(dateStr) && config.saturdayEnabled) {
-    return generateSlots(config.satSlotCount, config.satGapMinutes, config.satStartHour, config.satStartMinute);
+  const c = resolveConfig(config);
+  if (isSaturday(dateStr) && c.saturdayEnabled) {
+    return generateSlots(c.satSlotCount, c.satGapMinutes, c.satStartHour, c.satStartMinute);
   }
-  return generateSlots(config.slotCount, config.gapMinutes, config.startHour, config.startMinute);
+  return generateSlots(c.slotCount, c.gapMinutes, c.startHour, c.startMinute);
 }
 
 export function getCapacityForDate(dateStr, config) {
-  if (isSaturday(dateStr) && config.saturdayEnabled) {
-    return config.satSlotCapacity;
+  const c = resolveConfig(config);
+  if (isSaturday(dateStr) && c.saturdayEnabled) {
+    return c.satSlotCapacity;
   }
-  return config.slotCapacity;
+  return c.slotCapacity;
 }
