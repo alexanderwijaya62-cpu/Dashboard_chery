@@ -3,7 +3,7 @@ import { Phone, ArrowRight, AlertCircle, Eye, EyeOff, Lock, MessageCircle, Shiel
 import { db } from '../utils/dbClient';
 import cheryLogo from '../assets/cherylogo.png';
 
-const WA_BOT_NUMBER = import.meta.env.VITE_WA_BOT_NUMBER;
+const WA_BOT_NUMBER = import.meta.env.VITE_WA_BOT_NUMBER || '62895628961791';
 const OTP_DURATION = 300; // 5 menit (detik)
 const RESEND_COOLDOWN = 60; // 1 menit (detik)
 const REGISTRATION_STATE_KEY = 'chery_registration_state';
@@ -394,7 +394,7 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
                 <p className="text-xs text-zinc-500 font-bold mb-1">Langkah aktivasi:</p>
                 <ol className="text-xs text-zinc-700 space-y-2 font-medium">
                   <li>1. Buka WhatsApp kamu</li>
-                  <li>2. Kirim pesan ke nomor admin</li>
+                  <li>2. Kirim pesan ke nomor admin: <strong className="text-sm tracking-wide text-zinc-900">{WA_BOT_NUMBER?.replace(/^62/, '0').replace(/(\d{4})(\d{4})(\d+)/, '$1-$2-$3')}</strong></li>
                   <li>3. Ketik kode: <strong className="text-lg tracking-widest text-blue-600">{otpCode}</strong></li>
                 </ol>
               </div>
@@ -412,7 +412,7 @@ const RegisterPage = ({ setCurrentPage, setErrorMessage, errorMessage }) => {
 
               <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-6">
                   <p className="text-xs text-blue-700 font-bold text-center">
-                    Kirim kode <strong className="text-lg tracking-widest">{otpCode}</strong> ke nomor admin via WhatsApp
+                    Kirim kode <strong className="text-lg tracking-widest">{otpCode}</strong> ke <strong>{WA_BOT_NUMBER?.replace(/^62/, '0').replace(/(\d{4})(\d{4})(\d+)/, '$1-$2-$3')}</strong> via WhatsApp
                   </p>
                 </div>
 
