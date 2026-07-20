@@ -440,7 +440,7 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
           </div>
           <div>
             <h1 className="text-base font-black text-black uppercase tracking-tight leading-none">Security</h1>
-            <p className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest mt-0.5">{user?.name}</p>
+            <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest mt-0.5">{user?.name}</p>
           </div>
         </div>
         <button onClick={() => setShowPasswordModal(true)}
@@ -449,7 +449,7 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
           <Key size={16} />
         </button>
         <button onClick={handleLogout}
-          className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[8px] font-black uppercase tracking-widest transition-all active:scale-95">
+          className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all active:scale-95">
           Logout
         </button>
       </div>
@@ -458,15 +458,15 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
 
       <div className="flex mx-4 mt-4 bg-white rounded-2xl border-2 border-zinc-200 overflow-hidden">
         <button onClick={() => setTab('reguler')}
-          className={`flex-1 py-3.5 text-[9px] font-black uppercase tracking-widest transition-all ${tab === 'reguler' ? 'bg-black text-white' : 'text-zinc-500'}`}>
+          className={`flex-1 py-3.5 text-xs font-black uppercase tracking-widest transition-all ${tab === 'reguler' ? 'bg-black text-white' : 'text-zinc-500'}`}>
           Reguler
         </button>
         <button onClick={() => { setTab('booking'); fetchData(); }}
-          className={`flex-1 py-3.5 text-[9px] font-black uppercase tracking-widest transition-all ${tab === 'booking' ? 'bg-black text-white' : 'text-zinc-500'}`}>
+          className={`flex-1 py-3.5 text-xs font-black uppercase tracking-widest transition-all ${tab === 'booking' ? 'bg-black text-white' : 'text-zinc-500'}`}>
           Booking
         </button>
         <button onClick={() => setTab('daftar')}
-          className={`flex-1 py-3.5 text-[9px] font-black uppercase tracking-widest transition-all ${tab === 'daftar' ? 'bg-black text-white' : 'text-zinc-500'}`}>
+          className={`flex-1 py-3.5 text-xs font-black uppercase tracking-widest transition-all ${tab === 'daftar' ? 'bg-black text-white' : 'text-zinc-500'}`}>
           Daftar Booking
         </button>
       </div>
@@ -474,17 +474,17 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
       <div className="flex-1 px-4 pb-20 mt-4">
         {tab === 'reguler' ? (
           <div className="bg-white border-2 border-zinc-200 rounded-2xl p-5">
-            <h2 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4">Input Antrian Reguler</h2>
+            <h2 className="text-sm font-black text-zinc-500 uppercase tracking-widest mb-4">Input Antrian Reguler</h2>
             <div className="space-y-3">
               <div>
-                <label className="text-[8px] font-black text-zinc-400 uppercase tracking-widest mb-1 block">No. Plat (BK)</label>
+                <label className="text-[11px] font-black text-zinc-400 uppercase tracking-widest mb-1 block">No. Plat (BK)</label>
                 <input value={bk} onChange={e => setBk(e.target.value)}
                   placeholder="BK 1234 ABC"
                   className="w-full px-4 py-3.5 bg-zinc-50 border-2 border-zinc-200 rounded-xl text-sm font-bold text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-black transition-all uppercase"
                   autoFocus />
               </div>
               <button onClick={handleRegulerSubmit} disabled={isLoading || !bk.trim()}
-                className="w-full py-4 bg-black hover:bg-zinc-800 disabled:bg-zinc-200 text-white disabled:text-zinc-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm">
+                className="w-full py-4 bg-black hover:bg-zinc-800 disabled:bg-zinc-200 text-white disabled:text-zinc-400 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm">
                 {isLoading ? (
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
@@ -498,14 +498,14 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
           <div className="space-y-3">
             <div className="bg-white border-2 border-zinc-200 rounded-2xl p-4">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Daftar Booking</h2>
+                <h2 className="text-sm font-black text-zinc-500 uppercase tracking-widest">Daftar Booking</h2>
                 <div className="flex items-center gap-2">
                   <button onClick={() => setShowManualBooking(prev => !prev)}
-                    className="text-[7px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border-2 transition-all active:scale-95"
+                    className="text-sm font-black uppercase tracking-widest px-2 py-1 rounded-lg border-2 transition-all active:scale-95"
                     style={{ borderColor: showManualBooking ? '#000' : '#e4e4e7', color: showManualBooking ? '#fff' : '#a1a1aa', background: showManualBooking ? '#000' : 'transparent' }}>
                     Isi Manual
                   </button>
-                  <span className="text-[9px] font-bold text-zinc-400">{filteredBookings.length} total</span>
+                  <span className="text-xs font-bold text-zinc-400">{filteredBookings.length} total</span>
                 </div>
               </div>
 
@@ -519,7 +519,7 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
 
               {showManualBooking && (
                 <div className="bg-zinc-50 border-2 border-zinc-200 rounded-xl p-4 mb-4 space-y-3">
-                  <h3 className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Input Booking Manual</h3>
+                  <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest">Input Booking Manual</h3>
                   <input value={manualPlat} onChange={e => setManualPlat(e.target.value)}
                     placeholder="No. Plat"
                     className="w-full px-3.5 py-2.5 bg-white border-2 border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-black transition-all uppercase" />
@@ -537,7 +537,7 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
                     rows="2"
                     className="w-full px-3.5 py-2.5 bg-white border-2 border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-black transition-all resize-none" />
                   <button onClick={handleManualBookingSubmit} disabled={isLoading || !manualPlat.trim()}
-                    className="w-full py-3 bg-black hover:bg-zinc-800 disabled:bg-zinc-200 text-white disabled:text-zinc-400 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm">
+                    className="w-full py-3 bg-black hover:bg-zinc-800 disabled:bg-zinc-200 text-white disabled:text-zinc-400 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm">
                     {isLoading ? (
                       <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     ) : (
@@ -577,15 +577,15 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className={`font-black text-sm leading-tight ${sudahAntri ? 'text-zinc-400' : isSelected ? 'text-white' : 'text-black'}`}>{b.noPlat || '-'}</span>
-                            {b.jam ? <span className={`text-[8px] font-bold ${sudahAntri ? 'text-zinc-300' : isSelected ? 'text-white/60' : 'text-zinc-400'}`}>{b.jam}</span> : null}
+                            {b.jam ? <span className={`text-[11px] font-bold ${sudahAntri ? 'text-zinc-300' : isSelected ? 'text-white/60' : 'text-zinc-400'}`}>{b.jam}</span> : null}
                             {fromDms && <Database size={10} className={sudahAntri ? 'text-zinc-300' : isSelected ? 'text-white/60' : 'text-zinc-400'} />}
-                            {telat && !sudahAntri && <span className="text-[7px] font-black text-red-500 bg-red-50 px-1.5 py-0.5 rounded tracking-widest uppercase">Telat</span>}
-                            {telat && sudahAntri && <span className="text-[7px] font-black text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded tracking-widest uppercase">Telat</span>}
+                            {telat && !sudahAntri && <span className="text-sm font-black text-red-500 bg-red-50 px-1.5 py-0.5 rounded tracking-widest uppercase">Telat</span>}
+                            {telat && sudahAntri && <span className="text-sm font-black text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded tracking-widest uppercase">Telat</span>}
                           </div>
-                          <p className={`text-[8px] font-bold truncate ${sudahAntri ? 'text-zinc-400' : isSelected ? 'text-white/70' : 'text-zinc-500'}`}>{b.namaCustomer || 'Tanpa nama'}</p>
+                          <p className={`text-[11px] font-bold truncate ${sudahAntri ? 'text-zinc-400' : isSelected ? 'text-white/70' : 'text-zinc-500'}`}>{b.namaCustomer || 'Tanpa nama'}</p>
                         </div>
                         {sudahAntri ? (
-                          <span className="text-[7px] font-black text-zinc-400 uppercase tracking-widest shrink-0">{queueCode}</span>
+                          <span className="text-sm font-black text-zinc-400 uppercase tracking-widest shrink-0">{queueCode}</span>
                         ) : (
                           <div className={`shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center ${isSelected ? 'bg-white border-white' : 'border-zinc-300'}`}>
                             {isSelected && <Check size={12} className="text-black" />}
@@ -600,7 +600,7 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
 
             {selectedBookingIds.size > 0 && (
               <button onClick={handleBookingSubmit} disabled={isLoading}
-                className="w-full py-4 bg-black hover:bg-zinc-800 disabled:bg-zinc-200 text-white disabled:text-zinc-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm">
+                className="w-full py-4 bg-black hover:bg-zinc-800 disabled:bg-zinc-200 text-white disabled:text-zinc-400 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-sm">
                 {isLoading ? (
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
@@ -614,8 +614,8 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
           <div className="space-y-3">
             <div className="bg-white border-2 border-zinc-200 rounded-2xl p-4">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Daftar Booking</h2>
-                <span className="text-[9px] font-bold text-zinc-400">{filteredListBookings.length} total</span>
+                <h2 className="text-sm font-black text-zinc-500 uppercase tracking-widest">Daftar Booking</h2>
+                <span className="text-xs font-bold text-zinc-400">{filteredListBookings.length} total</span>
               </div>
 
               <div className="flex items-center gap-2 mb-3">
@@ -650,19 +650,19 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
                     return (
                       <div key={b.id} className="flex items-center gap-3 px-3 py-3 rounded-xl border-2 border-zinc-100 bg-zinc-50">
                         <div className="w-8 h-8 rounded-lg bg-zinc-200 flex items-center justify-center shrink-0">
-                          <span className="text-[10px] font-black text-zinc-500">{idx + 1}</span>
+                          <span className="text-sm font-black text-zinc-500">{idx + 1}</span>
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="font-black text-sm leading-tight text-black">{b.noPlat || '-'}</span>
-                            {b.jam ? <span className="text-[8px] font-bold text-zinc-400">{b.jam}</span> : null}
+                            {b.jam ? <span className="text-[11px] font-bold text-zinc-400">{b.jam}</span> : null}
                             {fromDms && <Database size={10} className="text-zinc-400" />}
                           </div>
-                          <p className="text-[8px] font-bold text-zinc-500 truncate">{b.namaCustomer || 'Tanpa nama'}</p>
-                          {b.tipeMobil ? <p className="text-[7px] font-bold text-zinc-400 truncate">{b.tipeMobil}</p> : null}
+                          <p className="text-[11px] font-bold text-zinc-500 truncate">{b.namaCustomer || 'Tanpa nama'}</p>
+                          {b.tipeMobil ? <p className="text-sm font-bold text-zinc-400 truncate">{b.tipeMobil}</p> : null}
                         </div>
                         {b.keperluanService ? (
-                          <span className="text-[7px] font-bold text-zinc-400 bg-zinc-100 px-2 py-1 rounded-lg shrink-0 max-w-[100px] truncate">{b.keperluanService}</span>
+                          <span className="text-sm font-bold text-zinc-400 bg-zinc-100 px-2 py-1 rounded-lg shrink-0 max-w-[100px] truncate">{b.keperluanService}</span>
                         ) : null}
                       </div>
                     );
@@ -676,20 +676,20 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
         {/* Antrian Status List */}
         <div className="mt-4 bg-white border-2 border-zinc-200 rounded-2xl p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 flex items-center gap-2">
+            <h3 className="text-xs font-black uppercase tracking-widest text-zinc-400 flex items-center gap-2">
               <div className="w-1.5 h-1.5 bg-black rounded-full"></div>
               Status Antrian ({antrianList.length})
             </h3>
             <div className="flex items-center gap-1">
-              <span className="text-[7px] font-bold text-zinc-400 uppercase tracking-wider">Counter</span>
+              <span className="text-sm font-bold text-zinc-400 uppercase tracking-wider">Counter</span>
               <input type="number" min="1" max="20" value={callCounter}
                 onChange={e => { const v = parseInt(e.target.value) || 1; setCallCounter(v); localStorage.setItem('security_call_counter', String(v)); }}
-                className="w-10 h-6 text-center text-[9px] font-black bg-zinc-50 border border-zinc-200 rounded-md focus:outline-none focus:border-black" />
+                className="w-10 h-6 text-center text-xs font-black bg-zinc-50 border border-zinc-200 rounded-md focus:outline-none focus:border-black" />
             </div>
           </div>
           <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
             {antrianList.length === 0 ? (
-              <p className="text-[10px] font-bold text-zinc-300 text-center py-4">Belum ada antrian hari ini</p>
+              <p className="text-sm font-bold text-zinc-300 text-center py-4">Belum ada antrian hari ini</p>
             ) : (
               antrianList.map(a => {
                 const code = a.category === 'Booking'
@@ -706,18 +706,18 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
                 return (
                   <div key={a.id} className="flex items-center justify-between px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-100">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-[10px] font-black text-zinc-900 shrink-0">{code}</span>
-                      <span className="text-[10px] font-bold text-zinc-700 truncate">{(a.bk || '').toUpperCase()}</span>
+                      <span className="text-sm font-black text-zinc-900 shrink-0">{code}</span>
+                      <span className="text-sm font-bold text-zinc-700 truncate">{(a.bk || '').toUpperCase()}</span>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0 ml-2">
                       {a.status === 'menunggu_sa' && (
                         <button onClick={() => handleCallAntrian(a)}
                           className="flex items-center gap-1 px-2 py-1 bg-black hover:bg-zinc-700 text-white rounded-lg transition-all active:scale-95">
                           <Megaphone size={10} />
-                          <span className="text-[7px] font-black uppercase tracking-wider">Panggil</span>
+                          <span className="text-sm font-black uppercase tracking-wider">Panggil</span>
                         </button>
                       )}
-                      <span className={"text-[8px] font-bold uppercase tracking-wider shrink-0 " + (a.status === 'menunggu_sa' ? 'text-zinc-400' : 'text-zinc-500')}>
+                      <span className={"text-[11px] font-bold uppercase tracking-wider shrink-0 " + (a.status === 'menunggu_sa' ? 'text-zinc-400' : 'text-zinc-500')}>
                         {statusLabels[a.status] || a.status || '-'}
                       </span>
                     </div>
