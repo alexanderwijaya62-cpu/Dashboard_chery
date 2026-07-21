@@ -68,29 +68,66 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
 
   const hasActiveFilters = statusFilter || dateFrom || dateTo;
 
+  const [allData, setAllData] = useState([]);
+  const [allTotal, setAllTotal] = useState(0);
+
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
+      const needsClientFilter = dateFrom || dateTo || statusFilter || search;
+      const fetchLength = needsClientFilter ? 1000 : pageSize;
+      const fetchStart = needsClientFilter ? 0 : page * pageSize;
+
       const params = new URLSearchParams({
         endpoint: 'booking-data',
         draw: 1,
-        start: page * pageSize,
-        length: pageSize,
-        search: search,
-        status: statusFilter,
-        datefrom: dateFrom,
-        dateto: dateTo,
+        start: fetchStart,
+        length: fetchLength,
+        search: '',
+        status: '',
+        datefrom: '',
+        dateto: '',
       });
       const res = await fetch(`/api/chery_dms?${params.toString()}`);
       const json = await res.json();
-      if (json.data) {
-        setData(json.data);
-        setTotalRecords(json.recordsFiltered || json.recordsTotal || json.data.length);
-      } else {
-        setData(json.data || []);
-        setTotalRecords(json.recordsTotal || 0);
+      let raw = json.data || [];
+      let total = json.recordsTotal || raw.length;
+
+      if (needsClientFilter) {
+        if (search) {
+          const q = search.toLowerCase();
+          raw = raw.filter(r =>
+            (r.no_booking || '').toLowerCase().includes(q) ||
+            (r.no_polisi || '').toLowerCase().includes(q) ||
+            (r.nama_pelanggan || '').toLowerCase().includes(q) ||
+            (r.nama_kendaraan || '').toLowerCase().includes(q)
+          );
+        }
+        if (statusFilter) {
+          raw = raw.filter(r => (r.status_booking || '') === statusFilter);
+        }
+        if (dateFrom) {
+          raw = raw.filter(r => {
+            const d = (r.janji_datang || '').split(' ')[0];
+            return d >= dateFrom;
+          });
+        }
+        if (dateTo) {
+          raw = raw.filter(r => {
+            const d = (r.janji_datang || '').split(' ')[0];
+            return d <= dateTo;
+          });
+        }
+        total = raw.length;
+        const start = page * pageSize;
+        raw = raw.slice(start, start + pageSize);
       }
+
+      setAllData(raw);
+      setAllTotal(total);
+      setData(raw);
+      setTotalRecords(total);
     } catch (err) {
       setError(err.message);
       Toastify({ text: `Gagal fetch data DMS: ${err.message}`, background: 'red' }).showToast();
