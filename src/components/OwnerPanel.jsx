@@ -4684,6 +4684,8 @@ export default function OwnerPanel({
         </div>
       )}
 
+      <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
+
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -4766,7 +4768,6 @@ function WorkshopColumn({ title, items, color, icon: Icon, formatTime, onEdit, o
           ))
         )}
       </div>
-      <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
     </div>
   );
 }

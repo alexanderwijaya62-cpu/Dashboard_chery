@@ -18,7 +18,7 @@ export default function BookingManager({ user, handleLogout, isNavbarVisible, in
     }, [activeTab]);
 
     return (
-        <div className="flex flex-col h-screen overflow-hidden bg-white">
+        <div className="flex flex-col h-full overflow-hidden bg-white">
             {/* Sub-Navbar / Tabs */}
             <div className={`bg-white border-b border-zinc-200 px-4 py-2 flex items-center justify-between shadow-sm z-30 transition-all duration-300 ${isNavbarVisible ? 'mt-0' : '-mt-0'}`}>
                 <div className="flex bg-zinc-100 p-1 rounded-2xl border border-zinc-200 shadow-inner">

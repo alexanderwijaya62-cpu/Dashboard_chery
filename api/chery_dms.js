@@ -724,7 +724,19 @@ async function handleBookingCreate(req, res) {
         });
 
         const respBody = await response.text();
-        if (response.status === 302 || response.status === 303 || response.status === 200) {
+        // 302/303 = Laravel redirect on success
+        if (response.status === 302 || response.status === 303) {
+            return res.status(200).json({ success: true, message: 'Booking created successfully' });
+        }
+        // HTTP 200 but with error messages in HTML body (e.g. "Kendaraan Tidak Ditemukan")
+        if (response.status === 200) {
+            const bodyLower = respBody.toLowerCase();
+            const hasError = bodyLower.includes('tidak ditemukan') || bodyLower.includes('validation') || bodyLower.includes('error') || bodyLower.includes('gagal');
+            if (hasError) {
+                const errorMatch = respBody.match(/<div[^>]*class="[^"]*alert[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+                const errorMsg = errorMatch ? errorMatch[1].replace(/<[^>]+>/g, '').trim() : 'DMS returned validation error';
+                return res.status(400).json({ success: false, message: errorMsg, snippet: respBody.slice(0, 500) });
+            }
             return res.status(200).json({ success: true, message: 'Booking created successfully' });
         }
         

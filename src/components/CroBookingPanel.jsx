@@ -727,9 +727,9 @@ export default function CroBookingPanel({ user }) {
                             <X size={24} />
                         </button>
 
-                        <div className="px-4 py-4 md:px-8 md:py-6 lg:px-12 lg:py-10 flex-1 flex flex-col overflow-hidden">
+                        <div className="px-4 py-3 md:px-6 md:py-4 lg:px-8 lg:py-4 flex-1 flex flex-col overflow-hidden">
                             {/* Step indicator */}
-                            <div className="mb-6 flex items-center gap-4 border-b border-zinc-100 pb-4 shrink-0">
+                            <div className="mb-3 flex items-center gap-4 border-b border-zinc-100 pb-2 shrink-0">
                                 <div className="flex items-center gap-2">
                                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black ${step === 'search' ? 'bg-black text-white' : 'bg-green-500 text-white'}`}>1</div>
                                     <span className={`text-xs font-black uppercase tracking-widest ${step === 'search' ? 'text-zinc-900' : 'text-green-600'}`}>Cari Kendaraan</span>
@@ -821,11 +821,11 @@ export default function CroBookingPanel({ user }) {
                             {/* STEP 2: Booking Form */}
                             {step === 'form' && (
                                 <div className="flex-1 flex flex-col overflow-hidden">
-                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8 flex-1 overflow-y-auto lg:overflow-hidden h-full">
+                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 flex-1 overflow-y-auto lg:overflow-hidden h-full">
                                         {/* Column 1: Calendar */}
-                                        <div className="space-y-4 flex flex-col h-full lg:border-r border-zinc-100 lg:pr-6">
+                                        <div className="space-y-2 flex flex-col h-full lg:border-r border-zinc-100 lg:pr-4">
                                             <h3 className="text-[11px] font-black uppercase tracking-widest text-zinc-900 flex items-center gap-3">
-                                                <div className="w-6 h-6 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">1</div> Pilih Tanggal
+                                                <div className="w-5 h-5 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">1</div> Pilih Tanggal
                                             </h3>
 
                                             <BookingCalendar
@@ -840,9 +840,9 @@ export default function CroBookingPanel({ user }) {
                                             />
 
                                             {/* Quick time slots */}
-                                            <div className="space-y-2">
-                                                <h4 className="text-xs font-black uppercase tracking-widest text-zinc-400 ml-1">Jam Kedatangan</h4>
-                                                <div className="grid grid-cols-3 gap-2">
+                                            <div className="space-y-1">
+                                                <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Jam Kedatangan</h4>
+                                                <div className="grid grid-cols-3 gap-1.5">
                                                     {getSlotsForDate(formData.tanggal, slotConfig).map((slot) => {
                                                         const [h, m] = slot.split('.');
                                                         const isPastTime = formData.tanggal === new Date().toISOString().split('T')[0] && parseFloat(slot) < (new Date().getHours() + new Date().getMinutes() / 60);
@@ -856,7 +856,7 @@ export default function CroBookingPanel({ user }) {
                                                         return (
                                                             <button key={slot} type="button" disabled={isPastTime || (isFull && formData.jam !== slot)}
                                                                 onClick={() => setFormData({ ...formData, jam: slot })}
-                                                                className={`py-3 px-2 rounded-xl border-2 font-black text-sm uppercase tracking-widest transition-all ${formData.jam === slot ? 'bg-black border-black text-white shadow-lg' :
+                                                                className={`py-2 px-1.5 rounded-xl border-2 font-black text-xs uppercase tracking-widest transition-all ${formData.jam === slot ? 'bg-black border-black text-white shadow-lg' :
                                                                     isPastTime || isFull ? 'bg-zinc-50 border-transparent text-zinc-200 cursor-not-allowed' : 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
                                                                 }`}
                                                             >
@@ -870,27 +870,27 @@ export default function CroBookingPanel({ user }) {
                                         </div>
 
                                         {/* Column 2: Vehicle info + fields */}
-                                        <div className="space-y-6 flex flex-col h-full lg:border-r border-zinc-100 lg:pr-6">
+                                        <div className="space-y-3 flex flex-col h-full lg:border-r border-zinc-100 lg:pr-4">
                                             {isManual ? (
-                                                <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
-                                                    <div className="flex items-center gap-2 text-[9px] font-black uppercase text-amber-700 tracking-wider mb-3">
+                                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                                                    <div className="flex items-center gap-2 text-[9px] font-black uppercase text-amber-700 tracking-wider mb-2">
                                                         <Edit3 size={12} /> Data Manual
                                                     </div>
-                                                    <div className="space-y-3">
+                                                    <div className="space-y-2">
                                                         <input required type="text" placeholder="No Polisi"
-                                                            className="w-full bg-white border border-amber-200 rounded-xl p-3 text-xs font-bold text-zinc-900 focus:border-amber-500 outline-none transition-all"
+                                                            className="w-full bg-white border border-amber-200 rounded-lg p-2.5 text-xs font-bold text-zinc-900 focus:border-amber-500 outline-none transition-all"
                                                             value={formData.noPolisi} onChange={e => setFormData({ ...formData, noPolisi: e.target.value.toUpperCase() })} />
                                                         <input type="text" placeholder="Model Kendaraan (opsional)"
-                                                            className="w-full bg-white border border-amber-200 rounded-xl p-3 text-xs font-bold text-zinc-900 focus:border-amber-500 outline-none transition-all"
+                                                            className="w-full bg-white border border-amber-200 rounded-lg p-2.5 text-xs font-bold text-zinc-900 focus:border-amber-500 outline-none transition-all"
                                                             value={formData.modelKendaraan} onChange={e => setFormData({ ...formData, modelKendaraan: e.target.value })} />
                                                     </div>
                                                 </div>
                                             ) : (
-                                                <div className="p-4 bg-zinc-50 border border-zinc-100 rounded-2xl">
-                                                    <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-500 tracking-wider mb-2">
+                                                <div className="p-3 bg-zinc-50 border border-zinc-100 rounded-xl">
+                                                    <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-500 tracking-wider mb-1">
                                                         <ShieldCheck size={12} className="text-emerald-600" /> Data Kendaraan
                                                     </div>
-                                                    <div className="grid grid-cols-2 gap-1 text-[11px]">
+                                                    <div className="grid grid-cols-2 gap-0.5 text-[10px]">
                                                         <span className="text-zinc-400">No Polisi:</span>
                                                         <span className="font-black text-zinc-900">{foundVehicle?.no_polisi}</span>
                                                         <span className="text-zinc-400">Model:</span>
@@ -901,67 +901,67 @@ export default function CroBookingPanel({ user }) {
                                                 </div>
                                             )}
 
-                                            <form id="bookingForm" onSubmit={handleFormSubmit} className="space-y-4">
-                                                <div className="space-y-2">
+                                            <form id="bookingForm" onSubmit={handleFormSubmit} className="space-y-2">
+                                                <div className="space-y-1">
                                                     <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Atas Nama Booking</h4>
-                                                    <input required type="text" className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl p-3 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[40px]" placeholder="Nama booking" value={formData.atasNama} onChange={e => setFormData({ ...formData, atasNama: e.target.value })} />
+                                                    <input required type="text" className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[36px]" placeholder="Nama booking" value={formData.atasNama} onChange={e => setFormData({ ...formData, atasNama: e.target.value })} />
                                                 </div>
-                                                <div className="space-y-2">
+                                                <div className="space-y-1">
                                                     <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">No Telp Booking</h4>
-                                                    <input type="tel" className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl p-3 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[40px]" placeholder="08..." value={formData.noTelp} onChange={e => setFormData({ ...formData, noTelp: e.target.value })} />
+                                                    <input type="tel" className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[36px]" placeholder="08..." value={formData.noTelp} onChange={e => setFormData({ ...formData, noTelp: e.target.value })} />
                                                 </div>
-                                                <div className="space-y-2">
+                                                <div className="space-y-1">
                                                     <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">KM Kendaraan</h4>
-                                                    <input type="text" className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl p-3 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[40px]" placeholder="Masukkan KM" value={formData.km} onChange={e => setFormData({ ...formData, km: e.target.value })} />
+                                                    <input type="text" className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[36px]" placeholder="Masukkan KM" value={formData.km} onChange={e => setFormData({ ...formData, km: e.target.value })} />
                                                 </div>
-                                                <div className="space-y-2">
+                                                <div className="space-y-1">
                                                     <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Keluhan</h4>
-                                                    <textarea className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl p-3 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[80px]" placeholder="Deskripsi keluhan (opsional)" value={formData.keluhan} onChange={e => setFormData({ ...formData, keluhan: e.target.value })} />
+                                                    <textarea className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[60px]" placeholder="Deskripsi keluhan (opsional)" value={formData.keluhan} onChange={e => setFormData({ ...formData, keluhan: e.target.value })} />
                                                 </div>
                                             </form>
                                         </div>
 
                                         {/* Column 3: Summary & Submit */}
-                                        <div className="space-y-6 flex flex-col h-full bg-zinc-50/50 p-4 md:p-6 lg:border-l border-zinc-100">
+                                        <div className="space-y-3 flex flex-col h-full bg-zinc-50/50 p-3 lg:border-l border-zinc-100">
                                             <h3 className="text-[11px] font-black uppercase tracking-widest text-zinc-900 flex items-center gap-3">
-                                                <div className="w-6 h-6 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">3</div> Konfirmasi
+                                                <div className="w-5 h-5 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">3</div> Konfirmasi
                                             </h3>
 
-                                            <div className="space-y-3 flex-1">
-                                                <div className="bg-white border border-zinc-100 rounded-2xl p-4 space-y-2">
-                                                    <div className="flex justify-between text-xs">
+                                            <div className="space-y-2 flex-1">
+                                                <div className="bg-white border border-zinc-100 rounded-xl p-3 space-y-1">
+                                                    <div className="flex justify-between text-[11px]">
                                                         <span className="text-zinc-400 font-bold">Tanggal</span>
                                                         <span className="font-black text-zinc-900">{formData.tanggal || '-'}</span>
                                                     </div>
-                                                    <div className="flex justify-between text-xs">
+                                                    <div className="flex justify-between text-[11px]">
                                                         <span className="text-zinc-400 font-bold">Jam</span>
                                                         <span className="font-black text-zinc-900">{formData.jam ? `${formData.jam.replace('.', ':')} WIB` : '-'}</span>
                                                     </div>
-                                                    <div className="flex justify-between text-xs">
+                                                    <div className="flex justify-between text-[11px]">
                                                         <span className="text-zinc-400 font-bold">Kendaraan</span>
                                                         <span className="font-black text-zinc-900">{isManual ? formData.noPolisi : foundVehicle?.no_polisi}</span>
                                                     </div>
-                                                    <div className="flex justify-between text-xs">
+                                                    <div className="flex justify-between text-[11px]">
                                                         <span className="text-zinc-400 font-bold">Atas Nama</span>
                                                         <span className="font-black text-zinc-900">{formData.atasNama || '-'}</span>
                                                     </div>
                                                 </div>
-                                                <div className="p-4 bg-white rounded-2xl border border-zinc-100">
-                                                    <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-400 tracking-widest mb-1.5">
+                                                <div className="p-3 bg-white rounded-xl border border-zinc-100">
+                                                    <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-400 tracking-widest mb-1">
                                                         <Info size={12} className="text-black" /> Informasi
                                                     </div>
-                                                    <p className="text-[10px] font-bold text-zinc-600 leading-relaxed">{isManual ? 'Booking akan disimpan ke sistem internal. Data kendaraan bisa dilengkapi nanti.' : 'Booking akan dikirim ke DMS. Pastikan data sudah sesuai.'}</p>
+                                                    <p className="text-[9px] font-bold text-zinc-600 leading-relaxed">{isManual ? 'Booking akan disimpan ke sistem internal. Data kendaraan bisa dilengkapi nanti.' : 'Booking akan dikirim ke DMS. Pastikan data sudah sesuai.'}</p>
                                                 </div>
                                             </div>
 
-                                            <div className="flex flex-col gap-2">
+                                            <div className="flex flex-col gap-1.5">
                                                 <button type="button" onClick={() => setStep('search')}
-                                                    className="w-full py-3 rounded-2xl border-2 border-zinc-200 text-zinc-500 font-black text-[10px] uppercase tracking-widest hover:bg-zinc-50 transition-all"
+                                                    className="w-full py-2.5 rounded-xl border-2 border-zinc-200 text-zinc-500 font-black text-[10px] uppercase tracking-widest hover:bg-zinc-50 transition-all"
                                                 >
                                                     Kembali
                                                 </button>
                                                 <button type="submit" form="bookingForm" disabled={isSubmitting}
-                                                    className="w-full bg-zinc-900 hover:bg-black text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl shadow-zinc-200 transition-all flex items-center justify-center gap-4 active:scale-95 group disabled:opacity-40"
+                                                    className="w-full bg-zinc-900 hover:bg-black text-white py-3 rounded-xl font-black text-[11px] uppercase tracking-widest shadow-2xl shadow-zinc-200 transition-all flex items-center justify-center gap-3 active:scale-95 group disabled:opacity-40"
                                                 >
                                                     {isSubmitting ? 'Processing...' : 'Konfirmasi Booking'}
                                                     <Send size={16} className="group-hover:translate-x-2 group-hover:-translate-y-1 transition-transform" />

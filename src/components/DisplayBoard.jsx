@@ -368,7 +368,10 @@ const CompletedCarousel = ({ data, formatTime, setSelectedUnit }) => {
 
 const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplete, onToggleTask, onLogoDoubleClick, rawHistory = [], bookings = [] }) => {
    const [selectedUnit, setSelectedUnit] = useState(null);
-   const [audioUnlocked, setAudioUnlocked] = useState(false);
+   const [audioUnlocked, setAudioUnlocked] = useState(() => {
+      // For display role (TV kiosk), auto-unlock immediately
+      return localStorage.getItem('display_audio_unlocked') === 'true';
+   });
    const [lastNotifiedId, setLastNotifiedId] = useState(null);
    const [notificationToast, setNotificationToast] = useState(null);
 
@@ -403,6 +406,20 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
     const audioCtxRef = useRef(null);
     const pendingAnnouncementRef = useRef(null);
 
+    // Auto-unlock AudioContext for display role (TV kiosk - no user tap available)
+    useEffect(() => {
+       if (user?.role?.toLowerCase() === 'display' && !audioCtxRef.current) {
+          try {
+             const ctx = new (window.AudioContext || window.webkitAudioContext)();
+             ctx.resume();
+             audioCtxRef.current = ctx;
+             setAudioUnlocked(true);
+          } catch (e) {
+             console.warn('Auto audio unlock for display role failed:', e);
+          }
+       }
+    }, [user]);
+
     const playPendingAnnouncement = () => {
        const pending = pendingAnnouncementRef.current;
        if (pending) {
@@ -419,6 +436,7 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
            // Pre-warm speechSynthesis on some Samsung TV models that may support it
            try { if ('speechSynthesis' in window) window.speechSynthesis.getVoices(); } catch {}
            setAudioUnlocked(true);
+           localStorage.setItem('display_audio_unlocked', 'true');
            playPendingAnnouncement();
         } catch (e) {
            console.warn('Audio unlock failed:', e);
@@ -427,10 +445,7 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
      };
 
       const speakAnnouncement = async (text) => {
-         // 1. SpeechSynthesis with female Indonesian voice
-         const spoken = speak(text);
-         if (spoken) return;
-         // 2. Google Translate TTS via proxy (bypasses CORS on Samsung TV)
+         // 1. Google Translate TTS via proxy (most reliable on TV browsers)
          try {
             const url = `/api/tts?text=${encodeURIComponent(text)}`;
             const audio = new Audio(url);
@@ -440,6 +455,9 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
          } catch (e) {
             console.warn('Google TTS play failed:', e);
          }
+         // 2. SpeechSynthesis with Indonesian voice (works on HP/laptop)
+         const spoken = speak(text);
+         if (spoken) return;
          // 3. Fallback: beep via AudioContext (requires user tap to unlock)
          if (!audioCtxRef.current) {
             pendingAnnouncementRef.current = text;
