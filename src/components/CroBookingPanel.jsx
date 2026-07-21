@@ -821,9 +821,9 @@ export default function CroBookingPanel({ user }) {
                             {/* STEP 2: Booking Form */}
                             {step === 'form' && (
                                 <div className="flex-1 flex flex-col overflow-hidden">
-                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 flex-1 overflow-y-auto lg:overflow-hidden h-full">
+                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 flex-1 overflow-y-auto lg:overflow-hidden">
                                         {/* Column 1: Calendar */}
-                                        <div className="space-y-2 flex flex-col h-full lg:border-r border-zinc-100 lg:pr-4">
+                                        <div className="space-y-2 flex flex-col lg:border-r border-zinc-100 lg:pr-4">
                                             <h3 className="text-[11px] font-black uppercase tracking-widest text-zinc-900 flex items-center gap-3">
                                                 <div className="w-5 h-5 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">1</div> Pilih Tanggal
                                             </h3>
@@ -870,7 +870,7 @@ export default function CroBookingPanel({ user }) {
                                         </div>
 
                                         {/* Column 2: Vehicle info + fields */}
-                                        <div className="space-y-3 flex flex-col h-full lg:border-r border-zinc-100 lg:pr-4">
+                                        <div className="space-y-3 flex flex-col lg:border-r border-zinc-100 lg:pr-4">
                                             {isManual ? (
                                                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
                                                     <div className="flex items-center gap-2 text-[9px] font-black uppercase text-amber-700 tracking-wider mb-2">
@@ -922,7 +922,7 @@ export default function CroBookingPanel({ user }) {
                                         </div>
 
                                         {/* Column 3: Summary & Submit */}
-                                        <div className="space-y-3 flex flex-col h-full bg-zinc-50/50 p-3 lg:border-l border-zinc-100">
+                                        <div className="space-y-3 flex flex-col bg-zinc-50/50 p-3 lg:border-l border-zinc-100">
                                             <h3 className="text-[11px] font-black uppercase tracking-widest text-zinc-900 flex items-center gap-3">
                                                 <div className="w-5 h-5 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">3</div> Konfirmasi
                                             </h3>

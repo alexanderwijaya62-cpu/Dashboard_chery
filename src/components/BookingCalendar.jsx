@@ -101,10 +101,10 @@ export default function BookingCalendar({
     const satHighlight = isSaturday(selectedDate) && slotConfig.saturdayEnabled;
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-2">
             {/* Calendar Grid */}
-            <div className="bg-zinc-50 border border-zinc-100 rounded-3xl p-5 shadow-sm">
-                <div className="flex items-center justify-between mb-4 px-1">
+            <div className="bg-zinc-50 border border-zinc-100 rounded-xl p-3 shadow-sm">
+                <div className="flex items-center justify-between mb-2 px-1">
                     <button type="button" onClick={() => changeCalMonth(-1)}
                         className="p-2 bg-white border border-zinc-100 rounded-xl hover:bg-zinc-900 hover:text-white transition-all shadow-sm">
                         <ChevronLeft size={16} />
@@ -117,12 +117,12 @@ export default function BookingCalendar({
                         <ChevronRight size={16} />
                     </button>
                 </div>
-                <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black uppercase text-zinc-400 mb-2">
+                <div className="grid grid-cols-7 gap-0.5 text-center text-[9px] font-black uppercase text-zinc-400 mb-1">
                     {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sat'].map(d => <div key={d}>{d}</div>)}
                 </div>
-                <div className="grid grid-cols-7 gap-2">
+                <div className="grid grid-cols-7 gap-1">
                     {calendarGrid.map((item, idx) => {
-                        if (!item.currentMonth) return <div key={idx} className="aspect-[4/5] opacity-5"><div className="w-full h-full border border-dashed border-zinc-200 rounded-xl"></div></div>;
+                        if (!item.currentMonth) return <div key={idx} className="aspect-square opacity-5"><div className="w-full h-full border border-dashed border-zinc-200 rounded-lg"></div></div>;
                         const isActive = selectedDate === item.date;
                         const past = isPastDate(item.date);
                         const holiday = isHolidayOrSunday(item.date, holidays);
@@ -135,16 +135,16 @@ export default function BookingCalendar({
                         return (
                             <button key={idx} type="button" disabled={disabled}
                                 onClick={() => onDateSelect?.(item.date)}
-                                className={`relative aspect-[4/5] rounded-xl flex flex-col items-center justify-center transition-all border-2 ${disabled ? 'bg-zinc-100/30 border-transparent text-zinc-200 cursor-not-allowed opacity-20' :
+                                className={`relative aspect-square rounded-lg flex flex-col items-center justify-center transition-all border-2 ${disabled ? 'bg-zinc-100/30 border-transparent text-zinc-200 cursor-not-allowed opacity-20' :
                                     isActive ? 'bg-black border-black text-white shadow-lg z-10 scale-110' : fillBg || 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
                                 } ${!disabled && satDay && !isActive ? 'border-amber-300 bg-amber-50' : ''}`}
                             >
-                                <span className="text-sm font-black">{item.day}</span>
+                                <span className="text-[11px] font-black">{item.day}</span>
                                 {!disabled && satDay && (
-                                    <span className="text-[8px] font-black text-amber-500 leading-none uppercase">Sab</span>
+                                    <span className="text-[7px] font-black text-amber-500 leading-none uppercase">Sab</span>
                                 )}
                                 {!disabled && fill && (
-                                    <span className="text-[9px] opacity-70 leading-none">{fill.count}/{fill.total}</span>
+                                    <span className="text-[8px] opacity-70 leading-none">{fill.count}/{fill.total}</span>
                                 )}
                             </button>
                         );
