@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Calendar, Search, Send, Plus, List, Clock, Check, Car, FileText, Trash2, Key, Users, Edit2, LogOut } from 'lucide-react';
+import { Calendar, Search, Send, Plus, List, Clock, Check, Car, FileText, Trash2, Key, Users, Edit2, LogOut, X, AlertCircle } from 'lucide-react';
 import ChangePasswordModal from './ChangePasswordModal';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
-import { fetchBookingConfig } from '../utils/bookingConfig';
+import { fetchBookingConfig, getSlotsForDate, getCapacityForDate } from '../utils/bookingConfig';
 import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
 import { normalizeDmsBooking, parseDmsDate, parseDmsTime } from '../utils/dateHelpers';
 import BookingCalendar from './BookingCalendar';
@@ -58,6 +58,48 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
     const [bookings, setBookings] = useState([]);
     const [isLoadingBookings, setIsLoadingBookings] = useState(false);
     const [bookingFilter, setBookingFilter] = useState('all');
+
+    // Reschedule states
+    const [editBookingItem, setEditBookingItem] = useState(null);
+    const [editForm, setEditForm] = useState({ tanggal: '', jam: '', noPolisi: '', atasNama: '', noTelp: '', modelKendaraan: '', keluhan: '' });
+
+    const normalizeJam = (jamStr) => {
+        if (!jamStr) return '';
+        return String(jamStr).trim().replace(':', '.');
+    };
+
+    const handleSaveReschedule = async () => {
+        if (!editBookingItem || !editForm.tanggal || !editForm.jam) {
+            Toastify({ text: "Tanggal dan Jam wajib dipilih!", background: "orange" }).showToast();
+            return;
+        }
+        if (isHolidayOrSunday(editForm.tanggal, holidays)) {
+            Toastify({ text: "Tanggal yang dipilih adalah hari libur atau Minggu!", background: "red" }).showToast();
+            return;
+        }
+        try {
+            const cleanJam = editForm.jam.replace(':', '.');
+            const cleanPlat = (editForm.noPolisi || '').toUpperCase().replace(/\s+/g, '');
+            
+            const { error } = await db.update('booking', {
+                tanggal: editForm.tanggal,
+                jam: cleanJam,
+                noPlat: cleanPlat,
+                namaCustomer: editForm.atasNama,
+                noTelp: editForm.noTelp,
+                tipeMobil: editForm.modelKendaraan,
+                keperluanService: editForm.keluhan,
+            }, { eq: { id: editBookingItem.id } });
+
+            if (error) throw error;
+
+            Toastify({ text: "✅ Booking berhasil di-reschedule!", background: "#10b981" }).showToast();
+            setEditBookingItem(null);
+            fetchBookings();
+        } catch (err) {
+            Toastify({ text: `Gagal reschedule: ${err.message}`, background: "red" }).showToast();
+        }
+    };
 
     // User management (SPV only)
     const [salesUsers, setSalesUsers] = useState([]);
@@ -173,9 +215,35 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
 
     const filteredBookings = useMemo(() => {
         const today = new Date().toISOString().split('T')[0];
-        if (bookingFilter === 'today') return myBookings.filter(b => b.tanggal === today);
-        if (bookingFilter === 'upcoming') return myBookings.filter(b => b.tanggal > today);
-        return myBookings;
+        let list;
+        if (bookingFilter === 'today') list = myBookings.filter(b => b.tanggal === today);
+        else if (bookingFilter === 'upcoming') list = myBookings.filter(b => b.tanggal > today);
+        else list = [...myBookings];
+
+        const normalizeJamNum = (j) => {
+            if (!j) return 999;
+            const s = String(j).replace(':', '.');
+            const [h, m] = s.split('.');
+            return (parseInt(h) || 0) * 60 + (parseInt(m) || 0);
+        };
+
+        list.sort((a, b) => {
+            if (a.tanggal !== b.tanggal) return (a.tanggal || '').localeCompare(b.tanggal || '');
+            return normalizeJamNum(a.jam) - normalizeJamNum(b.jam);
+        });
+
+        let bookingNum = 0;
+        let lastSlot = '';
+        return list.map(b => {
+            const slotKey = `${b.tanggal}_${(b.jam || '').replace(':', '.')}`;
+            if (slotKey !== lastSlot) {
+                bookingNum = 1;
+                lastSlot = slotKey;
+            } else {
+                bookingNum++;
+            }
+            return { ...b, _bookingNum: bookingNum };
+        });
     }, [myBookings, bookingFilter]);
 
     // === User Management CRUD (SPV only) ===
@@ -573,9 +641,14 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
                             {filteredBookings.map(b => (
                                 <div key={b.id} className="bg-white rounded-2xl p-4 shadow-sm border border-zinc-100">
                                     <div className="flex items-start justify-between mb-2">
-                                        <div>
-                                            <p className="text-sm font-black uppercase">{b.noPlat}</p>
-                                            <p className="text-[11px] font-bold text-zinc-500">{b.namaCustomer}</p>
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-9 h-9 rounded-xl bg-zinc-900 text-white flex items-center justify-center text-sm font-black shrink-0">
+                                                {b._bookingNum}
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-black uppercase">{b.noPlat}</p>
+                                                <p className="text-[11px] font-bold text-zinc-500">{b.namaCustomer}</p>
+                                            </div>
                                         </div>
                                         {statusBadge(b.status)}
                                     </div>
@@ -587,12 +660,35 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
                                         {b.tipeMobil && b.tipeMobil !== '-' && <span className="flex items-center gap-1"><Car size={10} />{b.tipeMobil}</span>}
                                         {b.keperluanService && b.keperluanService !== '-' && <span className="flex items-center gap-1 truncate max-w-[200px]"><FileText size={10} />{b.keperluanService}</span>}
                                     </div>
-                                    {(b.status === 'waiting confirm' || b.status === 'accepted') && (
-                                        <button onClick={() => handleDeleteBooking(b)}
-                                            className="mt-3 flex items-center gap-1 text-[10px] font-black text-red-400 hover:text-red-600 transition-all">
-                                            <Trash2 size={12} />Batalkan
-                                        </button>
-                                    )}
+                                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-zinc-100 flex-wrap">
+                                        {(b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed') && (
+                                            <button
+                                                onClick={() => {
+                                                    setEditBookingItem(b);
+                                                    setEditForm({
+                                                        tanggal: b.tanggal || '',
+                                                        jam: (b.jam || '').replace('.', ':'),
+                                                        noPolisi: b.noPlat || '',
+                                                        atasNama: b.namaCustomer || '',
+                                                        noTelp: b.noTelp || '',
+                                                        modelKendaraan: b.tipeMobil || '',
+                                                        keluhan: b.keperluanService || '',
+                                                    });
+                                                }}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-zinc-900 text-white hover:bg-zinc-800 transition-all active:scale-95 shadow-sm"
+                                            >
+                                                <Edit2 size={12} />
+                                                <span>Reschedule</span>
+                                            </button>
+                                        )}
+
+                                        {(b.status === 'waiting confirm' || b.status === 'accepted') && (
+                                            <button onClick={() => handleDeleteBooking(b)}
+                                                className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-[10px] font-black text-red-500 hover:bg-red-50 transition-all ml-auto">
+                                                <Trash2 size={12} />Batalkan
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -696,6 +792,128 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
                             </div>
                         </div>
                     )}
+                </div>
+            )}
+            {/* Edit / Reschedule Modal */}
+            {editBookingItem && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999] flex items-center justify-center p-4" onClick={() => setEditBookingItem(null)}>
+                    <div className="bg-white rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl p-6" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-4 pb-3 border-b border-zinc-100">
+                            <div className="flex items-center gap-2.5">
+                                <div className="p-2 bg-zinc-900 text-white rounded-xl">
+                                    <Edit2 size={16} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-black text-zinc-900 uppercase tracking-tight">Reschedule Booking</h3>
+                                    <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{editBookingItem.noPlat} - {editBookingItem.namaCustomer}</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setEditBookingItem(null)} className="p-2 hover:bg-zinc-100 rounded-xl transition-all"><X size={18} /></button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">Pilih Tanggal Baru</label>
+                                <input type="date" value={editForm.tanggal} onChange={e => setEditForm(p => ({ ...p, tanggal: e.target.value, jam: '' }))}
+                                    className="w-full px-4 py-3 bg-zinc-50 border-2 border-zinc-200 rounded-xl text-sm font-bold focus:border-zinc-900 focus:bg-white outline-none transition-all" />
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1.5 flex items-center gap-1.5">
+                                    <Clock size={14} className="text-zinc-900" /> Pilih Jam Kedatangan (Slot Available)
+                                </label>
+                                {!editForm.tanggal ? (
+                                    <p className="text-xs text-amber-600 font-bold bg-amber-50 p-3 rounded-xl">Silakan pilih tanggal terlebih dahulu.</p>
+                                ) : (
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                        {(() => {
+                                            const capacity = getCapacityForDate(editForm.tanggal, slotConfig);
+                                            const slots = getSlotsForDate(editForm.tanggal, slotConfig);
+                                            
+                                            return slots.map(s => {
+                                                const normalizedS = normalizeJam(s);
+                                                const normalizedCurrent = normalizeJam(editForm.jam);
+                                                
+                                                const bookingsAtThisTime = (bookings || []).filter(b => 
+                                                    b.id !== editBookingItem.id && 
+                                                    b.tanggal === editForm.tanggal && 
+                                                    normalizeJam(b.jam) === normalizedS &&
+                                                    (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed')
+                                                );
+                                                const isFull = bookingsAtThisTime.length >= capacity;
+                                                const isSelected = normalizedCurrent === normalizedS;
+                                                const todayStr = new Date().toISOString().split('T')[0];
+                                                const isPastTime = editForm.tanggal === todayStr && parseFloat(s) < (new Date().getHours() + new Date().getMinutes() / 60);
+
+                                                return (
+                                                    <button
+                                                        key={s}
+                                                        type="button"
+                                                        disabled={isPastTime || (isFull && !isSelected)}
+                                                        onClick={() => setEditForm(p => ({ ...p, jam: normalizedS }))}
+                                                        className={`py-2.5 px-2 rounded-xl border-2 font-black text-[10px] uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-0.5
+                                                            ${isSelected ? 'bg-zinc-900 border-zinc-900 text-white shadow-md' : 
+                                                              isPastTime || isFull ? 'bg-zinc-50 border-transparent text-zinc-300 cursor-not-allowed opacity-50' : 
+                                                              'bg-white border-zinc-200 text-zinc-800 hover:border-zinc-900'}`}
+                                                    >
+                                                        <span>{s.replace('.', ':')}</span>
+                                                        <span className={`text-[7px] font-black ${isSelected ? 'text-white/70' : isFull ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                                                            {isSelected ? 'TERPILIH' : isFull ? 'PENUH' : `${bookingsAtThisTime.length}/${capacity} SLOT`}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            });
+                                        })()}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="space-y-3 pt-2 border-t border-zinc-100">
+                                <div>
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1 block">No. Polisi</label>
+                                    <input type="text" value={editForm.noPolisi} onChange={e => setEditForm(p => ({ ...p, noPolisi: e.target.value.toUpperCase() }))}
+                                        className="w-full px-4 py-2.5 bg-zinc-50 border-2 border-zinc-200 rounded-xl text-xs font-black uppercase outline-none focus:border-zinc-900" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1 block">Nama Customer</label>
+                                    <input type="text" value={editForm.atasNama} onChange={e => setEditForm(p => ({ ...p, atasNama: e.target.value }))}
+                                        className="w-full px-4 py-2.5 bg-zinc-50 border-2 border-zinc-200 rounded-xl text-xs font-bold outline-none focus:border-zinc-900" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1 block">No. HP</label>
+                                    <input type="text" value={editForm.noTelp} onChange={e => setEditForm(p => ({ ...p, noTelp: e.target.value }))}
+                                        className="w-full px-4 py-2.5 bg-zinc-50 border-2 border-zinc-200 rounded-xl text-xs font-bold outline-none focus:border-zinc-900" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1 block">Tipe Mobil</label>
+                                    <select value={editForm.modelKendaraan} onChange={e => setEditForm(p => ({ ...p, modelKendaraan: e.target.value }))}
+                                        className="w-full px-4 py-2.5 bg-zinc-50 border-2 border-zinc-200 rounded-xl text-xs font-bold outline-none focus:border-zinc-900">
+                                        <option value="">Pilih Tipe</option>
+                                        {TIPE_MOBIL.map(t => <option key={t} value={t}>{t}</option>)}
+                                        {editForm.modelKendaraan && !TIPE_MOBIL.includes(editForm.modelKendaraan) && (
+                                            <option value={editForm.modelKendaraan}>{editForm.modelKendaraan}</option>
+                                        )}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1 block">Keluhan / Kebutuhan Service</label>
+                                    <textarea value={editForm.keluhan} onChange={e => setEditForm(p => ({ ...p, keluhan: e.target.value }))}
+                                        className="w-full px-4 py-2.5 bg-zinc-50 border-2 border-zinc-200 rounded-xl text-xs font-bold outline-none focus:border-zinc-900 resize-none min-h-[60px]" />
+                                </div>
+                            </div>
+
+                            <div className="flex gap-2 pt-3">
+                                <button onClick={handleSaveReschedule} disabled={!editForm.tanggal || !editForm.jam}
+                                    className="flex-1 bg-zinc-900 text-white py-3.5 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                                    Simpan Reschedule
+                                </button>
+                                <button onClick={() => setEditBookingItem(null)}
+                                    className="px-5 py-3.5 rounded-xl border border-zinc-200 text-zinc-600 text-xs font-black uppercase tracking-wider hover:bg-zinc-50 transition-all">
+                                    Batal
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
             <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />

@@ -38,6 +38,7 @@ import {
 export const NAV_CONFIG = {
   admin: [
     { id: 'admin-dashboard', icon: LayoutDashboard, label: 'Operations', page: 'admin', ariaLabel: 'Admin Operations' },
+    { id: 'admin-booking', icon: Calendar, label: 'Daftar Booking', page: 'admin-booking', ariaLabel: 'Daftar Booking' },
     { id: 'admin-wo', icon: ShieldCheck, label: 'Work Order', page: 'admin-wo', ariaLabel: 'Work Order' },
     { id: 'sa-booking', icon: Calendar, label: 'SA Booking', page: 'sa-booking', ariaLabel: 'SA Booking' },
   ],

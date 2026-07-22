@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { FileText, Search, Package, Truck, ChevronRight, Layers, ArrowLeft, ArrowRight, RefreshCw, Clock, DollarSign, User, Hash, Calendar, Key } from 'lucide-react';
+import { FileText, Search, Package, Truck, ChevronRight, Layers, ArrowLeft, ArrowRight, RefreshCw, Clock, DollarSign, User, Hash, Calendar, Key, Loader } from 'lucide-react';
 import ChangePasswordModal from './ChangePasswordModal';
 import SparepartPredictor from './SparepartPredictor';
 import Toastify from 'toastify-js';
@@ -116,6 +116,11 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
         try {
             const resp = await fetch(`${CHERY_DMS_URL}?endpoint=part_orders_search&q=${encodeURIComponent(term)}`);
             const result = await resp.json();
+            if (result?.error) {
+                Toastify({ text: 'Server error: ' + result.error, background: 'red', duration: 3000 }).showToast();
+                setIsDeepSearching(false);
+                return;
+            }
             const rawOrders = result?.payload?.content || [];
             const detailEntries = {};
             const orders = rawOrders.map(({ _detail, ...o }) => {
@@ -131,12 +136,13 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
                 setDmsPage(0);
                 setDmsTotalPages(1);
                 setDmsTotalElements(orders.length);
-                Toastify({ text: `Ditemukan ${orders.length} order dari pencarian seluruh halaman`, background: '#18181b', duration: 3000 }).showToast();
+                Toastify({ text: `Ditemukan ${orders.length} order`, background: '#18181b', duration: 3000 }).showToast();
             } else {
-                Toastify({ text: 'Tidak ditemukan order yang cocok di semua halaman', background: '#71717a', duration: 3000 }).showToast();
+                Toastify({ text: 'Tidak ditemukan order yang cocok', background: '#71717a', duration: 3000 }).showToast();
             }
         } catch (e) {
             console.error('Deep search failed:', e);
+            Toastify({ text: 'Gagal menghubungi server', background: 'red', duration: 3000 }).showToast();
         } finally {
             setIsDeepSearching(false);
         }
@@ -148,38 +154,28 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
         }
     }, [activeTab]);
 
-    // Debounced search: try API by orderCode, then fallback to deep search
-    const searchTimeoutRef = useRef(null);
-    const searchInFlightRef = useRef(false);
-    useEffect(() => {
-        if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    const handleSearch = async () => {
         const q = searchCode.trim();
-        if (!q) return;
-        searchTimeoutRef.current = setTimeout(async () => {
-            if (searchInFlightRef.current) return;
-            searchInFlightRef.current = true;
-            try {
-                let url = `${CHERY_DMS_URL}?endpoint=part_orders&pageIndex=0&pageSize=10&isBuyer=true`;
-                url += `&orderCode=${encodeURIComponent(q)}`;
-                const resp = await fetch(url);
-                const result = await resp.json();
-                const payload = result?.payload || result;
-                const content = payload?.content || [];
-                if (content.length > 0) {
-                    setDmsOrders(content);
-                    setDmsTotalPages(payload?.totalPages || 1);
-                    setDmsTotalElements(payload?.totalElements || content.length);
-                    setDmsPage(0);
-                } else if (q.length >= 3) {
-                    deepSearchOrders(q);
-                }
-            } catch (e) { console.warn('Search fetch failed:', e); }
-            searchInFlightRef.current = false;
-        }, 500);
-        return () => {
-            if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-        };
-    }, [searchCode]); // eslint-disable-line
+        if (!q) { fetchDmsOrders(0); return; }
+        try {
+            let url = `${CHERY_DMS_URL}?endpoint=part_orders&pageIndex=0&pageSize=10&isBuyer=true`;
+            url += `&orderCode=${encodeURIComponent(q)}`;
+            const resp = await fetch(url);
+            const result = await resp.json();
+            const payload = result?.payload || result;
+            const content = payload?.content || [];
+            if (content.length > 0) {
+                setDmsOrders(content);
+                setDmsTotalPages(payload?.totalPages || 1);
+                setDmsTotalElements(payload?.totalElements || content.length);
+                setDmsPage(0);
+            } else if (q.length >= 3) {
+                deepSearchOrders(q);
+            } else {
+                Toastify({ text: 'Tidak ditemukan', background: '#71717a', duration: 2000 }).showToast();
+            }
+        } catch (e) { console.warn('Search fetch failed:', e); }
+    };
 
     // Auto-load details for all orders on current page (for search)
     useEffect(() => {
@@ -299,10 +295,21 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
                                         placeholder="Cari PO, part no, remark..."
                                         value={searchCode}
                                         onChange={(e) => setSearchCode(e.target.value)}
-                                        onKeyDown={(e) => { if (e.key === 'Escape') { setSearchCode(''); setFilterDateStart(''); setFilterDateEnd(''); fetchDmsOrders(0); } }}
-                                        className="w-48 md:w-56 bg-zinc-50 border border-zinc-300 rounded-md pl-9 pr-3 py-2 text-xs font-bold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-500 focus:border-zinc-500 transition-all placeholder:text-zinc-400"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleSearch();
+                                            if (e.key === 'Escape') { setSearchCode(''); setFilterDateStart(''); setFilterDateEnd(''); fetchDmsOrders(0); }
+                                        }}
+                                        className="w-40 md:w-52 bg-zinc-50 border border-zinc-300 rounded-l-md pl-9 pr-2 py-2 text-xs font-bold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-500 focus:border-zinc-500 transition-all placeholder:text-zinc-400"
                                     />
                                 </div>
+                                <button
+                                    onClick={handleSearch}
+                                    disabled={isDeepSearching || isLoading}
+                                    className="px-3 py-2 bg-zinc-900 hover:bg-zinc-700 disabled:bg-zinc-400 text-white text-xs font-black uppercase tracking-wider rounded-r-md transition-all active:scale-95 flex items-center gap-1.5"
+                                >
+                                    {isDeepSearching ? <Loader size={12} className="animate-spin" /> : <Search size={12} />}
+                                    Cari
+                                </button>
                                 <div className="flex items-center gap-2">
                                     <div className="relative">
                                         <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />

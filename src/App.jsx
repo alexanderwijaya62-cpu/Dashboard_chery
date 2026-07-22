@@ -23,6 +23,7 @@ import FollowupPanel from './components/FollowupPanel';
 import ManagerPanel from './components/ManagerPanel';
 import PublicBooking from './components/PublicBooking';
 import CroBookingPanel from './components/CroBookingPanel';
+import AdminBookingPanel from './components/AdminBookingPanel';
 import BookingManager from './components/BookingManager';
 import BookingApprovalQueue from './components/BookingApprovalQueue';
 import SABookingPanel from './components/SABookingPanel';
@@ -2423,7 +2424,7 @@ const App = () => {
       )}
       {currentPage === 'login' && <LoginPage loginForm={loginForm} setLoginForm={setLoginForm} handleLogin={handleLogin} errorMessage={errorMessage} setCurrentPage={navigate} />}
       {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleConfirmCompletion={handleConfirmCompletion} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} handleCallQueue={handleCallQueue} activeTab="dashboard" callCooldown={callCooldownRef.current} onApproveExtension={handleApproveExtension} onRejectExtension={handleRejectExtension} handleStartCuci={handleStartCuci} handleCompleteCuci={handleCompleteCuci} showJenis={adminShowJenisRef.current} showChecklist={adminShowChecklistRef.current} />}
-      {currentPage === 'admin-booking' && <CroBookingPanel user={user} />}
+      {currentPage === 'admin-booking' && <AdminBookingPanel />}
       {currentPage === 'admin-wo' && <WarrantyWorkOrderPage />}
       {currentPage === 'mechanic' && (
         <MechanicPanel

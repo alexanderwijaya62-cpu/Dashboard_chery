@@ -201,6 +201,9 @@ export default async function handler(req, res) {
   }
 
   try {
+    if (table === 'booking') {
+      await cleanPastBookings(supabase);
+    }
     let q = supabase.from(table);
     let result;
 
@@ -333,6 +336,14 @@ export default async function handler(req, res) {
 
     if (result?.error) {
       if (result.error.code === '23505' && table === 'booking') {
+        const errMsg = result.error.message || '';
+        if (errMsg.includes('idx_anti_booking_ganda_final')) {
+          const platStr = data?.values?.noPlat ? ` ${data.values.noPlat.toUpperCase()}` : '';
+          return res.status(409).json({
+            error: `Kendaraan dengan nomor plat${platStr} sudah memiliki booking aktif yang terdaftar. Silakan gunakan plat lain atau selesaikan booking sebelumnya.`,
+            code: 'PLATE_CONFLICT'
+          });
+        }
         return res.status(409).json({
           error: `Slot jam ${data?.values?.jam || ''} pada tanggal ${data?.values?.tanggal || ''} sudah dipesan. Silahkan pilih jam lain.`,
           code: 'SLOT_CONFLICT'
@@ -344,5 +355,35 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error(`DB Error [${table}/${action}]:`, error.message);
     return res.status(500).json({ error: error.message, code: error.code || null, details: error.details || null });
+  }
+}
+
+async function cleanPastBookings(supabase) {
+  try {
+    const nowWib = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+    const y = nowWib.getFullYear();
+    const m = String(nowWib.getMonth() + 1).padStart(2, '0');
+    const d = String(nowWib.getDate()).padStart(2, '0');
+    const currentDateStr = `${y}-${m}-${d}`;
+    
+    const h = String(nowWib.getHours()).padStart(2, '0');
+    const min = String(nowWib.getMinutes()).padStart(2, '0');
+    const currentJamStr = `${h}.${min}`;
+    const currentJamStrColon = `${h}:${min}`;
+
+    // Delete bookings with date strictly in the past
+    await supabase
+      .from('booking')
+      .delete()
+      .lt('tanggal', currentDateStr);
+
+    // Delete bookings for today where the time is in the past
+    await supabase
+      .from('booking')
+      .delete()
+      .eq('tanggal', currentDateStr)
+      .or(`jam.lt.${currentJamStr},jam.lt.${currentJamStrColon}`);
+  } catch (e) {
+    console.error('Failed to clean past bookings:', e);
   }
 }

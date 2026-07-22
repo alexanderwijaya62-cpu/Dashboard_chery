@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Info, Search, Send, Plus, ShieldCheck, Truck, X, Edit3, Upload, AlertTriangle, Check as CheckIcon, Database } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Info, Search, Send, Plus, ShieldCheck, Truck, X, Edit3, Upload, AlertTriangle, Check as CheckIcon, Database, RefreshCcw, Clock } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import DmsBookingListView from './DmsBookingListView';
@@ -620,7 +620,7 @@ export default function CroBookingPanel({ user }) {
                 </div>
             ) : (
                 <div className="flex-1 overflow-hidden">
-                    <SupabaseBookingList refreshTrigger={refreshTrigger} />
+                    <SupabaseBookingList refreshTrigger={refreshTrigger} slotConfig={slotConfig} allBookings={bookings} />
                 </div>
             )}
 
@@ -980,7 +980,16 @@ export default function CroBookingPanel({ user }) {
 }
 
 /* ─── Supabase Booking List ─── */
-function SupabaseBookingList({ refreshTrigger }) {
+const normalizeJam = (j) => {
+    if (!j) return "";
+    const sj = String(j).replace(':', '.');
+    const parts = sj.split('.');
+    const h = String(parts[0]).padStart(2, '0');
+    const m = String(parts[1] || '00').padEnd(2, '0');
+    return `${h}.${m}`;
+};
+
+function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
     const [bookings, setBookings] = useState([]);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
@@ -992,6 +1001,70 @@ function SupabaseBookingList({ refreshTrigger }) {
     });
     const [editItem, setEditItem] = useState(null);
     const [editForm, setEditForm] = useState({});
+    const [resyncingId, setResyncingId] = useState(null);
+
+    const handleResync = async (b) => {
+        setResyncingId(b.id);
+        try {
+            const cleanPlat = (b.noPlat || '').replace(/\s+/g, '').toUpperCase();
+            const vRes = await fetch(`/api/chery_dms?endpoint=vehicle-select&term=${cleanPlat}&q=${cleanPlat}`);
+            const vJson = await vRes.json();
+            const vehicle = Array.isArray(vJson) && vJson.find(v =>
+                (v.no_polisi || '').toUpperCase().replace(/\s+/g, '') === cleanPlat
+            );
+            if (!vehicle) {
+                Toastify({ text: `❌ Kendaraan ${cleanPlat} tidak ditemukan di DMS`, background: 'orange', duration: 4000 }).showToast();
+                await db.update('booking', { bookingVia: 'CRO Booking (DMS Gagal - Tidak Ditemukan)' }, { eq: { id: b.id } });
+                setRefreshTrigger(p => p + 1);
+                return;
+            }
+            const targetJam = (b.jam || '08.30').replace('.', ':') + ':00';
+            const janjiDatang = `${b.tanggal} ${targetJam}`;
+            const postData = {
+                uniqid: Math.random().toString(36).substring(2, 15) + '-' + Date.now(),
+                id_kendaraan: vehicle.id_kendaraan || '',
+                no_polisi: vehicle.no_polisi || cleanPlat,
+                model_kendaraan: vehicle.model_kendaraan || vehicle.nama_kendaraan || b.tipeMobil || '',
+                nama_kendaraan: vehicle.nama_kendaraan || b.tipeMobil || '',
+                tipe_kendaraan: vehicle.tipe_kendaraan || '',
+                no_chassis: vehicle.no_chassis || '',
+                group_kendaraan: vehicle.group_kendaraan || 'PC',
+                no_pelanggan: vehicle.no_pelanggan || '',
+                id_pelanggan: vehicle.id_pelanggan || '',
+                tipe_pelanggan: vehicle.tipe_pelanggan || 'PRIBADI',
+                nama_pelanggan: vehicle.nama_pelanggan || b.namaCustomer || '',
+                no_telp_pelanggan: vehicle.no_telp || b.noTelp || '',
+                alamat_pelanggan: vehicle.alamat || '-',
+                atas_nama_booking: b.namaCustomer || '',
+                no_telp_booking: b.noTelp || '',
+                janji_datang: janjiDatang,
+                keluhan: b.keperluanService || b.keluhanDetail || '-',
+                booking_via: 'CRO Booking',
+                booking_via_personal: '',
+                km: '0'
+            };
+            const formDataBody = new URLSearchParams();
+            Object.entries(postData).forEach(([k, v]) => formDataBody.set(k, v));
+            const res = await fetch('/api/chery_dms?endpoint=booking-create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: formDataBody.toString()
+            });
+            const json = await res.json();
+            if (json.success) {
+                await db.update('booking', { bookingVia: 'CRO Booking (DMS Synced)' }, { eq: { id: b.id } });
+                Toastify({ text: `✅ ${cleanPlat} berhasil re-sync ke DMS!`, background: '#10b981' }).showToast();
+            } else {
+                await db.update('booking', { bookingVia: `CRO Booking (DMS Gagal: ${(json.message || 'Error').slice(0, 30)})` }, { eq: { id: b.id } });
+                Toastify({ text: `❌ DMS menolak: ${json.message}`, background: 'red', duration: 5000 }).showToast();
+            }
+            setRefreshTrigger(p => p + 1);
+        } catch (err) {
+            Toastify({ text: `❌ Error re-sync: ${err.message}`, background: 'red' }).showToast();
+        } finally {
+            setResyncingId(null);
+        }
+    };
 
     useEffect(() => {
         (async () => {
@@ -1232,6 +1305,13 @@ function SupabaseBookingList({ refreshTrigger }) {
                                 </td>
                                 <td className="px-4 py-3">
                                     <div className="flex items-center justify-center gap-1.5">
+                                         <button onClick={() => handleResync(b)}
+                                             disabled={resyncingId === b.id}
+                                             className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase flex items-center gap-1.5 transition-all ${resyncingId === b.id ? 'bg-blue-100 text-blue-400 animate-pulse' : (b.bookingVia || '').includes('DMS Synced') ? 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'}`}
+                                             title="Re-sync ke DMS Internal">
+                                             <RefreshCcw size={12} className={resyncingId === b.id ? 'animate-spin' : ''} />
+                                             <span>{(b.bookingVia || '').includes('DMS Synced') ? 'Sync Ulang' : 'Sync DMS'}</span>
+                                         </button>
                                         <button onClick={() => openEdit(b)}
                                             className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-800 hover:text-white transition-all text-zinc-500"
                                             title="Edit"><Edit3 size={14} /></button>
@@ -1255,16 +1335,57 @@ function SupabaseBookingList({ refreshTrigger }) {
                             <button onClick={() => setEditItem(null)} className="p-2 hover:bg-zinc-100 rounded-xl transition-all"><X size={18} /></button>
                         </div>
                         <div className="flex flex-col gap-4">
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 gap-4">
                                 <div>
                                     <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">Tanggal</label>
-                                    <input type="date" value={editForm.tanggal} onChange={e => setEditForm(p => ({ ...p, tanggal: e.target.value }))}
+                                    <input type="date" value={editForm.tanggal} onChange={e => setEditForm(p => ({ ...p, tanggal: e.target.value, jam: '' }))}
                                         className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none" />
                                 </div>
                                 <div>
-                                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">Jam</label>
-                                    <input type="time" value={editForm.jam} onChange={e => setEditForm(p => ({ ...p, jam: e.target.value }))}
-                                        className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none" />
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block flex items-center gap-2">
+                                        <Clock size={12} className="text-black" /> Jam Kedatangan (Slot Selection)
+                                    </label>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1">
+                                        {(() => {
+                                            const config = slotConfig || { slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 };
+                                            const capacity = getCapacityForDate(editForm.tanggal, config);
+                                            const slots = getSlotsForDate(editForm.tanggal, config);
+                                            
+                                            return slots.map(s => {
+                                                const normalizedS = normalizeJam(s);
+                                                const normalizedCurrent = normalizeJam(editForm.jam);
+                                                
+                                                // Count other bookings in this slot (excluding the current edited booking)
+                                                const bookingsAtThisTime = (allBookings || []).filter(b => 
+                                                    b.id !== editItem.id && 
+                                                    b.tanggal === editForm.tanggal && 
+                                                    normalizeJam(b.jam) === normalizedS &&
+                                                    (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed')
+                                                );
+                                                const isFull = bookingsAtThisTime.length >= capacity;
+                                                const isSelected = normalizedCurrent === normalizedS;
+                                                const isPastTime = editForm.tanggal === new Date().toISOString().split('T')[0] && parseFloat(s) < (new Date().getHours() + new Date().getMinutes() / 60);
+
+                                                return (
+                                                    <button
+                                                        key={s}
+                                                        type="button"
+                                                        disabled={isPastTime || (isFull && !isSelected)}
+                                                        onClick={() => setEditForm(p => ({ ...p, jam: normalizedS }))}
+                                                        className={`py-2 px-1 rounded-xl border-2 font-black text-[9px] uppercase tracking-widest transition-all relative flex flex-col items-center justify-center gap-0.5
+                                                            ${isSelected ? 'bg-black border-black text-white shadow-md' : 
+                                                              isPastTime || isFull ? 'bg-zinc-50 border-transparent text-zinc-300 cursor-not-allowed opacity-60' : 
+                                                              'bg-white border-zinc-100 text-black hover:border-black'}`}
+                                                    >
+                                                        <span>{s.replace('.', ':')}</span>
+                                                        <span className={`text-[6px] font-black ${isSelected ? 'text-white/60' : isFull ? 'text-zinc-400' : 'text-zinc-400'}`}>
+                                                            {isSelected ? 'SELECTED' : isFull ? 'FULL' : `${bookingsAtThisTime.length}/${capacity}`}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            });
+                                        })()}
+                                    </div>
                                 </div>
                             </div>
                             <div>

@@ -933,7 +933,7 @@ async function handleBookingData(req, res) {
             headers: {
                 'Cookie': croCookie,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': `https://dms.chery.co.id/aftersales/booking`,
+                'Referer': `${BASE}/aftersales/booking`,
                 'Accept': 'application/json, text/javascript, */*; q=0.01',
                 'X-Requested-With': 'XMLHttpRequest',
             },
@@ -1129,6 +1129,32 @@ export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
 
     if (req.method === 'OPTIONS') return res.status(200).end();
+
+    // Ensure req.body is parsed if passed as string or Buffer by Vercel
+    if (req.body) {
+        let rawBody = req.body;
+        if (Buffer.isBuffer(rawBody)) {
+            rawBody = rawBody.toString('utf8');
+        }
+        if (typeof rawBody === 'string' && rawBody.trim()) {
+            if (req.headers['content-type']?.includes('x-www-form-urlencoded')) {
+                try {
+                    const parsed = {};
+                    const params = new URLSearchParams(rawBody);
+                    for (const [key, value] of params.entries()) {
+                        parsed[key] = value;
+                    }
+                    req.body = parsed;
+                } catch (e) {
+                    console.error('Failed parsing urlencoded body string:', e);
+                }
+            } else if (req.headers['content-type']?.includes('application/json')) {
+                try {
+                    req.body = JSON.parse(rawBody);
+                } catch (e) {}
+            }
+        }
+    }
 
     const endpoint = req.query.endpoint || 'parts';
 
@@ -1379,12 +1405,13 @@ export default async function handler(req, res) {
                         'Connection': 'keep-alive'
                     }
                 };
-                const countResp = await fetchWithHttps('https://dms.chery.co.id/parts/api/v1/partSaleOrders/forCurrentUser?pageIndex=0&pageSize=1&isBuyer=true', opts);
+                const DMS_BASE = 'https://dms.chery.co.id/parts/api/v1/partSaleOrders';
+                const countResp = await fetchWithHttps(`${DMS_BASE}/forCurrentUser?pageIndex=0&pageSize=1&isBuyer=true`, opts);
                 const countResult = await countResp.json();
                 const totalElements = (countResult?.payload || countResult)?.totalElements || 0;
                 const size = Math.min(Math.max(totalElements, 1), 500);
 
-                const listResp = await fetchWithHttps(`https://dms.chery.co.id/parts/api/v1/partSaleOrders/forCurrentUser?pageIndex=0&pageSize=${size}&isBuyer=true`, opts);
+                const listResp = await fetchWithHttps(`${DMS_BASE}/forCurrentUser?pageIndex=0&pageSize=${size}&isBuyer=true`, opts);
                 const listResult = await listResp.json();
                 const orders = (listResult?.payload || listResult)?.content || [];
 
@@ -1392,38 +1419,42 @@ export default async function handler(req, res) {
                 const unmatched = [];
 
                 orders.forEach(o => {
-                    const matchStr = (s) => (s || '').toLowerCase().includes(q);
                     const orderStr = Object.values(o).filter(v => typeof v === 'string').join(' ');
                     if (orderStr.toLowerCase().includes(q)) { matchedIds.add(o.id); return; }
                     unmatched.push(o);
                 });
 
                 if (unmatched.length > 0) {
-                    const detailResults = await Promise.allSettled(
-                        unmatched.map(o =>
-                            fetchWithHttps(`https://dms.chery.co.id/parts/api/v1/partSaleOrders/${o.id}`, opts)
-                                .then(r => r.json())
-                        )
-                    );
-                    detailResults.forEach((r) => {
-                        if (r.status === 'fulfilled') {
-                            const d = r.value?.payload || r.value;
-                            if (!d || !d.id) return;
-                            const dStr = Object.values(d).filter(v => typeof v === 'string').join(' ');
-                            if (dStr.toLowerCase().includes(q)) { matchedIds.add(d.id); return; }
-                            const details = d.details || [];
-                            if (details.some(item => {
-                                const iStr = Object.values(item).filter(v => typeof v === 'string').join(' ');
-                                return iStr.toLowerCase().includes(q);
-                            })) { matchedIds.add(d.id); }
-                        }
-                    });
+                    const BATCH_SIZE = 20;
+                    const MAX_DETAIL_FETCHES = 200;
+                    const toFetch = unmatched.slice(0, MAX_DETAIL_FETCHES);
+                    for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
+                        const batch = toFetch.slice(i, i + BATCH_SIZE);
+                        const detailResults = await Promise.allSettled(
+                            batch.map(o =>
+                                fetchWithHttps(`${DMS_BASE}/${o.id}`, opts).then(r => r.json())
+                            )
+                        );
+                        detailResults.forEach((r) => {
+                            if (r.status === 'fulfilled') {
+                                const d = r.value?.payload || r.value;
+                                if (!d || !d.id) return;
+                                const dStr = Object.values(d).filter(v => typeof v === 'string').join(' ');
+                                if (dStr.toLowerCase().includes(q)) { matchedIds.add(d.id); return; }
+                                const details = d.details || [];
+                                if (details.some(item => {
+                                    const iStr = Object.values(item).filter(v => typeof v === 'string').join(' ');
+                                    return iStr.toLowerCase().includes(q);
+                                })) { matchedIds.add(d.id); }
+                            }
+                        });
+                    }
                 }
 
                 const matchedOrders = orders.filter(o => matchedIds.has(o.id));
                 const withDetails = await Promise.all(matchedOrders.map(async (o) => {
                     try {
-                        const dr = await fetchWithHttps(`https://dms.chery.co.id/parts/api/v1/partSaleOrders/${o.id}`, opts);
+                        const dr = await fetchWithHttps(`${DMS_BASE}/${o.id}`, opts);
                         const dj = await dr.json();
                         return { ...o, _detail: dj?.payload || dj };
                     } catch { return o; }

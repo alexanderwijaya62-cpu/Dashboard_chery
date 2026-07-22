@@ -129,6 +129,10 @@ export default function SparepartPredictor() {
         }
       }
 
+      // Skip returns
+      if (record.Qty != null && Number(record.Qty) < 0) return;
+      if (record.NoTransaksi && (String(record.NoTransaksi).toLowerCase().includes('retur') || String(record.NoTransaksi).toUpperCase().startsWith('RT'))) return;
+
       if (record.NoTransaksi || record.PartNo || record.PartName) {
         cleaned.push(record);
       }
@@ -312,11 +316,15 @@ export default function SparepartPredictor() {
     let minYear = 9999, maxYear = 0, minMonth = 12, maxMonth = 1;
 
     withDate.forEach(r => {
+      const qty = parseFloat(r.Qty) || 0;
+      // Skip return (retur) transactions
+      if (qty < 0 || String(r.NoTransaksi || '').toLowerCase().includes('retur') || String(r.NoTransaksi || '').toUpperCase().startsWith('RT')) {
+        return;
+      }
       const key = (r.PartNo || r.PartName || 'Unknown').trim();
       if (!grouped[key]) {
         grouped[key] = { partName: (r.PartName || '').trim(), partNo: (r.PartNo || '').trim(), total: 0, count: 0, months: {} };
       }
-      const qty = parseFloat(r.Qty) || 0;
       grouped[key].total += qty;
       grouped[key].count += 1;
       if (r._parsed) {
