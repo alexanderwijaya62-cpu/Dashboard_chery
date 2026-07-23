@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ClockDisplay from './ClockDisplay';
-import { Bookmark, Zap, Car, Instagram, CheckCircle, Clock, Moon, FileText, X, Activity, CalendarDays, ArrowRight, ChevronLeft, ChevronRight, Megaphone, Droplets } from 'lucide-react';
+import { Bookmark, Zap, Car, Instagram, CheckCircle, Clock, Moon, FileText, X, Activity, CalendarDays, ArrowRight, ChevronLeft, ChevronRight, Megaphone, Droplets, Wrench } from 'lucide-react';
 import cheryLogo from '../assets/cherylogo.png';
 import { QRCodeSVG } from 'qrcode.react';
 import Toastify from 'toastify-js';
@@ -70,73 +70,73 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
    const isScheduled = !item.status || ['accepted', 'waiting confirm', 'synced', 'waiting_approval'].includes(item.status);
 
    return (
-      <div className={`bg-white rounded-2xl border-4 shadow-lg overflow-y-auto flex flex-col group/card hover:border-zinc-300 transition-all flex-1 min-h-0 ${isScheduled ? 'border-dashed border-zinc-300 opacity-80' : 'border-zinc-100'}`}>
+      <div className={`bg-white rounded-2xl border-4 shadow-lg overflow-hidden flex flex-col group/card hover:border-zinc-300 transition-all flex-1 min-h-0 ${isScheduled ? 'border-dashed border-zinc-300 opacity-80' : 'border-zinc-100'}`}>
          <div
             className="h-1.5 md:h-2 w-full shrink-0"
             style={{ backgroundColor: isScheduled ? '#d4d4d8' : isWorking ? '#3b82f6' : isWashing ? '#0891b2' : isMenginap ? '#a855f7' : '#ef4444' }}
          />
 
-         <div className="px-2 py-1.5 md:px-5 md:py-4 flex flex-col gap-0.5 md:gap-2 flex-1 min-h-0">
-            <div className="flex items-center justify-between">
-               <div className="flex items-center gap-0.5 md:gap-2 flex-wrap">
+         <div className="px-2 py-1.5 md:px-4 md:py-3 flex flex-col gap-0.5 md:gap-1.5 flex-1 min-h-0 justify-between">
+            <div className="flex items-center justify-between shrink-0">
+               <div className="flex items-center gap-0.5 md:gap-1.5 flex-wrap">
                   <span
-                     className="px-1 py-0 md:px-3 md:py-1 rounded-lg md:rounded-xl text-[8px] md:text-xl font-black uppercase tracking-wider flex items-center gap-0.5 md:gap-1.5 text-white shadow-md"
+                     className="px-1 py-0.5 md:px-2.5 md:py-0.5 rounded-lg md:rounded-xl text-[8px] md:text-xs font-black uppercase tracking-wider flex items-center gap-0.5 md:gap-1 text-white shadow-sm"
                      style={{ backgroundColor: (String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? '#dc2626' : '#4b5563' }}
                   >
                      {(String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? <Bookmark size={8} fill="white" className="md:hidden" /> : <Zap size={8} fill="white" className="md:hidden" />}
-                     {(String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? <Bookmark size={14} fill="white" className="hidden md:block" /> : <Zap size={14} fill="white" className="hidden md:block" />}
+                     {(String(item.category || '').toLowerCase() === 'booking' || String(item.category || '').toLowerCase() === 'booking (late)') ? <Bookmark size={12} fill="white" className="hidden md:block" /> : <Zap size={12} fill="white" className="hidden md:block" />}
                      {item.category}
                   </span>
                   <span
-                     className="px-1 py-0 md:px-3 md:py-1 rounded-lg md:rounded-xl text-[8px] md:text-xl font-black uppercase tracking-wider text-white shadow-md"
+                     className="px-1 py-0.5 md:px-2.5 md:py-0.5 rounded-lg md:rounded-xl text-[8px] md:text-xs font-black uppercase tracking-wider text-white shadow-sm"
                      style={{ backgroundColor: isScheduled ? '#dc2626' : isWorking ? '#2563eb' : isWashing ? '#0891b2' : isMenginap ? '#9333ea' : '#ef4444' }}
                   >
                      {isScheduled ? `○ BOOKING ${item.jam} WIB` : isWorking ? '● PROSES' : isWashing ? '● DICUCI' : isMenginap ? '● MENGINAP' : '● ANTRIAN'}
                   </span>
                   {item.isCalled && !isScheduled && (
-                     <span className="px-1 py-0 md:px-3 md:py-1 rounded-lg md:rounded-xl text-[8px] md:text-xl font-black uppercase tracking-wider text-white shadow-md bg-emerald-500 flex items-center gap-0.5 md:gap-1.5">
-                        <Megaphone size={8} fill="white" className="md:hidden" /> <Megaphone size={14} fill="white" className="hidden md:block" /> C-{item.counter || '?'}
+                     <span className="px-1 py-0.5 md:px-2.5 md:py-0.5 rounded-lg md:rounded-xl text-[8px] md:text-xs font-black uppercase tracking-wider text-white shadow-sm bg-emerald-500 flex items-center gap-0.5 md:gap-1">
+                        <Megaphone size={8} fill="white" className="md:hidden" /> <Megaphone size={12} fill="white" className="hidden md:block" /> C-{item.counter || '?'}
                      </span>
                   )}
                </div>
                {!isScheduled && (
-                  <button onClick={() => setSelectedUnit(item)} className="p-0.5 md:p-2 text-black hover:text-zinc-600 transition-colors">
+                  <button onClick={() => setSelectedUnit(item)} className="p-0.5 md:p-1 text-black hover:text-zinc-600 transition-colors">
                      <FileText size={14} className="md:hidden" />
-                     <FileText size={28} className="hidden md:block" />
+                     <FileText size={20} className="hidden md:block" />
                   </button>
                )}
             </div>
 
-            <div className="py-0.5 md:py-1 flex-1 flex flex-col justify-center min-h-0">
-               <h3 className="text-xl md:text-6xl font-black tracking-tighter text-black font-mono uppercase leading-none">{item.bk}</h3>
-               <p className="text-xs md:text-2xl font-black text-black uppercase tracking-widest mt-0.5 md:mt-1">{item.tipe || '—'}</p>
+            <div className="py-0.5 flex-1 flex flex-col justify-center min-h-0">
+               <h3 className="text-xl md:text-3xl lg:text-4xl font-black tracking-tight text-black font-mono uppercase leading-tight my-0.5 truncate">{item.bk}</h3>
+               <p className="text-xs md:text-sm font-black text-zinc-600 uppercase tracking-widest leading-none truncate">{item.tipe || '—'}</p>
             </div>
 
-            <div className="grid grid-cols-3 gap-0.5 md:gap-3 pt-0.5 md:pt-3 border-t-2 border-zinc-100 font-mono shrink-0">
+            <div className="grid grid-cols-3 gap-0.5 md:gap-2 pt-1 md:pt-1.5 border-t border-zinc-100 font-mono shrink-0">
                {isMenginap ? (
                   <div className="col-span-3">
-                     <p className="text-[9px] md:text-xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1 md:gap-2 mb-0.5">
-                        <Moon size={10} className="md:hidden text-purple-500" /> <Moon size={14} className="hidden md:block text-purple-500" /> Alasan
+                     <p className="text-[9px] md:text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1 md:gap-1.5 mb-0.5">
+                        <Moon size={10} className="md:hidden text-purple-500" /> <Moon size={12} className="hidden md:block text-purple-500" /> Alasan
                      </p>
-                     <p className="text-[10px] md:text-2xl font-black text-purple-700 leading-none truncate uppercase">
+                     <p className="text-[10px] md:text-base font-black text-purple-700 leading-none truncate uppercase">
                         {item.menginap_reason || '—'}
                      </p>
                   </div>
                ) : (
                   <>
                      <div>
-                        <p className="text-[8px] md:text-xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-0.5 md:gap-2 mb-0">
-                           <Clock size={8} className={`md:hidden ${isScheduled ? 'text-zinc-400' : 'text-blue-500'}`} /> <Clock size={14} className={`hidden md:block ${isScheduled ? 'text-zinc-400' : 'text-blue-500'}`} /> {isScheduled ? 'Jadwal' : 'Datang'}
+                        <p className="text-[8px] md:text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-0.5 md:gap-1 mb-0">
+                           <Clock size={8} className={`md:hidden ${isScheduled ? 'text-zinc-400' : 'text-blue-500'}`} /> <Clock size={12} className={`hidden md:block ${isScheduled ? 'text-zinc-400' : 'text-blue-500'}`} /> {isScheduled ? 'Jadwal' : 'Datang'}
                         </p>
-                        <p className="text-sm md:text-3xl font-black text-zinc-900 tabular-nums leading-none">{isScheduled ? item.jam : timeIn}</p>
-                        {!isScheduled && <p className="text-[9px] md:text-xl font-bold text-zinc-400 mt-0.5 md:mt-1 leading-none">{dateIn}</p>}
+                        <p className="text-sm md:text-xl font-black text-zinc-900 tabular-nums leading-none">{isScheduled ? item.jam : timeIn}</p>
+                        {!isScheduled && <p className="text-[9px] md:text-xs font-bold text-zinc-400 mt-0.5 leading-none">{dateIn}</p>}
                      </div>
 
                      <div className="col-span-2">
-                        <p className="text-[8px] md:text-xl font-black text-zinc-400 uppercase tracking-wider flex items-center gap-0.5 md:gap-2 mb-0">
-                           <Activity size={8} className={`md:hidden ${isWorkingOrWashing ? 'text-orange-500' : 'text-zinc-300'}`} /> <Activity size={14} className={`hidden md:block ${isWorkingOrWashing ? 'text-orange-500' : 'text-zinc-300'}`} /> {isScheduled ? 'Keperluan' : 'Estimasi'}
+                        <p className="text-[8px] md:text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-0.5 md:gap-1 mb-0">
+                           <Activity size={8} className={`md:hidden ${isWorkingOrWashing ? 'text-orange-500' : 'text-zinc-300'}`} /> <Activity size={12} className={`hidden md:block ${isWorkingOrWashing ? 'text-orange-500' : 'text-zinc-300'}`} /> {isScheduled ? 'Keperluan' : 'Estimasi'}
                         </p>
-                        <p className={`text-sm md:text-3xl font-black tabular-nums leading-none truncate ${isWorkingOrWashing ? (item.estimasi < 300 ? 'text-red-600 animate-pulse' : 'text-orange-600') : 'text-zinc-500'}`}>
+                        <p className={`text-sm md:text-xl font-black tabular-nums leading-none truncate ${isWorkingOrWashing ? (item.estimasi < 300 ? 'text-red-600 animate-pulse' : 'text-orange-600') : 'text-zinc-500'}`}>
                            {isScheduled ? (item.keluhan || '-')?.split('\n').map((l, i, a) => <span key={i}>{l}{i < a.length - 1 ? <br /> : ''}</span>) : isWorkingOrWashing ? formatTime(item.estimasi) : isIstirahatExpired ? 'Menunggu Confirm' : formatTime(parseInt(item.estimasiDefault) || 0)}
                         </p>
                      </div>
@@ -144,24 +144,24 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
                )}
             </div>
 
-            <div className="flex items-center gap-0.5 md:gap-4 pt-0.5 md:pt-3 border-t-2 border-zinc-200 mt-auto shrink-0">
-               <div className="flex items-center gap-0.5 md:gap-2 min-w-0 flex-1">
+            <div className="flex items-center gap-0.5 md:gap-3 pt-1 md:pt-1.5 border-t border-zinc-200 shrink-0">
+               <div className="flex items-center gap-0.5 md:gap-1.5 min-w-0 flex-1">
                   <div
-                     className="w-4 h-4 md:w-8 md:h-8 rounded-lg md:rounded-xl flex items-center justify-center text-white text-[7px] md:text-lg font-black shrink-0 shadow-md"
+                     className="w-4 h-4 md:w-6 md:h-6 rounded-lg md:rounded-xl flex items-center justify-center text-white text-[7px] md:text-xs font-black shrink-0 shadow-sm"
                      style={{ backgroundColor: (isScheduled && item.category !== 'Reguler (Late)') ? '#dc2626' : '#1e40af' }}
                   >
                      {(isScheduled && item.category !== 'Reguler (Late)') ? 'CS' : 'SA'}
                   </div>
-                  <span className="text-[9px] md:text-xl font-black text-zinc-900 uppercase truncate">
-                     {item.category === 'Reguler (Late)' ? '—' : (isScheduled ? (item.nama_sa || 'BOOKING ONLINE') : (item.nama_sa || '—'))}
+                  <span className="text-[9px] md:text-xs font-black text-zinc-900 uppercase truncate">
+                     {isScheduled ? (item.nama_sa || item.addedBy || 'BOOKING ONLINE') : (item.nama_sa || item.addedBy || '—')}
                   </span>
                </div>
                {!isScheduled && (
                   <>
-                     <div className="w-0.5 h-3 md:h-6 bg-zinc-200 shrink-0" />
-                     <div className="flex items-center gap-0.5 md:gap-2 min-w-0 flex-1">
-                        <div className="w-4 h-4 md:w-8 md:h-8 rounded-lg md:rounded-xl bg-[#2563eb] flex items-center justify-center text-white text-[7px] md:text-lg font-black shrink-0 shadow-md">MK</div>
-                        <span className="text-[9px] md:text-xl font-black text-[#2563eb] uppercase truncate">{item.mechanicName || '—'}</span>
+                     <div className="w-0.5 h-3 md:h-4 bg-zinc-200 shrink-0" />
+                     <div className="flex items-center gap-0.5 md:gap-1.5 min-w-0 flex-1">
+                        <div className="w-4 h-4 md:w-6 md:h-6 rounded-lg md:rounded-xl bg-[#2563eb] flex items-center justify-center text-white text-[7px] md:text-xs font-black shrink-0 shadow-sm">MK</div>
+                        <span className="text-[9px] md:text-xs font-black text-[#2563eb] uppercase truncate">{item.mechanicName || '—'}</span>
                      </div>
                   </>
                )}
@@ -169,47 +169,54 @@ const QueueCard = ({ item, formatTime, setSelectedUnit, user, onStartWork, onCom
 
             {!isScheduled && (() => {
                const bannerMap = {
-                  'waiting': { bg: '#d97706', icon: 'Clock', label: 'MENUNGGU ANTRIAN PEKERJAAN', sub: item.cuci_required ? '+ Cuci Mobil' : '' },
-                  'working': { bg: '#2563eb', icon: 'Zap', label: `SEDANG DIKERJAKAN`, sub: item.mechanicName || '' },
-                  'menunggu_cuci': { bg: '#0d9488', icon: 'Droplets', label: 'MENUNGGU ANTRIAN CUCI', sub: item.washQueueNum ? `Antrean Ke-${item.washQueueNum}` : 'Antrean Cuci' },
-                  'sedang_dicuci': { bg: '#0891b2', icon: 'Droplets', label: 'SEDANG DICUCI', sub: formatTime(item.estimasi) },
-                  'request_extension': { bg: '#d97706', icon: 'Clock', label: 'MENUNGGU APPROVAL TAMBAH WAKTU', sub: '' },
-                  'menunggu_konfirmasi': { bg: '#f59e0b', icon: 'Clock', label: 'MENUNGGU KONFIRMASI ADMIN', sub: '' },
-                  'menunggu_sa': { bg: '#6b7280', icon: 'Clock', label: 'MENUNGGU SA', sub: '' },
-                  'menunggu_foreman': { bg: '#7c3aed', icon: 'Clock', label: 'MENUNGGU FOREMAN', sub: '' },
-                  'istirahat': { bg: '#eab308', icon: 'Clock', label: 'ISTIRAHAT', sub: '' },
+                  'waiting': { bg: '#d97706', label: 'MENUNGGU ANTRIAN PEKERJAAN', sub: item.cuci_required ? '+ Cuci Mobil' : '' },
+                  'working': { bg: '#2563eb', label: `SEDANG DIKERJAKAN`, sub: item.mechanicName || '' },
+                  'menunggu_cuci': { bg: '#0d9488', label: 'MENUNGGU ANTRIAN CUCI', sub: item.washQueueNum ? `Antrean Ke-${item.washQueueNum}` : 'Antrean Cuci' },
+                  'sedang_dicuci': { bg: '#0891b2', label: 'SEDANG DICUCI', sub: formatTime(item.estimasi) },
+                  'request_extension': { bg: '#d97706', label: 'MENUNGGU APPROVAL TAMBAH WAKTU', sub: '' },
+                  'menunggu_konfirmasi': { bg: '#f59e0b', label: 'MENUNGGU KONFIRMASI ADMIN', sub: '' },
+                  'menunggu_sa': { bg: '#6b7280', label: 'MENUNGGU SA', sub: '' },
+                  'menunggu_foreman': { bg: '#7c3aed', label: 'MENUNGGU FOREMAN', sub: '' },
+                  'istirahat': { bg: '#eab308', label: 'ISTIRAHAT', sub: '' },
                };
                const cfg = bannerMap[item.status];
                if (!cfg) return null;
                return (
-                  <div className="mt-0.5 md:mt-2 px-1.5 py-1 md:px-5 md:py-3 rounded-xl md:rounded-2xl border-2 md:border-4 border-white/30 shadow-2xl ring-2 md:ring-4"
-                     style={{ backgroundColor: cfg.bg, '--tw-ring-color': cfg.bg + '40' }}>
-                     <div className="flex items-center gap-1 md:gap-2 mb-0.5 md:mb-1 text-white/70">
+                  <div className="mt-0.5 md:mt-1 px-1.5 py-1 md:px-3 md:py-1.5 rounded-xl border md:border-2 border-white/30 shadow-md shrink-0"
+                     style={{ backgroundColor: cfg.bg }}>
+                     <div className="flex items-center gap-1 md:gap-1.5 mb-0.5 text-white/80">
                         {item.status === 'menunggu_cuci' || item.status === 'sedang_dicuci' ? (
-                           <Droplets size={10} className="md:hidden" fill="currentColor" />
+                           <>
+                              <Droplets size={10} className="md:hidden" fill="currentColor" />
+                              <Droplets size={14} className="hidden md:block" fill="currentColor" />
+                           </>
                         ) : item.status === 'working' ? (
-                           <Zap size={10} className="md:hidden" fill="currentColor" />
+                           <>
+                              <Wrench size={10} className="md:hidden" />
+                              <Wrench size={14} className="hidden md:block" />
+                           </>
                         ) : (
-                           <Clock size={10} className="md:hidden" />
+                           <>
+                              <Clock size={10} className="md:hidden" />
+                              <Clock size={14} className="hidden md:block" />
+                           </>
                         )}
-                        <Droplets size={18} className="hidden md:block" fill="currentColor" />
-                        <span className="text-[9px] md:text-lg font-black uppercase tracking-[0.15em]">{cfg.label}</span>
+                        <span className="text-[9px] md:text-xs font-black uppercase tracking-[0.15em]">{cfg.label}</span>
                      </div>
                      {cfg.sub && (
-                        <p className="text-[10px] md:text-2xl font-black text-white leading-tight uppercase font-mono">{cfg.sub}</p>
+                        <p className="text-[10px] md:text-sm font-black text-white leading-tight uppercase font-mono truncate">{cfg.sub}</p>
                      )}
                   </div>
                );
             })()}
 
             {isMenginap && item.menginap_reason && (
-               <div className="mt-2 md:mt-3 px-4 md:px-6 py-3 md:py-4 bg-[#9333ea] rounded-2xl border-4 border-white/30 shadow-2xl ring-4 ring-purple-500/20">
-                  <div className="flex items-center gap-2 md:gap-3 mb-2 text-white/70">
-                     <Moon size={18} className="md:hidden" fill="currentColor" />
-                     <Moon size={24} className="hidden md:block" fill="currentColor" />
-                     <span className="text-sm md:text-2xl font-black uppercase tracking-[0.15em]">Keterangan Menginap</span>
+               <div className="mt-1 md:mt-1.5 px-3 md:px-4 py-2 bg-[#9333ea] rounded-xl border-2 border-white/30 shadow-md shrink-0">
+                  <div className="flex items-center gap-1.5 md:gap-2 mb-1 text-white/70">
+                     <Moon size={14} fill="currentColor" />
+                     <span className="text-xs md:text-sm font-black uppercase tracking-[0.15em]">Keterangan Menginap</span>
                   </div>
-                  <p className="text-base md:text-3xl font-black text-white leading-tight uppercase font-mono italic">
+                  <p className="text-xs md:text-base font-black text-white leading-tight uppercase font-mono italic truncate">
                      "{item.menginap_reason}"
                   </p>
                </div>
@@ -322,44 +329,44 @@ const CompletedCarousel = ({ data, formatTime, setSelectedUnit }) => {
    while (visibleItems.length < displayCount) visibleItems.push(null);
 
    return (
-      <div className="w-full rounded-2xl md:rounded-3xl p-2 md:p-5 shadow-2xl relative overflow-hidden group border-4 border-emerald-500/50 min-h-[50px] md:min-h-[140px] flex flex-col justify-center" style={{ backgroundColor: '#059669' }}>
+      <div className="w-full rounded-2xl md:rounded-3xl p-2 md:p-3.5 shadow-2xl relative overflow-hidden group border-4 border-emerald-500/50 flex flex-col justify-center" style={{ backgroundColor: '#059669' }}>
          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10" />
-         <div className="flex items-center justify-between mb-1 md:mb-3 relative z-10 gap-2">
+         <div className="flex items-center justify-between mb-1 md:mb-2 relative z-10 gap-2">
             <div className="flex items-center gap-1.5 md:gap-2 min-w-0">
-               <div className="w-6 h-6 md:w-10 md:h-10 bg-white rounded-lg md:rounded-xl flex items-center justify-center text-emerald-600 shadow-xl shrink-0"><CheckCircle size={12} className="md:hidden" /><CheckCircle size={18} className="hidden md:block" /></div>
-               <div className="bg-white/10 px-2 md:px-4 py-1 md:py-2 rounded-lg md:rounded-xl backdrop-blur-md border border-white/10 shrink-0">
-                  <span className="text-xs md:text-xl font-black text-white uppercase tracking-wider md:tracking-widest leading-none">
+               <div className="w-6 h-6 md:w-8 md:h-8 bg-white rounded-lg md:rounded-xl flex items-center justify-center text-emerald-600 shadow-xl shrink-0"><CheckCircle size={12} className="md:hidden" /><CheckCircle size={16} className="hidden md:block" /></div>
+               <div className="bg-white/10 px-2 md:px-3 py-1 rounded-lg md:rounded-xl backdrop-blur-md border border-white/10 shrink-0">
+                  <span className="text-xs md:text-base font-black text-white uppercase tracking-wider md:tracking-widest leading-none">
                      {data.length} <span className="text-emerald-200">SELESAI</span>
                   </span>
                </div>
             </div>
             {hasMultiple && (
-               <div className="flex items-center gap-1 bg-white/10 p-1 md:p-1.5 rounded-xl md:rounded-2xl backdrop-blur-md border border-white/10 shadow-xl shrink-0">
-                  <button onClick={(e) => { e.stopPropagation(); setIdx(i => (i - 1 + totalStops) % totalStops); startTimer(); }} className="p-1.5 hover:bg-white/20 rounded-lg md:rounded-xl transition-all text-white active:scale-95"><ChevronLeft size={14} strokeWidth={4} className="md:hidden" /><ChevronLeft size={20} strokeWidth={4} className="hidden md:block" /></button>
-                  <div className="flex flex-col items-center px-1 md:px-3">
-                     <span className="text-xs md:text-lg font-black text-white/80 uppercase tracking-widest leading-none mb-0.5 md:mb-1">{idx + 1}/{totalStops}</span>
+               <div className="flex items-center gap-1 bg-white/10 p-1 md:p-1 rounded-xl md:rounded-2xl backdrop-blur-md border border-white/10 shadow-xl shrink-0">
+                  <button onClick={(e) => { e.stopPropagation(); setIdx(i => (i - 1 + totalStops) % totalStops); startTimer(); }} className="p-1 hover:bg-white/20 rounded-lg md:rounded-xl transition-all text-white active:scale-95"><ChevronLeft size={14} strokeWidth={4} className="md:hidden" /><ChevronLeft size={18} strokeWidth={4} className="hidden md:block" /></button>
+                  <div className="flex flex-col items-center px-1 md:px-2">
+                     <span className="text-xs md:text-sm font-black text-white/80 uppercase tracking-widest leading-none mb-0.5">{idx + 1}/{totalStops}</span>
                      <div className="hidden sm:flex gap-1.5 mt-0.5">
                         {Array.from({ length: Math.min(totalStops, 6) }).map((_, i) => (<button key={i} onClick={(e) => { e.stopPropagation(); setIdx(i); startTimer(); }} className={`h-1.5 rounded-full transition-all duration-500 ${i === idx ? 'w-5 bg-white' : 'w-1.5 bg-white/30'}`} />))}
                      </div>
                   </div>
-                  <button onClick={(e) => { e.stopPropagation(); setIdx(i => (i + 1) % totalStops); startTimer(); }} className="p-1.5 hover:bg-white/20 rounded-lg md:rounded-xl transition-all text-white active:scale-95"><ChevronRight size={14} strokeWidth={4} className="md:hidden" /><ChevronRight size={20} strokeWidth={4} className="hidden md:block" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); setIdx(i => (i + 1) % totalStops); startTimer(); }} className="p-1 hover:bg-white/20 rounded-lg md:rounded-xl transition-all text-white active:scale-95"><ChevronRight size={14} strokeWidth={4} className="md:hidden" /><ChevronRight size={18} strokeWidth={4} className="hidden md:block" /></button>
                </div>
             )}
          </div>
          <div className="flex-1 flex items-stretch relative z-10" key={idx}>
             {visibleItems.map((item, i) => item ? (
-               <div key={item.id} onClick={() => setSelectedUnit(item)} className="flex-1 bg-white rounded-xl md:rounded-2xl p-2 md:p-5 shadow-xl border-4 border-white/50 group/card cursor-pointer hover:bg-white hover:scale-[1.02] transition-all flex flex-col items-center justify-center min-h-[40px] md:min-h-[100px]">
-                  <h2 className="text-xl md:text-5xl font-black text-black font-mono tracking-tighter mb-0.5 md:mb-1 uppercase truncate w-full text-center leading-none">{item.bk || item.noPlat || item.no_plat || '-'}</h2>
-                  <p className="text-[10px] md:text-xl font-black text-black/40 uppercase tracking-[0.3em] truncate w-full text-center mt-0.5 md:mt-1 leading-none border-t border-zinc-100 pt-1 md:pt-2">{item.tipe}</p>
-                  <div className="flex items-center gap-1.5 md:gap-3 mt-1 md:mt-2 bg-emerald-500/10 px-2 md:px-4 py-0.5 md:py-1.5 rounded-full border-2 border-emerald-500/20">
+               <div key={item.id} onClick={() => setSelectedUnit(item)} className="flex-1 bg-white rounded-xl md:rounded-2xl p-2 md:p-3 shadow-xl border-2 md:border-4 border-white/50 group/card cursor-pointer hover:bg-white hover:scale-[1.01] transition-all flex flex-col items-center justify-center">
+                  <h2 className="text-xl md:text-3xl lg:text-4xl font-black text-black font-mono tracking-tighter mb-0.5 uppercase truncate w-full text-center leading-none">{item.bk || item.noPlat || item.no_plat || '-'}</h2>
+                  <p className="text-[10px] md:text-sm font-black text-black/40 uppercase tracking-[0.3em] truncate w-full text-center mt-0.5 leading-none border-t border-zinc-100 pt-1">{item.tipe}</p>
+                  <div className="flex items-center gap-1.5 md:gap-2 mt-1 bg-emerald-500/10 px-2 md:px-3 py-0.5 rounded-full border border-emerald-500/20">
                      <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-emerald-500 animate-pulse" />
-                     <span className="text-[9px] md:text-base font-black text-emerald-600 uppercase tracking-widest whitespace-nowrap leading-none">
+                     <span className="text-[9px] md:text-xs font-black text-emerald-600 uppercase tracking-widest whitespace-nowrap leading-none">
                         Selesai {new Date(parseInt(item.targetTime || item.target_time || item.id)).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })}
                      </span>
                   </div>
                </div>
             ) : (
-               <div key={`empty-${i}`} className="flex-1 bg-white/5 rounded-2xl border-4 border-dashed border-white/20 min-h-[80px] md:min-h-[100px] flex items-center justify-center">
+               <div key={`empty-${i}`} className="flex-1 bg-white/5 rounded-2xl border-4 border-dashed border-white/20 min-h-[60px] md:min-h-[80px] flex items-center justify-center">
                   <p className="text-xl md:text-2xl font-bold text-white/10 uppercase tracking-[0.2em] whitespace-nowrap">Belum ada data</p>
                </div>
             ))}
@@ -554,10 +561,24 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
          return i;
       });
 
+      const isBookingLate = (jamStr) => {
+         if (!jamStr) return false;
+         try {
+            const clean = String(jamStr).replace('.', ':');
+            const [h, m] = clean.split(':').map(Number);
+            if (isNaN(h) || isNaN(m)) return false;
+            const now = new Date();
+            const bTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
+            return now > bTime;
+         } catch { return false; }
+      };
+
       const todayBookingsRaw = bookings.filter(b => {
          if (!b.tanggal || !isSameDate(b.tanggal, todayStr)) return false;
          if (['synced', 'no_show', 'cancelled', 'declined', 'deleted'].includes(b.status)) return false;
          if (queueToUse.some(pq => pq.bk === b.bk)) return false;
+         // Jika belum datang dan jam booking sudah lewat (telat), langsung hilangkan dari list display
+         if (isBookingLate(b.jam)) return false;
          return true;
       });
 
@@ -662,13 +683,13 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
    }, [processedQueue, bookings, dynamicJamPilihan]);
 
    const currentlyCalled = useMemo(() => {
-      const called = processedQueue.filter(item => item.isCalled);
+      const called = processedQueue.filter(item => item.isCalled && item.status !== 'selesai' && item.status !== 'batal');
       const booking = called
          .filter(item => item.category === 'Booking' || item.category === 'Booking (Late)')
-         .sort((a, b) => new Date(b.calledAt) - new Date(a.calledAt))[0];
+         .sort((a, b) => new Date(b.calledAt || b.called_at || 0).getTime() - new Date(a.calledAt || a.called_at || 0).getTime())[0];
       const reguler = called
          .filter(item => item.category !== 'Booking' && item.category !== 'Booking (Late)')
-         .sort((a, b) => new Date(b.calledAt) - new Date(a.calledAt))[0];
+         .sort((a, b) => new Date(b.calledAt || b.called_at || 0).getTime() - new Date(a.calledAt || a.called_at || 0).getTime())[0];
       return { booking, reguler };
    }, [processedQueue]);
 
@@ -802,30 +823,42 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
                <CompletedCarousel data={todayCompleted} formatTime={formatTime} setSelectedUnit={setSelectedUnit} />
             </div>
 
-            {/* Currently Called: compact single-bar on mobile, 2-col grid on desktop */}
+            {/* Currently Called: 2-col grid */}
             <div className="shrink-0">
                {currentlyCalled.booking || currentlyCalled.reguler ? (
-                  <div className="flex gap-2 md:grid md:grid-cols-2 md:gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
                      {currentlyCalled.booking ? (
-                        <div className="flex-1 bg-red-50 border-2 border-red-200 rounded-xl md:rounded-3xl p-1.5 md:p-4 shadow-xl flex items-center gap-2 md:gap-4">
-                           <div className="w-8 h-8 md:w-8 md:h-8 rounded-lg md:rounded-xl bg-red-600 flex items-center justify-center shrink-0">
-                              <Bookmark size={14} fill="white" className="text-white" />
+                        <div className="bg-red-50 border-2 border-red-200 rounded-2xl md:rounded-3xl p-3 md:p-4 shadow-xl flex items-center gap-3 md:gap-4">
+                           <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl md:rounded-2xl bg-red-600 flex items-center justify-center shrink-0 shadow-lg">
+                              <Bookmark size={24} fill="white" className="text-white" />
                            </div>
                            <div className="min-w-0 flex-1">
-                              <p className="text-[10px] md:text-sm font-black text-red-600 uppercase truncate">{currentlyCalled.bk}</p>
-                              <p className="text-[9px] md:text-xs font-black text-red-400">Counter {currentlyCalled.counter}</p>
+                              <p className="text-[10px] md:text-xs font-black text-red-400 uppercase">Dipanggil Booking</p>
+                              <p className="text-lg md:text-2xl font-black text-red-600 uppercase truncate font-mono leading-tight">
+                                 {currentlyCalled.booking.queueNumber > 0 ? `Booking ${currentlyCalled.booking.queueNumber}` : currentlyCalled.booking.bk}
+                              </p>
+                              <p className="text-xs md:text-sm font-black text-red-500">
+                                 {currentlyCalled.booking.bk} • Counter {currentlyCalled.booking.counter}
+                              </p>
                            </div>
+                           <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse shrink-0" />
                         </div>
                      ) : null}
                      {currentlyCalled.reguler ? (
-                        <div className="flex-1 bg-zinc-50 border-2 border-zinc-200 rounded-xl md:rounded-3xl p-1.5 md:p-4 shadow-xl flex items-center gap-2 md:gap-4">
-                           <div className="w-8 h-8 md:w-8 md:h-8 rounded-lg md:rounded-xl bg-zinc-800 flex items-center justify-center shrink-0">
-                              <Zap size={14} fill="white" className="text-white" />
+                        <div className="bg-zinc-50 border-2 border-zinc-200 rounded-2xl md:rounded-3xl p-3 md:p-4 shadow-xl flex items-center gap-3 md:gap-4">
+                           <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl md:rounded-2xl bg-zinc-800 flex items-center justify-center shrink-0 shadow-lg">
+                              <Zap size={24} fill="white" className="text-white" />
                            </div>
                            <div className="min-w-0 flex-1">
-                              <p className="text-[10px] md:text-sm font-black text-zinc-600 uppercase truncate">{currentlyCalled.bk}</p>
-                              <p className="text-[9px] md:text-xs font-black text-zinc-400">Counter {currentlyCalled.counter}</p>
+                              <p className="text-[10px] md:text-xs font-black text-zinc-400 uppercase">Dipanggil Reguler</p>
+                              <p className="text-lg md:text-2xl font-black text-zinc-600 uppercase truncate font-mono leading-tight">
+                                 {currentlyCalled.reguler.queueNumber > 0 ? `Reguler ${currentlyCalled.reguler.queueNumber}` : currentlyCalled.reguler.bk}
+                              </p>
+                              <p className="text-xs md:text-sm font-black text-zinc-500">
+                                 {currentlyCalled.reguler.bk} • Counter {currentlyCalled.reguler.counter}
+                              </p>
                            </div>
+                           <div className="w-3 h-3 rounded-full bg-zinc-400 animate-pulse shrink-0" />
                         </div>
                      ) : null}
                   </div>

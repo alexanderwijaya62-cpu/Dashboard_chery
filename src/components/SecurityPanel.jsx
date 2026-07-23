@@ -303,7 +303,7 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
           status: 'menunggu_sa',
         estimasiDefault: 1800,
         addedBy: user?.name || 'Security',
-        nama_sa: user?.name || 'Security',
+        nama_sa: user?.nama_sa || user?.name || 'Security',
         is_called: false,
         counter: 0,
         queue_number: qNum,
@@ -354,18 +354,19 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
     setIsLoading(true);
     let success = 0;
     try {
-      let baseQ = await generateQueueNumber('Booking');
       for (const b of toInsert) {
-        const qNum = baseQ + success;
+        const telat = isLate(b.jam);
+        const cat = telat ? 'Reguler' : 'Booking';
+        const qNum = await generateQueueNumber(cat);
         const { error } = await db.insert('antrian', {
           id: Date.now() + Math.floor(Math.random() * 10000) + success,
           bk: b.plat,
           tipe: b.tipeMobil || '',
-          category: 'Booking',
+          category: cat,
           status: 'menunggu_sa',
           estimasiDefault: 1800,
-          addedBy: user?.name || 'Security',
-          nama_sa: user?.name || 'Security',
+          addedBy: b.namaCustomer || user?.name || 'Security',
+          nama_sa: b.nama_sa || b.addedBy || user?.name || 'Security',
           keluhan: b.keperluanService || '',
           is_called: false,
           counter: 0,
@@ -373,8 +374,9 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
         });
         if (!error) {
           success++;
-          const code = formatQueueCode('Booking', qNum);
-          Toastify({ text: `✅ ${b.plat} — ${code}`, duration: 2500, background: '#10b981' }).showToast();
+          const code = formatQueueCode(cat, qNum);
+          const msgExtra = telat ? ' (Telat -> Masuk Reguler)' : '';
+          Toastify({ text: `✅ ${b.plat} — ${code}${msgExtra}`, duration: 2500, background: '#10b981' }).showToast();
         }
       }
       if (success > 0) {

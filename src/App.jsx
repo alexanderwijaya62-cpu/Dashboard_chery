@@ -616,8 +616,7 @@ const App = () => {
           isCalled: item.is_called || false,
           calledAt: item.called_at || null,
           counter: item.counter || 0,
-          nama_sa: item.nama_sa || '',
-          cuci_required: item.cuci_required === true
+          cuci_required: item.cuci_required === true || item.cuci_required === 'true' || item.cuci_required === 1 || item.cuci_required === '1' || item.cuci === true || item.cuci === 'true'
         };
       };
 
@@ -633,6 +632,37 @@ const App = () => {
       console.error("Gagal mengambil data operasional Supabase", error);
     }
   }, []);
+
+  // Auto-advance washing queue: if no car is being washed, start the next waiting car in line
+  useEffect(() => {
+    if (!queue || queue.length === 0) return;
+    const isWashing = queue.some(q => q.status === 'sedang_dicuci');
+    if (!isWashing) {
+      const nextInLine = queue
+        .filter(q => q.status === 'menunggu_cuci')
+        .sort((a, b) => {
+          const qA = a.queueNumber || a.queue_number || 0;
+          const qB = b.queueNumber || b.queue_number || 0;
+          if (qA > 0 && qB > 0 && qA !== qB) return qA - qB;
+          const tA = new Date(a.waktuSelesai || a.createdAt || a.created_at || 0).getTime();
+          const tB = new Date(b.waktuSelesai || b.createdAt || b.created_at || 0).getTime();
+          return tA - tB;
+        })[0];
+
+      if (nextInLine) {
+        const cuciDurasi = 30 * 60;
+        const targetTime = Date.now() + (cuciDurasi * 1000);
+        const payload = {
+          status: 'sedang_dicuci',
+          cuci_mulai: new Date().toISOString(),
+          targetTime: targetTime
+        };
+        db.update('antrian', payload, { eq: { id: nextInLine.id } }).then(() => {
+          setQueue(prev => prev.map(q => q.id === nextInLine.id ? { ...q, ...payload } : q));
+        }).catch(() => {});
+      }
+    }
+  }, [queue]);
 
   // Debounce fetchQueue: hanya eksekusi sekali dalam 2 detik
   const userRef = useRef(user);
@@ -1883,7 +1913,7 @@ const App = () => {
 
       // If cuci required → go to cuci queue instead of konfirmasi
       // If cuci required → go to cuci queue instead of konfirmasi
-      const isCuci = item.cuci_required === true;
+      const isCuci = item.cuci_required === true || item.cuci_required === 'true' || item.cuci_required === 1 || item.cuci_required === '1' || item.cuci === true || item.cuci === 'true';
       let finalStatus = 'menunggu_konfirmasi';
       let cuciAdditions = {};
 
@@ -1896,8 +1926,7 @@ const App = () => {
           const cuciDurasi = 30 * 60; // 30 menit
           cuciAdditions = {
             cuci_mulai: new Date().toISOString(),
-            targetTime: Date.now() + (cuciDurasi * 1000),
-            estimasiDefault: cuciDurasi
+            targetTime: Date.now() + (cuciDurasi * 1000)
           };
         }
       }
@@ -2181,16 +2210,33 @@ const App = () => {
     setIsLoadingProcess(true);
     try {
       const now = new Date().toISOString();
+      const serviceSecs = parseInt(item.elapsedSeconds) || parseInt(item.elapsed_seconds) || parseInt(item.estimasiDefault) || 0;
+      let washSecs = 30 * 60;
+      if (item.cuci_mulai) {
+        const washMs = Date.now() - new Date(item.cuci_mulai).getTime();
+        if (washMs > 0) washSecs = Math.ceil(washMs / 1000);
+      }
+      const totalSecs = serviceSecs + washSecs;
+
       const { error } = await db.update('antrian', {
         status: 'menunggu_konfirmasi',
         waktuSelesai: now,
+        estimasiDefault: totalSecs,
+        elapsedSeconds: totalSecs
       }, { eq: { id: item.id } });
       if (error) throw error;
 
       // Cari mobil berikutnya di antrian cuci (status = menunggu_cuci)
       const nextInLine = queue
         .filter(q => q.status === 'menunggu_cuci' && q.id !== item.id)
-        .sort((a, b) => parseInt(a.id) - parseInt(b.id))[0];
+        .sort((a, b) => {
+          const qA = a.queueNumber || a.queue_number || 0;
+          const qB = b.queueNumber || b.queue_number || 0;
+          if (qA > 0 && qB > 0 && qA !== qB) return qA - qB;
+          const tA = new Date(a.waktuSelesai || a.createdAt || a.created_at || 0).getTime();
+          const tB = new Date(b.waktuSelesai || b.createdAt || b.created_at || 0).getTime();
+          return tA - tB;
+        })[0];
 
       if (nextInLine) {
         const cuciDurasi = 30 * 60;
@@ -2198,19 +2244,18 @@ const App = () => {
         const nextPayload = {
           status: 'sedang_dicuci',
           cuci_mulai: new Date().toISOString(),
-          targetTime: targetTime,
-          estimasiDefault: cuciDurasi
+          targetTime: targetTime
         };
         await db.update('antrian', nextPayload, { eq: { id: nextInLine.id } });
       }
 
       setQueue(prev => prev.map(q => {
         if (q.id === item.id) {
-          return { ...q, status: 'menunggu_konfirmasi', waktuSelesai: now };
+          return { ...q, status: 'menunggu_konfirmasi', waktuSelesai: now, estimasiDefault: totalSecs, elapsedSeconds: totalSecs };
         }
         if (nextInLine && q.id === nextInLine.id) {
           const cuciDurasi = 30 * 60;
-          return { ...q, status: 'sedang_dicuci', cuci_mulai: now, targetTime: Date.now() + (cuciDurasi * 1000), estimasiDefault: cuciDurasi };
+          return { ...q, status: 'sedang_dicuci', cuci_mulai: now, targetTime: Date.now() + (cuciDurasi * 1000) };
         }
         return q;
       }));
@@ -2251,6 +2296,9 @@ const App = () => {
         counter: counterNum,
         called_at: now
       }, { eq: { id: item.id } });
+
+      // Update local state immediately so DisplayBoard Currently Called section shows
+      setQueue(prev => prev.map(q => q.id === item.id ? { ...q, isCalled: true, counter: counterNum, calledAt: now } : q));
 
       const queueNum = item.queueNumber || item.queue_number || '';
       const plat = item.bk || '';

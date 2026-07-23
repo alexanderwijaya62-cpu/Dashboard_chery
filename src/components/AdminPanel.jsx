@@ -1045,13 +1045,10 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-white text-[10px] font-black shadow-md shrink-0">
-                                                    {item.category[0]}
+                                                    {item.queueNumber > 0 ? (item.category === 'Booking' ? `B-${String(item.queueNumber).padStart(3, '0')}` : `R-${String(item.queueNumber).padStart(3, '0')}`) : item.category[0]}
                                                 </div>
                                                 <div>
                                                     <div className="flex items-center gap-1.5 flex-wrap">
-                                                        {item.queueNumber > 0 && (
-                                                            <span className="text-[9px] font-black bg-zinc-800 text-white px-2 py-0.5 rounded-md">{item.category === 'Booking' ? `B-${String(item.queueNumber).padStart(3, '0')}` : `R-${String(item.queueNumber).padStart(3, '0')}`}</span>
-                                                        )}
                                                         <span className="text-lg font-black text-black uppercase tracking-tight leading-none">{item.bk}</span>
                                                     </div>
                                                     <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
@@ -1189,16 +1186,11 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
                                             <tr key={index} className={`transition-all border-l-4 duration-200 group border-b border-zinc-100 border-dashed ${isKonfirmasi ? 'bg-emerald-50/80 border-emerald-400 hover:bg-emerald-100/80' : 'hover:bg-zinc-50/50 border-transparent hover:border-black'}`}>
                                                     <td className="px-6 py-5">
                                                     <div className="flex items-center gap-4">
-                                                        <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-white text-[10px] font-black shadow-md">
-                                                            {item.category[0]}
+                                                        <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-white text-[10px] font-black shadow-md shrink-0">
+                                                            {item.queueNumber > 0 ? (item.category === 'Booking' ? `B-${String(item.queueNumber).padStart(3, '0')}` : `R-${String(item.queueNumber).padStart(3, '0')}`) : item.category[0]}
                                                         </div>
                                                         <div className="flex flex-col">
                                                             <div className="flex items-center gap-2">
-                                                                {item.queueNumber > 0 && (
-                                                                    <span className="text-[9px] font-black bg-zinc-800 text-white px-2 py-0.5 rounded-md tracking-wider">
-                                                                        {item.category === 'Booking' ? `B-${String(item.queueNumber).padStart(3, '0')}` : `R-${String(item.queueNumber).padStart(3, '0')}`}
-                                                                    </span>
-                                                                )}
                                                                 <span className="text-xl font-black text-black tabular-nums uppercase tracking-tight leading-none">{item.bk}</span>
                                                             </div>
                                                             <div className="flex items-center gap-2 mt-1.5">

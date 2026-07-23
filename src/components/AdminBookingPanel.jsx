@@ -56,6 +56,15 @@ export default function AdminBookingPanel() {
                 (b.noTelp || '').includes(q)
             );
         }
+        const normalizeJamNum = (j) => {
+            if (!j) return 999;
+            const s = String(j).replace(':', '.');
+            const [h, m] = s.split('.');
+            return (parseInt(h) || 0) * 60 + (parseInt(m) || 0);
+        };
+        list = [...list].sort((a, b) => {
+            return (a.tanggal || '').localeCompare(b.tanggal || '') || normalizeJamNum(a.jam) - normalizeJamNum(b.jam);
+        });
         return list;
     }, [bookings, search]);
 
