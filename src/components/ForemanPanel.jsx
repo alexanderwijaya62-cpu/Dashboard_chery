@@ -26,6 +26,8 @@ export default function ForemanPanel({
     onRequestExtension,
     onForemanAddTime,
     isLoadingProcess,
+    handleStartCuci,
+    handleCompleteCuci,
 }) {
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [mechanics, setMechanics] = useState([]);
@@ -566,24 +568,38 @@ export default function ForemanPanel({
                                                     <p className="text-[9px] font-medium text-zinc-500 mb-2 bg-zinc-50 rounded-xl px-3 py-2 border border-zinc-100 leading-relaxed">{item.keluhan}</p>
                                                 )}
 
-                                                {(canComplete || canExtend) && (
+                                                {(canComplete || canExtend || item.status === 'menunggu_cuci' || item.status === 'sedang_dicuci') && (
                                                     <div className="flex gap-2 mt-1">
-                                                        {canComplete && (
-                                                            <button onClick={() => handleSelesai(item)} disabled={isLoadingProcess || isCompleting}
-                                                                className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-200 text-white disabled:text-zinc-400 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
-                                                                {isCompleting ? (
-                                                                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                                                ) : (
-                                                                    <CheckCircle2 size={14} />
+                                                        {item.status === 'menunggu_cuci' && handleStartCuci ? (
+                                                            <button onClick={() => handleStartCuci(item)} disabled={isLoadingProcess}
+                                                                className="flex-1 py-3 bg-teal-600 hover:bg-teal-700 disabled:bg-zinc-200 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
+                                                                <Droplets size={14} /> Mulai Cuci
+                                                            </button>
+                                                        ) : item.status === 'sedang_dicuci' && handleCompleteCuci ? (
+                                                            <button onClick={() => handleCompleteCuci(item)} disabled={isLoadingProcess}
+                                                                className="flex-1 py-3 bg-cyan-600 hover:bg-cyan-700 disabled:bg-zinc-200 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
+                                                                <CheckCircle2 size={14} /> Selesai Cuci
+                                                            </button>
+                                                        ) : (
+                                                            <>
+                                                                {canComplete && (
+                                                                    <button onClick={() => handleSelesai(item)} disabled={isLoadingProcess || isCompleting}
+                                                                        className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-200 text-white disabled:text-zinc-400 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
+                                                                        {isCompleting ? (
+                                                                            <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                                        ) : (
+                                                                            <CheckCircle2 size={14} />
+                                                                        )}
+                                                                        {isCompleting ? 'Memproses...' : 'Selesai'}
+                                                                    </button>
                                                                 )}
-                                                                {isCompleting ? 'Memproses...' : 'Selesai'}
-                                                            </button>
-                                                        )}
-                                                        {canExtend && (
-                                                            <button onClick={() => handleOpenExtension(item)}
-                                                                className="px-4 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
-                                                                <Clock size={14} /> +Waktu
-                                                            </button>
+                                                                {canExtend && (
+                                                                    <button onClick={() => handleOpenExtension(item)}
+                                                                        className="px-4 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm">
+                                                                        <Clock size={14} /> +Waktu
+                                                                    </button>
+                                                                )}
+                                                            </>
                                                         )}
                                                     </div>
                                                 )}

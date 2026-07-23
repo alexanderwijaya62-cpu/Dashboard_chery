@@ -569,7 +569,7 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
                     <div className="h-full p-2 grid grid-cols-1 md:grid-cols-12 lg:grid-rows-12 gap-2 overflow-y-auto lg:overflow-hidden">
 
                         {/* 1. BOOKING LIST */}
-                        <div className="col-span-1 md:col-span-12 lg:col-span-4 lg:row-span-7 bg-white rounded-2xl border border-zinc-200 shadow-sm flex flex-col overflow-hidden relative min-h-[300px] lg:min-h-0">
+                        <div className="col-span-1 md:col-span-12 lg:col-span-3 lg:row-span-7 bg-white rounded-2xl border border-zinc-200 shadow-sm flex flex-col overflow-hidden relative min-h-[300px] lg:min-h-0">
                             <div className="p-1.5 px-4 border-b border-zinc-100 flex items-center justify-between shrink-0 bg-zinc-50/50">
                                 <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-black flex items-center gap-2">
                                     <div className="w-2 h-2 bg-black rounded-full animate-pulse"></div> Kedatangan Booking
@@ -649,7 +649,7 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
                         </div>
 
                 {/* 2. FORM INPUT — REDESIGNED */}
-                <div className={`col-span-1 md:col-span-12 lg:col-span-8 lg:row-span-7 bg-white rounded-2xl border transition-all duration-300 flex flex-col overflow-hidden ${isEditing ? 'border-black ring-4 ring-black/10 shadow-lg' : 'border-zinc-200 shadow-sm'}`}>
+                <div className={`col-span-1 md:col-span-12 lg:col-span-9 lg:row-span-7 bg-white rounded-2xl border transition-all duration-300 flex flex-col overflow-hidden ${isEditing ? 'border-black ring-4 ring-black/10 shadow-lg' : 'border-zinc-200 shadow-sm'}`}>
                     <div className="px-5 py-3 border-b border-zinc-100 flex items-center justify-between shrink-0 bg-white">
                         <div className="flex items-center gap-3">
                             <div className={`p-2 rounded-xl text-white shadow-sm ${isEditing ? 'bg-black' : 'bg-black'}`}>
@@ -1121,10 +1121,15 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
                                                     className="col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 bg-emerald-600 hover:bg-emerald-700">
                                                     {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <CheckCircle size={16} />}
                                                 </button>
+                                            ) : item.status === 'menunggu_cuci' ? (
+                                                <button onClick={() => handleStartCuci && handleStartCuci(item)} disabled={isLoadingProcess}
+                                                    className="col-span-2 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 bg-teal-600 hover:bg-teal-700 font-bold text-xs gap-1.5" title="Mulai Cuci">
+                                                    {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><Droplets size={16} /> Mulai Cuci</>}
+                                                </button>
                                             ) : item.status === 'sedang_dicuci' ? (
-                                                <button onClick={() => handleCompleteCuci(item)} disabled={isLoadingProcess}
-                                                    className="col-span-1 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 bg-cyan-600 hover:bg-cyan-700" title="Selesai Cuci">
-                                                    {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <CheckCircle size={16} />}
+                                                <button onClick={() => handleCompleteCuci && handleCompleteCuci(item)} disabled={isLoadingProcess}
+                                                    className="col-span-2 flex items-center justify-center p-2.5 min-h-[44px] rounded-xl text-white transition-all active:scale-95 bg-cyan-600 hover:bg-cyan-700 font-bold text-xs gap-1.5" title="Selesai Cuci">
+                                                    {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><CheckCircle size={16} /> Selesai Cuci</>}
                                                 </button>
                                             ) : (
                                                 <button onClick={() => handleComplete(item, true)} disabled={isLoadingProcess || (item.status !== 'working' && item.status !== 'waiting' && item.status !== 'menginap' && item.status !== 'istirahat')}
@@ -1323,14 +1328,23 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
                                                             >
                                                                 {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <CheckCircle size={18} />}
                                                             </button>
+                                                        ) : item.status === 'menunggu_cuci' ? (
+                                                            <button 
+                                                                onClick={() => handleStartCuci && handleStartCuci(item)} 
+                                                                disabled={isLoadingProcess}
+                                                                className="px-3 py-2 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1.5" 
+                                                                title="Mulai Cuci"
+                                                            >
+                                                                {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><Droplets size={16} /> Mulai Cuci</>}
+                                                            </button>
                                                         ) : item.status === 'sedang_dicuci' ? (
                                                             <button 
-                                                                onClick={() => handleCompleteCuci(item)} 
+                                                                onClick={() => handleCompleteCuci && handleCompleteCuci(item)} 
                                                                 disabled={isLoadingProcess}
-                                                                className="p-3 min-w-[44px] min-h-[44px] text-white bg-cyan-600 hover:bg-cyan-700 rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center" 
+                                                                className="px-3 py-2 text-xs font-bold text-white bg-cyan-600 hover:bg-cyan-700 rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1.5" 
                                                                 title="Selesai Cuci"
                                                             >
-                                                                {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <CheckCircle size={18} />}
+                                                                {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><CheckCircle size={16} /> Selesai Cuci</>}
                                                             </button>
                                                         ) : (
                                                             <>

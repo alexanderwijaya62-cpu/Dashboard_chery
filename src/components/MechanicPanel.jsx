@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { User, CheckCircle, Calendar, Key, AlertCircle, TrendingUp, CheckCircle2, Eye, EyeOff, Zap, Shield, Clock, Activity, FileText, X, Search } from 'lucide-react';
 import { db } from '../utils/dbClient';
 
-const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = [], queue = [], onStartWork, onComplete, onToggleTask, formatTime, onSetOvernight, onCancelOvernight, onRequestExtension }) => {
+const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = [], queue = [], onStartWork, onComplete, onToggleTask, formatTime, onSetOvernight, onCancelOvernight, onRequestExtension, handleStartCuci, handleCompleteCuci }) => {
     const [history, setHistory] = useState([]);
     const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '', confirmPassword: '' });
     const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });

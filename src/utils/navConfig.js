@@ -55,6 +55,7 @@ export const NAV_CONFIG = {
     { id: 'manager-performance', icon: LayoutDashboard, label: 'Dashboard Utama', page: 'manager', ariaLabel: 'Dashboard Utama' },
     { id: 'manager-financial', icon: DollarSign, label: 'Laporan Revenue', page: 'manager-financial', ariaLabel: 'Laporan Revenue' },
     { id: 'manager-wo', icon: Activity, label: 'Tracking Pengerjaan', page: 'manager-wo', ariaLabel: 'Tracking Pengerjaan' },
+    { id: 'manager-laporan-wo', icon: FileText, label: 'Laporan Work Order', page: 'manager-laporan-wo', ariaLabel: 'Laporan Work Order' },
     { id: 'manager-vehicles', icon: Database, label: 'Database Mobil', page: 'manager-vehicles', ariaLabel: 'Database Mobil' },
     { id: 'manager-cro', icon: History, label: 'Riwayat CRO', page: 'manager-cro', ariaLabel: 'Riwayat CRO' },
     { id: 'manager-holidays', icon: Settings, label: 'Libur Dealer', page: 'manager-holidays', ariaLabel: 'Libur Dealer' },
@@ -81,6 +82,7 @@ export const NAV_CONFIG = {
   owner: [
     { id: 'owner-monitoring', icon: Activity, label: 'Live Monitoring', page: 'owner', ariaLabel: 'Live Monitoring' },
     { id: 'owner-workshop', icon: Car, label: 'Antrian Workshop', page: 'owner-workshop', ariaLabel: 'Antrian Workshop' },
+    { id: 'owner-laporan-wo', icon: FileText, label: 'Laporan Work Order', page: 'owner-laporan-wo', ariaLabel: 'Laporan Work Order' },
     { id: 'owner-dms', icon: Search, label: 'DMS Search', page: 'owner-dms', ariaLabel: 'DMS Search' },
     { id: 'owner-sparepart-cost', icon: DollarSign, label: 'Sparepart Cost', page: 'owner-sparepart-cost', ariaLabel: 'Sparepart Cost' },
     { id: 'owner-warranty', icon: ShieldCheck, label: 'Warranty Search', page: 'owner-warranty', ariaLabel: 'Warranty Search' },

@@ -16,10 +16,22 @@ const httpsAgent = new https.Agent({
 
 function fetchWithHttps(urlStr, options = {}) {
     return new Promise((resolve, reject) => {
-        const u = new urllib.URL(urlStr);
+        if (!urlStr || typeof urlStr !== 'string') {
+            return reject(new Error('Invalid URL: URL string is missing or invalid'));
+        }
+        let fullUrl = urlStr;
+        if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
+            fullUrl = 'https://dms.chery.co.id' + (fullUrl.startsWith('/') ? '' : '/') + fullUrl;
+        }
+        let u;
+        try {
+            u = new urllib.URL(fullUrl);
+        } catch (err) {
+            return reject(new Error(`Invalid URL: ${fullUrl}`));
+        }
         const reqOptions = {
             hostname: u.hostname,
-            port: u.port || 443,
+            port: u.port || (u.protocol === 'http:' ? 80 : 443),
             path: u.pathname + u.search,
             method: options.method || 'GET',
             headers: options.headers || {},
@@ -272,6 +284,8 @@ async function croLogin() {
     return warrantyGenericLogin(true);
 }
 
+const warrantyWoCacheStore = new Map();
+
 async function handleWarranty(req, res) {
     const BASE = process.env.WARRANTY_BASE_URL;
     const draw = req.query.draw || 1;
@@ -282,6 +296,23 @@ async function handleWarranty(req, res) {
     const kategori = req.query.kategori || '';
     const from = req.query.from || '';
     const to = req.query.to || '';
+
+    const cacheKey = `wo_${from}_${to}_${search}_${status}_${kategori}_${start}_${length}`;
+    const cached = warrantyWoCacheStore.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < 30000)) {
+        return res.status(200).json(cached.json);
+    }
+
+    let dmsFrom = from;
+    let dmsTo = to;
+    if (from && from.includes('-')) {
+        const [y, m, d] = from.split('-');
+        dmsFrom = `${d}/${m}/${y}`;
+    }
+    if (to && to.includes('-')) {
+        const [y, m, d] = to.split('-');
+        dmsTo = `${d}/${m}/${y}`;
+    }
 
     const targetUrl = `${BASE}/aftersales/work-order/data?draw=${draw}&start=${start}&length=${length}` +
         `&columns[0][data]=action&columns[0][name]=action&columns[0][searchable]=false&columns[0][orderable]=false&columns[0][search][value]=&columns[0][search][regex]=false` +
@@ -305,7 +336,7 @@ async function handleWarranty(req, res) {
         `&columns[18][data]=last_update&columns[18][name]=last_update&columns[18][searchable]=true&columns[18][orderable]=true&columns[18][search][value]=&columns[18][search][regex]=false` +
         `&order[0][column]=18&order[0][dir]=desc` +
         `&search[value]=${encodeURIComponent(search)}&search[regex]=false` +
-        `&status=${encodeURIComponent(status)}&kategori=${encodeURIComponent(kategori)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&_=${Date.now()}`;
+        `&status=${encodeURIComponent(status)}&kategori=${encodeURIComponent(kategori)}&time=waktu_masuk&from=${encodeURIComponent(from || dmsFrom)}&to=${encodeURIComponent(to || dmsTo)}&from_date=${encodeURIComponent(from || dmsFrom)}&to_date=${encodeURIComponent(to || dmsTo)}&_=${Date.now()}`;
 
     let attempts = 0;
     while (attempts < 2) {
@@ -329,9 +360,11 @@ async function handleWarranty(req, res) {
             continue;
         }
         try {
-            return res.status(200).json(JSON.parse(body));
-        } catch {
-            return res.status(500).json({ error: 'Non-JSON response', snippet: body.slice(0, 200) });
+            const parsed = JSON.parse(body);
+            warrantyWoCacheStore.set(cacheKey, { timestamp: Date.now(), json: parsed });
+            return res.status(200).json(parsed);
+        } catch (e) {
+            return res.status(500).json({ error: 'Failed to parse JSON response from DMS', raw: body.slice(0, 200) });
         }
     }
     return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
@@ -362,16 +395,6 @@ async function handleWarrantyEstimasiDetail(req, res) {
         const isLoginPage = body.includes('/aftersales/login') ||
                             (body.includes('name="username"') && body.includes('name="password"'));
 
-        // Debug: log raw HTML snippet for first call
-        if (id === '79738' || id === '83022' || id === '83342') {
-          const pekSection = body.match(/pekerjaan[\s\S]{0,5000}/i);
-          console.log(`[DEBUG HTML ${id}] pekerjaan section:`, pekSection ? pekSection[0].substring(0, 3000) : 'NOT FOUND');
-          const totalPekInputs = body.match(/detail_pekerjaan\[\d+\]\[total\]/g);
-          console.log(`[DEBUG HTML ${id}] total input matches:`, totalPekInputs ? totalPekInputs.length : 0);
-          const totalPekTds = body.match(/class="totalPekerjaan"/gi);
-          console.log(`[DEBUG HTML ${id}] totalPekerjaan td count:`, totalPekTds ? totalPekTds.length : 0);
-        }
-
         if (response.status === 302 || response.status === 401 || !isHtml || isLoginPage) {
             warrantyCookie = null;
             attempts++;
@@ -379,188 +402,191 @@ async function handleWarrantyEstimasiDetail(req, res) {
         }
 
         try {
-            const parts = [];
-            const tbodyMatch = body.match(/<tbody[^>]*id="tbody_part"[\s\S]*?<\/tbody>/i);
-            if (tbodyMatch) {
-                const tbodyHtml = tbodyMatch[0];
-                const trRegex = /<tr[^>]*class="partRow"[^>]*>[\s\S]*?<\/tr>/gi;
-                let trMatch;
-                while ((trMatch = trRegex.exec(tbodyHtml)) !== null) {
-                    const trHtml = trMatch[0];
-
-                    const kodeMatch = trHtml.match(/name="detail_part\[\d+\]\[kode_part\]"[^>]*value="([^"]+)"/i);
-                    const kode_part = kodeMatch ? kodeMatch[1].trim() : '';
-
-                    const namaMatch = trHtml.match(/name="detail_part\[\d+\]\[nama_part\]"[^>]*value="([^"]+)"/i);
-                    const nama_part = namaMatch ? namaMatch[1].trim() : '';
-
-                    const qtyMatch = trHtml.match(/name="detail_part\[\d+\]\[jumlah\]"[^>]*value="([^"]+)"/i) ||
-                                     trHtml.match(/<td[^>]*class="[^"]*jumlahPart[^"]*"[^>]*>\s*(\d+)\s*<\/td>/i);
-                    const jumlah = qtyMatch ? parseInt(qtyMatch[1], 10) || 1 : 1;
-
-                    const badgeMatch = trHtml.match(/<span[^>]*class="[^"]*kt-badge[^"]*"[^>]*>\s*([^<]+)\s*<\/span>/i);
-                    const status_permintaan = badgeMatch ? badgeMatch[1].trim() : 'Aktif';
-
-                    parts.push({
-                        kode_part,
-                        nama_part,
-                        jumlah,
-                        status_permintaan,
-                        status: status_permintaan
-                    });
-                }
-            }
-
-            // Scrape pekerjaan details from detail_pekerjaan[N] inputs (form edit mode)
+            // 1. Scrape Pekerjaan (LC) Rows
             const pekerjaan = [];
-            const inputRegex = /<input[^>]*name="detail_pekerjaan\[(\d+)\]\[(nama_pekerjaan|total)\]"[^>]*>/gi;
-            const inputs = {};
-            let inputMatch;
-            while ((inputMatch = inputRegex.exec(body)) !== null) {
-                const idx = inputMatch[1];
-                const field = inputMatch[2];
-                const fullTag = inputMatch[0];
-                const valMatch = fullTag.match(/value="([^"]*)"/);
-                const val = valMatch ? valMatch[1] : '';
-                if (!inputs[idx]) inputs[idx] = {};
-                inputs[idx][field] = val;
-            }
-            for (const idx of Object.keys(inputs)) {
-                const nama = (inputs[idx].nama_pekerjaan || '').trim();
-                const total = parseInt(inputs[idx].total, 10) || 0;
-                if (total > 0) {
-                    pekerjaan.push({ nama_pekerjaan: nama, total });
+            const tbodyLcMatch = body.match(/<tbody[^>]*id="tbody_lc"[\s\S]*?<\/tbody>/i);
+            const lcHtml = tbodyLcMatch ? tbodyLcMatch[0] : body;
+            const lcRowRegex = /<tr[^>]*class="lcRow"[^>]*>[\s\S]*?<\/tr>/gi;
+            let lcMatch;
+            while ((lcMatch = lcRowRegex.exec(lcHtml)) !== null) {
+                const tr = lcMatch[0];
+                const getVal = (field) => {
+                    const r1 = new RegExp(`name="detail_pekerjaan\\[\\d+\\]\\[${field}\\]"[^>]*value="([^"]*)"`, 'i');
+                    const r2 = new RegExp(`value="([^"]*)"[^>]*name="detail_pekerjaan\\[\\d+\\]\\[${field}\\]"`, 'i');
+                    const r3 = new RegExp(`id="${field}_pekerjaan\\d+"[^>]*value="([^"]*)"`, 'i');
+                    const r4 = new RegExp(`value="([^"]*)"[^>]*id="${field}_pekerjaan\\d+"`, 'i');
+                    const m = tr.match(r1) || tr.match(r2) || tr.match(r3) || tr.match(r4);
+                    return m ? m[1].trim() : '';
+                };
+
+                const getTdVal = (className) => {
+                    const match = tr.match(new RegExp(`<td[^>]*class="[^"]*${className}[^"]*"[^>]*>([\\s\\S]*?)<\\/td>`, 'i'));
+                    if (!match) return '';
+                    return match[1].replace(/<[^>]*>/g, '').trim();
+                };
+
+                const kode_pekerjaan = getVal('kode_pekerjaan') || getTdVal('kodePekerjaan');
+                const nama_pekerjaan = getVal('nama_pekerjaan') || getTdVal('namaPekerjaan');
+
+                let sub_total = parseFloat(getVal('sub_total')) || 0;
+                if (!sub_total) {
+                    sub_total = parseFloat(getTdVal('subTotalPekerjaan').replace(/[^0-9]/g, '')) || 0;
+                }
+
+                let diskon_persen = parseFloat(getVal('diskon_persen')) || 0;
+                if (!diskon_persen) {
+                    diskon_persen = parseFloat(getTdVal('diskonPersenPekerjaan').replace(/[^0-9.]/g, '')) || 0;
+                }
+
+                let diskon_nominal = parseFloat(getVal('diskon_nominal')) || 0;
+                if (!diskon_nominal) {
+                    diskon_nominal = parseFloat(getTdVal('diskonNominalPekerjaan').replace(/[^0-9]/g, '')) || 0;
+                }
+
+                let total = parseFloat(getVal('total')) || 0;
+                if (!total) {
+                    total = parseFloat(getTdVal('totalPekerjaan').replace(/[^0-9]/g, '')) || (sub_total - diskon_nominal);
+                }
+
+                if (nama_pekerjaan || kode_pekerjaan || total > 0) {
+                    pekerjaan.push({ kode_pekerjaan, nama_pekerjaan, sub_total, diskon_persen, diskon_nominal, total });
                 }
             }
 
-            // Fallback: scrape from table rows containing disetujuiPekerjaan (read-only view)
-            if (pekerjaan.length === 0) {
-                const rowRegex = /<tr[^>]*>[\s\S]*?disetujuiPekerjaan[\s\S]*?<\/tr>/gi;
-                let trMatch;
-                while ((trMatch = rowRegex.exec(body)) !== null) {
-                    const trHtml = trMatch[0];
-                    const cells = trHtml.match(/<td[^>]*>(?:[\s\S]*?)<\/td>/gi);
-                    if (cells && cells.length >= 7) {
-                        const namaPekerjaan = (cells[2] || '').replace(/<[^>]*>/g, '').trim();
-                        const totalCell = (cells[6] || '').replace(/<[^>]*>/g, '').trim();
-                        const total = parseInt(totalCell.replace(/\./g, ''), 10) || 0;
-                        if (total > 0) {
-                            pekerjaan.push({ nama_pekerjaan: namaPekerjaan, total });
-                        }
+            // 2. Scrape Spare Part Rows
+            const parts = [];
+            const tbodyPartMatch = body.match(/<tbody[^>]*id="tbody_part"[\s\S]*?<\/tbody>/i);
+            const partHtml = tbodyPartMatch ? tbodyPartMatch[0] : body;
+            const partRowRegex = /<tr[^>]*class="partRow"[^>]*>[\s\S]*?<\/tr>/gi;
+            let prMatch;
+            while ((prMatch = partRowRegex.exec(partHtml)) !== null) {
+                const tr = prMatch[0];
+                const getVal = (field) => {
+                    const r1 = new RegExp(`name="detail_part\\[\\d+\\]\\[${field}\\]"[^>]*value="([^"]*)"`, 'i');
+                    const r2 = new RegExp(`value="([^"]*)"[^>]*name="detail_part\\[\\d+\\]\\[${field}\\]"`, 'i');
+                    const r3 = new RegExp(`id="${field}_part\\d+"[^>]*value="([^"]*)"`, 'i');
+                    const r4 = new RegExp(`value="([^"]*)"[^>]*id="${field}_part\\d+"`, 'i');
+                    const m = tr.match(r1) || tr.match(r2) || tr.match(r3) || tr.match(r4);
+                    return m ? m[1].trim() : '';
+                };
+
+                const getTdVal = (className) => {
+                    const match = tr.match(new RegExp(`<td[^>]*class="[^"]*${className}[^"]*"[^>]*>([\\s\\S]*?)<\\/td>`, 'i'));
+                    if (!match) return '';
+                    return match[1].replace(/<[^>]*>/g, '').trim();
+                };
+
+                const kode_part = getVal('kode_part') || getTdVal('kodePart');
+                const nama_part = getVal('nama_part') || getTdVal('namaPart');
+                const no_transaksi = getVal('no_transaksi') || getTdVal('noTransaksiPart');
+
+                let harga_jual = parseFloat(getVal('harga_jual')) || 0;
+                if (!harga_jual) {
+                    const tdHarga = getTdVal('hargaJualPart');
+                    harga_jual = parseFloat(tdHarga.replace(/[^0-9]/g, '')) || 0;
+                }
+
+                let jumlah = parseInt(getVal('jumlah'), 10) || 0;
+                if (!jumlah) {
+                    const tdJumlah = getTdVal('jumlahPart');
+                    jumlah = parseInt(tdJumlah.replace(/[^0-9]/g, ''), 10) || 1;
+                }
+
+                let sub_total = parseFloat(getVal('sub_total')) || 0;
+                if (!sub_total) {
+                    const tdSub = getTdVal('subTotalPart');
+                    sub_total = parseFloat(tdSub.replace(/[^0-9]/g, '')) || (harga_jual * jumlah);
+                }
+
+                let diskon_persen = parseFloat(getVal('diskon_persen')) || 0;
+                if (!diskon_persen) {
+                    const tdDiscP = getTdVal('diskonPersenPart');
+                    diskon_persen = parseFloat(tdDiscP.replace(/[^0-9.]/g, '')) || 0;
+                }
+
+                let diskon_nominal = parseFloat(getVal('diskon_nominal')) || 0;
+                if (!diskon_nominal) {
+                    const tdDiscN = getTdVal('diskonNominalPart');
+                    diskon_nominal = parseFloat(tdDiscN.replace(/[^0-9]/g, '')) || 0;
+                }
+
+                let total = parseFloat(getVal('total')) || 0;
+                if (!total) {
+                    const tdTotal = getTdVal('totalPart');
+                    total = parseFloat(tdTotal.replace(/[^0-9]/g, '')) || (sub_total - diskon_nominal);
+                }
+
+                const badgeMatch = tr.match(/<span[^>]*class="[^"]*kt-badge[^"]*"[^>]*>\s*([^<]+)\s*<\/span>/i);
+                const status_permintaan = badgeMatch ? badgeMatch[1].trim() : 'Dipenuhi';
+
+                if (nama_part || kode_part) {
+                    parts.push({ kode_part, nama_part, no_transaksi, harga_jual, jumlah, sub_total, diskon_persen, diskon_nominal, total, status_permintaan, status: status_permintaan });
+                }
+            }
+
+            // 3. Summaries
+            const parseVal = (idOrName) => {
+                const match = body.match(new RegExp(`id="${idOrName}"[^>]*>\\s*Rp\\.?\\s*([0-9.,]+)`, 'i')) ||
+                              body.match(new RegExp(`name="${idOrName}"[^>]*value="([^"]*)"`, 'i')) ||
+                              body.match(new RegExp(`value="([^"]*)"[^>]*name="${idOrName}"`, 'i'));
+                if (!match) return null;
+                const clean = match[1].replace(/\./g, '').replace(/,/g, '.');
+                return parseFloat(clean) || 0;
+            };
+
+            const pekSubtotal = parseVal('sub_total_pekerjaan_view') ?? parseVal('sum_sub_total_pekerjaan') ?? pekerjaan.reduce((s, p) => s + (p.sub_total || p.total || 0), 0);
+            const pekDiskon = parseVal('diskon_pekerjaan_view') ?? parseVal('sum_diskon_pekerjaan') ?? pekerjaan.reduce((s, p) => s + (p.diskon_nominal || 0), 0);
+            const pekTotal = parseVal('total_pekerjaan_view') ?? parseVal('sum_total_pekerjaan') ?? (pekSubtotal - pekDiskon);
+
+            let partSubtotal = parseVal('sub_total_part_view') ?? parseVal('sum_sub_total_part') ?? parts.reduce((s, p) => s + (p.sub_total || p.total || 0), 0);
+            const rawGrandSub = parseVal('sub_total_view') ?? parseVal('sum_sub_total') ?? 0;
+            if (partSubtotal === 0 && rawGrandSub > pekSubtotal) {
+                partSubtotal = rawGrandSub - pekSubtotal;
+            }
+
+            // Distribute partSubtotal to individual parts if part.sub_total is 0
+            if (partSubtotal > 0 && parts.length > 0) {
+                const partsWithZeroSub = parts.filter(p => !p.sub_total && !p.harga_jual);
+                if (partsWithZeroSub.length > 0) {
+                    const totalQtyZero = partsWithZeroSub.reduce((s, p) => s + (p.jumlah || 1), 0);
+                    const zeroSubTotalSum = partSubtotal - parts.filter(p => p.sub_total > 0).reduce((s, p) => s + (p.sub_total || 0), 0);
+
+                    if (zeroSubTotalSum > 0 && totalQtyZero > 0) {
+                        partsWithZeroSub.forEach(p => {
+                            const ratio = (p.jumlah || 1) / totalQtyZero;
+                            p.sub_total = Math.round(zeroSubTotalSum * ratio);
+                            p.harga_jual = Math.round(p.sub_total / (p.jumlah || 1));
+                            p.total = p.sub_total - (p.diskon_nominal || 0);
+                        });
                     }
                 }
             }
 
-            // Fallback: scrape from table with header containing "Nama Pekerjaan" + "Total"
-            if (pekerjaan.length === 0) {
-                const tableHtml = (body.match(/<table[\s\S]{0,200}?Nama Pekerjaan[\s\S]{0,200}?Total[\s\S]*?<\/table>/i) || [])[0];
-                if (tableHtml) {
-                    const rowRegex = /<tr[^>]*>[\s\S]*?<td[^>]*>(?:[\s\S]*?)<\/td>[\s\S]*?<td[^>]*>(?:[\s\S]*?)<\/td>/gi;
-                    let rMatch;
-                    while ((rMatch = rowRegex.exec(tableHtml)) !== null) {
-                        const rowHtml = rMatch[0];
-                        if (rowHtml.includes('<th')) continue;
-                        const cells = rowHtml.match(/<td[^>]*>(?:[\s\S]*?)<\/td>/gi);
-                        if (cells && cells.length >= 7) {
-                            const namaPekerjaan = (cells[2] || '').replace(/<[^>]*>/g, '').trim();
-                            const totalCell = (cells[6] || '').replace(/<[^>]*>/g, '').trim();
-                            const total = parseInt(totalCell.replace(/\./g, ''), 10) || 0;
-                            if (total > 0) {
-                                pekerjaan.push({ nama_pekerjaan: namaPekerjaan, total });
-                            }
-                        }
-                    }
-                }
-            }
+            const partDiskon = parseVal('diskon_part_view') ?? parseVal('sum_diskon_part') ?? parts.reduce((s, p) => s + (p.diskon_nominal || 0), 0);
+            const partDpp = partSubtotal - partDiskon;
+            const partPpn = Math.round(partDpp * 0.11);
+            const partTotal = partDpp + partPpn;
 
-            // Fallback: scrape "DPP" + Rupiah (tax base = total before PPN)
-            if (pekerjaan.length === 0) {
-                const dppMatch = body.match(/DPP[\s\S]{0,50}?Rp\.?\s*([0-9.]+)/i);
-                if (dppMatch) {
-                    const dppValue = parseInt(dppMatch[1].replace(/\./g, ''), 10) || 0;
-                    if (dppValue > 0) {
-                        pekerjaan.push({ nama_pekerjaan: '', total: dppValue });
-                    }
-                }
-            }
+            const grandSubtotal = pekSubtotal + partSubtotal;
+            const grandDiskon = pekDiskon + partDiskon;
+            const grandDpp = grandSubtotal - grandDiskon;
+            const grandPpn = Math.round(grandDpp * 0.11);
+            const grandTotal = grandDpp + grandPpn;
 
-            // Fallback: scrape first "Total" + Rupiah before "PPN"
-            if (pekerjaan.length === 0) {
-                const beforePpn = body.split(/PPN/i)[0] || body;
-                const totalMatch = beforePpn.match(/Total[\s\S]{0,50}?Rp\.?\s*([0-9.]+)/i);
-                if (totalMatch) {
-                    const totalValue = parseInt(totalMatch[1].replace(/\./g, ''), 10) || 0;
-                    if (totalValue > 0) {
-                        pekerjaan.push({ nama_pekerjaan: '', total: totalValue });
-                    }
-                }
-            }
-
-            // Fallback: scrape <td class="totalPekerjaan"> display values (read-only rows)
-            if (pekerjaan.length === 0) {
-                const totalTdRegex = /<td[^>]*class="[^"]*totalPekerjaan[^"]*"[^>]*>\s*([0-9.]+)\s*<\/td>/gi;
-                let tdMatch;
-                while ((tdMatch = totalTdRegex.exec(body)) !== null) {
-                    const total = parseInt(tdMatch[1].replace(/\./g, ''), 10) || 0;
-                    if (total > 0) {
-                        pekerjaan.push({ nama_pekerjaan: '', total });
-                    }
-                }
-            }
-
-            let totalPekerjaan = pekerjaan.reduce((s, p) => s + p.total, 0);
-
-            // --- GRAND TOTAL APPROACH (most reliable) ---
-            // Find the last "Total" (not Subtotal) rupiah value = grand total including PPN.
-            // DPP = grandTotal / 1.11 (since Total = DPP + PPN = DPP * 1.11)
-            const totalRupiahRegex = /(?:^|[\s>]|\/)Total[\s<][\s\S]{0,200}?Rp\.?\s*([0-9.]+)/gi;
-            let trMatch, lastTotal = 0;
-            while ((trMatch = totalRupiahRegex.exec(body)) !== null) {
-                const val = parseInt(trMatch[1].replace(/\./g, ''), 10) || 0;
-                if (val > 0) lastTotal = val;
-            }
-            if (lastTotal > 0) {
-                const grandDpp = Math.round(lastTotal / 1.11);
-                if (grandDpp > totalPekerjaan) {
-                    console.log(`[DEBUG FEE ${id}] grandTotal: ${lastTotal} → derived DPP: ${grandDpp} (was: ${totalPekerjaan})`);
-                    totalPekerjaan = grandDpp;
-                }
-            }
-
-            // --- FALLBACK 1: sum pekerjaan + sparepart input totals ---
-            if (totalPekerjaan === 0 || totalPekerjaan === pekerjaan.reduce((s, p) => s + p.total, 0)) {
-                const sparePartTotalRegex = /name="detail_part\[\d+\]\[total\]"[^>]*value="([^"]+)"/gi;
-                let spMatch;
-                let sparePartTotal = 0;
-                while ((spMatch = sparePartTotalRegex.exec(body)) !== null) {
-                    const val = parseInt(spMatch[1].replace(/\./g, ''), 10) || 0;
-                    sparePartTotal += val;
-                }
-                const approxPekerjaan = pekerjaan.reduce((s, p) => s + p.total, 0);
-                const combined = approxPekerjaan + sparePartTotal;
-                if (combined > totalPekerjaan) {
-                    console.log(`[DEBUG FEE ${id}] combined (pek:${approxPekerjaan} + sp:${sparePartTotal}) = ${combined}`);
-                    totalPekerjaan = combined;
-                }
-            }
-
-            // --- FALLBACK 2: max DPP from HTML ---
-            const dppRegex = /DPP[\s\S]{0,100}?Rp\.?\s*([0-9.]+)/gi;
-            let dppMatch, maxDpp = 0;
-            while ((dppMatch = dppRegex.exec(body)) !== null) {
-                const val = parseInt(dppMatch[1].replace(/\./g, ''), 10) || 0;
-                if (val > maxDpp) maxDpp = val;
-            }
-            if (maxDpp > totalPekerjaan) {
-                console.log(`[DEBUG FEE ${id}] max DPP: ${maxDpp} overrides ${totalPekerjaan}`);
-                totalPekerjaan = maxDpp;
-            }
-
+            const totalPekerjaan = pekTotal;
             const perintah = pekerjaan.map(p => p.nama_pekerjaan).filter(Boolean).join(', ');
 
-            return res.status(200).json({ parts, pekerjaan, totalPekerjaan, perintah });
+            return res.status(200).json({
+                parts,
+                pekerjaan,
+                totalPekerjaan,
+                perintah,
+                pekerjaanSummary: { sub_total: pekSubtotal, diskon: pekDiskon, total: pekTotal },
+                partsSummary: { sub_total: partSubtotal, diskon: partDiskon, dpp: partDpp, ppn: partPpn, total: partTotal },
+                grandSummary: { sub_total: grandSubtotal, diskon: grandDiskon, dpp: grandDpp, ppn: grandPpn, total: grandTotal }
+            });
         } catch (err) {
-            return res.status(500).json({ error: 'Failed to parse parts from HTML', message: err.message });
+            return res.status(500).json({ error: 'Failed to parse estimasi details from HTML', message: err.message });
         }
     }
     return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
@@ -1391,7 +1417,7 @@ export default async function handler(req, res) {
                 const id = req.query.id || '';
                 targetUrl = `https://dms.chery.co.id/afterSales/api/v1/repairContracts/${id}`;
             } else if (endpoint === 'part_orders_search') {
-                const q = (req.query.q || '').toLowerCase();
+                const q = (req.query.q || '').trim().toLowerCase();
                 const opts = {
                     method: 'GET',
                     headers: {
@@ -1406,27 +1432,89 @@ export default async function handler(req, res) {
                     }
                 };
                 const DMS_BASE = 'https://dms.chery.co.id/parts/api/v1/partSaleOrders';
-                const countResp = await fetchWithHttps(`${DMS_BASE}/forCurrentUser?pageIndex=0&pageSize=1&isBuyer=true`, opts);
-                const countResult = await countResp.json();
-                const totalElements = (countResult?.payload || countResult)?.totalElements || 0;
-                const size = Math.min(Math.max(totalElements, 1), 500);
 
-                const listResp = await fetchWithHttps(`${DMS_BASE}/forCurrentUser?pageIndex=0&pageSize=${size}&isBuyer=true`, opts);
-                const listResult = await listResp.json();
-                const orders = (listResult?.payload || listResult)?.content || [];
+                let directSearchOrders = [];
+                if (q) {
+                    const queryParams = [`code=${encodeURIComponent(q)}`, `orderCode=${encodeURIComponent(q)}`, `partSaleOrderCode=${encodeURIComponent(q)}`, `chassisNo=${encodeURIComponent(q)}`, `vin=${encodeURIComponent(q)}`];
+                    for (const param of queryParams) {
+                        try {
+                            const sResp = await fetchWithHttps(`${DMS_BASE}/forCurrentUser?pageIndex=0&pageSize=50&isBuyer=true&${param}`, opts);
+                            if (sResp.status === 401 || sResp.status === 403) {
+                                cachedCookie = null;
+                                attempts++;
+                                break;
+                            }
+                            const sRes = await sResp.json();
+                            const sContent = (sRes?.payload || sRes)?.content || [];
+                            if (Array.isArray(sContent) && sContent.length > 0) {
+                                directSearchOrders.push(...sContent);
+                            }
+                        } catch (e) {}
+                    }
+                    if (cachedCookie === null && attempts < 2) continue;
+                }
+
+                const countResp = await fetchWithHttps(`${DMS_BASE}/forCurrentUser?pageIndex=0&pageSize=50&isBuyer=true`, opts);
+                if (countResp.status === 401 || countResp.status === 403) {
+                    cachedCookie = null;
+                    attempts++;
+                    continue;
+                }
+                const countResult = await countResp.json();
+                const payload = countResult?.payload || countResult || {};
+                const totalPages = payload.totalPages || 1;
+                let orders = Array.isArray(payload.content) ? [...payload.content] : [];
+
+                directSearchOrders.forEach(ds => {
+                    if (!orders.some(o => o && o.id === ds.id)) {
+                        orders.push(ds);
+                    }
+                });
+
+                if (totalPages > 1) {
+                    const MAX_PAGES = Math.min(totalPages, 20);
+                    for (let p = 1; p < MAX_PAGES; p += 5) {
+                        const pageBatch = [];
+                        for (let j = p; j < Math.min(p + 5, MAX_PAGES); j++) {
+                            pageBatch.push(j);
+                        }
+                        const pageResults = await Promise.allSettled(
+                            pageBatch.map(pg =>
+                                fetchWithHttps(`${DMS_BASE}/forCurrentUser?pageIndex=${pg}&pageSize=50&isBuyer=true`, opts)
+                                    .then(r => r.json())
+                            )
+                        );
+                        pageResults.forEach(r => {
+                            if (r.status === 'fulfilled') {
+                                const pContent = (r.value?.payload || r.value)?.content || [];
+                                if (Array.isArray(pContent)) {
+                                    pContent.forEach(item => {
+                                        if (item && !orders.some(o => o && o.id === item.id)) {
+                                            orders.push(item);
+                                        }
+                                    });
+                                }
+                            }
+                        });
+                    }
+                }
 
                 const matchedIds = new Set();
                 const unmatched = [];
 
                 orders.forEach(o => {
-                    const orderStr = Object.values(o).filter(v => typeof v === 'string').join(' ');
-                    if (orderStr.toLowerCase().includes(q)) { matchedIds.add(o.id); return; }
-                    unmatched.push(o);
+                    if (!o) return;
+                    const orderStr = Object.values(o).filter(v => typeof v === 'string' || typeof v === 'number').join(' ');
+                    if (!q || orderStr.toLowerCase().includes(q)) {
+                        matchedIds.add(o.id);
+                    } else {
+                        unmatched.push(o);
+                    }
                 });
 
-                if (unmatched.length > 0) {
-                    const BATCH_SIZE = 20;
-                    const MAX_DETAIL_FETCHES = 200;
+                if (q && unmatched.length > 0) {
+                    const BATCH_SIZE = 15;
+                    const MAX_DETAIL_FETCHES = 100;
                     const toFetch = unmatched.slice(0, MAX_DETAIL_FETCHES);
                     for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
                         const batch = toFetch.slice(i, i + BATCH_SIZE);
@@ -1439,19 +1527,16 @@ export default async function handler(req, res) {
                             if (r.status === 'fulfilled') {
                                 const d = r.value?.payload || r.value;
                                 if (!d || !d.id) return;
-                                const dStr = Object.values(d).filter(v => typeof v === 'string').join(' ');
-                                if (dStr.toLowerCase().includes(q)) { matchedIds.add(d.id); return; }
-                                const details = d.details || [];
-                                if (details.some(item => {
-                                    const iStr = Object.values(item).filter(v => typeof v === 'string').join(' ');
-                                    return iStr.toLowerCase().includes(q);
-                                })) { matchedIds.add(d.id); }
+                                const dStr = JSON.stringify(d).toLowerCase();
+                                if (dStr.includes(q)) {
+                                    matchedIds.add(d.id);
+                                }
                             }
                         });
                     }
                 }
 
-                const matchedOrders = orders.filter(o => matchedIds.has(o.id));
+                const matchedOrders = orders.filter(o => o && matchedIds.has(o.id));
                 const withDetails = await Promise.all(matchedOrders.map(async (o) => {
                     try {
                         const dr = await fetchWithHttps(`${DMS_BASE}/${o.id}`, opts);
@@ -1459,6 +1544,7 @@ export default async function handler(req, res) {
                         return { ...o, _detail: dj?.payload || dj };
                     } catch { return o; }
                 }));
+
                 data = { payload: { content: withDetails, totalPages: 1, totalElements: withDetails.length } };
             } else if (endpoint === 'dms-part-stocks') {
                 targetUrl = `https://dms.chery.co.id/dms/parts/api/v1/partStocks/forRetail?pageIndex=${pageIndex}&pageSize=${pageSize}`;

@@ -1012,14 +1012,11 @@ const App = () => {
         return;
       }
 
-      const nowObj = new Date();
-      // Ensure we use Jakarta Time (WIB - GMT+7)
-      const utc = nowObj.getTime() + (nowObj.getTimezoneOffset() * 60000);
-      const jakartaTime = new Date(utc + (3600000 * 7));
-
-      const currentHour = jakartaTime.getHours();
-      const currentMinute = jakartaTime.getMinutes();
-      const day = jakartaTime.getDay();
+      // Ensure we use exact Jakarta Time (WIB - Asia/Jakarta)
+      const jakartaDate = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+      const currentHour = jakartaDate.getHours();
+      const currentMinute = jakartaDate.getMinutes();
+      const day = jakartaDate.getDay();
 
       let targetStatus = null;
 
@@ -2489,6 +2486,8 @@ const App = () => {
           onSetOvernight={handleSetOvernight}
           onCancelOvernight={handleCancelOvernight}
           onRequestExtension={handleRequestExtension}
+          handleStartCuci={handleStartCuci}
+          handleCompleteCuci={handleCompleteCuci}
         />
       )}
       {currentPage === 'foreman' && (
@@ -2503,6 +2502,8 @@ const App = () => {
           onRequestExtension={handleRequestExtension}
           onForemanAddTime={handleForemanAddTime}
           isLoadingProcess={isLoadingProcess}
+          handleStartCuci={handleStartCuci}
+          handleCompleteCuci={handleCompleteCuci}
         />
       )}
       {currentPage === 'sparepart-profit' && <SparepartPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} isNavbarVisible={true} setCurrentPage={navigate} activeTab="profit" />}
@@ -2550,6 +2551,7 @@ const App = () => {
       {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="performance" />}
       {currentPage === 'manager-financial' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="financial" />}
       {currentPage === 'manager-wo' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="wo_tracking" />}
+      {currentPage === 'manager-laporan-wo' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="laporan_wo" />}
       {currentPage === 'manager-vehicles' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="vehicles" />}
       {currentPage === 'manager-cro' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="cro_history" />}
       {currentPage === 'manager-holidays' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="holidays" />}
@@ -2559,6 +2561,9 @@ const App = () => {
       )}
       {currentPage === 'owner-workshop' && user?.role === 'owner' && (
         <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="workshop" />
+      )}
+      {currentPage === 'owner-laporan-wo' && user?.role === 'owner' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="laporan_wo" />
       )}
       {currentPage === 'owner-dms' && user?.role === 'owner' && (
         <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="dms_search" />

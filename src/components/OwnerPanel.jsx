@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import ChangePasswordModal from './ChangePasswordModal';
+import WorkOrderReportPage from './WorkOrderReportPage';
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
 import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL } from '../utils/config';
@@ -1656,6 +1657,7 @@ export default function OwnerPanel({
                   activeTab === 'warranty_search' ? '🛡️ Warranty Claim Search' :
                   activeTab === 'part_orders' ? '📦 Tracking Pemesanan Part' :
                   activeTab === 'unit_entry' ? '📊 Unit Entry Statistics' :
+                  activeTab === 'laporan_wo' ? '📄 Laporan Work Order' :
                   '🗑️ Riwayat Penghapusan Data'}
               </h2>
               <p className="text-zinc-500 text-xs font-medium">
@@ -1677,7 +1679,9 @@ export default function OwnerPanel({
                               ? 'Status Pesanan & Pengiriman SAP Split'
                               : activeTab === 'unit_entry'
                                 ? 'Analisis Trend Unit Entry Bulanan & Deduplikasi VIN'
-                                : `${deletedBookings.length} data yang terhapus`}
+                                : activeTab === 'laporan_wo'
+                                  ? 'Rincian transaksi pekerjaan & spare part Work Order'
+                                  : `${deletedBookings.length} data yang terhapus`}
               </p>
             </div>
           </div>
@@ -1723,6 +1727,12 @@ export default function OwnerPanel({
                   <p className="text-zinc-500 text-xs font-medium mt-1">{s.label}</p>
                 </div>
               ))}
+            </div>
+          )}
+
+          {activeTab === 'laporan_wo' && (
+            <div className="h-[calc(100vh-200px)]">
+              <WorkOrderReportPage />
             </div>
           )}
 

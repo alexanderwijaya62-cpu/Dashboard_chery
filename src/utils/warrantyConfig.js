@@ -40,6 +40,11 @@ export function formatKm(val) {
   return Number(val).toLocaleString('id-ID') + ' km';
 }
 
+export function formatRp(val) {
+  if (val === null || val === undefined || isNaN(val)) return 'Rp. 0';
+  return 'Rp. ' + Math.round(Number(val)).toLocaleString('id-ID');
+}
+
 export async function fetchWarrantyAPI(params) {
   // Redirect warranty calls to chery_dms endpoint (merged to stay within Vercel function limit)
   const newParams = new URLSearchParams(params.toString());
