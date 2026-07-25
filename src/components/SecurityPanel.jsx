@@ -226,9 +226,15 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
     });
   };
 
-  const getRegulerStartNumber = async () => {
-    const { data } = await db.select('settings', { eq: { key: 'reguler_start_number' }, maybeSingle: true });
-    return data?.value ? parseInt(data.value) : 6;
+  const getQueueStartNumbers = async () => {
+    const [{ data: bookingSetting }, { data: regulerSetting }] = await Promise.all([
+      db.select('settings', { eq: { key: 'booking_start_number' }, maybeSingle: true }),
+      db.select('settings', { eq: { key: 'reguler_start_number' }, maybeSingle: true })
+    ]);
+    return {
+      bookingStart: bookingSetting?.value ? parseInt(bookingSetting.value) : 1,
+      regulerStart: regulerSetting?.value ? parseInt(regulerSetting.value) : 1
+    };
   };
 
   const generateQueueNumber = async (category) => {
@@ -258,22 +264,10 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
 
     let num = Math.max(maxActiveNum + 1, activeCount + historyCount + 1);
 
-    // Reguler starts from configured start number, after Booking numbers
-    if (category === 'Reguler') {
-      const { data: bookingActive } = await db.select('antrian', {
-        select: 'queue_number',
-        eq: { category: 'Booking' },
-        gte: { id: startOfTodayMs }
-      });
-      let maxBooking = 0;
-      if (bookingActive && bookingActive.length > 0) {
-        maxBooking = Math.max(...bookingActive.map(item => item.queue_number || 0));
-      }
-      const regulerStart = await getRegulerStartNumber();
-      num = Math.max(num, maxBooking + 1, regulerStart);
-    }
+    const { bookingStart, regulerStart } = await getQueueStartNumbers();
+    const configuredStart = category === 'Booking' ? bookingStart : regulerStart;
 
-    return num;
+    return Math.max(num, configuredStart);
   };
 
   const formatQueueCode = (category, num) => {

@@ -561,33 +561,6 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
          return i;
       });
 
-      const isBookingLate = (jamStr) => {
-         if (!jamStr) return false;
-         try {
-            const clean = String(jamStr).replace('.', ':');
-            const [h, m] = clean.split(':').map(Number);
-            if (isNaN(h) || isNaN(m)) return false;
-            const now = new Date();
-            const bTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
-            return now > bTime;
-         } catch { return false; }
-      };
-
-      const todayBookingsRaw = bookings.filter(b => {
-         if (!b.tanggal || !isSameDate(b.tanggal, todayStr)) return false;
-         if (['synced', 'no_show', 'cancelled', 'declined', 'deleted'].includes(b.status)) return false;
-         if (queueToUse.some(pq => pq.bk === b.bk)) return false;
-         // Jika belum datang dan jam booking sudah lewat (telat), langsung hilangkan dari list display
-         if (isBookingLate(b.jam)) return false;
-         return true;
-      });
-
-      const todayBookings = [];
-
-      todayBookingsRaw.forEach(b => {
-         todayBookings.push({ ...b, category: 'Booking' });
-      });
-
       const occupiedCount = bookings.filter(b => isSameDate(b.tanggal, todayStr) && (b.status === 'accepted' || b.status === 'waiting confirm' || b.status === 'completed')).length;
       const remainingSlots = Math.max(0, (dynamicJamPilihan.length * slotCapacityDisplay) - occupiedCount);
 
@@ -605,11 +578,7 @@ const DisplayBoard = ({ processedQueue, formatTime, user, onStartWork, onComplet
 
       const arrivedMenginap = queueToUse.filter(i => (i.status || '').toLowerCase() === 'menginap');
 
-      const mergedBooking = [...arrivedBooking, ...todayBookings].sort((a, b) => {
-         if (a.status === 'working' && b.status !== 'working') return -1;
-         if (a.status !== 'working' && b.status === 'working') return 1;
-         return String(a.jam || '').localeCompare(String(b.jam || ''));
-      });
+      const mergedBooking = sortQueue([...arrivedBooking]);
 
       // 0. Ambil semua BK yang sudah SELESAI hari ini (dari history)
       const finishedPlates = new Set(

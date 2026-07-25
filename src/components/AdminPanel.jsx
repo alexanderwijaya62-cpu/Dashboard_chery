@@ -34,20 +34,30 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
     const [adminCounter, setAdminCounter] = useState(() => {
         return parseInt(localStorage.getItem('chery_admin_counter')) || 0;
     });
-    const [regulerStartNum, setRegulerStartNum] = useState(6);
+    const [bookingStartNum, setBookingStartNum] = useState(1);
+    const [regulerStartNum, setRegulerStartNum] = useState(1);
     const [showQueueSettings, setShowQueueSettings] = useState(false);
 
     useEffect(() => {
-        db.select('settings', { eq: { key: 'reguler_start_number' }, maybeSingle: true }).then(({ data }) => {
-            if (data?.value) setRegulerStartNum(parseInt(data.value));
+        Promise.all([
+            db.select('settings', { eq: { key: 'booking_start_number' }, maybeSingle: true }),
+            db.select('settings', { eq: { key: 'reguler_start_number' }, maybeSingle: true })
+        ]).then(([{ data: bData }, { data: rData }]) => {
+            if (bData?.value) setBookingStartNum(parseInt(bData.value));
+            if (rData?.value) setRegulerStartNum(parseInt(rData.value));
         });
     }, []);
 
-    const saveRegulerStartNum = async () => {
-        const num = Math.max(2, parseInt(regulerStartNum) || 6);
-        setRegulerStartNum(num);
-        await db.upsert('settings', { key: 'reguler_start_number', value: String(num) }, { onConflict: 'key' });
-        Toastify({ text: `✅ Nomor awal Reguler: ${num} (Booking 1-${num - 1})`, style: { background: "#000", borderRadius: "12px" } }).showToast();
+    const saveQueueStartNums = async () => {
+        const bNum = Math.max(1, parseInt(bookingStartNum) || 1);
+        const rNum = Math.max(1, parseInt(regulerStartNum) || 1);
+        setBookingStartNum(bNum);
+        setRegulerStartNum(rNum);
+        await Promise.all([
+            db.upsert('settings', { key: 'booking_start_number', value: String(bNum) }, { onConflict: 'key' }),
+            db.upsert('settings', { key: 'reguler_start_number', value: String(rNum) }, { onConflict: 'key' })
+        ]);
+        Toastify({ text: `✅ Nomor awal antrian disimpan: Booking (B-${String(bNum).padStart(3, '0')}), Reguler (R-${String(rNum).padStart(3, '0')})`, style: { background: "#000", borderRadius: "12px" } }).showToast();
     };
 
     const selectCounter = (c) => {
@@ -545,16 +555,25 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
                         </button>
                         {showQueueSettings && (
-                            <div className="flex items-center gap-2 bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-1.5 shadow-sm">
-                                <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-wider whitespace-nowrap">Reguler Mulai</span>
-                                <input type="number" min="2" max="99"
-                                    value={regulerStartNum}
-                                    onChange={e => setRegulerStartNum(parseInt(e.target.value) || 6)}
-                                    className="w-12 bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs font-black text-black outline-none focus:border-black text-center"
-                                />
-                                <span className="text-[8px] font-bold text-zinc-400 whitespace-nowrap">Booking 1-{regulerStartNum - 1}</span>
-                                <button onClick={saveRegulerStartNum}
-                                    className="px-2.5 py-1 bg-black text-white rounded-lg text-[8px] font-black uppercase tracking-wider hover:bg-zinc-800 transition-all active:scale-95 whitespace-nowrap">
+                            <div className="flex flex-col sm:flex-row items-center gap-2 bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 shadow-md">
+                                <div className="flex items-center gap-1.5">
+                                    <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider whitespace-nowrap">Booking Mulai:</span>
+                                    <input type="number" min="1" max="999"
+                                        value={bookingStartNum}
+                                        onChange={e => setBookingStartNum(parseInt(e.target.value) || 1)}
+                                        className="w-14 bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs font-black text-black outline-none focus:border-black text-center"
+                                    />
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                    <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider whitespace-nowrap">Reguler Mulai:</span>
+                                    <input type="number" min="1" max="999"
+                                        value={regulerStartNum}
+                                        onChange={e => setRegulerStartNum(parseInt(e.target.value) || 1)}
+                                        className="w-14 bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs font-black text-black outline-none focus:border-black text-center"
+                                    />
+                                </div>
+                                <button onClick={saveQueueStartNums}
+                                    className="px-3 py-1 bg-black text-white rounded-lg text-[9px] font-black uppercase tracking-wider hover:bg-zinc-800 transition-all active:scale-95 whitespace-nowrap">
                                     Simpan
                                 </button>
                             </div>
