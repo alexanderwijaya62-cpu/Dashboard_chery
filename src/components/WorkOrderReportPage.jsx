@@ -534,6 +534,19 @@ export default function WorkOrderReportPage() {
   // Final filtered data for Table display (strict Kategori & Status filtering)
   const displayFilteredData = useMemo(() => {
     return masterList.filter(row => {
+      // Search Filter
+      if (searchInput) {
+        const q = searchInput.toLowerCase();
+        const noWo = (row.no_wo || '').toLowerCase();
+        const noWoDms = (row.no_wo_dms || '').toLowerCase();
+        const noPol = (row.no_polisi || '').toLowerCase();
+        const noVin = (row.no_chassis || '').toLowerCase();
+        const cust = (row.nama_pelanggan || '').toLowerCase();
+        if (!noWo.includes(q) && !noWoDms.includes(q) && !noPol.includes(q) && !noVin.includes(q) && !cust.includes(q)) {
+          return false;
+        }
+      }
+
       // Kategori Filter (IFS / IKC / EUR)
       if (kategoriFilter) {
         const k = kategoriFilter.toUpperCase();
@@ -550,7 +563,7 @@ export default function WorkOrderReportPage() {
 
       return true;
     });
-  }, [masterList, kategoriFilter, statusFilter]);
+  }, [masterList, searchInput, kategoriFilter, statusFilter]);
 
   const totalRecords = displayFilteredData.length;
   const totalPages = Math.ceil(totalRecords / pageSize);
