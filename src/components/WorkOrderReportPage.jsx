@@ -21,18 +21,31 @@ function isRowInSelectedRange(row, fromStr, toStr) {
   const rawDate = row.waktu_masuk || row.created_at;
   if (!rawDate) return true;
 
-  let dateObj = new Date(rawDate);
-  if (isNaN(dateObj.getTime())) {
-    const match = String(rawDate).match(/(\d{4})[-/](\d{2})[-/](\d{2})/);
-    if (match) dateObj = new Date(`${match[1]}-${match[2]}-${match[3]}`);
+  let yyyymmdd = '';
+  // Try DD/MM/YYYY or DD-MM-YYYY
+  if (typeof rawDate === 'string' && rawDate.includes('/')) {
+    const p = rawDate.trim().split(' ')[0].split('/');
+    if (p.length === 3) {
+      if (p[2].length === 4) yyyymmdd = `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+      else if (p[0].length === 4) yyyymmdd = `${p[0]}-${p[1].padStart(2, '0')}-${p[2].padStart(2, '0')}`;
+    }
   }
 
-  if (isNaN(dateObj.getTime())) return true;
+  if (!yyyymmdd) {
+    let dateObj = new Date(rawDate);
+    if (isNaN(dateObj.getTime())) {
+      const match = String(rawDate).match(/(\d{4})[-/](\d{2})[-/](\d{2})/);
+      if (match) dateObj = new Date(`${match[1]}-${match[2]}-${match[3]}`);
+    }
+    if (!isNaN(dateObj.getTime())) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      yyyymmdd = `${y}-${m}-${d}`;
+    }
+  }
 
-  const y = dateObj.getFullYear();
-  const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-  const d = String(dateObj.getDate()).padStart(2, '0');
-  const yyyymmdd = `${y}-${m}-${d}`;
+  if (!yyyymmdd) return true;
 
   if (fromStr && yyyymmdd < fromStr) return false;
   if (toStr && yyyymmdd > toStr) return false;
@@ -516,9 +529,7 @@ export default function WorkOrderReportPage() {
         });
 
         const combined = Array.from(map.values());
-        const dateFiltered = timePreset === 'custom'
-          ? combined.filter(row => isRowInSelectedRange(row, fromDate, toDate))
-          : combined;
+        const dateFiltered = combined.filter(row => isRowInSelectedRange(row, fromDate, toDate));
         
         setMasterList(dateFiltered);
         setCachedWoData(cacheKey, dateFiltered);
@@ -531,17 +542,15 @@ export default function WorkOrderReportPage() {
           length: 2000,
           search,
           status: statusFilter,
-          from: timePreset === 'custom' ? fromDate : '',
-          to: timePreset === 'custom' ? toDate : ''
+          from: fromDate,
+          to: toDate
         });
         const res = await fetch(`/api/chery_dms?${params}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         if (json.error) throw new Error(json.error);
 
-        const dateFiltered = timePreset === 'custom'
-          ? (json.data || []).filter(row => isRowInSelectedRange(row, fromDate, toDate))
-          : (json.data || []);
+        const dateFiltered = (json.data || []).filter(row => isRowInSelectedRange(row, fromDate, toDate));
         
         setMasterList(dateFiltered);
         setCachedWoData(cacheKey, dateFiltered);
