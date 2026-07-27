@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, Calendar, LogIn, LogOut, Menu, X, User, Car } from 'lucide-react';
+import { Home, Calendar, LogIn, LogOut, Menu, X, User, Car, Key } from 'lucide-react';
 import { getNavItems } from '../utils/navConfig';
+import ChangePasswordModal from './ChangePasswordModal';
 
 /**
  * PublicNavBar — Navigasi universal.
@@ -23,8 +24,9 @@ import { getNavItems } from '../utils/navConfig';
  * - Bottom bar: 4 menu (Home, Booking, Tracking, Dashboard/Login)
  * - Top bar + hamburger: hanya saat di dashboard, buka sidebar overlay berisi role sub-pages
  */
-const PublicNavBar = ({ user, currentPage, onNavigate, onLogout }) => {
+const PublicNavBar = ({ user, currentPage, onNavigate, onLogout, handleChangePassword }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const sidebarRef = useRef(null);
 
   const getDefaultDashboard = (role) => {
@@ -217,8 +219,18 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout }) => {
           </div>
         </div>
 
-        {/* Footer: Login/Logout */}
-        <div className="px-3 py-4 border-t border-zinc-800">
+        {/* Footer: Login/Logout & Ganti Password */}
+        <div className="px-3 py-4 border-t border-zinc-800 space-y-1">
+          {user && (
+            <button
+              onClick={() => setShowPasswordModal(true)}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-all duration-200"
+              aria-label="Ganti Password"
+            >
+              <Key size={18} />
+              <span>Ganti Password</span>
+            </button>
+          )}
           {user && onLogout ? (
             <button
               onClick={onLogout}
@@ -228,7 +240,7 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout }) => {
               <LogOut size={18} />
               <span>Keluar</span>
             </button>
-          ) : (
+          ) : !user && (
             <button
               onClick={() => handleNavigate('login')}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-zinc-400 hover:bg-zinc-800 hover:text-white transition-all duration-200"
@@ -359,20 +371,36 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout }) => {
           )}
         </div>
 
-        {/* Footer: Logout */}
-        {user && onLogout && (
-          <div className="px-3 py-4 border-t border-zinc-100">
+        {/* Footer: Ganti Password & Logout */}
+        {user && (
+          <div className="px-3 py-4 border-t border-zinc-100 space-y-1">
             <button
-              onClick={() => { setSidebarOpen(false); onLogout(); }}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-red-600 hover:bg-red-50 transition-all duration-200"
-              aria-label="Logout"
+              onClick={() => { setSidebarOpen(false); setShowPasswordModal(true); }}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-700 hover:bg-zinc-100 transition-all duration-200"
+              aria-label="Ganti Password"
             >
-              <LogOut size={18} />
-              <span>Keluar</span>
+              <Key size={18} />
+              <span>Ganti Password</span>
             </button>
+            {onLogout && (
+              <button
+                onClick={() => { setSidebarOpen(false); onLogout(); }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-red-600 hover:bg-red-50 transition-all duration-200"
+                aria-label="Logout"
+              >
+                <LogOut size={18} />
+                <span>Keluar</span>
+              </button>
+            )}
           </div>
         )}
       </aside>
+
+      <ChangePasswordModal
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        onChangePassword={handleChangePassword}
+      />
     </>
   );
 };

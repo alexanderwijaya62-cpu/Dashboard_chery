@@ -237,26 +237,7 @@ const App = () => {
   // --- 2. EFFECTS & LOGIC ---
   useEffect(() => {
     localStorage.setItem('chery_current_page', currentPage);
-  }, [currentPage]);
-
-  // Update Location & Coordinates whenever App loads with a user
-  useEffect(() => {
-    if (!user) return;
-
-    const updateGeoData = async () => {
-      try {
-        await db.update('users', {
-          lastIP: '-',
-          lastLocation: '-'
-        }, { eq: { username: user.username } });
-
-      } catch (e) {
-        console.error("Silent Geo Error:", e);
-      }
-    };
-
-    updateGeoData();
-  }, [user?.username]); // Only run when user changes or app loads
+  }, [currentPage]); // Only run when user changes or app loads
 
   const handleLogout = async (isForced = false) => {
     let networkFailed = false;
@@ -367,7 +348,7 @@ const App = () => {
         } else if (['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty', 'foreman', 'security', 'sales', 'spv'].includes(role)) {
           const allowedPages = {
             admin: ['admin', 'admin-booking', 'admin-wo', 'promo', 'display', 'booking-public', 'sa-booking'],
-            manager: ['manager', 'manager-financial', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'display', 'booking-public'],
+            manager: ['manager', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'display', 'booking-public'],
             cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-booking-approval', 'cro-holidays', 'cro-csi', 'cro-customers', 'display', 'booking-public', 'sa-booking', 'booking-settings'],
             sparepart: ['sparepart-dms-order', 'sparepart-dms', 'sparepart-cost', 'sparepart-profit', 'display', 'booking-public', 'stock-comparison'],
             owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-sparepart-cost', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'owner-unit-entry', 'display', 'booking-public', 'stock-comparison'],
@@ -677,40 +658,44 @@ const App = () => {
     }, 2000);
   }, []);
 
-  // Sinkronisasi dengan Supabase Realtime
+  // Sinkronisasi dengan Supabase Realtime (hanya untuk halaman operasional workshop)
   useEffect(() => {
     const isPublicDisplay = window.location.pathname === '/display';
-    const shouldFetch = isPublicDisplay || (userRef.current && userRef.current.role !== 'customer');
-    if (shouldFetch) fetchQueue();
+    const operationalPages = ['display', 'admin', 'mechanic', 'foreman', 'sa-booking', 'booking-public'];
+    const isOperationalPage = operationalPages.includes(currentPage) || isPublicDisplay;
 
-    const antrianSubscription = supabase
-      .channel('antrian-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'antrian' }, (payload) => {
-        if (isPublicDisplay || (userRef.current && userRef.current.role !== 'customer')) debouncedFetchQueue();
-      })
-      .subscribe();
+    if (isOperationalPage) {
+      fetchQueue();
 
-    const historySubscription = supabase
-      .channel('history-changes')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'history' }, () => {
-        if (isPublicDisplay || (userRef.current && userRef.current.role !== 'customer')) debouncedFetchQueue();
-      })
-      .subscribe();
+      const antrianSubscription = supabase
+        .channel('antrian-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'antrian' }, () => {
+          debouncedFetchQueue();
+        })
+        .subscribe();
 
-    const bookingSubscription = supabase
-      .channel('booking-changes-global')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'booking' }, (payload) => {
-        if (payload.eventType === 'UPDATE' && payload.new?.status === payload.old?.status) return;
-        if (isPublicDisplay || (userRef.current && userRef.current.role !== 'customer')) debouncedFetchQueue();
-      })
-      .subscribe();
+      const historySubscription = supabase
+        .channel('history-changes')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'history' }, () => {
+          debouncedFetchQueue();
+        })
+        .subscribe();
 
-    return () => {
-      supabase.removeChannel(antrianSubscription);
-      supabase.removeChannel(historySubscription);
-      supabase.removeChannel(bookingSubscription);
-    };
-  }, [fetchQueue, debouncedFetchQueue]);
+      const bookingSubscription = supabase
+        .channel('booking-changes-global')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'booking' }, (payload) => {
+          if (payload.eventType === 'UPDATE' && payload.new?.status === payload.old?.status) return;
+          debouncedFetchQueue();
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(antrianSubscription);
+        supabase.removeChannel(historySubscription);
+        supabase.removeChannel(bookingSubscription);
+      };
+    }
+  }, [currentPage, fetchQueue, debouncedFetchQueue]);
 
   // Update waktu lokal setiap detik untuk countdown
   useEffect(() => {
@@ -2399,6 +2384,7 @@ const App = () => {
           currentPage={currentPage}
           onNavigate={navigate}
           onLogout={handleLogout}
+          handleChangePassword={handleChangePassword}
         />
       )}
 
@@ -2522,7 +2508,6 @@ const App = () => {
       {currentPage === 'booking-settings' && <BookingSettings />}
       {currentPage === 'promo' && <PromosiSparepart />}
       {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="performance" />}
-      {currentPage === 'manager-financial' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="financial" />}
       {currentPage === 'manager-wo' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="wo_tracking" />}
       {currentPage === 'manager-laporan-invoice' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="laporan_invoice" />}
       {currentPage === 'manager-laporan-wo' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="laporan_wo" />}

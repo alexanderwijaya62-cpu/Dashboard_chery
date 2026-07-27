@@ -40,6 +40,32 @@ function isRowInSelectedRange(row, fromStr, toStr) {
   return true;
 }
 
+const invReportMemoryCache = new Map();
+const INV_CACHE_KEY = 'invoice_report_cache_data';
+
+function getCachedInvData(cacheKey) {
+  try {
+    if (invReportMemoryCache.has(cacheKey)) {
+      return invReportMemoryCache.get(cacheKey).data;
+    }
+    const raw = localStorage.getItem(`${INV_CACHE_KEY}_${cacheKey}`);
+    if (raw) {
+      const { data, timestamp } = JSON.parse(raw);
+      invReportMemoryCache.set(cacheKey, { data, timestamp });
+      return data;
+    }
+  } catch (e) {}
+  return null;
+}
+
+function setCachedInvData(cacheKey, data) {
+  try {
+    const timestamp = Date.now();
+    invReportMemoryCache.set(cacheKey, { data, timestamp });
+    localStorage.setItem(`${INV_CACHE_KEY}_${cacheKey}`, JSON.stringify({ data, timestamp }));
+  } catch (e) {}
+}
+
 export default function InvoiceReportPage() {
   const today = getFormattedDate(0);
 
@@ -50,7 +76,9 @@ export default function InvoiceReportPage() {
   const [searchInput, setSearchInput] = useState('');
   const [kategoriFilter, setKategoriFilter] = useState('');
 
-  const [masterClosedList, setMasterClosedList] = useState([]);
+  const [masterClosedList, setMasterClosedList] = useState(() => {
+    return getCachedInvData('all___') || [];
+  });
   const [invoiceDetailsMap, setInvoiceDetailsMap] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncingDetails, setIsSyncingDetails] = useState(false);
@@ -85,7 +113,17 @@ export default function InvoiceReportPage() {
   const activeControllerRef = useRef(null);
 
   // Fetch Closed Work Orders (Invoices) with server-side 1-request backend aggregator
-  const fetchInvoiceData = useCallback(async () => {
+  const fetchInvoiceData = useCallback(async (forceFresh = false) => {
+    const cacheKey = `${timePreset}_${fromDate}_${toDate}_${search}`;
+    if (!forceFresh) {
+      const cached = getCachedInvData(cacheKey);
+      if (cached && cached.length > 0) {
+        setMasterClosedList(cached);
+        setIsLoading(false);
+        return; // ABSOLUTELY 0 NETWORK REQUESTS!
+      }
+    }
+
     if (activeControllerRef.current) {
       activeControllerRef.current.abort();
     }
@@ -118,6 +156,8 @@ export default function InvoiceReportPage() {
       const rawList = Array.isArray(json.data) ? json.data : (json.payload?.content || []);
       const dateFiltered = rawList.filter(row => isRowInSelectedRange(row, fromDate, toDate));
       setMasterClosedList(dateFiltered);
+      const cacheKey = `${timePreset}_${fromDate}_${toDate}_${search}`;
+      setCachedInvData(cacheKey, dateFiltered);
     } catch (err) {
       if (err.name === 'AbortError') return;
       console.error("Fetch invoice data error:", err);
@@ -218,22 +258,6 @@ export default function InvoiceReportPage() {
 
   return (
     <div className="w-full min-h-screen p-3 sm:p-5 flex flex-col space-y-5 bg-zinc-100 overflow-y-auto">
-      {/* HEADER TITLE */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-zinc-200 shadow-sm">
-        <div>
-          <h1 className="text-xl font-black text-zinc-900 flex items-center gap-2">
-            <FileText className="text-zinc-900" size={22}/> Laporan Invoice (Closed Work Order)
-          </h1>
-          <p className="text-xs text-zinc-500 font-medium mt-0.5">
-            Rekapitulasi resmi pendapatan Labor Charge (Jasa) & Spare Part dari transaksi WO Closed
-          </p>
-        </div>
-        {isSyncingDetails && (
-          <div className="text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl animate-pulse flex items-center gap-1.5">
-            <RefreshCw size={12} className="animate-spin"/> Mengkalkulasi nilai riil rincian invoice...
-          </div>
-        )}
-      </div>
 
       {/* 4 TOP SUMMARY METRIC CARDS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

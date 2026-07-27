@@ -281,11 +281,6 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
                         </p>
                     </div>
                     <div className="flex items-center gap-3">
-                        <button onClick={() => setShowPasswordModal(true)}
-                            className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-xl transition-all active:scale-95"
-                            title="Ganti Password">
-                            <Key size={16} />
-                        </button>
                         {activeTab === 'dms_order' && (
                             <>
                                 <div className="relative">

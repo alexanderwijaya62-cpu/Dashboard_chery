@@ -489,13 +489,6 @@ export default function WarrantyHub({ activeTab, handleChangePassword }) {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   return (
     <div className="w-full h-full flex flex-col">
-      <div className="flex items-center justify-end px-4 py-2 border-b border-zinc-200 bg-white shrink-0">
-        <button onClick={() => setShowPasswordModal(true)}
-          className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-xl transition-all active:scale-95"
-          title="Ganti Password">
-          <Key size={16} />
-        </button>
-      </div>
       <div className="flex-1 overflow-hidden">
         {activeTab === 'wo' && <WarrantyWorkOrderPage />}
         {activeTab === 'search' && <WarrantySearchPage />}

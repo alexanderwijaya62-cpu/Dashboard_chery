@@ -53,7 +53,6 @@ export const NAV_CONFIG = {
   ],
   manager: [
     { id: 'manager-performance', icon: LayoutDashboard, label: 'Dashboard Utama', page: 'manager', ariaLabel: 'Dashboard Utama' },
-    { id: 'manager-financial', icon: DollarSign, label: 'Laporan Revenue', page: 'manager-financial', ariaLabel: 'Laporan Revenue' },
     { id: 'manager-laporan-invoice', icon: FileText, label: 'Laporan Invoice', page: 'manager-laporan-invoice', ariaLabel: 'Laporan Invoice' },
     { id: 'manager-laporan-wo', icon: FileText, label: 'Laporan Work Order', page: 'manager-laporan-wo', ariaLabel: 'Laporan Work Order' },
     { id: 'manager-staff', icon: Users, label: 'Manajemen Staff', page: 'manager-staff', ariaLabel: 'Manajemen Staff' },

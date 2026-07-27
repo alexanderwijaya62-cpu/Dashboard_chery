@@ -439,15 +439,6 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
             <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest mt-0.5">{user?.name}</p>
           </div>
         </div>
-        <button onClick={() => setShowPasswordModal(true)}
-          className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-xl transition-all active:scale-95"
-          title="Ganti Password">
-          <Key size={16} />
-        </button>
-        <button onClick={handleLogout}
-          className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all active:scale-95">
-          Logout
-        </button>
       </div>
 
       <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />

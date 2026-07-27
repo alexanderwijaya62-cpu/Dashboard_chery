@@ -501,20 +501,6 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
                 <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-zinc-900 leading-tight uppercase">
                     📅 Booking {bookingPrefix}
                 </h1>
-                <div className="flex items-center gap-2">
-                    <button onClick={() => setShowPasswordModal(true)}
-                        className="px-4 py-2 border border-zinc-200 hover:bg-zinc-100 text-zinc-700 rounded-xl transition-all active:scale-95 text-xs font-bold flex items-center gap-2 shadow-sm bg-white"
-                        title="Ganti Password">
-                        <Key size={14} />
-                        <span>Ganti Password</span>
-                    </button>
-                    <button onClick={handleLogout}
-                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl transition-all active:scale-95 text-xs font-bold flex items-center gap-2 shadow-sm"
-                        title="Logout">
-                        <LogOut size={14} />
-                        <span>Logout</span>
-                    </button>
-                </div>
             </div>
 
             {/* Sub Tabs Section */}

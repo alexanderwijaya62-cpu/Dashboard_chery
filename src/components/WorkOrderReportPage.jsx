@@ -18,30 +18,35 @@ function getFormattedDate(daysAgo = 0) {
 function isRowInSelectedRange(row, fromStr, toStr) {
   if (!fromStr && !toStr) return true;
 
-  const rawDate = row.waktu_masuk || row.created_at;
+  const rawDate = row.waktu_masuk || row.tgl_invoice || row.created_at || row.waktu_selesai;
   if (!rawDate) return true;
 
   let yyyymmdd = '';
-  // Try DD/MM/YYYY or DD-MM-YYYY
-  if (typeof rawDate === 'string' && rawDate.includes('/')) {
-    const p = rawDate.trim().split(' ')[0].split('/');
-    if (p.length === 3) {
-      if (p[2].length === 4) yyyymmdd = `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
-      else if (p[0].length === 4) yyyymmdd = `${p[0]}-${p[1].padStart(2, '0')}-${p[2].padStart(2, '0')}`;
-    }
-  }
+  const str = String(rawDate).trim();
 
-  if (!yyyymmdd) {
-    let dateObj = new Date(rawDate);
-    if (isNaN(dateObj.getTime())) {
-      const match = String(rawDate).match(/(\d{4})[-/](\d{2})[-/](\d{2})/);
-      if (match) dateObj = new Date(`${match[1]}-${match[2]}-${match[3]}`);
-    }
-    if (!isNaN(dateObj.getTime())) {
-      const y = dateObj.getFullYear();
-      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-      const d = String(dateObj.getDate()).padStart(2, '0');
+  // Pattern 1: DD/MM/YYYY or DD-MM-YYYY (e.g. 27/07/2026 09:15:00)
+  const ddmmyyyyMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (ddmmyyyyMatch) {
+    const d = ddmmyyyyMatch[1].padStart(2, '0');
+    const m = ddmmyyyyMatch[2].padStart(2, '0');
+    const y = ddmmyyyyMatch[3];
+    yyyymmdd = `${y}-${m}-${d}`;
+  } else {
+    // Pattern 2: YYYY-MM-DD or YYYY/MM/DD (e.g. 2026-07-27 09:15:00)
+    const yyyymmddMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (yyyymmddMatch) {
+      const y = yyyymmddMatch[1];
+      const m = yyyymmddMatch[2].padStart(2, '0');
+      const d = yyyymmddMatch[3].padStart(2, '0');
       yyyymmdd = `${y}-${m}-${d}`;
+    } else {
+      const dateObj = new Date(str);
+      if (!isNaN(dateObj.getTime())) {
+        const y = dateObj.getFullYear();
+        const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const d = String(dateObj.getDate()).padStart(2, '0');
+        yyyymmdd = `${y}-${m}-${d}`;
+      }
     }
   }
 
@@ -156,7 +161,7 @@ export function WorkOrderDetailView({ row, onDetailLoaded }) {
             <Wrench size={12}/> Pengerjaan
           </p>
           {[
-            ['SA', row.id_karyawan],
+            ['SA', row.id_karyawan || row.nama_sa || row.sa],
             ['Mekanik', row.nama_mekanik1],
             ['Leader', row.nama_leader1]
           ].map(([l, v]) => (
@@ -433,15 +438,17 @@ function setCachedWoData(cacheKey, data) {
 export default function WorkOrderReportPage() {
   const today = getFormattedDate(0);
 
-  const [timePreset, setTimePreset] = useState('today'); // 'today', 'week', 'month', 'year', 'custom'
-  const [fromDate, setFromDate] = useState(today);
-  const [toDate, setToDate] = useState(today);
+  const [timePreset, setTimePreset] = useState('all'); // default 'all' (Semua)
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [kategoriFilter, setKategoriFilter] = useState('');
 
-  const [masterList, setMasterList] = useState([]);
+  const [masterList, setMasterList] = useState(() => {
+    return getCachedWoData('all____') || [];
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
   const [error, setError] = useState(null);
@@ -474,109 +481,65 @@ export default function WorkOrderReportPage() {
 
   // Fetch Work Order data with caching support
   const fetchData = useCallback(async (forceFresh = false) => {
-    const cacheKey = `${timePreset}_${fromDate}_${toDate}_${statusFilter}_${search}`;
-    
-    // 1. Try loading from cache instantly if not forcing fresh fetch
+    const masterCacheKey = `wo_report_master_${statusFilter}_${search}`;
+    let rawList = [];
+
     if (!forceFresh) {
-      const cached = getCachedWoData(cacheKey);
-      if (cached) {
-        setMasterList(cached);
-        setIsLoading(false);
-        // Refresh in background
-        fetchData(true);
-        return;
+      const cached = getCachedWoData(masterCacheKey);
+      if (cached && cached.length > 0) {
+        rawList = cached;
       }
     }
 
-    setIsLoading(true);
-    setIsBackgroundSyncing(false);
-    setError(null);
+    if (rawList.length === 0) {
+      setIsLoading(true);
+      setIsBackgroundSyncing(false);
+      setError(null);
 
-    const safeFetchJson = async (url) => {
+      const safeFetchJson = async (url) => {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) return { data: [] };
+          const contentType = res.headers.get('content-type') || '';
+          if (!contentType.includes('application/json')) return { data: [] };
+          const json = await res.json();
+          return json || { data: [] };
+        } catch (e) {
+          return { data: [] };
+        }
+      };
+
       try {
-        const res = await fetch(url);
-        if (!res.ok) return { data: [] };
-        const contentType = res.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) return { data: [] };
-        const json = await res.json();
-        return json || { data: [] };
-      } catch (e) {
-        return { data: [] };
-      }
-    };
-
-    try {
-      const fetchLength = timePreset === 'all' ? 500 : 1000;
-      if (!statusFilter) {
-        // Fetch active AND closed WOs in parallel so "Semua Status" includes everything
-        const activeParams = new URLSearchParams({
-          endpoint: 'warranty-wo',
-          draw: 1,
-          start: 0,
-          length: fetchLength,
-          search,
-          status: '',
-          from: fromDate,
-          to: toDate
-        });
-        const closedParams = new URLSearchParams({
-          endpoint: 'warranty-wo',
-          draw: 1,
-          start: 0,
-          length: fetchLength,
-          search,
-          status: 'Closed',
-          from: fromDate,
-          to: toDate
-        });
-
-        const [resActive, resClosed] = await Promise.all([
-          safeFetchJson(`/api/chery_dms?${activeParams}`),
-          safeFetchJson(`/api/chery_dms?${closedParams}`)
-        ]);
-
-        const activeData = resActive.data || [];
-        const closedData = resClosed.data || [];
-
-        // Deduplicate merged items by id_wo or no_wo
-        const map = new Map();
-        [...activeData, ...closedData].forEach(item => {
-          const key = item.id_wo || item.no_wo;
-          if (key && !map.has(key)) map.set(key, item);
-        });
-
-        const combined = Array.from(map.values());
-        const dateFiltered = combined.filter(row => isRowInSelectedRange(row, fromDate, toDate));
-        
-        setMasterList(dateFiltered);
-        setCachedWoData(cacheKey, dateFiltered);
-      } else {
-        // Query specific status (e.g. 'Closed', 'Open', 'Ready', 'In Progress', 'Checker', 'Selesai')
         const params = new URLSearchParams({
           endpoint: 'warranty-wo',
           draw: 1,
           start: 0,
-          length: fetchLength,
+          length: 1000,
+          fetchAll: 'true',
           search,
-          status: statusFilter,
-          from: fromDate,
-          to: toDate
+          status: statusFilter
         });
         const json = await safeFetchJson(`/api/chery_dms?${params}`);
         if (json.error) throw new Error(json.error);
 
-        const dateFiltered = (json.data || []).filter(row => isRowInSelectedRange(row, fromDate, toDate));
-        
-        setMasterList(dateFiltered);
-        setCachedWoData(cacheKey, dateFiltered);
+        rawList = Array.isArray(json.data) ? json.data : [];
+        if (rawList.length > 0) {
+          setCachedWoData(masterCacheKey, rawList);
+        }
+      } catch (err) {
+        console.error("fetchData error:", err);
+        setError(err.message || 'Gagal terhubung ke server DMS');
+      } finally {
+        setIsLoading(false);
+        setIsBackgroundSyncing(false);
       }
-    } catch (err) {
-      console.error("fetchData error:", err);
-      setError(err.message || 'Gagal terhubung ke server DMS');
-    } finally {
+    } else {
       setIsLoading(false);
-      setIsBackgroundSyncing(false);
     }
+
+    // Filter master list locally by selected date range (Hari Ini, Seminggu, Sebulan, Setahun, Kustom, Semua)
+    const dateFiltered = rawList.filter(row => isRowInSelectedRange(row, fromDate, toDate));
+    setMasterList(dateFiltered);
   }, [search, statusFilter, timePreset, fromDate, toDate]);
 
   useEffect(() => { fetchData(); }, [fetchData]);

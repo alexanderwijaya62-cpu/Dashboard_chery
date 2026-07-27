@@ -328,17 +328,18 @@ const warrantyWoCacheStore = new Map();
 async function handleWarranty(req, res) {
     const BASE = process.env.WARRANTY_BASE_URL;
     const draw = req.query.draw || 1;
-    const start = req.query.start || 0;
-    const length = req.query.length || 25;
+    const start = parseInt(req.query.start, 10) || 0;
+    const length = parseInt(req.query.length, 10) || 25;
     const search = req.query.search || '';
     const status = req.query.status || '';
     const kategori = req.query.kategori || '';
     const from = req.query.from || '';
     const to = req.query.to || '';
+    const fetchAll = req.query.fetchAll === 'true' || req.query.fetchAll === '1' || length >= 500;
 
-    const cacheKey = `wo_${from}_${to}_${search}_${status}_${kategori}_${start}_${length}`;
+    const cacheKey = `wo_${from}_${to}_${search}_${status}_${kategori}_${start}_${length}_${fetchAll}`;
     const cached = warrantyWoCacheStore.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp < 30000)) {
+    if (cached && (Date.now() - cached.timestamp < 900000)) {
         return res.status(200).json(cached.json);
     }
 
@@ -358,7 +359,7 @@ async function handleWarranty(req, res) {
         dateQuery = `&time=waktu_masuk&from=${encodeURIComponent(dmsFrom)}&to=${encodeURIComponent(dmsTo)}&from_date=${encodeURIComponent(dmsFrom)}&to_date=${encodeURIComponent(dmsTo)}`;
     }
 
-    const targetUrl = `${BASE}/aftersales/work-order/data?draw=${draw}&start=${start}&length=${length}` +
+    const buildUrlCustom = (st, offset, reqLen) => `${BASE}/aftersales/work-order/data?draw=${draw}&start=${offset}&length=${reqLen}` +
         `&columns[0][data]=action&columns[0][name]=action&columns[0][searchable]=false&columns[0][orderable]=false&columns[0][search][value]=&columns[0][search][regex]=false` +
         `&columns[1][data]=no_wo&columns[1][name]=no_wo&columns[1][searchable]=true&columns[1][orderable]=true&columns[1][search][value]=&columns[1][search][regex]=false` +
         `&columns[2][data]=no_wo_dms&columns[2][name]=no_wo_dms&columns[2][searchable]=true&columns[2][orderable]=true&columns[2][search][value]=&columns[2][search][regex]=false` +
@@ -380,13 +381,57 @@ async function handleWarranty(req, res) {
         `&columns[18][data]=last_update&columns[18][name]=last_update&columns[18][searchable]=true&columns[18][orderable]=true&columns[18][search][value]=&columns[18][search][regex]=false` +
         `&order[0][column]=18&order[0][dir]=desc` +
         `&search[value]=${encodeURIComponent(search)}&search[regex]=false` +
-        `&status=${encodeURIComponent(status)}&kategori=${encodeURIComponent(kategori)}${dateQuery}&_=${Date.now()}`;
+        `&status=${encodeURIComponent(st)}&kategori=${encodeURIComponent(kategori)}${dateQuery}&_=${Date.now()}`;
 
     let attempts = 0;
     while (attempts < 2) {
         if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
             warrantyCookie = await warrantyLogin();
         }
+
+        // Optimized parallel fetching for "Semua Status"
+        if (status === '' && fetchAll) {
+            try {
+                const reqHeaders = {
+                    'Cookie': warrantyCookie,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Referer': `${BASE}/aftersales/work-order`,
+                    'Accept': 'application/json, text/javascript, */*; q=0.01',
+                    'X-Requested-With': 'XMLHttpRequest',
+                };
+
+                const [resActive, resClosed] = await Promise.all([
+                    fetchWithHttps(buildUrlCustom('', 0, 10000), { headers: reqHeaders }).then(r => r.json()).catch(() => ({})),
+                    fetchWithHttps(buildUrlCustom('Closed', 0, 10000), { headers: reqHeaders }).then(r => r.json()).catch(() => ({}))
+                ]);
+
+                const activeList = Array.isArray(resActive.data) ? resActive.data : [];
+                const closedList = Array.isArray(resClosed.data) ? resClosed.data : [];
+
+                const mergedMap = new Map();
+                [...activeList, ...closedList].forEach(item => {
+                    const key = item.id_wo || item.no_wo;
+                    if (key && !mergedMap.has(key)) mergedMap.set(key, item);
+                });
+
+                const combinedList = Array.from(mergedMap.values());
+                const result = {
+                    draw: Number(draw),
+                    recordsTotal: combinedList.length,
+                    recordsFiltered: combinedList.length,
+                    data: combinedList
+                };
+
+                warrantyWoCacheStore.set(cacheKey, { timestamp: Date.now(), json: result });
+                return res.status(200).json(result);
+            } catch (errParallel) {
+                console.warn("Parallel WO fetch error:", errParallel);
+            }
+        }
+
+        const reqLen = fetchAll ? 10000 : length;
+        const targetUrl = buildUrlCustom(status, start, reqLen);
+
         const response = await fetchWithHttps(targetUrl, {
             headers: {
                 'Cookie': warrantyCookie,
@@ -405,8 +450,14 @@ async function handleWarranty(req, res) {
         }
         try {
             const parsed = JSON.parse(body);
+            let woList = Array.isArray(parsed.data) ? parsed.data : [];
+            const totalRecords = parsed.recordsFiltered || parsed.recordsTotal || woList.length;
+
+            parsed.data = woList;
+            parsed.recordsFiltered = woList.length;
+            parsed.recordsTotal = woList.length;
+
             warrantyWoCacheStore.set(cacheKey, { timestamp: Date.now(), json: parsed });
-            return res.status(200).json(parsed);
         } catch (e) {
             return res.status(500).json({ error: 'Failed to parse JSON response from DMS', raw: body.slice(0, 200) });
         }

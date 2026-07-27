@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  TrendingUp, Users, Clock, AlertCircle, ChevronRight, ChevronLeft,
+  TrendingUp, Users, User, Clock, AlertCircle, ChevronRight, ChevronLeft,
   Search, Calendar, Download, Filter, Car, DollarSign, Activity,
   ShieldCheck, Package, Award, Zap, Star, LayoutDashboard, Database,
   History, Upload, X, BarChart4, CheckCircle, Wrench, Shield, Settings, MessageSquare, Menu, FileSpreadsheet, Key, LogOut
@@ -54,54 +54,39 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
 
   const fetchFinancialData = React.useCallback(async () => {
-    setIsLoading(true);
     try {
-      let dmsMapped = [];
+      let rawList = [];
       try {
+        const rawCache = localStorage.getItem('invoice_report_cache_data_all___');
+        if (rawCache) {
+          const { data } = JSON.parse(rawCache);
+          if (Array.isArray(data) && data.length > 0) rawList = data;
+        }
+      } catch (e) {}
+
+      if (rawList.length === 0) {
+        setIsLoading(true);
         const res = await fetch('/api/chery_dms?endpoint=warranty-invoice-report');
         if (res.ok) {
           const json = await res.json();
-          const rawList = Array.isArray(json.data) ? json.data : (json.payload?.content || []);
-          dmsMapped = rawList.map(item => ({
-            no_wo: item.no_wo,
-            wkt_masuk: item.waktu_masuk || item.tgl_invoice || item.created_at,
-            bk: item.no_polisi || item.no_pol,
-            tipe_kendaraan: item.nama_kendaraan || item.tipe_kendaraan || item.kategori,
-            jasa: Number(item.lcVal || item.jasa || 0),
-            s_part: Number(item.partVal || item.spare_part || 0),
-            g_total: Number(item.grandTotalVal || item.total || (item.lcVal || 0) + (item.partVal || 0)),
-            sa: item.nama_pembawa || item.nama_pelanggan || item.sa || '---',
-            leader: '',
-            mekanik: '',
-            nohp: ''
-          }));
+          rawList = Array.isArray(json.data) ? json.data : (json.payload?.content || []);
         }
-      } catch (err) {
-        console.warn("DMS invoice fetch error, falling back to db:", err);
       }
 
-      const { data: supaData } = await db.select('revenue');
-      const supaMapped = (supaData || []).map(r => ({
-        no_wo: r.no_wo,
-        wkt_masuk: r.wkt_masuk,
-        bk: r.bk,
-        tipe_kendaraan: r.tipe_kendaraan,
-        jasa: Number(r.jasa || 0),
-        s_part: Number(r.s_part || 0),
-        g_total: Number(r.g_total || 0),
-        sa: r.sa,
-        leader: r.leader,
-        mekanik: r.mekanik,
-        nohp: r.nohp
+      const dmsMapped = rawList.map(item => ({
+        no_wo: item.no_wo,
+        wkt_masuk: item.waktu_masuk || item.tgl_invoice || item.created_at,
+        bk: item.no_polisi || item.no_pol,
+        tipe_kendaraan: item.nama_kendaraan || item.tipe_kendaraan || item.kategori,
+        jasa: Number(item.lcVal || item.jasa || 0),
+        s_part: Number(item.partVal || item.spare_part || 0),
+        g_total: Number(item.grandTotalVal || item.total || (item.lcVal || 0) + (item.partVal || 0)),
+        sa: item.id_karyawan || item.nama_sa || item.sa || '---',
+        leader: '',
+        mekanik: '',
+        nohp: ''
       }));
-
-      const map = new Map();
-      [...dmsMapped, ...supaMapped].forEach(item => {
-        const key = item.no_wo || `id_${Math.random()}`;
-        if (key && !map.has(key)) map.set(key, item);
-      });
-
-      setFinancialData(Array.from(map.values()));
+      setFinancialData(dmsMapped);
     } catch (e) {
       console.error("Gagal fetch financial:", e);
     } finally {
@@ -110,53 +95,37 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   }, []);
 
   const fetchWoHistory = React.useCallback(async () => {
-    setIsLoading(true);
     try {
-      const dmsMap = new Map();
+      let rawList = [];
       try {
-        const activeParams = new URLSearchParams({ endpoint: 'warranty-wo', draw: 1, start: 0, length: 2000, status: '' });
-        const closedParams = new URLSearchParams({ endpoint: 'warranty-wo', draw: 1, start: 0, length: 2000, status: 'Closed' });
+        const rawCache = localStorage.getItem('wo_report_cache_data_all____');
+        if (rawCache) {
+          const { data } = JSON.parse(rawCache);
+          if (Array.isArray(data) && data.length > 0) rawList = data;
+        }
+      } catch (e) {}
 
-        const [resActive, resClosed] = await Promise.all([
-          fetch(`/api/chery_dms?${activeParams}`).then(r => r.json()).catch(() => ({})),
-          fetch(`/api/chery_dms?${closedParams}`).then(r => r.json()).catch(() => ({}))
-        ]);
-
-        const activeData = resActive.data || [];
-        const closedData = resClosed.data || [];
-
-        [...activeData, ...closedData].forEach(item => {
-          const key = item.id_wo || item.no_wo;
-          if (key && !dmsMap.has(key)) {
-            dmsMap.set(key, {
-              no_wo: item.no_wo,
-              bk: item.no_polisi,
-              tipe_kendaraan: item.nama_kendaraan,
-              sa: item.nama_pembawa || '---',
-              mekanik: item.nama_mekanik1 || '---',
-              leader: item.nama_leader1 || '---',
-              wkt_masuk: item.waktu_masuk,
-              status: item.status
-            });
-          }
-        });
-      } catch (err) {
-        console.warn("DMS WO fetch error, falling back to db:", err);
+      if (rawList.length === 0) {
+        setIsLoading(true);
+        const params = new URLSearchParams({ endpoint: 'warranty-wo', draw: 1, start: 0, length: 1000, fetchAll: 'true', status: '' });
+        const res = await fetch(`/api/chery_dms?${params}`).then(r => r.json()).catch(() => ({}));
+        rawList = res.data || [];
       }
 
-      const { data: supaData } = await db.select('laporanwo');
-      (supaData || []).forEach(r => {
-        const key = r['No. WO'];
+      const dmsMap = new Map();
+      rawList.forEach(item => {
+        const key = item.id_wo || item.no_wo;
         if (key && !dmsMap.has(key)) {
           dmsMap.set(key, {
-            no_wo: r['No. WO'],
-            bk: r['No. Pol'],
-            tipe_kendaraan: r['Kendaraan'],
-            sa: r['SA'],
-            mekanik: r['Mekanik'],
-            leader: r['Leader'],
-            wkt_masuk: r['Wkt.Masuk'],
-            status: r['Status']
+            no_wo: item.no_wo,
+            bk: item.no_polisi,
+            tipe_kendaraan: item.nama_kendaraan,
+            sa: item.id_karyawan || item.nama_sa || item.sa || '---',
+            mekanik: item.nama_mekanik1 || '---',
+            leader: item.nama_leader1 || '---',
+            wkt_masuk: item.waktu_masuk,
+            status: item.status,
+            stand_km: Number(item.stand_km || item.km || 0)
           });
         }
       });
@@ -192,12 +161,18 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   }, []);
 
   useEffect(() => {
-    // Fetch all for export readiness
-    fetchFinancialData();
-    fetchWoHistory();
-    fetchCroHistory();
-    fetchUsers();
-  }, [fetchFinancialData, fetchWoHistory, fetchCroHistory, fetchUsers]);
+    // Only fetch tab-specific data lazily when tab is active
+    if (activeTab === 'performance') {
+      fetchFinancialData();
+      fetchWoHistory();
+    } else if (activeTab === 'wo_tracking') {
+      fetchWoHistory();
+    } else if (activeTab === 'staff') {
+      fetchUsers();
+    } else if (activeTab === 'cro_history') {
+      fetchCroHistory();
+    }
+  }, [activeTab, fetchFinancialData, fetchWoHistory, fetchUsers, fetchCroHistory]);
 
   useEffect(() => {
     setFinancialPage(1);
@@ -490,6 +465,50 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
     ];
     return { series, categories, year: targetYear };
   }, [woTrackingData, selectedYear]);
+
+  const saLeaderboard = useMemo(() => {
+    const map = {};
+    woTrackingData.forEach(item => {
+      const saName = (item.sa || '').trim();
+      if (!saName || saName === '---') return;
+      if (!map[saName]) map[saName] = 0;
+      map[saName]++;
+    });
+    return Object.entries(map)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [woTrackingData]);
+
+  const mechanicLeaderboard = useMemo(() => {
+    const map = {};
+    woTrackingData.forEach(item => {
+      const mechName = (item.mekanik || '').trim();
+      if (!mechName || mechName === '---') return;
+      if (!map[mechName]) map[mechName] = 0;
+      map[mechName]++;
+    });
+    return Object.entries(map)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [woTrackingData]);
+
+  const vehicleStats = useMemo(() => {
+    const map = {};
+    woTrackingData.forEach(item => {
+      const type = (item.tipe_kendaraan || 'Tipe Tidak Diketahui').trim();
+      if (!type || type === '---') return;
+      if (!map[type]) map[type] = { type, count: 0, km15k: 0, km30k: 0, km45k: 0, km60k: 0 };
+      map[type].count++;
+      const km = Number(item.stand_km || 0);
+      if (km >= 15000) map[type].km15k++;
+      if (km >= 30000) map[type].km30k++;
+      if (km >= 45000) map[type].km45k++;
+      if (km >= 60000) map[type].km60k++;
+    });
+    return Object.values(map)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+  }, [woTrackingData]);
 
   const vehicleLeaderboard = useMemo(() => {
     const map = {};
@@ -926,70 +945,16 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   return (
     <div className="w-full h-full bg-zinc-100 flex flex-col overflow-hidden font-sans antialiased">
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <header className="bg-white border-b border-zinc-200 px-4 md:px-8 h-20 flex items-center justify-between shrink-0 box-border">
-          <div className="flex items-center gap-3">
-            <div>
-              <h2 className="text-zinc-900 font-black text-base md:text-lg">{currentTab.title}</h2>
-              <p className="text-zinc-500 text-xs font-medium">{currentTab.subtitle}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowPasswordModal(true)}
-              className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-xl transition-all active:scale-95"
-              title="Ganti Password">
-              <Key size={16} />
-            </button>
-            <button onClick={handleLogout}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl transition-all active:scale-95 text-xs font-bold flex items-center gap-2 shadow-sm"
-              title="Logout">
-              <LogOut size={14} />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
-          </div>
-        </header>
-
         {/* Main Content */}
         <main
           ref={mainRef}
           className={`flex-1 ${activeTab === 'holidays' ? 'overflow-hidden' : 'overflow-y-auto'} p-4 md:p-8 custom-scrollbar space-y-6 pb-[72px] md:pb-8 overflow-x-hidden`}
         >
-        {/* EXPORT SUMMARY - only on Dashboard Utama */}
-        {activeTab === 'performance' && (
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex items-center gap-3">
-             <div className="bg-zinc-900 p-3 rounded-lg text-white">
-                <FileSpreadsheet size={20} />
-             </div>
-             <div>
-                <h3 className="text-sm font-black text-zinc-900 uppercase tracking-wider">Ekspor Rangkuman Audit</h3>
-                <p className="text-[10px] text-zinc-500 font-medium">4 Laporan Spesifik</p>
-             </div>
-          </div>
-          <button 
-            onClick={handleExportSummary}
-            disabled={isSyncing}
-            className={`w-full sm:w-auto ${isSyncing ? 'bg-zinc-300 text-zinc-500' : 'bg-zinc-900 hover:bg-zinc-800'} text-white px-6 py-3 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 min-h-[40px]`}
-          >
-            {isSyncing ? (
-                <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    Memproses...
-                </>
-            ) : (
-                <>
-                    <Download size={16} /> Ekspor XLSX
-                    <span className="opacity-50 hidden sm:inline">({financialData.length} Data)</span>
-                </>
-            )}
-          </button>
-        </div>
-        )}
-        {activeTab !== 'staff' && activeTab !== 'laporan_wo' && activeTab !== 'laporan_invoice' && activeTab !== 'manager-laporan-invoice' && (
+        {activeTab !== 'performance' && activeTab !== 'staff' && activeTab !== 'laporan_wo' && activeTab !== 'laporan_invoice' && activeTab !== 'manager-laporan-invoice' && (
           <section className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
               <h2 className="text-sm font-black uppercase tracking-widest text-zinc-500">
-                {activeTab === 'performance' ? 'Kinerja Tim' : activeTab === 'financial' ? 'Invoice Pelanggan' : activeTab === 'wo_tracking' ? 'Tracking Pengerjaan' : activeTab === 'vehicles' ? 'Data Kendaraan' : activeTab === 'staff' ? 'Manajemen Staff' : activeTab === 'holidays' ? 'Libur Dealer' : 'Riwayat CRO'}
+                {activeTab === 'financial' ? 'Invoice Pelanggan' : activeTab === 'wo_tracking' ? 'Tracking Pengerjaan' : activeTab === 'vehicles' ? 'Data Kendaraan' : activeTab === 'staff' ? 'Manajemen Staff' : activeTab === 'holidays' ? 'Libur Dealer' : 'Riwayat CRO'}
               </h2>
             </div>
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full lg:w-auto">
@@ -1108,12 +1073,12 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
                   <div>
                     <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">Tren Keuntungan Bulanan ({monthlyChartData.year})</h3>
-                    <p className="text-zinc-400 text-[10px] font-medium mt-1">Perbandingan Pendapatan Jasa & Sparepart (Januari - Desember {monthlyChartData.year})</p>
+                    <p className="text-zinc-400 text-[10px] font-medium mt-1">Perbandingan Pendapatan Jasa & Sparepart berdasarkan Laporan Invoice ({monthlyChartData.year})</p>
                   </div>
                 </div>
                 <div className="w-full h-[300px] md:h-[380px]">
                   {financialData.length === 0 ? (
-                    <div className="w-full h-full flex items-center justify-center border border-dashed border-zinc-200 rounded-lg text-zinc-400 text-xs font-medium uppercase tracking-wider">Belum ada data visualisasi</div>
+                    <div className="w-full h-full flex items-center justify-center border border-dashed border-zinc-200 rounded-lg text-zinc-400 text-xs font-medium uppercase tracking-wider">Memuat data Laporan Invoice...</div>
                   ) : (
                     <ReactApexChart
                       options={{
@@ -1183,40 +1148,119 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
                   )}
                 </div>
               </div>
+              {/* Container Leaderboard SA & Mekanik */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="bg-white p-5 md:p-8 border border-zinc-200 rounded-lg">
-                  <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest mb-5 flex items-center gap-2"><Award className="text-zinc-600" size={18} /> Top Performance SA</h3>
-                  <div className="space-y-3">
-                    {revenueLeaders.saArr.slice(0, 5).map((s, i) => (
-                      <div key={i} className="flex justify-between items-center p-3 bg-zinc-50 rounded-lg hover:bg-zinc-100 transition-all">
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-black text-zinc-300 w-5">#{i + 1}</span>
-                          <div>
-                            <span className="text-xs font-black uppercase tracking-tight block">{s.name}</span>
-                            <span className="text-[9px] font-medium text-zinc-400 uppercase tracking-wider">{s.count} Unit Ditangani</span>
+                {/* Container SA */}
+                <div className="bg-white p-5 md:p-6 border border-zinc-200 rounded-xl shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xs font-black text-zinc-900 uppercase tracking-widest flex items-center gap-2">
+                      <User className="text-zinc-700" size={16} /> Leaderboard SA (Service Advisor)
+                    </h3>
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase">{saLeaderboard.length} SA Terdeteksi</span>
+                  </div>
+                  <div className="space-y-2.5 max-h-[320px] overflow-y-auto pr-1 no-scrollbar">
+                    {saLeaderboard.length === 0 ? (
+                      <p className="text-xs font-medium text-zinc-400 py-4 text-center">Belum ada data SA</p>
+                    ) : (
+                      saLeaderboard.map((s, i) => (
+                        <div key={i} className="flex justify-between items-center p-3 bg-zinc-50 rounded-xl hover:bg-zinc-100/80 transition-all border border-zinc-100">
+                          <div className="flex items-center gap-3">
+                            <span className={`text-[10px] font-black w-6 h-6 rounded-lg flex items-center justify-center ${i === 0 ? 'bg-amber-100 text-amber-700 border border-amber-300' : i === 1 ? 'bg-zinc-200 text-zinc-700' : i === 2 ? 'bg-amber-50 text-amber-800' : 'bg-zinc-100 text-zinc-400'}`}>
+                              #{i + 1}
+                            </span>
+                            <div>
+                              <span className="text-xs font-black text-zinc-900 uppercase tracking-tight block">{s.name}</span>
+                              <span className="text-[9px] font-bold text-zinc-400 uppercase">Service Advisor</span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-xs font-black text-zinc-900 tabular-nums">{s.count} WO</span>
+                            <span className="text-[9px] font-bold text-emerald-600 block uppercase">Ditangani</span>
                           </div>
                         </div>
-                        <span className="text-xs font-black text-zinc-900 tabular-nums">{formatCurrency(s.totalJasa)}</span>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                 </div>
-                <div className="bg-white p-5 md:p-8 border border-zinc-200 rounded-lg">
-                  <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest mb-5 flex items-center gap-2"><Star className="text-zinc-600" size={18} /> Lead Mechanic</h3>
-                  <div className="space-y-3">
-                    {revenueLeaders.mechArr.slice(0, 5).map((m, i) => (
-                      <div key={i} className="flex justify-between items-center p-3 bg-zinc-50 rounded-lg hover:bg-zinc-100 transition-all">
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-black text-zinc-300 w-5">#{i + 1}</span>
-                          <div>
-                            <span className="text-xs font-black uppercase tracking-tight block">{m.name}</span>
-                            <span className="text-[9px] font-medium text-zinc-400 uppercase tracking-wider">{m.count} Unit Selesai</span>
+
+                {/* Container Mekanik */}
+                <div className="bg-white p-5 md:p-6 border border-zinc-200 rounded-xl shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xs font-black text-zinc-900 uppercase tracking-widest flex items-center gap-2">
+                      <Wrench className="text-zinc-700" size={16} /> Leaderboard Mekanik Workshop
+                    </h3>
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase">{mechanicLeaderboard.length} Mekanik Terdeteksi</span>
+                  </div>
+                  <div className="space-y-2.5 max-h-[320px] overflow-y-auto pr-1 no-scrollbar">
+                    {mechanicLeaderboard.length === 0 ? (
+                      <p className="text-xs font-medium text-zinc-400 py-4 text-center">Belum ada data Mekanik</p>
+                    ) : (
+                      mechanicLeaderboard.map((m, i) => (
+                        <div key={i} className="flex justify-between items-center p-3 bg-zinc-50 rounded-xl hover:bg-zinc-100/80 transition-all border border-zinc-100">
+                          <div className="flex items-center gap-3">
+                            <span className={`text-[10px] font-black w-6 h-6 rounded-lg flex items-center justify-center ${i === 0 ? 'bg-amber-100 text-amber-700 border border-amber-300' : i === 1 ? 'bg-zinc-200 text-zinc-700' : i === 2 ? 'bg-amber-50 text-amber-800' : 'bg-zinc-100 text-zinc-400'}`}>
+                              #{i + 1}
+                            </span>
+                            <div>
+                              <span className="text-xs font-black text-zinc-900 uppercase tracking-tight block">{m.name}</span>
+                              <span className="text-[9px] font-bold text-zinc-400 uppercase">Teknisi / Mekanik</span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-xs font-black text-zinc-900 tabular-nums">{m.count} WO</span>
+                            <span className="text-[9px] font-bold text-emerald-600 block uppercase">Dikerjakan</span>
                           </div>
                         </div>
-                        <span className="text-xs font-black text-zinc-900 tabular-nums">{formatCurrency(m.totalJasa)}</span>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
+                </div>
+              </div>
+
+              {/* Container Top 10 Tipe Kendaraan & Breakdown KM */}
+              <div className="bg-white p-5 md:p-6 border border-zinc-200 rounded-xl shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xs font-black text-zinc-900 uppercase tracking-widest flex items-center gap-2">
+                    <Car className="text-zinc-700" size={16} /> Top 10 Tipe Kendaraan & Distribusi KM Masuk
+                  </h3>
+                  <span className="text-[10px] font-bold text-zinc-400 uppercase">Top {vehicleStats.length} Model Teratas</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {vehicleStats.length === 0 ? (
+                    <p className="text-xs font-medium text-zinc-400 py-4 col-span-full text-center">Belum ada data tipe kendaraan</p>
+                  ) : (
+                    vehicleStats.map((v, i) => (
+                      <div key={i} className="p-4 bg-zinc-50 rounded-xl border border-zinc-200/80 space-y-3 hover:bg-zinc-100/60 transition-all">
+                        <div className="flex items-center justify-between pb-2 border-b border-zinc-200/60">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-black bg-zinc-900 text-white px-2 py-0.5 rounded-md">#{i + 1}</span>
+                            <p className="text-xs font-black text-zinc-900 uppercase tracking-tight line-clamp-1">{v.type}</p>
+                          </div>
+                          <span className="text-xs font-black text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-300 shrink-0">{v.count} Kali Masuk</span>
+                        </div>
+
+                        {/* Grid Breakdown Threshold KM */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                          <div className="bg-white p-2 rounded-lg border border-zinc-200 text-center">
+                            <span className="text-[9px] font-black text-zinc-400 block uppercase">KM ≥ 15,000</span>
+                            <span className="text-xs font-black text-zinc-900 tabular-nums">{v.km15k} Unit</span>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg border border-zinc-200 text-center">
+                            <span className="text-[9px] font-black text-zinc-400 block uppercase">KM ≥ 30,000</span>
+                            <span className="text-xs font-black text-zinc-900 tabular-nums">{v.km30k} Unit</span>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg border border-zinc-200 text-center">
+                            <span className="text-[9px] font-black text-zinc-400 block uppercase">KM ≥ 45,000</span>
+                            <span className="text-xs font-black text-zinc-900 tabular-nums">{v.km45k} Unit</span>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg border border-zinc-200 text-center">
+                            <span className="text-[9px] font-black text-zinc-400 block uppercase">KM ≥ 60,000</span>
+                            <span className="text-xs font-black text-zinc-900 tabular-nums">{v.km60k} Unit</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>

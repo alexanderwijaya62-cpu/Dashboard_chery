@@ -631,11 +631,6 @@ const CustomerPanel = ({ user, handleLogout, handleChangePassword, setCurrentPag
               {isVerified ? <ShieldCheck size={12} /> : <ShieldAlert size={12} />}
               <span className="hidden sm:inline">{isVerified ? 'Terverifikasi' : 'Menunggu Verifikasi'}</span>
             </div>
-            <button onClick={() => setShowPasswordModal(true)}
-              className="w-10 h-10 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-full flex items-center justify-center transition-all active:scale-90"
-              title="Ganti Password">
-              <Key size={18} />
-            </button>
             <button
               onClick={() => { pushUnsubscribe(user.plat_bk); handleLogout(); }}
               className="hidden md:flex w-10 h-10 bg-red-50 hover:bg-red-100 text-red-500 rounded-full items-center justify-center transition-all active:scale-90"
