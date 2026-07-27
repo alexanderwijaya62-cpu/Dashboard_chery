@@ -370,19 +370,11 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   }, [filteredFinancialDataRaw]);
 
   const monthlyChartData = useMemo(() => {
+    const targetYear = selectedYear || 2026;
     const fullYearMap = {};
-    if (timeFilter === 'year') {
-      for (let m = 0; m < 12; m++) {
-        const mKey = `${selectedYear}-${String(m + 1).padStart(2, '0')}`;
-        fullYearMap[mKey] = { jasa: 0, part: 0 };
-      }
-    } else {
-      const now = new Date();
-      for (let i = 0; i < 12; i++) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        fullYearMap[mKey] = { jasa: 0, part: 0 };
-      }
+    for (let m = 0; m < 12; m++) {
+      const mKey = `${targetYear}-${String(m + 1).padStart(2, '0')}`;
+      fullYearMap[mKey] = { jasa: 0, part: 0, grand: 0 };
     }
 
     financialData.forEach(item => {
@@ -392,23 +384,52 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
       if (fullYearMap[mKey]) {
         fullYearMap[mKey].jasa += (item.jasa || 0);
         fullYearMap[mKey].part += (item.s_part || 0);
-      } else if (timeFilter === 'all') {
-        fullYearMap[mKey] = { jasa: (item.jasa || 0), part: (item.s_part || 0) };
+        fullYearMap[mKey].grand += (item.g_total || (item.jasa || 0) + (item.s_part || 0));
       }
     });
 
     const sortedMonths = Object.keys(fullYearMap).sort();
     const categories = sortedMonths.map(tag => {
       const [y, m] = tag.split('-');
-      return `${getMonthName(parseInt(m) - 1)} ${y}`;
+      return `${getMonthName(parseInt(m) - 1)}`;
     });
 
     const series = [
+      { name: 'Total Keuntungan / Revenue', data: sortedMonths.map(m => fullYearMap[m].grand) },
       { name: 'Jasa Service', data: sortedMonths.map(m => fullYearMap[m].jasa) },
       { name: 'Sparepart', data: sortedMonths.map(m => fullYearMap[m].part) }
     ];
-    return { series, categories };
-  }, [financialData, timeFilter, selectedYear]);
+    return { series, categories, year: targetYear };
+  }, [financialData, selectedYear]);
+
+  const woMonthlyChartData = useMemo(() => {
+    const targetYear = selectedYear || 2026;
+    const fullYearMap = {};
+    for (let m = 0; m < 12; m++) {
+      const mKey = `${targetYear}-${String(m + 1).padStart(2, '0')}`;
+      fullYearMap[mKey] = 0;
+    }
+
+    woTrackingData.forEach(item => {
+      const dateStr = normalizeDateStr(item.wkt_masuk);
+      if (!dateStr) return;
+      const mKey = dateStr.substring(0, 7);
+      if (fullYearMap[mKey] !== undefined) {
+        fullYearMap[mKey] += 1;
+      }
+    });
+
+    const sortedMonths = Object.keys(fullYearMap).sort();
+    const categories = sortedMonths.map(tag => {
+      const [y, m] = tag.split('-');
+      return `${getMonthName(parseInt(m) - 1)}`;
+    });
+
+    const series = [
+      { name: 'Jumlah Work Order', data: sortedMonths.map(m => fullYearMap[m]) }
+    ];
+    return { series, categories, year: targetYear };
+  }, [woTrackingData, selectedYear]);
 
   const vehicleLeaderboard = useMemo(() => {
     const map = {};
@@ -1022,11 +1043,15 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
 
           {activeTab === 'performance' && (
             <div className="space-y-6">
+              {/* Chart 1: Revenue Bulanan (Jan - Des) */}
               <div className="bg-white p-5 md:p-8 border border-zinc-200 rounded-lg">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-                  <div><h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">Tren Pendapatan Bulanan</h3><p className="text-zinc-400 text-[10px] font-medium mt-1">Analisis Historis Kumulatif</p></div>
+                  <div>
+                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">Tren Keuntungan Bulanan ({monthlyChartData.year})</h3>
+                    <p className="text-zinc-400 text-[10px] font-medium mt-1">Perbandingan Pendapatan Jasa & Sparepart (Januari - Desember {monthlyChartData.year})</p>
+                  </div>
                 </div>
-                <div className="w-full h-[300px] md:h-[400px]">
+                <div className="w-full h-[300px] md:h-[380px]">
                   {financialData.length === 0 ? (
                     <div className="w-full h-full flex items-center justify-center border border-dashed border-zinc-200 rounded-lg text-zinc-400 text-xs font-medium uppercase tracking-wider">Belum ada data visualisasi</div>
                   ) : (
@@ -1042,10 +1067,10 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
                           itemMargin: { horizontal: 16 }
                         },
                         chart: { type: 'area', background: 'transparent', toolbar: { show: false }, zoom: { enabled: false } },
-                        colors: ['#000000', '#71717a', '#a1a1aa'],
-                        fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.3, opacityTo: 0.05, stops: [0, 90, 100] } },
+                        colors: ['#10b981', '#000000', '#6366f1'],
+                        fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.05, stops: [0, 90, 100] } },
                         dataLabels: { enabled: false },
-                        stroke: { curve: 'smooth', width: 2 },
+                        stroke: { curve: 'smooth', width: 2.5 },
                         xaxis: { categories: monthlyChartData.categories, labels: { style: { colors: '#71717a', fontWeight: 700, fontFamily: 'Inter', fontSize: '10px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
                         yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700, fontSize: '10px' }, formatter: (val) => formatCurrency(val) } },
                         grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
@@ -1053,6 +1078,46 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
                       }}
                       series={monthlyChartData.series}
                       type="area"
+                      height="100%"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Chart 2: Volume Work Order Bulanan (Jan - Des) */}
+              <div className="bg-white p-5 md:p-8 border border-zinc-200 rounded-lg">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                  <div>
+                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">Tren Work Order Bulanan ({woMonthlyChartData.year})</h3>
+                    <p className="text-zinc-400 text-[10px] font-medium mt-1">Grafik Pergerakan Naik Turun Jumlah Unit Work Order (Januari - Desember {woMonthlyChartData.year})</p>
+                  </div>
+                </div>
+                <div className="w-full h-[260px] md:h-[320px]">
+                  {woTrackingData.length === 0 ? (
+                    <div className="w-full h-full flex items-center justify-center border border-dashed border-zinc-200 rounded-lg text-zinc-400 text-xs font-medium uppercase tracking-wider">Belum ada data Work Order</div>
+                  ) : (
+                    <ReactApexChart
+                      options={{
+                        legend: {
+                          show: true,
+                          position: 'top',
+                          horizontalAlign: 'right',
+                          labels: { colors: '#71717a' },
+                          fontFamily: 'Inter',
+                          fontWeight: 700
+                        },
+                        chart: { type: 'line', background: 'transparent', toolbar: { show: false }, zoom: { enabled: false } },
+                        colors: ['#000000'],
+                        dataLabels: { enabled: true, style: { fontSize: '11px', fontWeight: 'bold' } },
+                        stroke: { curve: 'smooth', width: 3 },
+                        markers: { size: 5, colors: ['#000000'], strokeColors: '#fff', strokeWidth: 2 },
+                        xaxis: { categories: woMonthlyChartData.categories, labels: { style: { colors: '#71717a', fontWeight: 700, fontFamily: 'Inter', fontSize: '10px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
+                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700, fontSize: '10px' }, formatter: (val) => `${Math.round(val)} WO` } },
+                        grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
+                        tooltip: { theme: 'light', x: { show: true } }
+                      }}
+                      series={woMonthlyChartData.series}
+                      type="line"
                       height="100%"
                     />
                   )}

@@ -439,21 +439,21 @@ export default function WorkOrderReportPage() {
           endpoint: 'warranty-wo',
           draw: 1,
           start: 0,
-          length: 1000,
+          length: 2000,
           search,
           status: '',
-          from: fromDate,
-          to: toDate
+          from: timePreset === 'custom' ? fromDate : '',
+          to: timePreset === 'custom' ? toDate : ''
         });
         const closedParams = new URLSearchParams({
           endpoint: 'warranty-wo',
           draw: 1,
           start: 0,
-          length: 1000,
+          length: 2000,
           search,
           status: 'Closed',
-          from: fromDate,
-          to: toDate
+          from: timePreset === 'custom' ? fromDate : '',
+          to: timePreset === 'custom' ? toDate : ''
         });
 
         const [resActive, resClosed] = await Promise.all([
@@ -472,7 +472,9 @@ export default function WorkOrderReportPage() {
         });
 
         const combined = Array.from(map.values());
-        const dateFiltered = combined.filter(row => isRowInSelectedRange(row, fromDate, toDate));
+        const dateFiltered = timePreset === 'custom'
+          ? combined.filter(row => isRowInSelectedRange(row, fromDate, toDate))
+          : combined;
         setMasterList(dateFiltered);
       } else {
         // Query specific status (e.g. 'Closed', 'Open', 'Ready', 'In Progress', 'Checker', 'Selesai')
@@ -480,18 +482,20 @@ export default function WorkOrderReportPage() {
           endpoint: 'warranty-wo',
           draw: 1,
           start: 0,
-          length: 1000,
+          length: 2000,
           search,
           status: statusFilter,
-          from: fromDate,
-          to: toDate
+          from: timePreset === 'custom' ? fromDate : '',
+          to: timePreset === 'custom' ? toDate : ''
         });
         const res = await fetch(`/api/chery_dms?${params}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         if (json.error) throw new Error(json.error);
 
-        const dateFiltered = (json.data || []).filter(row => isRowInSelectedRange(row, fromDate, toDate));
+        const dateFiltered = timePreset === 'custom'
+          ? (json.data || []).filter(row => isRowInSelectedRange(row, fromDate, toDate))
+          : (json.data || []);
         setMasterList(dateFiltered);
       }
     } catch (err) {
@@ -500,7 +504,7 @@ export default function WorkOrderReportPage() {
       setIsLoading(false);
       setIsBackgroundSyncing(false);
     }
-  }, [search, statusFilter, fromDate, toDate]);
+  }, [search, statusFilter, timePreset, fromDate, toDate]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
