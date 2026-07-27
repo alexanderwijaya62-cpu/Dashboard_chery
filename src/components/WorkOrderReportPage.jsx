@@ -492,33 +492,47 @@ export default function WorkOrderReportPage() {
     setIsBackgroundSyncing(false);
     setError(null);
 
+    const safeFetchJson = async (url) => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return { data: [] };
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) return { data: [] };
+        const json = await res.json();
+        return json || { data: [] };
+      } catch (e) {
+        return { data: [] };
+      }
+    };
+
     try {
+      const fetchLength = timePreset === 'all' ? 500 : 1000;
       if (!statusFilter) {
         // Fetch active AND closed WOs in parallel so "Semua Status" includes everything
         const activeParams = new URLSearchParams({
           endpoint: 'warranty-wo',
           draw: 1,
           start: 0,
-          length: 2000,
+          length: fetchLength,
           search,
           status: '',
-          from: timePreset === 'custom' ? fromDate : '',
-          to: timePreset === 'custom' ? toDate : ''
+          from: fromDate,
+          to: toDate
         });
         const closedParams = new URLSearchParams({
           endpoint: 'warranty-wo',
           draw: 1,
           start: 0,
-          length: 2000,
+          length: fetchLength,
           search,
           status: 'Closed',
-          from: timePreset === 'custom' ? fromDate : '',
-          to: timePreset === 'custom' ? toDate : ''
+          from: fromDate,
+          to: toDate
         });
 
         const [resActive, resClosed] = await Promise.all([
-          fetch(`/api/chery_dms?${activeParams}`).then(r => r.json()),
-          fetch(`/api/chery_dms?${closedParams}`).then(r => r.json())
+          safeFetchJson(`/api/chery_dms?${activeParams}`),
+          safeFetchJson(`/api/chery_dms?${closedParams}`)
         ]);
 
         const activeData = resActive.data || [];
@@ -542,15 +556,13 @@ export default function WorkOrderReportPage() {
           endpoint: 'warranty-wo',
           draw: 1,
           start: 0,
-          length: 2000,
+          length: fetchLength,
           search,
           status: statusFilter,
           from: fromDate,
           to: toDate
         });
-        const res = await fetch(`/api/chery_dms?${params}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
+        const json = await safeFetchJson(`/api/chery_dms?${params}`);
         if (json.error) throw new Error(json.error);
 
         const dateFiltered = (json.data || []).filter(row => isRowInSelectedRange(row, fromDate, toDate));
@@ -559,7 +571,8 @@ export default function WorkOrderReportPage() {
         setCachedWoData(cacheKey, dateFiltered);
       }
     } catch (err) {
-      setError(err.message);
+      console.error("fetchData error:", err);
+      setError(err.message || 'Gagal terhubung ke server DMS');
     } finally {
       setIsLoading(false);
       setIsBackgroundSyncing(false);
