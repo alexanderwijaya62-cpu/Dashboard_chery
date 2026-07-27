@@ -56,14 +56,35 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   const fetchFinancialData = React.useCallback(async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await db.select('revenue');
-      if (error) throw error;
+      let dmsMapped = [];
+      try {
+        const res = await fetch('/api/chery_dms?endpoint=warranty-invoice-report');
+        if (res.ok) {
+          const json = await res.json();
+          const rawList = Array.isArray(json.data) ? json.data : (json.payload?.content || []);
+          dmsMapped = rawList.map(item => ({
+            no_wo: item.no_wo,
+            wkt_masuk: item.waktu_masuk || item.tgl_invoice || item.created_at,
+            bk: item.no_polisi || item.no_pol,
+            tipe_kendaraan: item.nama_kendaraan || item.tipe_kendaraan || item.kategori,
+            jasa: Number(item.lcVal || item.jasa || 0),
+            s_part: Number(item.partVal || item.spare_part || 0),
+            g_total: Number(item.grandTotalVal || item.total || (item.lcVal || 0) + (item.partVal || 0)),
+            sa: item.nama_pembawa || item.nama_pelanggan || item.sa || '---',
+            leader: '',
+            mekanik: '',
+            nohp: ''
+          }));
+        }
+      } catch (err) {
+        console.warn("DMS invoice fetch error, falling back to db:", err);
+      }
 
-      // Map columns from snake_case with dots/spaces if any (based on your schema)
-      const mapped = (data || []).map(r => ({
+      const { data: supaData } = await db.select('revenue');
+      const supaMapped = (supaData || []).map(r => ({
         no_wo: r.no_wo,
         wkt_masuk: r.wkt_masuk,
-        bk: r.bk, // Catatan: Anda tidak mencantumkan 'bk' di schema revenue Anda tadi, saya asumsikan ada atau gunakan nohp
+        bk: r.bk,
         tipe_kendaraan: r.tipe_kendaraan,
         jasa: Number(r.jasa || 0),
         s_part: Number(r.s_part || 0),
@@ -74,38 +95,78 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
         nohp: r.nohp
       }));
 
-      setFinancialData(mapped);
-      if (mapped.length === 0) Toastify({ text: "⚠️ Revenue: Data Kosong", style: { background: "orange" } }).showToast();
+      const map = new Map();
+      [...dmsMapped, ...supaMapped].forEach(item => {
+        const key = item.no_wo || `id_${Math.random()}`;
+        if (key && !map.has(key)) map.set(key, item);
+      });
+
+      setFinancialData(Array.from(map.values()));
     } catch (e) {
       console.error("Gagal fetch financial:", e);
-      Toastify({ text: `❌ Revenue: ${e.message}`, style: { background: "red" } }).showToast();
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   }, []);
 
   const fetchWoHistory = React.useCallback(async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await db.select('laporanwo');
-      if (error) throw error;
+      const dmsMap = new Map();
+      try {
+        const activeParams = new URLSearchParams({ endpoint: 'warranty-wo', draw: 1, start: 0, length: 2000, status: '' });
+        const closedParams = new URLSearchParams({ endpoint: 'warranty-wo', draw: 1, start: 0, length: 2000, status: 'Closed' });
 
-      // Map dari nama kolom ber-titik dan spasi (No. WO, Wkt.Masuk, dll)
-      const mapped = (data || []).map(r => ({
-        no_wo: r['No. WO'],
-        bk: r['No. Pol'],
-        tipe_kendaraan: r['Kendaraan'],
-        sa: r['SA'],
-        mekanik: r['Mekanik'],
-        leader: r['Leader'],
-        wkt_masuk: r['Wkt.Masuk'],
-        status: r['Status']
-      }));
+        const [resActive, resClosed] = await Promise.all([
+          fetch(`/api/chery_dms?${activeParams}`).then(r => r.json()).catch(() => ({})),
+          fetch(`/api/chery_dms?${closedParams}`).then(r => r.json()).catch(() => ({}))
+        ]);
 
-      setWoTrackingData(mapped);
+        const activeData = resActive.data || [];
+        const closedData = resClosed.data || [];
+
+        [...activeData, ...closedData].forEach(item => {
+          const key = item.id_wo || item.no_wo;
+          if (key && !dmsMap.has(key)) {
+            dmsMap.set(key, {
+              no_wo: item.no_wo,
+              bk: item.no_polisi,
+              tipe_kendaraan: item.nama_kendaraan,
+              sa: item.nama_pembawa || '---',
+              mekanik: item.nama_mekanik1 || '---',
+              leader: item.nama_leader1 || '---',
+              wkt_masuk: item.waktu_masuk,
+              status: item.status
+            });
+          }
+        });
+      } catch (err) {
+        console.warn("DMS WO fetch error, falling back to db:", err);
+      }
+
+      const { data: supaData } = await db.select('laporanwo');
+      (supaData || []).forEach(r => {
+        const key = r['No. WO'];
+        if (key && !dmsMap.has(key)) {
+          dmsMap.set(key, {
+            no_wo: r['No. WO'],
+            bk: r['No. Pol'],
+            tipe_kendaraan: r['Kendaraan'],
+            sa: r['SA'],
+            mekanik: r['Mekanik'],
+            leader: r['Leader'],
+            wkt_masuk: r['Wkt.Masuk'],
+            status: r['Status']
+          });
+        }
+      });
+
+      setWoTrackingData(Array.from(dmsMap.values()));
     } catch (e) {
       console.error("Gagal fetch tracking:", e);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   }, []);
 
   const fetchCroHistory = React.useCallback(async () => {
@@ -194,19 +255,18 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
       let dObj;
       if (val instanceof Date) dObj = val;
       else if (typeof val === 'number') {
-        // Handle Excel Serial Date if needed, but usually it's string or ISO
         dObj = new Date(val);
       } else {
         let str = String(val).trim();
-        // Handle DD/MM/YYYY
+        // Handle DD/MM/YYYY or DD/MM/YYYY HH:mm
         if (str.includes('/')) {
-          const p = str.split('/');
+          const cleanStr = str.split(' ')[0];
+          const p = cleanStr.split('/');
           if (p.length === 3) {
-            if (p[2].length === 4) dObj = new Date(p[2], p[1] - 1, p[0]);
-            else dObj = new Date(p[0], p[1] - 1, p[2]);
+            if (p[2].length === 4) dObj = new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]));
+            else if (p[0].length === 4) dObj = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
           }
         } else {
-          // Cek apakah string ini sebenarnya adalah timestamp numerik (ms)
           if (/^\d{10,13}$/.test(str)) {
              dObj = new Date(parseInt(str));
           } else {
@@ -215,7 +275,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
         }
       }
 
-      if (isNaN(dObj.getTime())) return '';
+      if (!dObj || isNaN(dObj.getTime())) return '';
       const dy = String(dObj.getDate()).padStart(2, '0');
       const mt = String(dObj.getMonth() + 1).padStart(2, '0');
       const yr = dObj.getFullYear();

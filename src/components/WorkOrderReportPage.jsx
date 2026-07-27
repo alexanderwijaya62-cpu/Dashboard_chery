@@ -454,7 +454,10 @@ export default function WorkOrderReportPage() {
     setTimePreset(preset);
     setPage(0);
     const nowStr = getFormattedDate(0);
-    if (preset === 'today') {
+    if (preset === 'all') {
+      setFromDate('');
+      setToDate('');
+    } else if (preset === 'today') {
       setFromDate(nowStr);
       setToDate(nowStr);
     } else if (preset === 'week') {
@@ -690,6 +693,7 @@ export default function WorkOrderReportPage() {
         {/* Time Presets */}
         <div className="flex flex-wrap items-center gap-1 bg-zinc-100 p-1 rounded-xl border border-zinc-200">
           {[
+            { id: 'all', label: 'Semua' },
             { id: 'today', label: 'Hari Ini' },
             { id: 'week', label: 'Seminggu' },
             { id: 'month', label: 'Sebulan' },
