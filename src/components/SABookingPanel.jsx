@@ -62,7 +62,7 @@ export default function SABookingPanel() {
   const dateFillMap = useMemo(() => {
     const map = {};
     bookings.forEach(b => {
-      if (b.status !== 'waiting confirm' && b.status !== 'accepted' && b.status !== 'completed') return;
+      if (!['waiting confirm', 'waiting_approval', 'accepted', 'completed', 'synced'].includes(b.status)) return;
       if (!b.tanggal) return;
       const capacity = getCapacityForDate(b.tanggal, slotConfig);
       const slots = getSlotsForDate(b.tanggal, slotConfig);
