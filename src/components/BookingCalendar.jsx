@@ -82,12 +82,23 @@ export default function BookingCalendar({
 
     const timeSlotCounts = useMemo(() => {
         const map = {};
-        JAM_PILIHAN.forEach(slot => {
-            map[slot] = bookings.filter(b =>
-                b.tanggal === selectedDate &&
-                STATUS_ACTIVE.includes(b.status) &&
-                String(b.jam || '').replace(':', '.').trim() === slot
-            ).length;
+        const toMin = (j) => {
+            if (!j) return -1;
+            const parts = String(j).replace(':', '.').split('.');
+            const h = parseInt(parts[0] || '0', 10);
+            const m = parseInt(parts[1] || '0', 10);
+            return h * 60 + m;
+        };
+
+        JAM_PILIHAN.forEach((slot, idx) => {
+            const slotMin = toMin(slot);
+            const nextMin = idx < JAM_PILIHAN.length - 1 ? toMin(JAM_PILIHAN[idx + 1]) : slotMin + 30;
+
+            map[slot] = bookings.filter(b => {
+                if (b.tanggal !== selectedDate || !STATUS_ACTIVE.includes(b.status)) return false;
+                const bMin = toMin(b.jam);
+                return bMin >= slotMin && bMin < nextMin;
+            }).length;
         });
         return map;
     }, [bookings, selectedDate, JAM_PILIHAN]);

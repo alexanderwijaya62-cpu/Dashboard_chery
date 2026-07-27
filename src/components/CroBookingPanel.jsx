@@ -721,13 +721,13 @@ export default function CroBookingPanel({ user }) {
 
             {/* Create Booking Modal */}
             {isModalOpen && (
-                <div className="fixed inset-0 bg-white z-[999] flex flex-col animate-fade-in overflow-hidden">
-                    <div className="flex-1 relative flex flex-col overflow-hidden">
-                        <button onClick={resetModal} className="absolute top-6 right-8 p-3 bg-zinc-100 hover:bg-black text-black hover:text-white rounded-2xl transition-all z-[1000] shadow-sm">
-                            <X size={24} />
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999] flex items-center justify-center p-4 animate-fade-in">
+                    <div className="bg-white rounded-3xl shadow-2xl border border-zinc-200 w-full max-w-5xl max-h-[90vh] relative flex flex-col overflow-hidden">
+                        <button onClick={resetModal} className="absolute top-4 right-5 p-2.5 bg-zinc-100 hover:bg-black text-black hover:text-white rounded-xl transition-all z-[1000] shadow-sm">
+                            <X size={20} />
                         </button>
 
-                        <div className="px-4 py-3 md:px-6 md:py-4 lg:px-8 lg:py-4 flex-1 flex flex-col overflow-hidden">
+                        <div className="p-4 md:p-6 flex-1 flex flex-col overflow-hidden">
                             {/* Step indicator */}
                             <div className="mb-3 flex items-center gap-4 border-b border-zinc-100 pb-2 shrink-0">
                                 <div className="flex items-center gap-2">
@@ -836,35 +836,47 @@ export default function CroBookingPanel({ user }) {
                                                 holidays={holidays}
                                                 onDateSelect={(date) => setFormData({ ...formData, tanggal: date, jam: '' })}
                                                 onTimeSelect={(slot) => setFormData({ ...formData, jam: slot })}
-                                                showTimeSlots={false}
+                                        showTimeSlots={false}
                                             />
 
                                             {/* Quick time slots */}
                                             <div className="space-y-1">
                                                 <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Jam Kedatangan</h4>
                                                 <div className="grid grid-cols-3 gap-1.5">
-                                                    {getSlotsForDate(formData.tanggal, slotConfig).map((slot) => {
-                                                        const [h, m] = slot.split('.');
-                                                        const isPastTime = formData.tanggal === new Date().toISOString().split('T')[0] && parseFloat(slot) < (new Date().getHours() + new Date().getMinutes() / 60);
-                                                        const cap = getCapacityForDate(formData.tanggal, slotConfig);
-                                                        const count = bookings.filter(b =>
-                                                            b.tanggal === formData.tanggal &&
-                                                            String(b.jam).replace(':', '.') === slot &&
-                                                            ['waiting confirm', 'waiting_approval', 'accepted', 'completed', 'synced'].includes(b.status)
-                                                        ).length;
-                                                        const isFull = count >= cap;
-                                                        return (
-                                                            <button key={slot} type="button" disabled={isPastTime || (isFull && formData.jam !== slot)}
-                                                                onClick={() => setFormData({ ...formData, jam: slot })}
-                                                                className={`py-2 px-1.5 rounded-xl border-2 font-black text-xs uppercase tracking-widest transition-all ${formData.jam === slot ? 'bg-black border-black text-white shadow-lg' :
-                                                                    isPastTime || isFull ? 'bg-zinc-50 border-transparent text-zinc-200 cursor-not-allowed' : 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
-                                                                }`}
-                                                            >
-                                                                {h}:{m} WIB
-                                                                <span className="text-[10px] opacity-70 block">{count}/{cap}</span>
-                                                            </button>
-                                                        );
-                                                    })}
+                                                    {(() => {
+                                                        const slots = getSlotsForDate(formData.tanggal, slotConfig);
+                                                        const toMin = (j) => {
+                                                            if (!j) return -1;
+                                                            const parts = String(j).replace(':', '.').split('.');
+                                                            return parseInt(parts[0] || '0', 10) * 60 + parseInt(parts[1] || '0', 10);
+                                                        };
+
+                                                        return slots.map((slot, idx) => {
+                                                            const [h, m] = slot.split('.');
+                                                            const isPastTime = formData.tanggal === new Date().toISOString().split('T')[0] && parseFloat(slot) < (new Date().getHours() + new Date().getMinutes() / 60);
+                                                            const cap = getCapacityForDate(formData.tanggal, slotConfig);
+                                                            const slotMin = toMin(slot);
+                                                            const nextMin = idx < slots.length - 1 ? toMin(slots[idx + 1]) : slotMin + 30;
+
+                                                            const count = bookings.filter(b => {
+                                                                if (b.tanggal !== formData.tanggal || !['waiting confirm', 'waiting_approval', 'accepted', 'completed', 'synced'].includes(b.status)) return false;
+                                                                const bMin = toMin(b.jam);
+                                                                return bMin >= slotMin && bMin < nextMin;
+                                                            }).length;
+                                                            const isFull = count >= cap;
+                                                            return (
+                                                                <button key={slot} type="button" disabled={isPastTime || (isFull && formData.jam !== slot)}
+                                                                    onClick={() => setFormData({ ...formData, jam: slot })}
+                                                                    className={`py-2 px-1.5 rounded-xl border-2 font-black text-xs uppercase tracking-widest transition-all ${formData.jam === slot ? 'bg-black border-black text-white shadow-lg' :
+                                                                        isPastTime || isFull ? 'bg-zinc-50 border-transparent text-zinc-200 cursor-not-allowed' : 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
+                                                                    }`}
+                                                                >
+                                                                    {h}:{m} WIB
+                                                                    <span className="text-[10px] opacity-70 block">{count}/{cap}</span>
+                                                                </button>
+                                                            );
+                                                        });
+                                                    })()}
                                                 </div>
                                             </div>
                                         </div>
