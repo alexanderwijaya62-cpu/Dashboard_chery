@@ -113,7 +113,11 @@ export default function SABookingPanel() {
     }
 
     // Dedup by plate + date + time (Supabase first, DMS only if not already present)
-    const dedupKey = (b) => `${(b.noPlat || '').replace(/\s+/g, '').toUpperCase()}_${b.tanggal}_${String(b.jam || '').replace(':', '.')}`;
+    const dedupKey = (b) => {
+      const plat = (b.noPlat || '').replace(/\s+/g, '').toUpperCase();
+      if (!plat) return `id_${b.id}`;
+      return `${plat}_${b.tanggal}_${String(b.jam || '').replace(':', '.')}`;
+    };
     const seenKeys = new Set();
     const deduped = [];
     merged.forEach(b => {

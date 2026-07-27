@@ -44,7 +44,7 @@ export default function CroBookingPanel({ user }) {
                 yesterday.setDate(yesterday.getDate() - 1);
                 const dateStr = yesterday.toISOString().split('T')[0];
                 const { data } = await db.select('booking', {
-                    select: 'id, tanggal, jam, status',
+                    select: 'id, tanggal, jam, noPlat, status',
                     gte: { tanggal: dateStr }
                 });
                 let merged = Array.isArray(data) ? [...data] : [];
@@ -66,7 +66,11 @@ export default function CroBookingPanel({ user }) {
                 }
 
                 // Dedup by plate + date + time (Supabase first, DMS only if not already present)
-                const dedupKey = (b) => `${(b.noPlat || '').replace(/\s+/g, '').toUpperCase()}_${b.tanggal}_${String(b.jam || '').replace(':', '.')}`;
+                const dedupKey = (b) => {
+                    const plat = (b.noPlat || '').replace(/\s+/g, '').toUpperCase();
+                    if (!plat) return `id_${b.id}`;
+                    return `${plat}_${b.tanggal}_${String(b.jam || '').replace(':', '.')}`;
+                };
                 const seenKeys = new Set();
                 const deduped = [];
                 merged.forEach(b => {
