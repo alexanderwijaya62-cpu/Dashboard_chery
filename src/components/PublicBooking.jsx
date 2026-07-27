@@ -239,7 +239,7 @@ export default function PublicBooking({ user, setCurrentPage }) {
         const isToday = isSameDate(dateStr, new Date());
         const now = new Date();
         
-        const dayBookings = bookings.filter(b => isSameDate(b.tanggal, dateStr) && (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed'));
+        const dayBookings = bookings.filter(b => isSameDate(b.tanggal, dateStr) && ['waiting confirm', 'waiting_approval', 'accepted', 'completed', 'synced'].includes(b.status));
         
         if (dayBookings.length === 0) return 'empty';
         
@@ -294,7 +294,7 @@ export default function PublicBooking({ user, setCurrentPage }) {
     }, [selectedDate]);
 
     const bookingsForDate = useMemo(() => {
-        return bookings.filter(b => isSameDate(b.tanggal, selectedDate) && (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed'));
+        return bookings.filter(b => isSameDate(b.tanggal, selectedDate) && ['waiting confirm', 'waiting_approval', 'accepted', 'completed', 'synced'].includes(b.status));
     }, [bookings, selectedDate]);
 
     const handleBookClick = (jam) => {
@@ -379,7 +379,7 @@ export default function PublicBooking({ user, setCurrentPage }) {
         const bookedAtThisTime = bookings.filter(b => 
             isSameDate(b.tanggal, selectedDate) && 
             normalizeJam(b.jam) === normalizeJam(formData.jam) && 
-            (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed')
+            ['waiting confirm', 'waiting_approval', 'accepted', 'completed', 'synced'].includes(b.status)
         ).length;
 
         if (bookedAtThisTime >= (getCapacityForDate(selectedDate, bookingConfig) || 1)) { 
