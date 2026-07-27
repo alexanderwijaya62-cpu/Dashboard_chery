@@ -387,6 +387,36 @@ export function WorkOrderDetailView({ row, onDetailLoaded }) {
   );
 }
 
+const woReportMemoryCache = new Map();
+const WO_CACHE_KEY = 'wo_report_cache_data';
+const WO_CACHE_TTL = 300000; // 5 minutes cache
+
+function getCachedWoData(cacheKey) {
+  try {
+    if (woReportMemoryCache.has(cacheKey)) {
+      const entry = woReportMemoryCache.get(cacheKey);
+      if (Date.now() - entry.timestamp < WO_CACHE_TTL) return entry.data;
+    }
+    const raw = localStorage.getItem(`${WO_CACHE_KEY}_${cacheKey}`);
+    if (raw) {
+      const { data, timestamp } = JSON.parse(raw);
+      if (Date.now() - timestamp < WO_CACHE_TTL) {
+        woReportMemoryCache.set(cacheKey, { data, timestamp });
+        return data;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+function setCachedWoData(cacheKey, data) {
+  try {
+    const timestamp = Date.now();
+    woReportMemoryCache.set(cacheKey, { data, timestamp });
+    localStorage.setItem(`${WO_CACHE_KEY}_${cacheKey}`, JSON.stringify({ data, timestamp }));
+  } catch (e) {}
+}
+
 export default function WorkOrderReportPage() {
   const today = getFormattedDate(0);
 
@@ -426,8 +456,22 @@ export default function WorkOrderReportPage() {
     }
   };
 
-  // Fetch Work Order data (Queries active + closed in parallel when "Semua Status" is selected)
-  const fetchData = useCallback(async () => {
+  // Fetch Work Order data with caching support
+  const fetchData = useCallback(async (forceFresh = false) => {
+    const cacheKey = `${timePreset}_${fromDate}_${toDate}_${statusFilter}_${search}`;
+    
+    // 1. Try loading from cache instantly if not forcing fresh fetch
+    if (!forceFresh) {
+      const cached = getCachedWoData(cacheKey);
+      if (cached) {
+        setMasterList(cached);
+        setIsLoading(false);
+        // Refresh in background
+        fetchData(true);
+        return;
+      }
+    }
+
     setIsLoading(true);
     setIsBackgroundSyncing(false);
     setError(null);
@@ -475,7 +519,9 @@ export default function WorkOrderReportPage() {
         const dateFiltered = timePreset === 'custom'
           ? combined.filter(row => isRowInSelectedRange(row, fromDate, toDate))
           : combined;
+        
         setMasterList(dateFiltered);
+        setCachedWoData(cacheKey, dateFiltered);
       } else {
         // Query specific status (e.g. 'Closed', 'Open', 'Ready', 'In Progress', 'Checker', 'Selesai')
         const params = new URLSearchParams({
@@ -496,7 +542,9 @@ export default function WorkOrderReportPage() {
         const dateFiltered = timePreset === 'custom'
           ? (json.data || []).filter(row => isRowInSelectedRange(row, fromDate, toDate))
           : (json.data || []);
+        
         setMasterList(dateFiltered);
+        setCachedWoData(cacheKey, dateFiltered);
       }
     } catch (err) {
       setError(err.message);
@@ -727,7 +775,7 @@ export default function WorkOrderReportPage() {
             <option value="EUR">EUR</option>
           </select>
 
-          <button onClick={fetchData} disabled={isLoading} className="p-2 rounded-xl border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors">
+          <button onClick={() => fetchData(true)} disabled={isLoading} title="Refresh & ambil data terbaru" className="p-2 rounded-xl border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors">
             <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
           </button>
         </div>
