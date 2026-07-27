@@ -725,13 +725,13 @@ export default function CroBookingPanel({ user }) {
 
             {/* Create Booking Modal */}
             {isModalOpen && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999] flex items-center justify-center p-4 animate-fade-in">
-                    <div className="bg-white rounded-3xl shadow-2xl border border-zinc-200 w-full max-w-5xl max-h-[90vh] relative flex flex-col overflow-hidden">
-                        <button onClick={resetModal} className="absolute top-4 right-5 p-2.5 bg-zinc-100 hover:bg-black text-black hover:text-white rounded-xl transition-all z-[1000] shadow-sm">
-                            <X size={20} />
+                <div className="fixed inset-0 bg-white z-[999] flex flex-col animate-fade-in overflow-hidden">
+                    <div className="flex-1 relative flex flex-col overflow-hidden">
+                        <button onClick={resetModal} className="absolute top-6 right-8 p-3 bg-zinc-100 hover:bg-black text-black hover:text-white rounded-2xl transition-all z-[1000] shadow-sm">
+                            <X size={24} />
                         </button>
 
-                        <div className="p-4 md:p-6 flex-1 flex flex-col overflow-hidden">
+                        <div className="px-4 py-3 md:px-6 md:py-4 lg:px-8 lg:py-4 flex-1 flex flex-col overflow-hidden">
                             {/* Step indicator */}
                             <div className="mb-3 flex items-center gap-4 border-b border-zinc-100 pb-2 shrink-0">
                                 <div className="flex items-center gap-2">
