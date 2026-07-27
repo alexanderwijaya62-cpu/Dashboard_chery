@@ -251,20 +251,26 @@ export default async function handler(req, res) {
           const { tanggal, jam } = data.values;
           const activeStatuses = ['waiting_approval', 'waiting confirm', 'accepted', 'completed'];
 
-          // Baca slotCapacity dari settings
-          let slotCapacity = 1;
+          const isSat = new Date(tanggal).getDay() === 6;
+          const capKey = isSat ? 'booking_sat_slot_capacity' : 'booking_slot_capacity';
+
+          // Baca slotCapacity dari settings (sesuai hari biasa / sabtu)
+          let slotCapacity = 2;
           const { data: capSetting } = await supabase
             .from('settings')
             .select('value')
-            .eq('key', 'booking_slot_capacity')
+            .eq('key', capKey)
             .maybeSingle();
-          if (capSetting?.value) slotCapacity = parseInt(capSetting.value, 10) || 1;
+          if (capSetting?.value) slotCapacity = parseInt(capSetting.value, 10) || 2;
+
+          const jamDot = String(jam).replace(':', '.');
+          const jamColon = String(jam).replace('.', ':');
 
           const { data: conflicts, error: conflictErr } = await supabase
             .from('booking')
             .select('id')
             .eq('tanggal', tanggal)
-            .eq('jam', jam)
+            .in('jam', [jamDot, jamColon])
             .in('status', activeStatuses);
           if (conflictErr) throw conflictErr;
           if (conflicts && conflicts.length >= slotCapacity) {

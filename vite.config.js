@@ -20,10 +20,65 @@ function stripLayerImportPlugin() {
   }
 }
 
+function localCheryDmsPlugin() {
+  return {
+    name: 'local-chery-dms-middleware',
+    configureServer(server) {
+      server.middlewares.stack.unshift({
+        route: '',
+        handle: async (req, res, next) => {
+          if (req.url && (req.url.startsWith('/api/invoice_report') || req.url.startsWith('/api/chery_dms'))) {
+            try {
+              const urlObj = new URL(req.url, 'http://localhost');
+              const query = Object.fromEntries(urlObj.searchParams.entries());
+
+              const isInvoiceReport = req.url.startsWith('/api/invoice_report');
+              const mockReq = {
+                query: isInvoiceReport ? { endpoint: 'warranty-invoice-report', ...query } : query,
+                headers: req.headers,
+                method: req.method
+              };
+
+              const mockRes = {
+                setHeader(n, v) {
+                  try { res.setHeader(n, v); } catch (e) {}
+                  return this;
+                },
+                status(code) {
+                  res.statusCode = code;
+                  return this;
+                },
+                json(data) {
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify(data));
+                  return this;
+                },
+                send(data) {
+                  res.end(data);
+                  return this;
+                }
+              };
+
+              const cheryDmsModule = await import('./api/chery_dms.js');
+              const handler = cheryDmsModule.default || cheryDmsModule;
+              return await handler(mockReq, mockRes);
+            } catch (err) {
+              console.error('Local Chery DMS Middleware Error:', err);
+              return next();
+            }
+          }
+          next();
+        }
+      });
+    }
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
     stripLayerImportPlugin(),
+    localCheryDmsPlugin(),
     react(),
     legacy({
       targets: ['defaults', 'not IE 11', 'Chrome >= 49', 'Samsung >= 5'],
@@ -51,6 +106,14 @@ export default defineConfig({
       '/api/csi-proxy': {
         target: 'http://localhost:3099',
         changeOrigin: true,
+      },
+      '/api/invoice_report': {
+        target: 'http://localhost:5173',
+        bypass: (req) => req.url
+      },
+      '/api/chery_dms': {
+        target: 'http://localhost:5173',
+        bypass: (req) => req.url
       },
       '/api': {
         target: 'https://www.cherymedan.web.id',

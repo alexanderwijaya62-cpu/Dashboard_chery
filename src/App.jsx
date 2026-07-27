@@ -1102,7 +1102,7 @@ const App = () => {
     return () => clearTimeout(autoTimer);
   }, [queue, breakSettings]);
 
-  // #3: Auto no-show handling — check setiap 60 detik
+  // #3: Auto no-show handling — hanya jalankan jika sudah berganti hari (bukan di hari berjalan)
   useEffect(() => {
     if (!user) return;
     if (noShowCheckedRef.current) return;
@@ -1112,48 +1112,27 @@ const App = () => {
       try {
         const now = new Date();
         const todayStr = now.toISOString().split('T')[0];
-        const { data: todayBookings, error } = await db.select('booking', {
-          select: 'id,jam,noPlat,status',
-          eq: { tanggal: todayStr },
+        // Hanya update booking hari-hari SEBELUMNYA yang belum diproses ke no_show saat berganti hari
+        const { data: pastBookings, error } = await db.select('booking', {
+          select: 'id,tanggal,status',
+          lt: { tanggal: todayStr },
           in: { status: ['accepted', 'waiting confirm'] }
         });
-        if (error || !Array.isArray(todayBookings)) return;
+        if (error || !Array.isArray(pastBookings) || pastBookings.length === 0) return;
 
-        const antrianPlates = new Set();
-        const { data: activeAntrian } = await db.select('antrian', {
-          select: 'bk',
-          in: { status: ['waiting', 'working', 'istirahat', 'menginap'] }
-        });
-        if (Array.isArray(activeAntrian)) {
-          activeAntrian.forEach(a => { if (a.bk) antrianPlates.add(a.bk.toUpperCase().replace(/\s+/g, '')); });
-        }
-
-        for (const b of todayBookings) {
-          const jamStr = String(b.jam || '').replace(':', '.');
-          const [h, m] = jamStr.split('.');
-          if (!h || !m) continue;
-          const slotTime = new Date();
-          slotTime.setHours(parseInt(h), parseInt(m), 0, 0);
-          const diffMin = (now - slotTime) / (1000 * 60);
-
-          if (diffMin > 30) {
-            const plat = (b.noPlat || '').toUpperCase().replace(/\s+/g, '');
-            if (!plat) continue;
-            if (antrianPlates.has(plat)) continue;
-            // Atomic: hanya update jika status masih accepted/waiting confirm
-            await supabase
-              .from('booking')
-              .update({ status: 'no_show' })
-              .eq('id', b.id)
-              .in('status', ['accepted', 'waiting confirm']);
-          }
+        for (const b of pastBookings) {
+          await supabase
+            .from('booking')
+            .update({ status: 'no_show' })
+            .eq('id', b.id)
+            .in('status', ['accepted', 'waiting confirm']);
         }
       } catch (e) {
         console.error('No-show check error:', e);
       }
     };
 
-    const interval = setInterval(checkNoShow, 60000);
+    const interval = setInterval(checkNoShow, 360000);
     checkNoShow();
     return () => clearInterval(interval);
   }, [user]);
@@ -2545,6 +2524,7 @@ const App = () => {
       {currentPage === 'manager' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="performance" />}
       {currentPage === 'manager-financial' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="financial" />}
       {currentPage === 'manager-wo' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="wo_tracking" />}
+      {currentPage === 'manager-laporan-invoice' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="laporan_invoice" />}
       {currentPage === 'manager-laporan-wo' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="laporan_wo" />}
       {currentPage === 'manager-vehicles' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="vehicles" />}
       {currentPage === 'manager-cro' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="cro_history" />}
@@ -2555,6 +2535,9 @@ const App = () => {
       )}
       {currentPage === 'owner-workshop' && user?.role === 'owner' && (
         <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="workshop" />
+      )}
+      {currentPage === 'owner-laporan-invoice' && user?.role === 'owner' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="laporan_invoice" />
       )}
       {currentPage === 'owner-laporan-wo' && user?.role === 'owner' && (
         <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="laporan_wo" />

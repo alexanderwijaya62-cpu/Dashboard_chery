@@ -1,17 +1,44 @@
-import https from 'https';
-import urllib from 'url';
-import fs from 'fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+
+const nativeRequire = createRequire(import.meta.url);
+const http = nativeRequire('node:http');
+const https = nativeRequire('node:https');
+const urllib = nativeRequire('node:url');
+const fs = nativeRequire('node:fs');
+
+function ensureEnvLoaded() {
+    if (!process.env.WARRANTY_USER || !process.env.WARRANTY_PASS) {
+        try {
+            const envPath = path.resolve(process.cwd(), '.env');
+            if (fs.existsSync(envPath)) {
+                const content = fs.readFileSync(envPath, 'utf8');
+                for (const line of content.split('\n')) {
+                    const trimmed = line.trim();
+                    if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+                        const idx = trimmed.indexOf('=');
+                        const key = trimmed.slice(0, idx).trim();
+                        const val = trimmed.slice(idx + 1).trim();
+                        if (key && !process.env[key]) {
+                            process.env[key] = val;
+                        }
+                    }
+                }
+            }
+        } catch (e) {}
+    }
+}
+ensureEnvLoaded();
 
 let cachedCookie = null;
 let currentLoginPromise = null;
 
-// Native Node.js HTTPS Agent dengan socket pool tinggi agar sangat cepat dan bebas crash libuv
 const httpsAgent = new https.Agent({
     keepAlive: true,
     maxSockets: 64,
     maxFreeSockets: 16,
     timeout: 30000,
-    rejectUnauthorized: true
+    rejectUnauthorized: false
 });
 
 function fetchWithHttps(urlStr, options = {}) {
@@ -29,16 +56,20 @@ function fetchWithHttps(urlStr, options = {}) {
         } catch (err) {
             return reject(new Error(`Invalid URL: ${fullUrl}`));
         }
+
+        const isHttps = u.protocol === 'https:';
+        const client = isHttps ? https : http;
+
         const reqOptions = {
             hostname: u.hostname,
-            port: u.port || (u.protocol === 'http:' ? 80 : 443),
+            port: u.port || (isHttps ? 443 : 80),
             path: u.pathname + u.search,
             method: options.method || 'GET',
             headers: options.headers || {},
-            agent: httpsAgent
+            agent: isHttps ? httpsAgent : undefined
         };
 
-        const req = https.request(reqOptions, (res) => {
+        const req = client.request(reqOptions, (res) => {
             let chunks = [];
             res.on('data', (chunk) => chunks.push(chunk));
             res.on('end', () => {
@@ -162,8 +193,16 @@ let warrantyCookieExpiry = 0;
 let croCookie = null;
 let croCookieExpiry = 0;
 
+function getWarrantyBaseUrl() {
+    let url = process.env.WARRANTY_BASE_URL || 'http://103.160.12.43';
+    if (url.startsWith('https://103.160.12.43')) {
+        url = url.replace('https://103.160.12.43', 'http://103.160.12.43');
+    }
+    return url;
+}
+
 async function warrantyGenericLogin(isCro = false) {
-    const BASE = process.env.WARRANTY_BASE_URL;
+    const BASE = getWarrantyBaseUrl();
     const PUBLIC_HOST = 'https://dms.chery.co.id';
     const USER = isCro ? (process.env.CRO_USER) : (process.env.WARRANTY_USER);
     const PASS = isCro ? (process.env.CRO_PASS) : (process.env.WARRANTY_PASS);
@@ -314,6 +353,11 @@ async function handleWarranty(req, res) {
         dmsTo = `${d}/${m}/${y}`;
     }
 
+    let dateQuery = '';
+    if (dmsFrom && dmsTo) {
+        dateQuery = `&time=waktu_masuk&from=${encodeURIComponent(dmsFrom)}&to=${encodeURIComponent(dmsTo)}&from_date=${encodeURIComponent(dmsFrom)}&to_date=${encodeURIComponent(dmsTo)}`;
+    }
+
     const targetUrl = `${BASE}/aftersales/work-order/data?draw=${draw}&start=${start}&length=${length}` +
         `&columns[0][data]=action&columns[0][name]=action&columns[0][searchable]=false&columns[0][orderable]=false&columns[0][search][value]=&columns[0][search][regex]=false` +
         `&columns[1][data]=no_wo&columns[1][name]=no_wo&columns[1][searchable]=true&columns[1][orderable]=true&columns[1][search][value]=&columns[1][search][regex]=false` +
@@ -336,7 +380,7 @@ async function handleWarranty(req, res) {
         `&columns[18][data]=last_update&columns[18][name]=last_update&columns[18][searchable]=true&columns[18][orderable]=true&columns[18][search][value]=&columns[18][search][regex]=false` +
         `&order[0][column]=18&order[0][dir]=desc` +
         `&search[value]=${encodeURIComponent(search)}&search[regex]=false` +
-        `&status=${encodeURIComponent(status)}&kategori=${encodeURIComponent(kategori)}&time=waktu_masuk&from=${encodeURIComponent(from || dmsFrom)}&to=${encodeURIComponent(to || dmsTo)}&from_date=${encodeURIComponent(from || dmsFrom)}&to_date=${encodeURIComponent(to || dmsTo)}&_=${Date.now()}`;
+        `&status=${encodeURIComponent(status)}&kategori=${encodeURIComponent(kategori)}${dateQuery}&_=${Date.now()}`;
 
     let attempts = 0;
     while (attempts < 2) {
@@ -370,10 +414,9 @@ async function handleWarranty(req, res) {
     return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
 }
 
-async function handleWarrantyEstimasiDetail(req, res) {
+async function fetchAndParseEstimasiDetailHelper(id) {
     const BASE = process.env.WARRANTY_BASE_URL;
-    const id = req.query.id || '';
-    if (!id) return res.status(400).json({ error: 'Missing estimasi/WO ID' });
+    if (!id) return null;
 
     const targetUrl = `${BASE}/aftersales/estimasi/detail/${id}`;
     let attempts = 0;
@@ -391,7 +434,6 @@ async function handleWarrantyEstimasiDetail(req, res) {
         });
         const body = await response.text();
         const isHtml = body.trimStart().startsWith('<');
-
         const isLoginPage = body.includes('/aftersales/login') ||
                             (body.includes('name="username"') && body.includes('name="password"'));
 
@@ -402,7 +444,6 @@ async function handleWarrantyEstimasiDetail(req, res) {
         }
 
         try {
-            // 1. Scrape Pekerjaan (LC) Rows
             const pekerjaan = [];
             const tbodyLcMatch = body.match(/<tbody[^>]*id="tbody_lc"[\s\S]*?<\/tbody>/i);
             const lcHtml = tbodyLcMatch ? tbodyLcMatch[0] : body;
@@ -453,7 +494,6 @@ async function handleWarrantyEstimasiDetail(req, res) {
                 }
             }
 
-            // 2. Scrape Spare Part Rows
             const parts = [];
             const tbodyPartMatch = body.match(/<tbody[^>]*id="tbody_part"[\s\S]*?<\/tbody>/i);
             const partHtml = tbodyPartMatch ? tbodyPartMatch[0] : body;
@@ -524,7 +564,6 @@ async function handleWarrantyEstimasiDetail(req, res) {
                 }
             }
 
-            // 3. Summaries
             const parseVal = (idOrName) => {
                 const match = body.match(new RegExp(`id="${idOrName}"[^>]*>\\s*Rp\\.?\\s*([0-9.,]+)`, 'i')) ||
                               body.match(new RegExp(`name="${idOrName}"[^>]*value="([^"]*)"`, 'i')) ||
@@ -534,17 +573,21 @@ async function handleWarrantyEstimasiDetail(req, res) {
                 return parseFloat(clean) || 0;
             };
 
-            const pekSubtotal = parseVal('sub_total_pekerjaan_view') ?? parseVal('sum_sub_total_pekerjaan') ?? pekerjaan.reduce((s, p) => s + (p.sub_total || p.total || 0), 0);
-            const pekDiskon = parseVal('diskon_pekerjaan_view') ?? parseVal('sum_diskon_pekerjaan') ?? pekerjaan.reduce((s, p) => s + (p.diskon_nominal || 0), 0);
-            const pekTotal = parseVal('total_pekerjaan_view') ?? parseVal('sum_total_pekerjaan') ?? (pekSubtotal - pekDiskon);
+            const pekSubtotalRaw = parseVal('sub_total_pekerjaan_view') || parseVal('sum_sub_total_pekerjaan') || 0;
+            const pekSubtotal = pekSubtotalRaw > 0 ? pekSubtotalRaw : pekerjaan.reduce((s, p) => s + (p.sub_total || p.total || 0), 0);
 
-            let partSubtotal = parseVal('sub_total_part_view') ?? parseVal('sum_sub_total_part') ?? parts.reduce((s, p) => s + (p.sub_total || p.total || 0), 0);
-            const rawGrandSub = parseVal('sub_total_view') ?? parseVal('sum_sub_total') ?? 0;
+            const pekDiskonRaw = parseVal('diskon_pekerjaan_view') || parseVal('sum_diskon_pekerjaan') || 0;
+            const pekDiskon = pekDiskonRaw > 0 ? pekDiskonRaw : pekerjaan.reduce((s, p) => s + (p.diskon_nominal || 0), 0);
+            const pekTotal = pekSubtotal - pekDiskon;
+
+            const partSubtotalRaw = parseVal('sub_total_part_view') || parseVal('sum_sub_total_part') || 0;
+            let partSubtotal = partSubtotalRaw > 0 ? partSubtotalRaw : parts.reduce((s, p) => s + (p.sub_total || p.total || 0), 0);
+
+            const rawGrandSub = parseVal('sub_total_view') || parseVal('sum_sub_total') || 0;
             if (partSubtotal === 0 && rawGrandSub > pekSubtotal) {
                 partSubtotal = rawGrandSub - pekSubtotal;
             }
 
-            // Distribute partSubtotal to individual parts if part.sub_total is 0
             if (partSubtotal > 0 && parts.length > 0) {
                 const partsWithZeroSub = parts.filter(p => !p.sub_total && !p.harga_jual);
                 if (partsWithZeroSub.length > 0) {
@@ -576,7 +619,7 @@ async function handleWarrantyEstimasiDetail(req, res) {
             const totalPekerjaan = pekTotal;
             const perintah = pekerjaan.map(p => p.nama_pekerjaan).filter(Boolean).join(', ');
 
-            return res.status(200).json({
+            return {
                 parts,
                 pekerjaan,
                 totalPekerjaan,
@@ -584,12 +627,166 @@ async function handleWarrantyEstimasiDetail(req, res) {
                 pekerjaanSummary: { sub_total: pekSubtotal, diskon: pekDiskon, total: pekTotal },
                 partsSummary: { sub_total: partSubtotal, diskon: partDiskon, dpp: partDpp, ppn: partPpn, total: partTotal },
                 grandSummary: { sub_total: grandSubtotal, diskon: grandDiskon, dpp: grandDpp, ppn: grandPpn, total: grandTotal }
-            });
+            };
         } catch (err) {
-            return res.status(500).json({ error: 'Failed to parse estimasi details from HTML', message: err.message });
+            return null;
         }
     }
-    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+    return null;
+}
+
+async function handleWarrantyEstimasiDetail(req, res) {
+    const id = req.query.id || '';
+    if (!id) return res.status(400).json({ error: 'Missing estimasi/WO ID' });
+
+    const detailObj = await fetchAndParseEstimasiDetailHelper(id);
+    if (!detailObj) {
+        return res.status(500).json({ error: 'Failed to parse estimasi details from HTML' });
+    }
+    return res.status(200).json(detailObj);
+}
+
+const detailCacheStore = new Map();
+
+async function getCachedOrFetchEstimasiDetail(id_wo) {
+    if (!id_wo) return null;
+    if (detailCacheStore.has(id_wo)) {
+        return detailCacheStore.get(id_wo);
+    }
+    const detail = await fetchAndParseEstimasiDetailHelper(id_wo);
+    if (detail) {
+        detailCacheStore.set(id_wo, detail);
+    }
+    return detail;
+}
+
+const invoiceReportCacheStore = new Map();
+
+async function handleWarrantyInvoiceReport(req, res) {
+    const BASE = getWarrantyBaseUrl();
+    const draw = req.query.draw || 1;
+    const search = req.query.search || '';
+    const from = req.query.from || '';
+    const to = req.query.to || '';
+
+    const cacheKey = `tagihan_report_${from}_${to}_${search}`;
+    const cached = invoiceReportCacheStore.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < 300000)) {
+        return res.status(200).json(cached.json);
+    }
+
+    let dmsFrom = from;
+    let dmsTo = to;
+    if (from && from.includes('-')) {
+        const [y, m, d] = from.split('-');
+        dmsFrom = `${d}/${m}/${y}`;
+    }
+    if (to && to.includes('-')) {
+        const [y, m, d] = to.split('-');
+        dmsTo = `${d}/${m}/${y}`;
+    }
+    let dateQuery = '';
+    if (dmsFrom && dmsTo) {
+        dateQuery = `&time=waktu_masuk&from=${encodeURIComponent(dmsFrom)}&to=${encodeURIComponent(dmsTo)}&from_date=${encodeURIComponent(dmsFrom)}&to_date=${encodeURIComponent(dmsTo)}`;
+    }
+
+    let tagihanList = [];
+    const getPageUrl = (startOffset) => `${BASE}/aftersales/tagihan/data?draw=${draw}&start=${startOffset}&length=10000` +
+        `&columns[0][data]=action&columns[0][name]=action&columns[0][searchable]=false&columns[0][orderable]=false&columns[0][search][value]=&columns[0][search][regex]=false` +
+        `&columns[1][data]=no_wo&columns[1][name]=svc_wo.no_wo&columns[1][searchable]=true&columns[1][orderable]=true&columns[1][search][value]=&columns[1][search][regex]=false` +
+        `&columns[2][data]=no_polisi&columns[2][name]=svc_wo.no_polisi&columns[2][searchable]=true&columns[2][orderable]=true&columns[2][search][value]=&columns[2][search][regex]=false` +
+        `&columns[3][data]=nama_pelanggan&columns[3][name]=svc_wo.nama_pelanggan&columns[3][searchable]=true&columns[3][orderable]=true&columns[3][search][value]=&columns[3][search][regex]=false` +
+        `&columns[4][data]=waktu_masuk&columns[4][name]=svc_wo.waktu_masuk&columns[4][searchable]=true&columns[4][orderable]=true&columns[4][search][value]=&columns[4][search][regex]=false` +
+        `&columns[5][data]=waktu_selesai&columns[5][name]=svc_wo.waktu_selesai&columns[5][searchable]=true&columns[5][orderable]=true&columns[5][search][value]=&columns[5][search][regex]=false` +
+        `&columns[6][data]=biaya_pekerjaan&columns[6][name]=biaya_pekerjaan&columns[6][searchable]=true&columns[6][orderable]=true&columns[6][search][value]=&columns[6][search][regex]=false` +
+        `&columns[7][data]=spare_part&columns[7][name]=spare_part&columns[7][searchable]=true&columns[7][orderable]=true&columns[7][search][value]=&columns[7][search][regex]=false` +
+        `&columns[8][data]=item&columns[8][name]=item&columns[8][searchable]=true&columns[8][orderable]=true&columns[8][search][value]=&columns[8][search][regex]=false` +
+        `&columns[9][data]=sub_order&columns[9][name]=sub_order&columns[9][searchable]=true&columns[9][orderable]=true&columns[9][search][value]=&columns[9][search][regex]=false` +
+        `&columns[10][data]=total_diskon&columns[10][name]=total_diskon&columns[10][searchable]=true&columns[10][orderable]=true&columns[10][search][value]=&columns[10][search][regex]=false` +
+        `&columns[11][data]=dpp&columns[11][name]=dpp&columns[11][searchable]=true&columns[11][orderable]=true&columns[11][search][value]=&columns[11][search][regex]=false` +
+        `&columns[12][data]=ppn&columns[12][name]=ppn&columns[12][searchable]=true&columns[12][orderable]=true&columns[12][search][value]=&columns[12][search][regex]=false` +
+        `&columns[13][data]=total&columns[13][name]=total&columns[13][searchable]=true&columns[13][orderable]=true&columns[13][search][value]=&columns[13][search][regex]=false` +
+        `&order[0][column]=5&order[0][dir]=desc` +
+        `&search[value]=${encodeURIComponent(search)}&search[regex]=false${dateQuery}&_=${Date.now()}`;
+
+    if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+        warrantyCookie = await warrantyLogin();
+    }
+
+    const parseRp = (str) => {
+        if (typeof str === 'number') return str;
+        if (!str) return 0;
+        const clean = String(str).replace(/[^0-9]/g, '');
+        return parseFloat(clean) || 0;
+    };
+
+    const firstRes = await fetchWithHttps(getPageUrl(0), {
+        headers: {
+            'Cookie': warrantyCookie,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': `${BASE}/aftersales/tagihan`,
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+    });
+    const firstBody = await firstRes.text();
+    let totalRecords = 0;
+    try {
+        const parsed = JSON.parse(firstBody);
+        tagihanList = parsed.data || [];
+        totalRecords = parsed.recordsFiltered || parsed.recordsTotal || tagihanList.length;
+    } catch {}
+
+    if (totalRecords > tagihanList.length) {
+        const fetchLen = 10000;
+        const remainingOffsets = [];
+        for (let offset = tagihanList.length; offset < totalRecords; offset += fetchLen) {
+            remainingOffsets.push(offset);
+        }
+
+        const remainingResults = await Promise.allSettled(
+            remainingOffsets.map(offset =>
+                fetchWithHttps(getPageUrl(offset), {
+                    headers: {
+                        'Cookie': warrantyCookie,
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Referer': `${BASE}/aftersales/tagihan`,
+                        'Accept': 'application/json, text/javascript, */*; q=0.01',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                }).then(r => r.json())
+            )
+        );
+
+        remainingResults.forEach(r => {
+            if (r.status === 'fulfilled' && r.value && r.value.data) {
+                tagihanList = tagihanList.concat(r.value.data);
+            }
+        });
+    }
+
+    const invoiceData = tagihanList.map(item => {
+        const lcVal = parseRp(item.biaya_pekerjaan);
+        const partVal = parseRp(item.spare_part);
+        const dppVal = parseRp(item.dpp);
+        const ppnVal = parseRp(item.ppn);
+        const grandTotalVal = parseRp(item.total);
+        const subTotalVal = dppVal > 0 ? dppVal : (lcVal + partVal);
+
+        return {
+            ...item,
+            kategori: (item.no_wo ? item.no_wo.split('-')[0] : 'LAINNYA'),
+            lcVal,
+            partVal,
+            subTotalVal,
+            ppnVal,
+            grandTotalVal
+        };
+    });
+
+    const finalResult = { data: invoiceData };
+    invoiceReportCacheStore.set(cacheKey, { timestamp: Date.now(), json: finalResult });
+    return res.status(200).json(finalResult);
 }
 
 async function getCsrfToken(url, cookie) {
@@ -1221,6 +1418,10 @@ export default async function handler(req, res) {
 
     if (endpoint === 'warranty-estimasi-detail') {
         return handleWarrantyEstimasiDetail(req, res);
+    }
+
+    if (endpoint === 'warranty-invoice-report') {
+        return handleWarrantyInvoiceReport(req, res);
     }
 
     // ============================================================

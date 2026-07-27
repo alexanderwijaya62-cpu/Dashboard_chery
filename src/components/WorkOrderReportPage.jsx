@@ -39,14 +39,25 @@ function isRowInSelectedRange(row, fromStr, toStr) {
   return true;
 }
 
-export function WorkOrderDetailView({ row }) {
-  const [detailData, setDetailData] = useState(null);
-  const [loading, setLoading] = useState(false);
+const estimasiDetailCacheStore = new Map();
+
+export function WorkOrderDetailView({ row, onDetailLoaded }) {
+  const [detailData, setDetailData] = useState(() => estimasiDetailCacheStore.get(row?.id_wo) || null);
+  const [loading, setLoading] = useState(!estimasiDetailCacheStore.has(row?.id_wo));
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('lc');
 
   useEffect(() => {
     if (!row?.id_wo) return;
+
+    if (estimasiDetailCacheStore.has(row.id_wo)) {
+      const cached = estimasiDetailCacheStore.get(row.id_wo);
+      setDetailData(cached);
+      setLoading(false);
+      if (onDetailLoaded) onDetailLoaded(row.id_wo, cached);
+      return;
+    }
+
     let isMounted = true;
     setLoading(true);
     setError(null);
@@ -55,7 +66,9 @@ export function WorkOrderDetailView({ row }) {
       .then(data => {
         if (!isMounted) return;
         if (data.error) throw new Error(data.error);
+        estimasiDetailCacheStore.set(row.id_wo, data);
         setDetailData(data);
+        if (onDetailLoaded) onDetailLoaded(row.id_wo, data);
       })
       .catch(err => {
         if (isMounted) setError(err.message);
@@ -345,27 +358,28 @@ export function WorkOrderDetailView({ row }) {
         )}
 
         {/* Grand Total Footer Bar */}
-        <div className="bg-zinc-900 text-white p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex flex-wrap items-center gap-4">
+        <div className="bg-zinc-900 text-white p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs w-full overflow-x-auto rounded-b-xl">
+          <div className="flex flex-wrap items-center gap-4 sm:gap-6">
             <div>
-              <span className="text-[10px] text-zinc-400 block uppercase font-bold">Subtotal Total</span>
-              <span className="font-bold">{formatRp(grandSubtotal)}</span>
+              <span className="text-[10px] text-zinc-400 block uppercase font-bold">Subtotal</span>
+              <span className="font-bold text-zinc-200">{formatRp(grandSubtotal)}</span>
             </div>
             <div>
-              <span className="text-[10px] text-zinc-400 block uppercase font-bold">Diskon Total</span>
+              <span className="text-[10px] text-zinc-400 block uppercase font-bold">Diskon</span>
               <span className="font-bold text-red-400">{formatRp(grandDiskon)}</span>
             </div>
             <div>
-              <span className="text-[10px] text-zinc-400 block uppercase font-bold">DPP Total</span>
+              <span className="text-[10px] text-zinc-400 block uppercase font-bold">DPP</span>
               <span className="font-bold text-zinc-200">{formatRp(grandDpp)}</span>
             </div>
             <div>
-              <span className="text-[10px] text-zinc-400 block uppercase font-bold">PPN 11%</span>
+              <span className="text-[10px] text-zinc-400 block uppercase font-bold">PPN (11%)</span>
               <span className="font-bold text-blue-400">{formatRp(grandPpn)}</span>
             </div>
           </div>
-          <div className="bg-emerald-600 px-4 py-2 rounded-lg font-black text-sm text-white shadow-sm">
-            GRAND TOTAL: {formatRp(grandTotal)}
+          <div className="bg-emerald-600 px-4 py-2 rounded-lg font-black text-sm text-white shadow-sm flex items-center gap-2 whitespace-nowrap shrink-0">
+            <span>TOTAL:</span>
+            <span>{formatRp(grandTotal)}</span>
           </div>
         </div>
       </div>

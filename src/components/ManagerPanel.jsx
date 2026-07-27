@@ -9,6 +9,7 @@ import ChangePasswordModal from './ChangePasswordModal';
 import CroBookingPanel from './CroBookingPanel';
 import HolidaySettings from './HolidaySettings';
 import WorkOrderReportPage from './WorkOrderReportPage';
+import InvoiceReportPage from './InvoiceReportPage';
 import * as XLSX from 'xlsx';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
@@ -903,7 +904,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
           </button>
         </div>
         )}
-        {activeTab !== 'staff' && activeTab !== 'laporan_wo' && (
+        {activeTab !== 'staff' && activeTab !== 'laporan_wo' && activeTab !== 'laporan_invoice' && activeTab !== 'manager-laporan-invoice' && (
           <section className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
               <h2 className="text-sm font-black uppercase tracking-widest text-zinc-500">
@@ -954,7 +955,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
         )}
 
         {/* Status Indicators */}
-        {activeTab !== 'cro_history' && activeTab !== 'staff' && activeTab !== 'booking_mgmt' && activeTab !== 'holidays' && activeTab !== 'vehicles' && activeTab !== 'laporan_wo' && (
+        {activeTab !== 'cro_history' && activeTab !== 'staff' && activeTab !== 'booking_mgmt' && activeTab !== 'holidays' && activeTab !== 'vehicles' && activeTab !== 'laporan_wo' && activeTab !== 'laporan_invoice' && activeTab !== 'manager-laporan-invoice' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             {activeTab === 'wo_tracking' ? (
               [
@@ -1001,8 +1002,14 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
 
         {/* Dynamic Tab Content */}
         <section className="animate-in">
-          {activeTab === 'laporan_wo' && (
-            <div className="h-[calc(100vh-200px)]">
+          {(activeTab === 'laporan_invoice' || activeTab === 'manager-laporan-invoice') && (
+            <div className="min-h-[calc(100vh-200px)]">
+              <InvoiceReportPage />
+            </div>
+          )}
+
+          {(activeTab === 'laporan_wo' || activeTab === 'manager-laporan-wo') && (
+            <div className="min-h-[calc(100vh-200px)]">
               <WorkOrderReportPage />
             </div>
           )}

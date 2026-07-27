@@ -9,6 +9,7 @@ import {
 import Toastify from 'toastify-js';
 import ChangePasswordModal from './ChangePasswordModal';
 import WorkOrderReportPage from './WorkOrderReportPage';
+import InvoiceReportPage from './InvoiceReportPage';
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
 import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL } from '../utils/config';
@@ -1730,8 +1731,14 @@ export default function OwnerPanel({
             </div>
           )}
 
-          {activeTab === 'laporan_wo' && (
-            <div className="h-[calc(100vh-200px)]">
+          {(activeTab === 'laporan_invoice' || activeTab === 'owner-laporan-invoice') && (
+            <div className="min-h-[calc(100vh-200px)]">
+              <InvoiceReportPage />
+            </div>
+          )}
+
+          {(activeTab === 'laporan_wo' || activeTab === 'owner-laporan-wo') && (
+            <div className="min-h-[calc(100vh-200px)]">
               <WorkOrderReportPage />
             </div>
           )}
