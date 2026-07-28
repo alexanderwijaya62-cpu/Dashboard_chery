@@ -8,7 +8,7 @@ const urllib = nativeRequire('node:url');
 const fs = nativeRequire('node:fs');
 
 function ensureEnvLoaded() {
-    if (!process.env.WARRANTY_USER || !process.env.WARRANTY_PASS) {
+    if (!process.env.WARRANTY_USER || !process.env.WARRANTY_PASS || !process.env.DMS_USER) {
         try {
             const envPath = path.resolve(process.cwd(), '.env');
             if (fs.existsSync(envPath)) {
