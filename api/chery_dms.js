@@ -402,18 +402,16 @@ async function handleWarranty(req, res) {
                     'X-Requested-With': 'XMLHttpRequest',
                 };
 
-                const [resActive, resClosed1, resClosed2] = await Promise.all([
-                    fetchWithHttps(buildUrlCustom('', 0, 2000), { headers: reqHeaders }).then(r => r.json()).catch(() => ({})),
-                    fetchWithHttps(buildUrlCustom('Closed', 0, 2500), { headers: reqHeaders }).then(r => r.json()).catch(() => ({})),
-                    fetchWithHttps(buildUrlCustom('Closed', 2500, 3500), { headers: reqHeaders }).then(r => r.json()).catch(() => ({}))
+                const [resActive, resClosed] = await Promise.all([
+                    fetchWithHttps(buildUrlCustom('', 0, 1500), { headers: reqHeaders }).then(r => r.json()).catch(() => ({})),
+                    fetchWithHttps(buildUrlCustom('Closed', 0, 1500), { headers: reqHeaders }).then(r => r.json()).catch(() => ({}))
                 ]);
 
                 const activeList = Array.isArray(resActive.data) ? resActive.data : [];
-                const closed1List = Array.isArray(resClosed1.data) ? resClosed1.data : [];
-                const closed2List = Array.isArray(resClosed2.data) ? resClosed2.data : [];
+                const closedList = Array.isArray(resClosed.data) ? resClosed.data : [];
 
                 const mergedMap = new Map();
-                [...activeList, ...closed1List, ...closed2List].forEach(item => {
+                [...activeList, ...closedList].forEach(item => {
                     const key = item.id_wo || item.no_wo;
                     if (key && !mergedMap.has(key)) mergedMap.set(key, item);
                 });
@@ -463,7 +461,7 @@ async function handleWarranty(req, res) {
             }
         }
 
-        const reqLen = fetchAll ? 10000 : length;
+        const reqLen = fetchAll ? Math.min(length || 2000, 2000) : length;
         const targetUrl = buildUrlCustom(status, start, reqLen);
 
         const response = await fetchWithHttps(targetUrl, {
