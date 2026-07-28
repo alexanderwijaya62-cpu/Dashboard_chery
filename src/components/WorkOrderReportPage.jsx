@@ -544,11 +544,6 @@ export default function WorkOrderReportPage() {
     }
   }, [search, statusFilter, timePreset, fromDate, toDate]);
 
-    // Filter master list locally by selected date range (Hari Ini, Seminggu, Sebulan, Setahun, Kustom, Semua)
-    const dateFiltered = rawList.filter(row => isRowInSelectedRange(row, fromDate, toDate));
-    setMasterList(dateFiltered);
-  }, [search, statusFilter, timePreset, fromDate, toDate]);
-
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // Base list filtered by selected Date range (used for metric totals)
