@@ -416,7 +416,37 @@ async function handleWarranty(req, res) {
                     if (key && !mergedMap.has(key)) mergedMap.set(key, item);
                 });
 
-                const combinedList = Array.from(mergedMap.values());
+                const combinedList = Array.from(mergedMap.values()).map(item => ({
+                    id_wo: item.id_wo || '',
+                    no_wo: item.no_wo || '',
+                    no_wo_dms: item.no_wo_dms || '',
+                    status: item.status || '',
+                    kategori: item.kategori || '',
+                    nama_pelanggan: item.nama_pelanggan || '',
+                    no_polisi: item.no_polisi || '',
+                    no_chassis: item.no_chassis || '',
+                    no_engine: item.no_engine || '',
+                    tahun_produksi: item.tahun_produksi || '',
+                    nama_kendaraan: item.nama_kendaraan || '',
+                    waktu_masuk: item.waktu_masuk || '',
+                    waktu_simpan_estimasi: item.waktu_simpan_estimasi || '',
+                    waktu_setujui_estimasi: item.waktu_setujui_estimasi || '',
+                    waktu_mulai: item.waktu_mulai || '',
+                    waktu_checker: item.waktu_checker || '',
+                    waktu_selesai: item.waktu_selesai || '',
+                    last_update: item.last_update || '',
+                    nama_pembawa: item.nama_pembawa || '',
+                    id_karyawan: item.id_karyawan || '',
+                    nama_mekanik1: item.nama_mekanik1 || '',
+                    nama_leader1: item.nama_leader1 || '',
+                    stand_km: item.stand_km || 0,
+                    keluhan: item.keluhan || '',
+                    perintah: item.perintah || '',
+                    lcVal: item.lcVal || 0,
+                    partVal: item.partVal || 0,
+                    grandTotalVal: item.grandTotalVal || 0
+                }));
+
                 const result = {
                     draw: Number(draw),
                     recordsTotal: combinedList.length,
@@ -453,13 +483,43 @@ async function handleWarranty(req, res) {
         try {
             const parsed = JSON.parse(body);
             let woList = Array.isArray(parsed.data) ? parsed.data : [];
-            const totalRecords = parsed.recordsFiltered || parsed.recordsTotal || woList.length;
+            const cleaned = woList.map(item => ({
+                id_wo: item.id_wo || '',
+                no_wo: item.no_wo || '',
+                no_wo_dms: item.no_wo_dms || '',
+                status: item.status || '',
+                kategori: item.kategori || '',
+                nama_pelanggan: item.nama_pelanggan || '',
+                no_polisi: item.no_polisi || '',
+                no_chassis: item.no_chassis || '',
+                no_engine: item.no_engine || '',
+                tahun_produksi: item.tahun_produksi || '',
+                nama_kendaraan: item.nama_kendaraan || '',
+                waktu_masuk: item.waktu_masuk || '',
+                waktu_simpan_estimasi: item.waktu_simpan_estimasi || '',
+                waktu_setujui_estimasi: item.waktu_setujui_estimasi || '',
+                waktu_mulai: item.waktu_mulai || '',
+                waktu_checker: item.waktu_checker || '',
+                waktu_selesai: item.waktu_selesai || '',
+                last_update: item.last_update || '',
+                nama_pembawa: item.nama_pembawa || '',
+                id_karyawan: item.id_karyawan || '',
+                nama_mekanik1: item.nama_mekanik1 || '',
+                nama_leader1: item.nama_leader1 || '',
+                stand_km: item.stand_km || 0,
+                keluhan: item.keluhan || '',
+                perintah: item.perintah || '',
+                lcVal: item.lcVal || 0,
+                partVal: item.partVal || 0,
+                grandTotalVal: item.grandTotalVal || 0
+            }));
 
-            parsed.data = woList;
-            parsed.recordsFiltered = woList.length;
-            parsed.recordsTotal = woList.length;
+            parsed.data = cleaned;
+            parsed.recordsFiltered = cleaned.length;
+            parsed.recordsTotal = cleaned.length;
 
             warrantyWoCacheStore.set(cacheKey, { timestamp: Date.now(), json: parsed });
+            return res.status(200).json(parsed);
         } catch (e) {
             return res.status(500).json({ error: 'Failed to parse JSON response from DMS', raw: body.slice(0, 200) });
         }
