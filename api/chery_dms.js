@@ -1,3 +1,5 @@
+export const config = { maxDuration: 60 };
+
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
@@ -1472,7 +1474,9 @@ export default async function handler(req, res) {
     }
 
     if (endpoint === 'warranty-invoice-report') {
-        return handleWarrantyInvoiceReport(req, res);
+        req.query.status = req.query.status || 'Closed';
+        req.query.fetchAll = 'true';
+        return handleWarranty(req, res);
     }
 
     // ============================================================
