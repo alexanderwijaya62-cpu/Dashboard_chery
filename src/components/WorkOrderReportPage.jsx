@@ -407,18 +407,16 @@ export function WorkOrderDetailView({ row, onDetailLoaded }) {
 
 const woReportMemoryCache = new Map();
 const WO_CACHE_KEY = 'wo_report_cache_data';
-const WO_CACHE_TTL = 300000; // 5 minutes cache
 
 function getCachedWoData(cacheKey) {
   try {
     if (woReportMemoryCache.has(cacheKey)) {
-      const entry = woReportMemoryCache.get(cacheKey);
-      if (Date.now() - entry.timestamp < WO_CACHE_TTL) return entry.data;
+      return woReportMemoryCache.get(cacheKey).data;
     }
     const raw = localStorage.getItem(`${WO_CACHE_KEY}_${cacheKey}`);
     if (raw) {
       const { data, timestamp } = JSON.parse(raw);
-      if (Date.now() - timestamp < WO_CACHE_TTL) {
+      if (Array.isArray(data) && data.length > 0) {
         woReportMemoryCache.set(cacheKey, { data, timestamp });
         return data;
       }
@@ -432,6 +430,8 @@ function setCachedWoData(cacheKey, data) {
     const timestamp = Date.now();
     woReportMemoryCache.set(cacheKey, { data, timestamp });
     localStorage.setItem(`${WO_CACHE_KEY}_${cacheKey}`, JSON.stringify({ data, timestamp }));
+    // Also save to master fallback key
+    localStorage.setItem('wo_report_cache_data_all____', JSON.stringify({ data, timestamp }));
   } catch (e) {}
 }
 
@@ -447,7 +447,7 @@ export default function WorkOrderReportPage() {
   const [kategoriFilter, setKategoriFilter] = useState('');
 
   const [masterList, setMasterList] = useState(() => {
-    return getCachedWoData('all____') || [];
+    return getCachedWoData('wo_report_master__') || getCachedWoData('all____') || [];
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
@@ -485,57 +485,64 @@ export default function WorkOrderReportPage() {
     let rawList = [];
 
     if (!forceFresh) {
-      const cached = getCachedWoData(masterCacheKey);
+      const cached = getCachedWoData(masterCacheKey) || getCachedWoData('all____');
       if (cached && cached.length > 0) {
         rawList = cached;
       }
     }
 
-    if (rawList.length === 0) {
-      setIsLoading(true);
-      setIsBackgroundSyncing(false);
-      setError(null);
-
-      const safeFetchJson = async (url) => {
-        try {
-          const res = await fetch(url);
-          if (!res.ok) return { data: [] };
-          const contentType = res.headers.get('content-type') || '';
-          if (!contentType.includes('application/json')) return { data: [] };
-          const json = await res.json();
-          return json || { data: [] };
-        } catch (e) {
-          return { data: [] };
-        }
-      };
-
-      try {
-        const params = new URLSearchParams({
-          endpoint: 'warranty-wo',
-          draw: 1,
-          start: 0,
-          length: 1000,
-          fetchAll: 'true',
-          search,
-          status: statusFilter
-        });
-        const json = await safeFetchJson(`/api/chery_dms?${params}`);
-        if (json.error) throw new Error(json.error);
-
-        rawList = Array.isArray(json.data) ? json.data : [];
-        if (rawList.length > 0) {
-          setCachedWoData(masterCacheKey, rawList);
-        }
-      } catch (err) {
-        console.error("fetchData error:", err);
-        setError(err.message || 'Gagal terhubung ke server DMS');
-      } finally {
-        setIsLoading(false);
-        setIsBackgroundSyncing(false);
-      }
-    } else {
+    if (rawList.length > 0) {
+      const dateFiltered = rawList.filter(row => isRowInSelectedRange(row, fromDate, toDate));
+      setMasterList(dateFiltered);
       setIsLoading(false);
+      if (!forceFresh) return; // Instantly return 0ms if cached and forceFresh is false!
     }
+
+    setIsLoading(rawList.length === 0);
+    setIsBackgroundSyncing(rawList.length > 0);
+    setError(null);
+
+    const safeFetchJson = async (url) => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return { data: [] };
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) return { data: [] };
+        const json = await res.json();
+        return json || { data: [] };
+      } catch (e) {
+        return { data: [] };
+      }
+    };
+
+    try {
+      const params = new URLSearchParams({
+        endpoint: 'warranty-wo',
+        draw: 1,
+        start: 0,
+        length: 1000,
+        fetchAll: 'true',
+        search,
+        status: statusFilter
+      });
+      const json = await safeFetchJson(`/api/chery_dms?${params}`);
+      if (json.error) throw new Error(json.error);
+
+      const freshList = Array.isArray(json.data) ? json.data : [];
+      if (freshList.length > 0) {
+        setCachedWoData(masterCacheKey, freshList);
+        setCachedWoData('all____', freshList);
+        const dateFiltered = freshList.filter(row => isRowInSelectedRange(row, fromDate, toDate));
+        setMasterList(dateFiltered);
+      }
+    } catch (err) {
+      console.error("fetchData error:", err);
+      if (rawList.length === 0) setError(err.message || 'Gagal terhubung ke server DMS');
+    } finally {
+      setIsLoading(false);
+      setIsBackgroundSyncing(false);
+    }
+  }, [search, statusFilter, timePreset, fromDate, toDate]);
 
     // Filter master list locally by selected date range (Hari Ini, Seminggu, Sebulan, Setahun, Kustom, Semua)
     const dateFiltered = rawList.filter(row => isRowInSelectedRange(row, fromDate, toDate));
