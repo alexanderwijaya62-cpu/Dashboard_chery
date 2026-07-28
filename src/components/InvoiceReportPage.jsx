@@ -7,6 +7,7 @@ import {
   getStatusStyle, getKategoriStyle, formatDate, formatKm, formatRp
 } from '../utils/warrantyConfig';
 import { WorkOrderDetailView } from './WorkOrderReportPage';
+import { fetchWithCache, getCache } from '../utils/dataCache';
 
 // Helper to calculate YYYY-MM-DD string with optional day offset
 function getFormattedDate(daysAgo = 0) {
@@ -40,32 +41,6 @@ function isRowInSelectedRange(row, fromStr, toStr) {
   return true;
 }
 
-const invReportMemoryCache = new Map();
-const INV_CACHE_KEY = 'invoice_report_cache_data';
-
-function getCachedInvData(cacheKey) {
-  try {
-    if (invReportMemoryCache.has(cacheKey)) {
-      return invReportMemoryCache.get(cacheKey).data;
-    }
-    const raw = localStorage.getItem(`${INV_CACHE_KEY}_${cacheKey}`);
-    if (raw) {
-      const { data, timestamp } = JSON.parse(raw);
-      invReportMemoryCache.set(cacheKey, { data, timestamp });
-      return data;
-    }
-  } catch (e) {}
-  return null;
-}
-
-function setCachedInvData(cacheKey, data) {
-  try {
-    const timestamp = Date.now();
-    invReportMemoryCache.set(cacheKey, { data, timestamp });
-    localStorage.setItem(`${INV_CACHE_KEY}_${cacheKey}`, JSON.stringify({ data, timestamp }));
-  } catch (e) {}
-}
-
 export default function InvoiceReportPage() {
   const today = getFormattedDate(0);
 
@@ -77,7 +52,14 @@ export default function InvoiceReportPage() {
   const [kategoriFilter, setKategoriFilter] = useState('');
 
   const [masterClosedList, setMasterClosedList] = useState(() => {
-    return getCachedInvData('all___') || [];
+    try {
+      const raw = localStorage.getItem('invoice_report_cache_data_all___');
+      if (raw) {
+        const { data } = JSON.parse(raw);
+        if (Array.isArray(data) && data.length > 0) return data;
+      }
+    } catch (e) {}
+    return [];
   });
   const [invoiceDetailsMap, setInvoiceDetailsMap] = useState({});
   const [isLoading, setIsLoading] = useState(false);
@@ -112,61 +94,56 @@ export default function InvoiceReportPage() {
 
   const activeControllerRef = useRef(null);
 
-  // Fetch Closed Work Orders (Invoices) with server-side 1-request backend aggregator
+  // Fetch Closed Work Orders (Invoices) with stale-while-revalidate caching
   const fetchInvoiceData = useCallback(async (forceFresh = false) => {
-    const cacheKey = `${timePreset}_${fromDate}_${toDate}_${search}`;
-    if (!forceFresh) {
-      const cached = getCachedInvData(cacheKey);
-      if (cached && cached.length > 0) {
-        setMasterClosedList(cached);
-        setIsLoading(false);
-        return; // ABSOLUTELY 0 NETWORK REQUESTS!
-      }
-    }
+    const cacheKey = 'invoice_report_cache_data_all___';
 
-    if (activeControllerRef.current) {
-      activeControllerRef.current.abort();
-    }
-    const controller = new AbortController();
-    activeControllerRef.current = controller;
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
+    const doFetch = async () => {
       const params = new URLSearchParams({
         endpoint: 'warranty-invoice-report',
         from: fromDate,
         to: toDate,
         search
       });
-
-      const res = await fetch(`/api/chery_dms?${params}`, { signal: controller.signal });
+      const res = await fetch(`/api/chery_dms?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
       const contentType = res.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
         const text = await res.text();
         throw new Error(`Server returned non-JSON (${text.slice(0, 50)}...).`);
       }
-
       const json = await res.json();
       if (json.error) throw new Error(json.error);
-
       const rawList = Array.isArray(json.data) ? json.data : (json.payload?.content || []);
+      return rawList;
+    };
+
+    const existingEntry = getCache(cacheKey);
+    const hasStaleData = existingEntry && existingEntry.data && existingEntry.data.length > 0 && (Date.now() - existingEntry.timestamp >= 300000);
+
+    if (hasStaleData) setIsSyncingDetails(true);
+
+    const rawList = await fetchWithCache(cacheKey, doFetch, {
+      ttl: 300000,
+      forceFresh,
+      onLoading: (loading) => {
+        setIsLoading(loading);
+        if (loading) setError(null);
+      },
+      onFreshData: (freshData) => {
+        setIsSyncingDetails(false);
+        const dateFiltered = freshData.filter(row => isRowInSelectedRange(row, fromDate, toDate));
+        setMasterClosedList(dateFiltered);
+      },
+      onError: (err) => {
+        setIsSyncingDetails(false);
+        setError(err.message);
+      }
+    });
+
+    if (rawList) {
       const dateFiltered = rawList.filter(row => isRowInSelectedRange(row, fromDate, toDate));
       setMasterClosedList(dateFiltered);
-      const cacheKey = `${timePreset}_${fromDate}_${toDate}_${search}`;
-      setCachedInvData(cacheKey, dateFiltered);
-    } catch (err) {
-      if (err.name === 'AbortError') return;
-      console.error("Fetch invoice data error:", err);
-      setError(err.message);
-    } finally {
-      if (activeControllerRef.current === controller) {
-        setIsLoading(false);
-        setIsSyncingDetails(false);
-      }
     }
   }, [search, fromDate, toDate]);
 
@@ -419,18 +396,24 @@ export default function InvoiceReportPage() {
             <option value="PDI">PDI</option>
           </select>
 
-          <button onClick={fetchInvoiceData} disabled={isLoading} className="p-2 rounded-xl border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors">
+          <button onClick={() => fetchInvoiceData(true)} disabled={isLoading} className="p-2 rounded-xl border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors">
             <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
+
+      {isSyncingDetails && (
+        <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 animate-pulse">
+          <RefreshCw size={10} className="animate-spin"/> Menyinkronkan data invoice terbaru...
+        </div>
+      )}
 
       {/* ERROR ALERT */}
       {error && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 shrink-0">
           <AlertCircle size={14} className="text-red-500 shrink-0"/>
           <p className="text-xs text-red-700 flex-1">{error}</p>
-          <button onClick={fetchInvoiceData} className="px-3 py-1 bg-red-600 text-white text-xs font-bold rounded-lg">Coba Lagi</button>
+          <button onClick={() => fetchInvoiceData(true)} className="px-3 py-1 bg-red-600 text-white text-xs font-bold rounded-lg">Coba Lagi</button>
         </div>
       )}
 

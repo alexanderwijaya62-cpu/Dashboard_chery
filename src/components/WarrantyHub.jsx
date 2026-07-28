@@ -33,9 +33,40 @@ export function WarrantyDashboardPage({ onNavigate }) {
   const abortRef = useRef(null);
 
   const fetchInitial = useCallback(async (forceRefresh) => {
+    // 1. Check in-memory cache first (fastest)
     if (!forceRefresh && GLOBAL_WARRANTY_CACHE.dashboard && GLOBAL_WARRANTY_CACHE.dashboard.data.length > 0) {
       return;
     }
+
+    // 2. Check localStorage written by WorkOrderReportPage (shared cache)
+    if (!forceRefresh) {
+      try {
+        const woCacheKeys = [
+          'wo_report_cache_data_wo_report_master__',
+          'wo_report_cache_data_all____',
+          'datacache_wo_report_cache_data_wo_report_master__',
+          'datacache_wo_report_cache_data_all____'
+        ];
+        for (const key of woCacheKeys) {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const { data: cachedData, timestamp } = JSON.parse(raw);
+            if (Array.isArray(cachedData) && cachedData.length > 0) {
+              const age = Date.now() - (timestamp || 0);
+              if (age < 600000) { // 10 min freshness window for dashboard
+                setData(cachedData);
+                setTotalRecords(cachedData.length);
+                setLastUpdated(new Date(timestamp));
+                setIsLoading(false);
+                GLOBAL_WARRANTY_CACHE.dashboard = { data: cachedData, totalRecords: cachedData.length, lastUpdated: new Date(timestamp) };
+                return;
+              }
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -53,6 +84,10 @@ export function WarrantyDashboardPage({ onNavigate }) {
       setTotalRecords(newTotal);
       setLastUpdated(new Date());
       GLOBAL_WARRANTY_CACHE.dashboard = { data: newData, totalRecords: newTotal, lastUpdated: new Date() };
+      // Also write to shared localStorage so other pages can reuse
+      try {
+        localStorage.setItem('wo_report_cache_data_wo_report_master__', JSON.stringify({ data: newData, timestamp: Date.now() }));
+      } catch (e) {}
     } catch (err) {
       if (err.name === 'AbortError') return;
       setError(err.message);
@@ -62,16 +97,43 @@ export function WarrantyDashboardPage({ onNavigate }) {
 
     // Preload invoice report in background (non-blocking)
     if (!GLOBAL_WARRANTY_CACHE.invoiceReport) {
-      setIsLoadingMore(true);
+      // Try reading from localStorage first (written by InvoiceReportPage)
       try {
-        const invRes = await fetch('/api/chery_dms?endpoint=warranty-invoice-report', { signal: controller.signal });
-        if (invRes.ok) {
-          const invJson = await invRes.json();
-          GLOBAL_WARRANTY_CACHE.invoiceReport = invJson;
+        const invCacheKeys = [
+          'invoice_report_cache_data_all___',
+          'datacache_invoice_report_cache_data_all___'
+        ];
+        for (const key of invCacheKeys) {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const { data } = JSON.parse(raw);
+            if (Array.isArray(data) && data.length > 0) {
+              GLOBAL_WARRANTY_CACHE.invoiceReport = { data };
+              break;
+            }
+          }
         }
-      } catch {}
-      finally {
-        if (abortRef.current === controller) setIsLoadingMore(false);
+      } catch (e) {}
+
+      if (!GLOBAL_WARRANTY_CACHE.invoiceReport) {
+        setIsLoadingMore(true);
+        try {
+          const invRes = await fetch('/api/chery_dms?endpoint=warranty-invoice-report', { signal: controller.signal });
+          if (invRes.ok) {
+            const invJson = await invRes.json();
+            GLOBAL_WARRANTY_CACHE.invoiceReport = invJson;
+            // Also write to shared localStorage
+            try {
+              const invData = Array.isArray(invJson.data) ? invJson.data : [];
+              if (invData.length > 0) {
+                localStorage.setItem('invoice_report_cache_data_all___', JSON.stringify({ data: invData, timestamp: Date.now() }));
+              }
+            } catch (e) {}
+          }
+        } catch {}
+        finally {
+          if (abortRef.current === controller) setIsLoadingMore(false);
+        }
       }
     }
   }, []);

@@ -110,27 +110,9 @@ function saveCookie(cookie) {
 }
 
 async function login(username, password, enterpriseCode) {
-    console.log("--- Phase 1: Getting Session Cookies from Home Page ---");
+    console.log(`[DMS Login] Attempting login with user=${username}, enterprise=${enterpriseCode}`);
     try {
-        const initialResp = await fetchWithHttps('https://dms.chery.co.id/login/?redirect_uri=https%3A%2F%2Fdms.chery.co.id%2F', {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.9'
-            }
-        });
-
-        let initialCookies = [];
-        if (initialResp.headers.getSetCookie) {
-            initialCookies = initialResp.headers.getSetCookie();
-        } else {
-            const rawCookie = initialResp.headers.get('set-cookie');
-            initialCookies = rawCookie ? [rawCookie] : [];
-        }
-
-        const cookieStr = initialCookies.map(c => c.split(';')[0]).join('; ');
-
-        console.log("--- Phase 2: Attempting Login (Language: en-US) ---");
+        console.log(`[DMS Login] Direct POST to /api/v1/login (no Phase 1)`);
         const loginBody = JSON.stringify({
             enterpriseCode: enterpriseCode,
             username: username,
@@ -146,18 +128,15 @@ async function login(username, password, enterpriseCode) {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
                 'Origin': 'https://dms.chery.co.id',
                 'Referer': 'https://dms.chery.co.id/login/?redirect_uri=https%3A%2F%2Fdms.chery.co.id%2F',
-                'Cookie': cookieStr,
                 'Accept': '*/*',
                 'Accept-Language': 'en-US,en;q=0.9',
-                'Sec-Ch-Ua': '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
-                'Sec-Ch-Ua-Mobile': '?0',
-                'Sec-Ch-Ua-Platform': '"Windows"'
             },
             body: loginBody
         });
 
         if (!resp.ok) {
             const errorText = await resp.text();
+            console.error(`[DMS Login] POST https://dms.chery.co.id/api/v1/login → ${resp.status}, body=${errorText.substring(0, 300)}`);
             throw new Error(`Login failed with status ${resp.status}: ${errorText}`);
         }
 
@@ -337,12 +316,37 @@ async function handleWarranty(req, res) {
     const to = req.query.to || '';
     const fetchAll = req.query.fetchAll === 'true' || req.query.fetchAll === '1' || length >= 500;
 
-    const cacheKey = `wo_${from}_${to}_${search}_${status}_${kategori}_${start}_${length}_${fetchAll}`;
+    const CACHE_TTL = 1800000;
+    const cacheKey = fetchAll ? `wo_all_${from}_${to}_${search}_${status}_${kategori}` : `wo_${from}_${to}_${search}_${status}_${kategori}_${start}_${length}`;
     const cached = warrantyWoCacheStore.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp < 1800000)) {
-        return res.status(200).json(cached.json);
+    if (cached) {
+        const age = Date.now() - cached.timestamp;
+        if (age < CACHE_TTL) {
+            return res.status(200).json(cached.json);
+        }
+        res.status(200).json(cached.json);
+        refreshWarrantyCache(cacheKey, { draw, fetchAll, status, search, kategori, from, to, start, length, BASE }).catch(() => {});
+        return;
     }
 
+    const result = await doFetchWarranty({ draw, status, search, kategori, from, to, start, length, fetchAll, BASE });
+    if (result) {
+        warrantyWoCacheStore.set(cacheKey, { timestamp: Date.now(), json: result });
+        return res.status(200).json(result);
+    }
+    return res.status(500).json({ error: 'Warranty data fetch failed' });
+}
+
+async function refreshWarrantyCache(cacheKey, opts) {
+    try {
+        const result = await doFetchWarranty(opts);
+        if (result) {
+            warrantyWoCacheStore.set(cacheKey, { timestamp: Date.now(), json: result });
+        }
+    } catch (e) {}
+}
+
+async function doFetchWarranty({ draw, status, search, kategori, from, to, start, length, fetchAll, BASE }) {
     let dmsFrom = from;
     let dmsTo = to;
     if (from && from.includes('-')) {
@@ -360,34 +364,33 @@ async function handleWarranty(req, res) {
     }
 
     const buildUrlCustom = (st, offset, reqLen) => `${BASE}/aftersales/work-order/data?draw=${draw}&start=${offset}&length=${reqLen}` +
-        `&columns[0][data]=action&columns[0][name]=action&columns[0][searchable]=false&columns[0][orderable]=false&columns[0][search][value]=&columns[0][search][regex]=false` +
-        `&columns[1][data]=no_wo&columns[1][name]=no_wo&columns[1][searchable]=true&columns[1][orderable]=true&columns[1][search][value]=&columns[1][search][regex]=false` +
-        `&columns[2][data]=no_wo_dms&columns[2][name]=no_wo_dms&columns[2][searchable]=true&columns[2][orderable]=true&columns[2][search][value]=&columns[2][search][regex]=false` +
-        `&columns[3][data]=status&columns[3][name]=status&columns[3][searchable]=true&columns[3][orderable]=true&columns[3][search][value]=&columns[3][search][regex]=false` +
-        `&columns[4][data]=nama_pelanggan&columns[4][name]=nama_pelanggan&columns[4][searchable]=true&columns[4][orderable]=true&columns[4][search][value]=&columns[4][search][regex]=false` +
-        `&columns[5][data]=no_polisi&columns[5][name]=no_polisi&columns[5][searchable]=true&columns[5][orderable]=true&columns[5][search][value]=&columns[5][search][regex]=false` +
-        `&columns[6][data]=no_chassis&columns[6][name]=no_chassis&columns[6][searchable]=true&columns[6][orderable]=true&columns[6][search][value]=&columns[6][search][regex]=false` +
-        `&columns[7][data]=nama_kendaraan&columns[7][name]=nama_kendaraan&columns[7][searchable]=true&columns[7][orderable]=true&columns[7][search][value]=&columns[7][search][regex]=false` +
-        `&columns[8][data]=waktu_masuk&columns[8][name]=waktu_masuk&columns[8][searchable]=true&columns[8][orderable]=true&columns[8][search][value]=&columns[8][search][regex]=false` +
-        `&columns[9][data]=waktu_simpan_estimasi&columns[9][name]=waktu_simpan_estimasi&columns[9][searchable]=true&columns[9][orderable]=true&columns[9][search][value]=&columns[9][search][regex]=false` +
-        `&columns[10][data]=waktu_setujui_estimasi&columns[10][name]=waktu_setujui_estimasi&columns[10][searchable]=true&columns[10][orderable]=true&columns[10][search][value]=&columns[10][search][regex]=false` +
-        `&columns[11][data]=waktu_mulai&columns[11][name]=waktu_mulai&columns[11][searchable]=true&columns[11][orderable]=true&columns[11][search][value]=&columns[11][search][regex]=false` +
-        `&columns[12][data]=waktu_checker&columns[12][name]=waktu_checker&columns[12][searchable]=true&columns[12][orderable]=true&columns[12][search][value]=&columns[12][search][regex]=false` +
-        `&columns[13][data]=waktu_selesai&columns[13][name]=waktu_selesai&columns[13][searchable]=true&columns[13][orderable]=true&columns[13][search][value]=&columns[13][search][regex]=false` +
-        `&columns[14][data]=nama_pembawa&columns[14][name]=nama_pembawa&columns[14][searchable]=true&columns[14][orderable]=true&columns[14][search][value]=&columns[14][search][regex]=false` +
-        `&columns[15][data]=id_karyawan&columns[15][name]=&columns[15][searchable]=true&columns[15][orderable]=true&columns[15][search][value]=&columns[15][search][regex]=false` +
-        `&columns[16][data]=nama_mekanik1&columns[16][name]=&columns[16][searchable]=true&columns[16][orderable]=true&columns[16][search][value]=&columns[16][search][regex]=false` +
-        `&columns[17][data]=nama_leader1&columns[17][name]=&columns[17][searchable]=true&columns[17][orderable]=true&columns[17][search][value]=&columns[17][search][regex]=false` +
-        `&columns[18][data]=last_update&columns[18][name]=last_update&columns[18][searchable]=true&columns[18][orderable]=true&columns[18][search][value]=&columns[18][search][regex]=false` +
-        `&order[0][column]=18&order[0][dir]=desc` +
-        `&search[value]=${encodeURIComponent(search)}&search[regex]=false` +
-        `&status=${encodeURIComponent(st)}&kategori=${encodeURIComponent(kategori)}${dateQuery}&_=${Date.now()}`;
+        '&columns[0][data]=action&columns[0][name]=action&columns[0][searchable]=false&columns[0][orderable]=false&columns[0][search][value]=&columns[0][search][regex]=false' +
+        '&columns[1][data]=no_wo&columns[1][name]=no_wo&columns[1][searchable]=true&columns[1][orderable]=true&columns[1][search][value]=&columns[1][search][regex]=false' +
+        '&columns[2][data]=no_wo_dms&columns[2][name]=no_wo_dms&columns[2][searchable]=true&columns[2][orderable]=true&columns[2][search][value]=&columns[2][search][regex]=false' +
+        '&columns[3][data]=status&columns[3][name]=status&columns[3][searchable]=true&columns[3][orderable]=true&columns[3][search][value]=&columns[3][search][regex]=false' +
+        '&columns[4][data]=nama_pelanggan&columns[4][name]=nama_pelanggan&columns[4][searchable]=true&columns[4][orderable]=true&columns[4][search][value]=&columns[4][search][regex]=false' +
+        '&columns[5][data]=no_polisi&columns[5][name]=no_polisi&columns[5][searchable]=true&columns[5][orderable]=true&columns[5][search][value]=&columns[5][search][regex]=false' +
+        '&columns[6][data]=no_chassis&columns[6][name]=no_chassis&columns[6][searchable]=true&columns[6][orderable]=true&columns[6][search][value]=&columns[6][search][regex]=false' +
+        '&columns[7][data]=nama_kendaraan&columns[7][name]=nama_kendaraan&columns[7][searchable]=true&columns[7][orderable]=true&columns[7][search][value]=&columns[7][search][regex]=false' +
+        '&columns[8][data]=waktu_masuk&columns[8][name]=waktu_masuk&columns[8][searchable]=true&columns[8][orderable]=true&columns[8][search][value]=&columns[8][search][regex]=false' +
+        '&columns[9][data]=waktu_simpan_estimasi&columns[9][name]=waktu_simpan_estimasi&columns[9][searchable]=true&columns[9][orderable]=true&columns[9][search][value]=&columns[9][search][regex]=false' +
+        '&columns[10][data]=waktu_setujui_estimasi&columns[10][name]=waktu_setujui_estimasi&columns[10][searchable]=true&columns[10][orderable]=true&columns[10][search][value]=&columns[10][search][regex]=false' +
+        '&columns[11][data]=waktu_mulai&columns[11][name]=waktu_mulai&columns[11][searchable]=true&columns[11][orderable]=true&columns[11][search][value]=&columns[11][search][regex]=false' +
+        '&columns[12][data]=waktu_checker&columns[12][name]=waktu_checker&columns[12][searchable]=true&columns[12][orderable]=true&columns[12][search][value]=&columns[12][search][regex]=false' +
+        '&columns[13][data]=waktu_selesai&columns[13][name]=waktu_selesai&columns[13][searchable]=true&columns[13][orderable]=true&columns[13][search][value]=&columns[13][search][regex]=false' +
+        '&columns[14][data]=nama_pembawa&columns[14][name]=nama_pembawa&columns[14][searchable]=true&columns[14][orderable]=true&columns[14][search][value]=&columns[14][search][regex]=false' +
+        '&columns[15][data]=id_karyawan&columns[15][name]=&columns[15][searchable]=true&columns[15][orderable]=true&columns[15][search][value]=&columns[15][search][regex]=false' +
+        '&columns[16][data]=nama_mekanik1&columns[16][name]=&columns[16][searchable]=true&columns[16][orderable]=true&columns[16][search][value]=&columns[16][search][regex]=false' +
+        '&columns[17][data]=nama_leader1&columns[17][searchable]=true&columns[17][orderable]=true&columns[17][search][value]=&columns[17][search][regex]=false' +
+        '&columns[18][data]=last_update&columns[18][name]=last_update&columns[18][searchable]=true&columns[18][orderable]=true&columns[18][search][value]=&columns[18][search][regex]=false' +
+        '&order[0][column]=18&order[0][dir]=desc' +
+        '&search[value]=' + encodeURIComponent(search) + '&search[regex]=false' +
+        '&status=' + encodeURIComponent(st) + '&kategori=' + encodeURIComponent(kategori) + dateQuery + '&_=' + Date.now();
 
     const PAGE_SIZE = 1000;
-
     const reqHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': `${BASE}/aftersales/work-order`,
+        'Referer': BASE + '/aftersales/work-order',
         'Accept': 'application/json, text/javascript, */*; q=0.01',
         'X-Requested-With': 'XMLHttpRequest',
     };
@@ -461,25 +464,22 @@ async function handleWarranty(req, res) {
                     const parsed = JSON.parse(body);
                     combinedList = Array.isArray(parsed.data) ? parsed.data : [];
                 } catch (e) {
-                    return res.status(500).json({ error: 'Failed to parse JSON response from DMS', raw: body.slice(0, 200) });
+                    return null;
                 }
             }
 
-            const result = {
+            return {
                 draw: Number(draw),
                 recordsTotal: combinedList.length,
                 recordsFiltered: combinedList.length,
                 data: combinedList
             };
-
-            warrantyWoCacheStore.set(cacheKey, { timestamp: Date.now(), json: result });
-            return res.status(200).json(result);
         } catch (errFetch) {
-            console.warn("[handleWarranty] Fetch error:", errFetch.message);
+            console.warn('[doFetchWarranty] Fetch error:', errFetch.message);
             attempts++;
         }
     }
-    return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
+    return null;
 }
 
 async function fetchAndParseEstimasiDetailHelper(id) {
@@ -1458,6 +1458,7 @@ function checkWorkItemRateLimit(key, maxPerMinute = 10) {
 
 async function handleWorkItemCategories(req, res) {
     try {
+        console.log('[WorkItemCategories] Handler called');
         if (!checkWorkItemRateLimit('work-item-categories', 15)) {
             return res.status(429).json({ error: 'Too many requests. Please try again later.' });
         }

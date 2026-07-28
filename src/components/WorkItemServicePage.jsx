@@ -3,6 +3,7 @@ import {
   Search, RefreshCw, FileText, Wrench, ChevronLeft, ChevronRight,
   X, Clock, Car, Filter
 } from 'lucide-react';
+import { fetchWithCache, getCache } from '../utils/dataCache';
 
 const PAGE_SIZE = 50;
 
@@ -38,12 +39,12 @@ const WorkItemServicePage = () => {
   const [page, setPage] = useState(0);
   const [sortConfig, setSortConfig] = useState({ key: 'workItemCode', direction: 'asc' });
   const [filterKategori, setFilterKategori] = useState('');
-  const [lastFetchTime, setLastFetchTime] = useState(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
+  const fetchData = useCallback(async (forceFresh = false) => {
+    const cacheKey = 'work_item_categories_cache';
+
+    const doFetch = async () => {
       const resp = await fetch(`/api/chery_dms?endpoint=work-item-categories&pageIndex=0&pageSize=10000&status=1&sortField=workItemCode&_=${Date.now()}`);
       if (!resp.ok) {
         let message = `HTTP ${resp.status}`;
@@ -58,41 +59,41 @@ const WorkItemServicePage = () => {
         throw new Error(`Respons server bukan JSON (HTTP ${resp.status})`);
       }
       const result = await resp.json();
-      const items = result?.payload?.content || [];
+      return result?.payload?.content || [];
+    };
+
+    const items = await fetchWithCache(cacheKey, doFetch, {
+      ttl: 300000,
+      forceFresh,
+      onLoading: (loading) => {
+        setIsLoading(loading);
+        if (loading) setError(null);
+      },
+      onFreshData: (freshData) => {
+        setIsSyncing(false);
+        setData(freshData);
+      },
+      onError: (err) => {
+        setIsSyncing(false);
+        setError(err.message);
+      }
+    });
+
+    if (items) {
       setData(items);
-      setLastFetchTime(new Date());
-    } catch (err) {
-      console.error('[WorkItemService] Fetch error:', err);
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const cachedKey = 'work_item_categories_cache';
-    try {
-      const cached = sessionStorage.getItem(cachedKey);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Date.now() - parsed.ts < 300000) {
-          setData(parsed.data);
-          setLastFetchTime(new Date(parsed.ts));
-          setIsLoading(false);
-          return;
-        }
-      }
-    } catch {}
+    const existingEntry = getCache('work_item_categories_cache');
+    const hasStaleData = existingEntry && existingEntry.data && existingEntry.data.length > 0 && (Date.now() - existingEntry.timestamp >= 300000);
+
+    if (hasStaleData) {
+      setIsSyncing(true);
+    }
+
     fetchData();
   }, [fetchData]);
-
-  useEffect(() => {
-    if (data.length > 0) {
-      try {
-        sessionStorage.setItem('work_item_categories_cache', JSON.stringify({ data, ts: Date.now() }));
-      } catch {}
-    }
-  }, [data]);
 
   const kategoriList = useMemo(() => {
     const set = new Set(data.map(d => d.productCategoryName).filter(Boolean));
@@ -203,14 +204,13 @@ const WorkItemServicePage = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {lastFetchTime && (
-              <span className="text-[9px] font-medium text-zinc-400 flex items-center gap-1">
-                <Clock size={10} />
-                {lastFetchTime.toLocaleTimeString('id-ID')}
+            {isSyncing && (
+              <span className="text-[9px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg animate-pulse flex items-center gap-1">
+                <RefreshCw size={10} className="animate-spin"/> update...
               </span>
             )}
             <button
-              onClick={fetchData}
+              onClick={() => fetchData(true)}
               disabled={isLoading}
               className="p-2.5 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-100 transition-all disabled:opacity-40"
             >
@@ -247,7 +247,7 @@ const WorkItemServicePage = () => {
             <div className="flex flex-col items-center justify-center h-64 gap-2">
               <FileText size={32} className="text-red-300" />
               <p className="text-xs font-bold text-red-400">Gagal memuat data: {error}</p>
-              <button onClick={fetchData} className="text-xs font-bold text-zinc-600 underline hover:text-zinc-900">Coba Lagi</button>
+              <button onClick={() => fetchData(true)} className="text-xs font-bold text-zinc-600 underline hover:text-zinc-900">Coba Lagi</button>
             </div>
           ) : pagedData.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 gap-2">

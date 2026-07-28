@@ -6,6 +6,7 @@ import {
 import {
   getStatusStyle, getKategoriStyle, formatDate, formatKm, formatRp
 } from '../utils/warrantyConfig';
+import { fetchWithCache, getCache } from '../utils/dataCache';
 
 // Helper to calculate YYYY-MM-DD string with optional day offset
 function getFormattedDate(daysAgo = 0) {
@@ -410,36 +411,6 @@ export function WorkOrderDetailView({ row, onDetailLoaded }) {
   );
 }
 
-const woReportMemoryCache = new Map();
-const WO_CACHE_KEY = 'wo_report_cache_data';
-const WO_CACHE_TTL = 300000; // 5 minutes cache
-
-function getCachedWoData(cacheKey) {
-  try {
-    if (woReportMemoryCache.has(cacheKey)) {
-      const entry = woReportMemoryCache.get(cacheKey);
-      if (Date.now() - entry.timestamp < WO_CACHE_TTL) return entry.data;
-    }
-    const raw = localStorage.getItem(`${WO_CACHE_KEY}_${cacheKey}`);
-    if (raw) {
-      const { data, timestamp } = JSON.parse(raw);
-      if (Date.now() - timestamp < WO_CACHE_TTL) {
-        woReportMemoryCache.set(cacheKey, { data, timestamp });
-        return data;
-      }
-    }
-  } catch (e) {}
-  return null;
-}
-
-function setCachedWoData(cacheKey, data) {
-  try {
-    const timestamp = Date.now();
-    woReportMemoryCache.set(cacheKey, { data, timestamp });
-    localStorage.setItem(`${WO_CACHE_KEY}_${cacheKey}`, JSON.stringify({ data, timestamp }));
-  } catch (e) {}
-}
-
 export default function WorkOrderReportPage() {
   const today = getFormattedDate(0);
 
@@ -452,7 +423,14 @@ export default function WorkOrderReportPage() {
   const [kategoriFilter, setKategoriFilter] = useState('');
 
   const [masterList, setMasterList] = useState(() => {
-    return getCachedWoData('all____') || [];
+    try {
+      const raw = localStorage.getItem('wo_report_cache_data_wo_report_master__');
+      if (raw) {
+        const { data, timestamp } = JSON.parse(raw);
+        if (Array.isArray(data) && data.length > 0 && Date.now() - timestamp < 300000) return data;
+      }
+    } catch (e) {}
+    return [];
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
@@ -484,68 +462,60 @@ export default function WorkOrderReportPage() {
     }
   };
 
-  // Fetch Work Order data with caching support
+  // Fetch Work Order data with stale-while-revalidate caching
   const fetchData = useCallback(async (forceFresh = false) => {
-    const masterCacheKey = `wo_report_master_${statusFilter}_${search}`;
-    let rawList = [];
+    const cacheKey = 'wo_report_cache_data_wo_report_master__';
 
-    if (!forceFresh) {
-      const cached = getCachedWoData(masterCacheKey);
-      if (cached && cached.length > 0) {
-        rawList = cached;
-      }
+    const doFetch = async () => {
+      const params = new URLSearchParams({
+        endpoint: 'warranty-wo',
+        draw: 1,
+        start: 0,
+        length: 1000,
+        fetchAll: 'true',
+        search,
+        status: statusFilter
+      });
+      const res = await fetch(`/api/chery_dms?${params}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) throw new Error('Non-JSON response');
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      return Array.isArray(json.data) ? json.data : [];
+    };
+
+    // Check if we'll get stale data (cache exists but expired)
+    const existingEntry = getCache(cacheKey);
+    const hasStaleData = existingEntry && existingEntry.data && existingEntry.data.length > 0 && (Date.now() - existingEntry.timestamp >= 300000);
+
+    if (hasStaleData) {
+      setIsBackgroundSyncing(true);
     }
 
-    if (rawList.length === 0) {
-      setIsLoading(true);
-      setIsBackgroundSyncing(false);
-      setError(null);
-
-      const safeFetchJson = async (url) => {
-        try {
-          const res = await fetch(url);
-          if (!res.ok) return { data: [] };
-          const contentType = res.headers.get('content-type') || '';
-          if (!contentType.includes('application/json')) return { data: [] };
-          const json = await res.json();
-          return json || { data: [] };
-        } catch (e) {
-          return { data: [] };
-        }
-      };
-
-      try {
-        const params = new URLSearchParams({
-          endpoint: 'warranty-wo',
-          draw: 1,
-          start: 0,
-          length: 1000,
-          fetchAll: 'true',
-          search,
-          status: statusFilter
-        });
-        const json = await safeFetchJson(`/api/chery_dms?${params}`);
-        if (json.error) throw new Error(json.error);
-
-        rawList = Array.isArray(json.data) ? json.data : [];
-        if (rawList.length > 0) {
-          setCachedWoData(masterCacheKey, rawList);
-        }
-      } catch (err) {
-        console.error("fetchData error:", err);
-        setError(err.message || 'Gagal terhubung ke server DMS');
-      } finally {
-        setIsLoading(false);
+    const rawList = await fetchWithCache(cacheKey, doFetch, {
+      ttl: 300000,
+      forceFresh,
+      onLoading: (loading) => {
+        setIsLoading(loading);
+        if (loading) { setError(null); setIsBackgroundSyncing(false); }
+      },
+      onFreshData: (freshData) => {
         setIsBackgroundSyncing(false);
+        const dateFiltered = freshData.filter(row => isRowInSelectedRange(row, fromDate, toDate));
+        setMasterList(dateFiltered);
+      },
+      onError: (err) => {
+        setIsBackgroundSyncing(false);
+        setError(err.message || 'Gagal terhubung ke server DMS');
       }
-    } else {
-      setIsLoading(false);
-    }
+    });
 
-    // Filter master list locally by selected date range (Hari Ini, Seminggu, Sebulan, Setahun, Kustom, Semua)
-    const dateFiltered = rawList.filter(row => isRowInSelectedRange(row, fromDate, toDate));
-    setMasterList(dateFiltered);
-  }, [search, statusFilter, timePreset, fromDate, toDate]);
+    if (rawList) {
+      const dateFiltered = rawList.filter(row => isRowInSelectedRange(row, fromDate, toDate));
+      setMasterList(dateFiltered);
+    }
+  }, [search, statusFilter, fromDate, toDate]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

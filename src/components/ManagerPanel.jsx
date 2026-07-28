@@ -8,6 +8,7 @@ import {
 import ChangePasswordModal from './ChangePasswordModal';
 import CroBookingPanel from './CroBookingPanel';
 import HolidaySettings from './HolidaySettings';
+import { fetchWithCache, getCache } from '../utils/dataCache';
 import WorkOrderReportPage from './WorkOrderReportPage';
 import InvoiceReportPage from './InvoiceReportPage';
 import WorkItemServicePage from './WorkItemServicePage';
@@ -25,8 +26,6 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   const [isSyncing, setIsSyncing] = useState(false);
   const mainRef = useRef(null);
   const lastScrollY = useRef(0);
-  const financeAbortRef = useRef(null);
-  const woHistoryAbortRef = useRef(null);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [userFormData, setUserFormData] = useState({ username: '', password: '', name: '', role: 'mekanik' });
   const [entityFilter, setEntityFilter] = useState('all');
@@ -57,35 +56,38 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
 
   const fetchFinancialData = React.useCallback(async () => {
-    if (financeAbortRef.current) financeAbortRef.current.abort();
-    const controller = new AbortController();
-    financeAbortRef.current = controller;
+    const cacheKey = 'invoice_report_cache_data_all___';
 
-    try {
-      let rawList = [];
-      try {
-        const rawCache = localStorage.getItem('invoice_report_cache_data_all___');
-        if (rawCache) {
-          const { data } = JSON.parse(rawCache);
-          if (Array.isArray(data) && data.length > 0) rawList = data;
-        }
-      } catch (e) {}
+    const doFetch = async () => {
+      const res = await fetch('/api/chery_dms?endpoint=warranty-invoice-report');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      return Array.isArray(json.data) ? json.data : (json.payload?.content || []);
+    };
 
-      if (rawList.length === 0) {
-        setIsLoading(true);
-        const res = await fetch('/api/chery_dms?endpoint=warranty-invoice-report', { signal: controller.signal });
-        if (res.ok) {
-          const json = await res.json();
-          rawList = Array.isArray(json.data) ? json.data : (json.payload?.content || []);
-          try {
-            if (rawList.length > 0) {
-              localStorage.setItem('invoice_report_cache_data_all___', JSON.stringify({ data: rawList, timestamp: Date.now() }));
-            }
-          } catch (e) {}
-        }
-      }
+    const rawList = await fetchWithCache(cacheKey, doFetch, {
+      ttl: 300000,
+      onLoading: (loading) => { setIsLoading(loading); },
+      onFreshData: (freshData) => {
+        const dmsMapped = freshData.map(item => ({
+          no_wo: item.no_wo,
+          wkt_masuk: item.waktu_masuk || item.tgl_invoice || item.created_at,
+          bk: item.no_polisi || item.no_pol,
+          tipe_kendaraan: item.nama_kendaraan || item.tipe_kendaraan || item.kategori,
+          jasa: Number(item.lcVal || item.jasa || 0),
+          s_part: Number(item.partVal || item.spare_part || 0),
+          g_total: Number(item.grandTotalVal || item.total || (item.lcVal || 0) + (item.partVal || 0)),
+          sa: item.id_karyawan || item.nama_sa || item.sa || '---',
+          leader: '',
+          mekanik: '',
+          nohp: ''
+        }));
+        setFinancialData(dmsMapped);
+      },
+      onError: (e) => { console.error("Gagal fetch financial:", e); }
+    });
 
-      if (controller.signal.aborted) return;
+    if (rawList) {
       const dmsMapped = rawList.map(item => ({
         no_wo: item.no_wo,
         wkt_masuk: item.waktu_masuk || item.tgl_invoice || item.created_at,
@@ -100,77 +102,53 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
         nohp: ''
       }));
       setFinancialData(dmsMapped);
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-      console.error("Gagal fetch financial:", e);
-    } finally {
-      if (financeAbortRef.current === controller) setIsLoading(false);
     }
   }, []);
 
   const fetchWoHistory = React.useCallback(async () => {
-    if (woHistoryAbortRef.current) woHistoryAbortRef.current.abort();
-    const controller = new AbortController();
-    woHistoryAbortRef.current = controller;
+    const cacheKey = 'wo_report_cache_data_wo_report_master__';
 
-    try {
-      let rawList = [];
-      try {
-        const woCacheKeys = [
-          'wo_report_cache_data_wo_report_master__',
-          'wo_report_cache_data_all____'
-        ];
-        for (const key of woCacheKeys) {
-          const rawCache = localStorage.getItem(key);
-          if (rawCache) {
-            const { data, timestamp } = JSON.parse(rawCache);
-            if (Array.isArray(data) && data.length > 0 && (Date.now() - (timestamp || 0) < 300000)) {
-              rawList = data;
-              break;
-            }
-          }
-        }
-      } catch (e) {}
+    const doFetch = async () => {
+      const params = new URLSearchParams({ endpoint: 'warranty-wo', draw: 1, start: 0, length: 1000, fetchAll: 'true', status: '' });
+      const res = await fetch(`/api/chery_dms?${params}`);
+      const json = await res.json().catch(() => ({}));
+      return json.data || [];
+    };
 
-      if (rawList.length === 0) {
-        setIsLoading(true);
-        const params = new URLSearchParams({ endpoint: 'warranty-wo', draw: 1, start: 0, length: 1000, fetchAll: 'true', status: '' });
-        const res = await fetch(`/api/chery_dms?${params}`, { signal: controller.signal }).then(r => r.json()).catch(() => ({}));
-        rawList = res.data || [];
-        try {
-          if (rawList.length > 0) {
-            localStorage.setItem('wo_report_cache_data_wo_report_master__', JSON.stringify({ data: rawList, timestamp: Date.now() }));
-          }
-        } catch (e) {}
-      }
+    const rawList = await fetchWithCache(cacheKey, doFetch, {
+      ttl: 300000,
+      onLoading: (loading) => { setIsLoading(loading); },
+      onFreshData: (freshData) => {
+        setWoTrackingData(buildTrackingData(freshData));
+      },
+      onError: (e) => { console.error("Gagal fetch tracking:", e); }
+    });
 
-      if (controller.signal.aborted) return;
-      const dmsMap = new Map();
-      rawList.forEach(item => {
-        const key = item.id_wo || item.no_wo;
-        if (key && !dmsMap.has(key)) {
-          dmsMap.set(key, {
-            no_wo: item.no_wo,
-            bk: item.no_polisi,
-            tipe_kendaraan: item.nama_kendaraan,
-            sa: item.id_karyawan || item.nama_sa || item.sa || '---',
-            mekanik: item.nama_mekanik1 || '---',
-            leader: item.nama_leader1 || '---',
-            wkt_masuk: item.waktu_masuk,
-            status: item.status,
-            stand_km: Number(item.stand_km || item.km || 0)
-          });
-        }
-      });
-
-      setWoTrackingData(Array.from(dmsMap.values()));
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-      console.error("Gagal fetch tracking:", e);
-    } finally {
-      if (woHistoryAbortRef.current === controller) setIsLoading(false);
+    if (rawList) {
+      setWoTrackingData(buildTrackingData(rawList));
     }
   }, []);
+
+  function buildTrackingData(rawList) {
+    const dmsMap = new Map();
+    rawList.forEach(item => {
+      const key = item.id_wo || item.no_wo;
+      if (key && !dmsMap.has(key)) {
+        dmsMap.set(key, {
+          no_wo: item.no_wo,
+          bk: item.no_polisi,
+          tipe_kendaraan: item.nama_kendaraan,
+          sa: item.id_karyawan || item.nama_sa || item.sa || '---',
+          mekanik: item.nama_mekanik1 || '---',
+          leader: item.nama_leader1 || '---',
+          wkt_masuk: item.waktu_masuk,
+          status: item.status,
+          stand_km: Number(item.stand_km || item.km || 0)
+        });
+      }
+    });
+    return Array.from(dmsMap.values());
+  }
 
   const fetchCroHistory = React.useCallback(async () => {
     setIsLoading(true);
