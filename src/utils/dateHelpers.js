@@ -40,12 +40,13 @@ export function normalizeDmsBooking(b) {
     const tanggal = parseDmsDate(b.janji_datang);
     const jam = parseDmsTime(b.janji_datang);
     const sBooking = (b.status_booking || '').toLowerCase();
-    if (['batal', 'expired', 'declined'].includes(sBooking)) return null;
+    if (['batal', 'declined'].includes(sBooking)) return null;
+    const status = sBooking === 'expired' ? 'expired' : 'accepted';
     return {
         id: `dms_${b.no_booking || b.id || Math.random()}`,
         tanggal,
         jam,
-        status: 'accepted',
+        status,
         noPlat: b.no_polisi || '',
         namaCustomer: b.nama_pelanggan || '',
         tipeMobil: b.nama_kendaraan || '',

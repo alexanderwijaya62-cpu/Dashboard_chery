@@ -281,7 +281,7 @@ function DetailPage({ settlement, onBack }) {
       });
       const woArray = [...woIdsToFetch];
       let woFetched = 0;
-      const CONCURRENCY = 5;
+      const CONCURRENCY = 35;
       const totalWo = woArray.length;
       for (let i = 0; i < woArray.length; i += CONCURRENCY) {
         const batch = woArray.slice(i, i + CONCURRENCY);

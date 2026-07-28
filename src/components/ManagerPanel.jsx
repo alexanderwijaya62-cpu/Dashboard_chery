@@ -24,6 +24,8 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   const [isSyncing, setIsSyncing] = useState(false);
   const mainRef = useRef(null);
   const lastScrollY = useRef(0);
+  const financeAbortRef = useRef(null);
+  const woHistoryAbortRef = useRef(null);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [userFormData, setUserFormData] = useState({ username: '', password: '', name: '', role: 'mekanik' });
   const [entityFilter, setEntityFilter] = useState('all');
@@ -54,6 +56,10 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
 
   const fetchFinancialData = React.useCallback(async () => {
+    if (financeAbortRef.current) financeAbortRef.current.abort();
+    const controller = new AbortController();
+    financeAbortRef.current = controller;
+
     try {
       let rawList = [];
       try {
@@ -66,13 +72,14 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
 
       if (rawList.length === 0) {
         setIsLoading(true);
-        const res = await fetch('/api/chery_dms?endpoint=warranty-invoice-report');
+        const res = await fetch('/api/chery_dms?endpoint=warranty-invoice-report', { signal: controller.signal });
         if (res.ok) {
           const json = await res.json();
           rawList = Array.isArray(json.data) ? json.data : (json.payload?.content || []);
         }
       }
 
+      if (controller.signal.aborted) return;
       const dmsMapped = rawList.map(item => ({
         no_wo: item.no_wo,
         wkt_masuk: item.waktu_masuk || item.tgl_invoice || item.created_at,
@@ -88,13 +95,18 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
       }));
       setFinancialData(dmsMapped);
     } catch (e) {
+      if (e.name === 'AbortError') return;
       console.error("Gagal fetch financial:", e);
     } finally {
-      setIsLoading(false);
+      if (financeAbortRef.current === controller) setIsLoading(false);
     }
   }, []);
 
   const fetchWoHistory = React.useCallback(async () => {
+    if (woHistoryAbortRef.current) woHistoryAbortRef.current.abort();
+    const controller = new AbortController();
+    woHistoryAbortRef.current = controller;
+
     try {
       let rawList = [];
       try {
@@ -108,10 +120,11 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
       if (rawList.length === 0) {
         setIsLoading(true);
         const params = new URLSearchParams({ endpoint: 'warranty-wo', draw: 1, start: 0, length: 1000, fetchAll: 'true', status: '' });
-        const res = await fetch(`/api/chery_dms?${params}`).then(r => r.json()).catch(() => ({}));
+        const res = await fetch(`/api/chery_dms?${params}`, { signal: controller.signal }).then(r => r.json()).catch(() => ({}));
         rawList = res.data || [];
       }
 
+      if (controller.signal.aborted) return;
       const dmsMap = new Map();
       rawList.forEach(item => {
         const key = item.id_wo || item.no_wo;
@@ -132,9 +145,10 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
 
       setWoTrackingData(Array.from(dmsMap.values()));
     } catch (e) {
+      if (e.name === 'AbortError') return;
       console.error("Gagal fetch tracking:", e);
     } finally {
-      setIsLoading(false);
+      if (woHistoryAbortRef.current === controller) setIsLoading(false);
     }
   }, []);
 

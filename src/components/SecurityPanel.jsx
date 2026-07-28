@@ -106,11 +106,12 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
           return json.data
             .filter(b => {
               const s = (b.status_booking || '').toLowerCase();
-              return !['batal', 'expired', 'declined', 'cancelled'].includes(s);
+              return !['batal', 'declined', 'cancelled'].includes(s);
             })
             .map(b => {
               const sBooking = (b.status_booking || '').toLowerCase();
-              if (['batal', 'expired', 'declined', 'cancelled'].includes(sBooking)) return null;
+              if (['batal', 'declined', 'cancelled'].includes(sBooking)) return null;
+              const status = sBooking === 'expired' ? 'expired' : 'accepted';
               const tanggal = (b.janji_datang || '').trim().split(' ')[0] || date;
               const jamRaw = (b.janji_datang || '').trim().split(' ')[1] || '';
               const jam = jamRaw ? jamRaw.slice(0, 5).replace(':', '.') : '';
@@ -123,7 +124,7 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
                 noPlat: b.no_polisi || '',
                 namaCustomer: b.nama_pelanggan || '',
                 tipeMobil: b.nama_kendaraan || '',
-                status: 'accepted',
+                status,
                 noTelp: b.no_telp_booking || '',
                 keperluanService: b.keperluan || b.keterangan || '',
                 _source: 'dms',

@@ -103,6 +103,7 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
 
     // User management (SPV only)
     const [salesUsers, setSalesUsers] = useState([]);
+    const [salesTeamNames, setSalesTeamNames] = useState([]);
     const [isLoadingUsers, setIsLoadingUsers] = useState(false);
     const [showUserForm, setShowUserForm] = useState(false);
     const [editingUser, setEditingUser] = useState(null);
@@ -170,6 +171,25 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
                             }
                         }
                     }
+                    const dmsExpired = dmsAll.filter(b => (b.status_booking || '').toLowerCase() === 'expired');
+                    for (const expired of dmsExpired) {
+                        const eDate = parseDmsDate(expired.janji_datang);
+                        const eJam = parseDmsTime(expired.janji_datang);
+                        const ePlat = (expired.no_polisi || '').replace(/\s+/g, '').toUpperCase();
+                        const match = supabaseData.find(sb => {
+                            const sbPlat = (sb.noPlat || '').replace(/\s+/g, '').toUpperCase();
+                            const sbJam = String(sb.jam || '').replace(':', '.');
+                            return sbPlat === ePlat && sb.tanggal === eDate && sbJam === eJam && sb.status !== 'cancelled' && sb.status !== 'expired';
+                        });
+                        if (match) {
+                            try {
+                                await db.update('booking', { status: 'expired' }, { eq: { id: match.id } });
+                                match.status = 'expired';
+                            } catch (e) {
+                                console.warn('Gagal sync expired status Supabase booking:', e);
+                            }
+                        }
+                    }
                     const dmsEntries = dmsAll.map(normalizeDmsBooking).filter(Boolean).filter(b => b.tanggal >= dateStr);
                     merged = [...merged, ...dmsEntries];
                 }
@@ -206,12 +226,18 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
     }, [fetchBookings]);
 
     const myBookings = useMemo(() => {
-        const prefixPattern = `${bookingPrefix}: ${staffName}`;
+        const spvPrefix = `SPV: ${staffName}`;
         return bookings.filter(b => {
             const via = b.bookingVia || '';
-            return via.startsWith(prefixPattern) || via.includes(staffName);
+            // Always include own SPV bookings
+            if (via.startsWith(spvPrefix) || via.includes(staffName)) return true;
+            // SPV also sees bookings from their sales team
+            if (isSpv && salesTeamNames.length > 0) {
+                return salesTeamNames.some(name => via.includes(`Sales: ${name}`));
+            }
+            return false;
         });
-    }, [bookings, bookingPrefix, staffName]);
+    }, [bookings, bookingPrefix, staffName, isSpv, salesTeamNames]);
 
     const filteredBookings = useMemo(() => {
         const today = new Date().toISOString().split('T')[0];
@@ -250,28 +276,41 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
     const fetchSalesUsers = useCallback(async () => {
         setIsLoadingUsers(true);
         try {
-            const { data: allData, error } = await db.select('sales', {
+            const { data: filtered, error } = await db.select('sales', {
+                eq: { spv: user?.username || '', role: 'sales' },
                 order: { column: 'id', ascending: false },
             });
             if (error) throw error;
-            const filtered = (allData || []).filter(u => {
-                const uRole = (u.role || 'sales').toLowerCase();
-                const uSpv = (u.spv || '').trim().toLowerCase();
-                const myName = staffName.trim().toLowerCase();
-                return uRole === 'sales' && (uSpv === myName || uSpv.includes(myName) || myName.includes(uSpv));
-            });
-            setSalesUsers(filtered);
+            setSalesUsers(filtered || []);
         } catch (e) {
             console.error('Gagal fetch sales users:', e);
             Toastify({ text: 'Gagal memuat data user', background: '#ef4444' }).showToast();
         } finally {
             setIsLoadingUsers(false);
         }
-    }, [staffName]);
+    }, [user?.username]);
 
     useEffect(() => {
         if (activeTab === 'users' && isSpv) fetchSalesUsers();
     }, [activeTab, isSpv, fetchSalesUsers]);
+
+    // Fetch sales team names on mount for SPV (used in booking filter)
+    useEffect(() => {
+        if (!isSpv) return;
+        (async () => {
+            try {
+                const { data } = await db.select('sales', {
+                    select: 'name',
+                    eq: { spv: user?.username || '', role: 'sales', status: 'active' },
+                });
+                if (Array.isArray(data) && data.length > 0) {
+                    setSalesTeamNames(data.map(u => u.name).filter(Boolean));
+                }
+            } catch (e) {
+                console.warn('Gagal fetch sales team untuk booking filter:', e);
+            }
+        })();
+    }, [isSpv, user?.username]);
 
     const handleSaveUser = async (e) => {
         e.preventDefault();
@@ -285,7 +324,7 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
         }
         try {
             if (editingUser) {
-                const updates = { name: userForm.name, role: 'sales', spv: staffName, status: userForm.status };
+                const updates = { name: userForm.name, role: 'sales', spv: user?.username || '', status: userForm.status };
                 if (userForm.password) updates.password = userForm.password;
                 const { error } = await db.update('sales', updates, { eq: { id: editingUser.id } });
                 if (error) throw error;
@@ -297,7 +336,7 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
                     password: userForm.password,
                     name: userForm.name,
                     role: 'sales',
-                    spv: staffName,
+                    spv: user?.username || '',
                     status: userForm.status,
                 };
                 const { error } = await db.insert('sales', payload);
@@ -340,7 +379,7 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
 
     const handleEditUser = (u) => {
         setEditingUser(u);
-        setUserForm({ username: u.username, password: '', name: u.name || '', role: 'sales', spv: staffName, status: u.status || 'active' });
+        setUserForm({ username: u.username, password: '', name: u.name || '', role: 'sales', spv: user?.username || '', status: u.status || 'active' });
         setShowUserForm(true);
     };
 
@@ -489,6 +528,7 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
             'completed': { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Selesai' },
             'cancelled': { bg: 'bg-red-100', text: 'text-red-700', label: 'Dibatalkan' },
             'no_show': { bg: 'bg-zinc-100', text: 'text-zinc-500', label: 'No Show' },
+            'expired': { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Expired' },
         };
         const s = map[status] || { bg: 'bg-zinc-100', text: 'text-zinc-500', label: status };
         return <span className={`${s.bg} ${s.text} text-[10px] font-black px-2 py-0.5 rounded-full`}>{s.label}</span>;

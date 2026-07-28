@@ -383,83 +383,100 @@ async function handleWarranty(req, res) {
         `&search[value]=${encodeURIComponent(search)}&search[regex]=false` +
         `&status=${encodeURIComponent(st)}&kategori=${encodeURIComponent(kategori)}${dateQuery}&_=${Date.now()}`;
 
+    const PAGE_SIZE = 1000;
+
+    const reqHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': `${BASE}/aftersales/work-order`,
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'X-Requested-With': 'XMLHttpRequest',
+    };
+
+    async function fetchAllPagesForStatus(st) {
+        let allData = [];
+        let offset = 0;
+        while (true) {
+            if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+                warrantyCookie = await warrantyLogin();
+            }
+            const url = buildUrlCustom(st, offset, PAGE_SIZE);
+            const resp = await fetchWithHttps(url, { headers: { ...reqHeaders, Cookie: warrantyCookie } });
+            const body = await resp.text();
+            if (resp.status === 302 || resp.status === 401 || body.trimStart().startsWith('<')) {
+                warrantyCookie = null;
+                continue;
+            }
+            try {
+                const parsed = JSON.parse(body);
+                const pageData = Array.isArray(parsed.data) ? parsed.data : [];
+                allData = allData.concat(pageData);
+                if (pageData.length < PAGE_SIZE) break;
+                offset += PAGE_SIZE;
+            } catch (e) {
+                break;
+            }
+        }
+        return allData;
+    }
+
     let attempts = 0;
     while (attempts < 2) {
         if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
             warrantyCookie = await warrantyLogin();
         }
 
-        // Optimized parallel fetching for "Semua Status"
-        if (status === '' && fetchAll) {
-            try {
-                const reqHeaders = {
-                    'Cookie': warrantyCookie,
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Referer': `${BASE}/aftersales/work-order`,
-                    'Accept': 'application/json, text/javascript, */*; q=0.01',
-                    'X-Requested-With': 'XMLHttpRequest',
-                };
+        try {
+            let combinedList;
 
-                const [resActive, resClosed] = await Promise.all([
-                    fetchWithHttps(buildUrlCustom('', 0, 10000), { headers: reqHeaders }).then(r => r.json()).catch(() => ({})),
-                    fetchWithHttps(buildUrlCustom('Closed', 0, 10000), { headers: reqHeaders }).then(r => r.json()).catch(() => ({}))
+            if (status === '' && fetchAll) {
+                const [activeList, closedList] = await Promise.all([
+                    fetchAllPagesForStatus(''),
+                    fetchAllPagesForStatus('Closed')
                 ]);
-
-                const activeList = Array.isArray(resActive.data) ? resActive.data : [];
-                const closedList = Array.isArray(resClosed.data) ? resClosed.data : [];
 
                 const mergedMap = new Map();
                 [...activeList, ...closedList].forEach(item => {
                     const key = item.id_wo || item.no_wo;
                     if (key && !mergedMap.has(key)) mergedMap.set(key, item);
                 });
-
-                const combinedList = Array.from(mergedMap.values());
-                const result = {
-                    draw: Number(draw),
-                    recordsTotal: combinedList.length,
-                    recordsFiltered: combinedList.length,
-                    data: combinedList
-                };
-
-                warrantyWoCacheStore.set(cacheKey, { timestamp: Date.now(), json: result });
-                return res.status(200).json(result);
-            } catch (errParallel) {
-                console.warn("Parallel WO fetch error:", errParallel);
+                combinedList = Array.from(mergedMap.values());
+            } else if (fetchAll) {
+                combinedList = await fetchAllPagesForStatus(status);
+            } else {
+                if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+                    warrantyCookie = await warrantyLogin();
+                }
+                const targetUrl = buildUrlCustom(status, start, length);
+                const response = await fetchWithHttps(targetUrl, {
+                    headers: { ...reqHeaders, Cookie: warrantyCookie },
+                });
+                const body = await response.text();
+                const isHtml = body.trimStart().startsWith('<');
+                if (response.status === 302 || response.status === 401 || isHtml) {
+                    warrantyCookie = null;
+                    attempts++;
+                    continue;
+                }
+                try {
+                    const parsed = JSON.parse(body);
+                    combinedList = Array.isArray(parsed.data) ? parsed.data : [];
+                } catch (e) {
+                    return res.status(500).json({ error: 'Failed to parse JSON response from DMS', raw: body.slice(0, 200) });
+                }
             }
-        }
 
-        const reqLen = fetchAll ? 10000 : length;
-        const targetUrl = buildUrlCustom(status, start, reqLen);
+            const result = {
+                draw: Number(draw),
+                recordsTotal: combinedList.length,
+                recordsFiltered: combinedList.length,
+                data: combinedList
+            };
 
-        const response = await fetchWithHttps(targetUrl, {
-            headers: {
-                'Cookie': warrantyCookie,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': `${BASE}/aftersales/work-order`,
-                'Accept': 'application/json, text/javascript, */*; q=0.01',
-                'X-Requested-With': 'XMLHttpRequest',
-            },
-        });
-        const body = await response.text();
-        const isHtml = body.trimStart().startsWith('<');
-        if (response.status === 302 || response.status === 401 || isHtml) {
-            warrantyCookie = null;
+            warrantyWoCacheStore.set(cacheKey, { timestamp: Date.now(), json: result });
+            return res.status(200).json(result);
+        } catch (errFetch) {
+            console.warn("[handleWarranty] Fetch error:", errFetch.message);
             attempts++;
-            continue;
-        }
-        try {
-            const parsed = JSON.parse(body);
-            let woList = Array.isArray(parsed.data) ? parsed.data : [];
-            const totalRecords = parsed.recordsFiltered || parsed.recordsTotal || woList.length;
-
-            parsed.data = woList;
-            parsed.recordsFiltered = woList.length;
-            parsed.recordsTotal = woList.length;
-
-            warrantyWoCacheStore.set(cacheKey, { timestamp: Date.now(), json: parsed });
-        } catch (e) {
-            return res.status(500).json({ error: 'Failed to parse JSON response from DMS', raw: body.slice(0, 200) });
         }
     }
     return res.status(500).json({ error: 'Warranty login failed after 2 attempts' });
@@ -1473,6 +1490,8 @@ export default async function handler(req, res) {
 
     if (endpoint === 'warranty-invoice-report') {
         req.query.status = req.query.status || 'Closed';
+        req.query.fetchAll = 'true';
+        req.query.length = '10000';
         return handleWarranty(req, res);
     }
 

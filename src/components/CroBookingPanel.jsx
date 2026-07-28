@@ -825,10 +825,10 @@ export default function CroBookingPanel({ user }) {
                             {/* STEP 2: Booking Form */}
                             {step === 'form' && (
                                 <div className="flex-1 flex flex-col overflow-hidden">
-                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 flex-1 overflow-y-auto lg:overflow-hidden">
-                                        {/* Column 1: Calendar */}
-                                        <div className="space-y-2 flex flex-col lg:border-r border-zinc-100 lg:pr-4">
-                                            <h3 className="text-[11px] font-black uppercase tracking-widest text-zinc-900 flex items-center gap-3">
+                                    <div className="flex-1 flex flex-col md:flex-row gap-3 md:gap-4 overflow-y-auto lg:overflow-hidden">
+                                        {/* Left: Calendar + Time Slots */}
+                                        <div className="md:w-[45%] space-y-2 flex flex-col md:border-r border-zinc-100 md:pr-4">
+                                            <h3 className="text-xs font-black uppercase tracking-widest text-zinc-900 flex items-center gap-2">
                                                 <div className="w-5 h-5 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">1</div> Pilih Tanggal
                                             </h3>
 
@@ -843,10 +843,9 @@ export default function CroBookingPanel({ user }) {
                                         showTimeSlots={false}
                                             />
 
-                                            {/* Quick time slots */}
-                                            <div className="space-y-1">
-                                                <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Jam Kedatangan</h4>
-                                                <div className="grid grid-cols-3 gap-1.5">
+                                            <div className="space-y-2">
+                                                <h4 className="text-xs font-black uppercase tracking-widest text-zinc-400 ml-1">Jam Kedatangan</h4>
+                                                <div className="grid grid-cols-3 gap-2">
                                                     {(() => {
                                                         const slots = getSlotsForDate(formData.tanggal, slotConfig);
                                                         const toMin = (j) => {
@@ -885,10 +884,10 @@ export default function CroBookingPanel({ user }) {
                                             </div>
                                         </div>
 
-                                        {/* Column 2: Vehicle info + fields */}
-                                        <div className="space-y-3 flex flex-col lg:border-r border-zinc-100 lg:pr-4">
+                                        {/* Right: Vehicle + Form + Summary + Submit */}
+                                        <div className="md:w-[55%] flex flex-col overflow-y-auto lg:overflow-hidden">
                                             {isManual ? (
-                                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl mb-3">
                                                     <div className="flex items-center gap-2 text-[9px] font-black uppercase text-amber-700 tracking-wider mb-2">
                                                         <Edit3 size={12} /> Data Manual
                                                     </div>
@@ -902,11 +901,11 @@ export default function CroBookingPanel({ user }) {
                                                     </div>
                                                 </div>
                                             ) : (
-                                                <div className="p-3 bg-zinc-50 border border-zinc-100 rounded-xl">
+                                                <div className="p-3 bg-zinc-50 border border-zinc-100 rounded-xl mb-3">
                                                     <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-500 tracking-wider mb-1">
                                                         <ShieldCheck size={12} className="text-emerald-600" /> Data Kendaraan
                                                     </div>
-                                                    <div className="grid grid-cols-2 gap-0.5 text-[10px]">
+                                                    <div className="grid grid-cols-2 gap-1 text-xs">
                                                         <span className="text-zinc-400">No Polisi:</span>
                                                         <span className="font-black text-zinc-900">{foundVehicle?.no_polisi}</span>
                                                         <span className="text-zinc-400">Model:</span>
@@ -918,32 +917,28 @@ export default function CroBookingPanel({ user }) {
                                             )}
 
                                             <form id="bookingForm" onSubmit={handleFormSubmit} className="space-y-2">
-                                                <div className="space-y-1">
-                                                    <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Atas Nama Booking</h4>
-                                                    <input required type="text" className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[36px]" placeholder="Nama booking" value={formData.atasNama} onChange={e => setFormData({ ...formData, atasNama: e.target.value })} />
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">No Telp Booking</h4>
-                                                    <input type="tel" className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[36px]" placeholder="08..." value={formData.noTelp} onChange={e => setFormData({ ...formData, noTelp: e.target.value })} />
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">KM Kendaraan</h4>
-                                                    <input type="text" className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[36px]" placeholder="Masukkan KM" value={formData.km} onChange={e => setFormData({ ...formData, km: e.target.value })} />
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1">Keluhan</h4>
-                                                    <textarea className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[60px]" placeholder="Deskripsi keluhan (opsional)" value={formData.keluhan} onChange={e => setFormData({ ...formData, keluhan: e.target.value })} />
+                                                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                                                    <div>
+                                                        <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1 mb-1">Atas Nama Booking</h4>
+                                                        <input required type="text" className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[36px]" placeholder="Nama booking" value={formData.atasNama} onChange={e => setFormData({ ...formData, atasNama: e.target.value })} />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1 mb-1">No Telp Booking</h4>
+                                                        <input type="tel" className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[36px]" placeholder="08..." value={formData.noTelp} onChange={e => setFormData({ ...formData, noTelp: e.target.value })} />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1 mb-1">KM Kendaraan</h4>
+                                                        <input type="text" className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[36px]" placeholder="Masukkan KM" value={formData.km} onChange={e => setFormData({ ...formData, km: e.target.value })} />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1 mb-1">Keluhan</h4>
+                                                        <textarea className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[60px]" placeholder="Deskripsi keluhan (opsional)" value={formData.keluhan} onChange={e => setFormData({ ...formData, keluhan: e.target.value })} />
+                                                    </div>
                                                 </div>
                                             </form>
-                                        </div>
 
-                                        {/* Column 3: Summary & Submit */}
-                                        <div className="space-y-3 flex flex-col bg-zinc-50/50 p-3 lg:border-l border-zinc-100">
-                                            <h3 className="text-[11px] font-black uppercase tracking-widest text-zinc-900 flex items-center gap-3">
-                                                <div className="w-5 h-5 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">3</div> Konfirmasi
-                                            </h3>
-
-                                            <div className="space-y-2 flex-1">
+                                            {/* Summary + Buttons */}
+                                            <div className="mt-auto pt-3 space-y-3">
                                                 <div className="bg-white border border-zinc-100 rounded-xl p-3 space-y-1">
                                                     <div className="flex justify-between text-[11px]">
                                                         <span className="text-zinc-400 font-bold">Tanggal</span>
@@ -962,26 +957,20 @@ export default function CroBookingPanel({ user }) {
                                                         <span className="font-black text-zinc-900">{formData.atasNama || '-'}</span>
                                                     </div>
                                                 </div>
-                                                <div className="p-3 bg-white rounded-xl border border-zinc-100">
-                                                    <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-400 tracking-widest mb-1">
-                                                        <Info size={12} className="text-black" /> Informasi
-                                                    </div>
-                                                    <p className="text-[9px] font-bold text-zinc-600 leading-relaxed">{isManual ? 'Booking akan disimpan ke sistem internal. Data kendaraan bisa dilengkapi nanti.' : 'Booking akan dikirim ke DMS. Pastikan data sudah sesuai.'}</p>
-                                                </div>
-                                            </div>
 
-                                            <div className="flex flex-col gap-1.5">
-                                                <button type="button" onClick={() => setStep('search')}
-                                                    className="w-full py-2.5 rounded-xl border-2 border-zinc-200 text-zinc-500 font-black text-[10px] uppercase tracking-widest hover:bg-zinc-50 transition-all"
-                                                >
-                                                    Kembali
-                                                </button>
-                                                <button type="submit" form="bookingForm" disabled={isSubmitting}
-                                                    className="w-full bg-zinc-900 hover:bg-black text-white py-3 rounded-xl font-black text-[11px] uppercase tracking-widest shadow-2xl shadow-zinc-200 transition-all flex items-center justify-center gap-3 active:scale-95 group disabled:opacity-40"
-                                                >
-                                                    {isSubmitting ? 'Processing...' : 'Konfirmasi Booking'}
-                                                    <Send size={16} className="group-hover:translate-x-2 group-hover:-translate-y-1 transition-transform" />
-                                                </button>
+                                                <div className="flex gap-2">
+                                                    <button type="button" onClick={() => setStep('search')}
+                                                        className="py-2.5 px-5 rounded-xl border-2 border-zinc-200 text-zinc-500 font-black text-[10px] uppercase tracking-widest hover:bg-zinc-50 transition-all"
+                                                    >
+                                                        Kembali
+                                                    </button>
+                                                    <button type="submit" form="bookingForm" disabled={isSubmitting}
+                                                        className="flex-1 bg-zinc-900 hover:bg-black text-white py-3 rounded-xl font-black text-[11px] uppercase tracking-widest shadow-2xl shadow-zinc-200 transition-all flex items-center justify-center gap-3 active:scale-95 group disabled:opacity-40"
+                                                    >
+                                                        {isSubmitting ? 'Processing...' : 'Konfirmasi Booking'}
+                                                        <Send size={16} className="group-hover:translate-x-2 group-hover:-translate-y-1 transition-transform" />
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ShieldCheck, BarChart2, Search, RefreshCw, AlertCircle,
   TrendingUp, Clock, CheckCircle2, FileText, Wrench,
@@ -30,43 +30,56 @@ export function WarrantyDashboardPage({ onNavigate }) {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(() => GLOBAL_WARRANTY_CACHE.dashboard?.lastUpdated || null);
+  const abortRef = useRef(null);
 
   const fetchInitial = useCallback(async (forceRefresh) => {
-    if (!forceRefresh && GLOBAL_WARRANTY_CACHE.dashboard) return;
+    if (!forceRefresh && GLOBAL_WARRANTY_CACHE.dashboard && GLOBAL_WARRANTY_CACHE.dashboard.data.length > 0) {
+      return;
+    }
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setIsLoading(true); setError(null);
     try {
-      // Load 50 first for fast display
-      const params = new URLSearchParams({ endpoint:'work-order', draw:1, start:0, length:50, search:'', status:'', from:'', to:'' });
-      const json = await fetchWarrantyAPI(params);
+      const params = new URLSearchParams({ endpoint:'warranty-wo', draw:1, start:0, length:10000, fetchAll:'true', status:'', search:'', from:'', to:'' });
+      const res = await fetch(`/api/chery_dms?${params}`, { signal: controller.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
       const newData = json.data || [];
-      const newTotal = json.recordsTotal || 0;
+      const newTotal = json.recordsTotal || newData.length;
       setData(newData);
       setTotalRecords(newTotal);
       setLastUpdated(new Date());
       GLOBAL_WARRANTY_CACHE.dashboard = { data: newData, totalRecords: newTotal, lastUpdated: new Date() };
-      setIsLoading(false);
-
-      // Load more in background
-      if (newTotal > 50) {
-        setIsLoadingMore(true);
-        try {
-          const params2 = new URLSearchParams({ endpoint:'work-order', draw:2, start:0, length:500, search:'', status:'', from:'', to:'' });
-          const json2 = await fetchWarrantyAPI(params2);
-          const fullData = json2.data || [];
-          setData(fullData);
-          setTotalRecords(json2.recordsTotal || 0);
-          GLOBAL_WARRANTY_CACHE.dashboard.data = fullData;
-          GLOBAL_WARRANTY_CACHE.dashboard.totalRecords = json2.recordsTotal || 0;
-        } catch (e) { /* keep initial data */ }
-        finally { setIsLoadingMore(false); }
-      }
     } catch (err) {
+      if (err.name === 'AbortError') return;
       setError(err.message);
-      setIsLoading(false);
+    } finally {
+      if (abortRef.current === controller) setIsLoading(false);
+    }
+
+    // Preload invoice report in background (non-blocking)
+    if (!GLOBAL_WARRANTY_CACHE.invoiceReport) {
+      setIsLoadingMore(true);
+      try {
+        const invRes = await fetch('/api/chery_dms?endpoint=warranty-invoice-report', { signal: controller.signal });
+        if (invRes.ok) {
+          const invJson = await invRes.json();
+          GLOBAL_WARRANTY_CACHE.invoiceReport = invJson;
+        }
+      } catch {}
+      finally {
+        if (abortRef.current === controller) setIsLoadingMore(false);
+      }
     }
   }, []);
 
-  useEffect(() => { fetchInitial(); }, [fetchInitial]);
+  useEffect(() => {
+    fetchInitial();
+    return () => { if (abortRef.current) abortRef.current.abort(); };
+  }, [fetchInitial]);
 
   const total = data.length;
   const statusCounts = data.reduce((acc, row) => {
@@ -187,6 +200,8 @@ export function WarrantyWorkOrderPage() {
   const [sparepartFilter, setSparepartFilter] = useState(() => GLOBAL_WARRANTY_CACHE.lastSparepartFilter || 'all');
   const [partsStatus, setPartsStatus] = useState(() => ({...GLOBAL_WARRANTY_CACHE.partsStatus}));
   const [loadingParts, setLoadingParts] = useState(false);
+  const fetchAbortRef = useRef(null);
+  const partsAbortRef = useRef(null);
 
   const getWOCacheKey = () => `${page}_${search}_${statusFilter}_${kategoriFilter}_${fromDate}_${toDate}`;
 
@@ -198,33 +213,52 @@ export function WarrantyWorkOrderPage() {
       setTotalRecords(cached.totalRecords);
       return;
     }
+    if (fetchAbortRef.current) fetchAbortRef.current.abort();
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
+
     setIsLoading(true); setError(null);
     try {
       const params = new URLSearchParams({ endpoint:'work-order', draw:page+1, start:page*pageSize, length:pageSize, search, status:statusFilter, kategori:kategoriFilter, from:fromDate, to:toDate });
-      const json = await fetchWarrantyAPI(params);
+      const res = await fetch(`/api/chery_dms?${params}`, { signal: controller.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
       const newData = json.data || [];
       const newTotal = json.recordsFiltered || json.recordsTotal || 0;
       setData(newData);
       setTotalRecords(newTotal);
       GLOBAL_WARRANTY_CACHE.workorder[wk] = { data: newData, totalRecords: newTotal };
-    } catch (err) { setError(err.message); }
-    finally { setIsLoading(false); }
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      setError(err.message);
+    } finally {
+      if (fetchAbortRef.current === controller) setIsLoading(false);
+    }
   }, [page, search, statusFilter, kategoriFilter, fromDate, toDate]);
 
-  useEffect(() => { fetchData(); }, [fetchData, page]);
+  useEffect(() => {
+    fetchData();
+    return () => { if (fetchAbortRef.current) fetchAbortRef.current.abort(); };
+  }, [fetchData, page]);
 
   const loadPartsStatus = useCallback(async (woList) => {
     const toLoad = woList.filter(wo => wo.no_wo && !GLOBAL_WARRANTY_CACHE.partsStatus[wo.no_wo]);
     if (toLoad.length === 0) return;
+    if (partsAbortRef.current) partsAbortRef.current.abort();
+    const controller = new AbortController();
+    partsAbortRef.current = controller;
+
     setLoadingParts(true);
     toLoad.forEach(wo => { GLOBAL_WARRANTY_CACHE.partsStatus[wo.no_wo] = { loading: true }; });
     setPartsStatus({...GLOBAL_WARRANTY_CACHE.partsStatus});
-    const batchSize = 5;
+    const batchSize = 35;
     for (let i = 0; i < toLoad.length; i += batchSize) {
+      if (controller.signal.aborted) break;
       const batch = toLoad.slice(i, i + batchSize);
       await Promise.allSettled(batch.map(async (wo) => {
         try {
-          const res = await fetch(`/api/chery_dms?endpoint=warranty-estimasi-detail&id=${wo.id_wo}`);
+          const res = await fetch(`/api/chery_dms?endpoint=warranty-estimasi-detail&id=${wo.id_wo}`, { signal: controller.signal });
           const json = await res.json();
           if (json.error) throw new Error(json.error);
           const parts = json.parts || [];

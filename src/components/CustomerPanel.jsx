@@ -57,6 +57,7 @@ const CustomerPanel = ({ user, handleLogout, handleChangePassword, setCurrentPag
   const [completedInfo, setCompletedInfo] = useState(null);
   const lastQueueRef = useRef(null);
   const completedShownRef = useRef(false);
+  const vinAbortRef = useRef(null);
 
   // Reschedule state
   const [activeBookings, setActiveBookings] = useState([]);
@@ -337,6 +338,10 @@ const CustomerPanel = ({ user, handleLogout, handleChangePassword, setCurrentPag
   }, [calledItem, voiceEnabled]);
 
   useEffect(() => {
+    if (vinAbortRef.current) vinAbortRef.current.abort();
+    const controller = new AbortController();
+    vinAbortRef.current = controller;
+
     const fetchHistory = async () => {
       if (!user.vin) {
         setIsLoading(false);
@@ -351,7 +356,7 @@ const CustomerPanel = ({ user, handleLogout, handleChangePassword, setCurrentPag
       }
 
       try {
-        const res = await fetch(`/api/chery_dms?endpoint=warranty-search-vin&vin=${encodeURIComponent(user.vin)}&length=50`);
+        const res = await fetch(`/api/chery_dms?endpoint=warranty-search-vin&vin=${encodeURIComponent(user.vin)}&length=50`, { signal: controller.signal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         if (json.error) throw new Error(json.error);
@@ -370,14 +375,15 @@ const CustomerPanel = ({ user, handleLogout, handleChangePassword, setCurrentPag
         setHistory(mapped);
         setCachedHistory(user.vin, mapped);
 
-        const batchSize = 5;
+        const batchSize = 35;
         for (let i = 0; i < woList.length; i += batchSize) {
+          if (controller.signal.aborted) break;
           const batch = woList.slice(i, i + batchSize);
           await Promise.allSettled(batch.map(async (wo) => {
             try {
               const idWo = wo.id_wo || wo.no_wo;
               if (!idWo) return;
-              const r = await fetch(`/api/chery_dms?endpoint=warranty-estimasi-detail&id=${idWo}`);
+              const r = await fetch(`/api/chery_dms?endpoint=warranty-estimasi-detail&id=${idWo}`, { signal: controller.signal });
               const j = await r.json();
               if (j.error || !j.parts) return;
               const updateFn = (prev) => prev.map(h =>
@@ -391,13 +397,15 @@ const CustomerPanel = ({ user, handleLogout, handleChangePassword, setCurrentPag
           }));
         }
       } catch (err) {
+        if (err.name === 'AbortError') return;
         console.error(err);
         Toastify({ text: "Gagal mengambil riwayat servis", style: { background: "#ef4444" } }).showToast();
       } finally {
-        setIsLoading(false);
+        if (vinAbortRef.current === controller) setIsLoading(false);
       }
     };
     fetchHistory();
+    return () => { controller.abort(); };
   }, [user.vin]);
 
   // Fetch active bookings for this customer

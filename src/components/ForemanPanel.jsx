@@ -149,10 +149,11 @@ export default function ForemanPanel({
         setIsAssigning(true);
         const mechanicStr = selectedMechanics.join(',');
         const itemId = assignModal.item.id;
-        // Ambil estimasi dari foreman (default 2 jam = 7200 detik)
+        // Ambil estimasi dari foreman, fallback ke estimasiDefault dari admin
         const est = foremanEstimates[itemId];
-        const estHours = est?.hours ?? 2;
-        const estMinutes = est?.minutes ?? 0;
+        const defaultEst = parseInt(assignModal.item.estimasiDefault) || 7200;
+        const estHours = est?.hours ?? Math.floor(defaultEst / 3600);
+        const estMinutes = est?.minutes ?? Math.floor((defaultEst % 3600) / 60);
         const estSec = (estHours * 3600) + (estMinutes * 60);
         const payload = {
             mechanicName: mechanicStr,
@@ -316,13 +317,16 @@ export default function ForemanPanel({
                                         </p>
                                     )}
 
-                                    {/* Estimasi waktu untuk menunggu_foreman */}
-                                    {item.status === 'menunggu_foreman' && (
+                                    {/* Estimasi waktu untuk semua item yang bisa di-assign */}
+                                    {(item.status === 'menunggu_foreman' || item.status === 'menunggu_sa' || item.status === 'waiting') && (
                                         <div className="mb-2 bg-zinc-50 rounded-xl p-2.5 border border-zinc-200 flex items-center gap-2">
                                             <Clock size={14} className="text-zinc-400 shrink-0" />
                                             <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest shrink-0">Estimasi:</span>
                                             <select
-                                                value={foremanEstimates[item.id]?.hours ?? 2}
+                                                value={
+                                                    foremanEstimates[item.id]?.hours
+                                                    ?? Math.floor((parseInt(item.estimasiDefault) || 7200) / 3600)
+                                                }
                                                 onChange={(e) => setForemanEstimates(prev => ({
                                                     ...prev,
                                                     [item.id]: { ...prev[item.id], hours: parseInt(e.target.value) }
@@ -334,7 +338,10 @@ export default function ForemanPanel({
                                                 ))}
                                             </select>
                                             <select
-                                                value={foremanEstimates[item.id]?.minutes ?? 0}
+                                                value={
+                                                    foremanEstimates[item.id]?.minutes
+                                                    ?? Math.floor(((parseInt(item.estimasiDefault) || 7200) % 3600) / 60)
+                                                }
                                                 onChange={(e) => setForemanEstimates(prev => ({
                                                     ...prev,
                                                     [item.id]: { ...prev[item.id], minutes: parseInt(e.target.value) }
@@ -348,7 +355,7 @@ export default function ForemanPanel({
                                             <span className="text-[9px] font-bold text-zinc-400 ml-auto">
                                                 {foremanEstimates[item.id]
                                                     ? `${foremanEstimates[item.id].hours}h ${foremanEstimates[item.id].minutes}m`
-                                                    : '2h 0m'}
+                                                    : `${Math.floor((parseInt(item.estimasiDefault) || 7200) / 3600)}h ${Math.floor(((parseInt(item.estimasiDefault) || 7200) % 3600) / 60)}m`}
                                             </span>
                                         </div>
                                     )}

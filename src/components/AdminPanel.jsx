@@ -189,7 +189,8 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
                     if (Array.isArray(dmsJson.data)) {
                         const normalized = dmsJson.data.map(b => {
                             const sBooking = (b.status_booking || '').toLowerCase();
-                            if (['batal', 'expired', 'declined'].includes(sBooking)) return null;
+                            if (['batal', 'declined'].includes(sBooking)) return null;
+                            const status = sBooking === 'expired' ? 'expired' : 'accepted';
                             const tanggal = (b.janji_datang || '').trim().split(' ')[0] || '';
                             const jamRaw = (b.janji_datang || '').trim().split(' ')[1] || '00:00';
                             const jam = jamRaw.slice(0, 5).replace(':', '.');
@@ -205,7 +206,7 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
                                 namaCustomer: b.nama_pelanggan || '',
                                 tipeMobil: b.nama_kendaraan || '',
                                 keperluanService: '',
-                                status: 'accepted',
+                                status,
                                 bookingVia: b.booking_via || 'DMS Internal',
                                 vin: b.no_chassis || '',
                                 noTelp: b.no_telp_booking || '',

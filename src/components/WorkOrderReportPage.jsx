@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Search, RefreshCw, AlertCircle, Clock, FileText, Wrench, Filter, X, ChevronLeft, ChevronRight,
   Car, User, ChevronDown, ChevronUp, ShieldCheck, Zap, Star, Activity
@@ -64,6 +64,7 @@ export function WorkOrderDetailView({ row, onDetailLoaded }) {
   const [loading, setLoading] = useState(!estimasiDetailCacheStore.has(row?.id_wo));
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('lc');
+  const abortRef = useRef(null);
 
   useEffect(() => {
     if (!row?.id_wo) return;
@@ -76,25 +77,29 @@ export function WorkOrderDetailView({ row, onDetailLoaded }) {
       return;
     }
 
-    let isMounted = true;
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
     setError(null);
-    fetch(`/api/chery_dms?endpoint=warranty-estimasi-detail&id=${row.id_wo}`)
+    fetch(`/api/chery_dms?endpoint=warranty-estimasi-detail&id=${row.id_wo}`, { signal: controller.signal })
       .then(res => res.json())
       .then(data => {
-        if (!isMounted) return;
+        if (controller.signal.aborted) return;
         if (data.error) throw new Error(data.error);
         estimasiDetailCacheStore.set(row.id_wo, data);
         setDetailData(data);
         if (onDetailLoaded) onDetailLoaded(row.id_wo, data);
       })
       .catch(err => {
-        if (isMounted) setError(err.message);
+        if (err.name === 'AbortError') return;
+        if (!controller.signal.aborted) setError(err.message);
       })
       .finally(() => {
-        if (isMounted) setLoading(false);
+        if (abortRef.current === controller) setLoading(false);
       });
-    return () => { isMounted = false; };
+    return () => { controller.abort(); };
   }, [row?.id_wo]);
 
   const pekerjaan = detailData?.pekerjaan || [];
