@@ -10,6 +10,7 @@ import CroBookingPanel from './CroBookingPanel';
 import HolidaySettings from './HolidaySettings';
 import WorkOrderReportPage from './WorkOrderReportPage';
 import InvoiceReportPage from './InvoiceReportPage';
+import WorkItemServicePage from './WorkItemServicePage';
 import * as XLSX from 'xlsx';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
@@ -76,6 +77,11 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
         if (res.ok) {
           const json = await res.json();
           rawList = Array.isArray(json.data) ? json.data : (json.payload?.content || []);
+          try {
+            if (rawList.length > 0) {
+              localStorage.setItem('invoice_report_cache_data_all___', JSON.stringify({ data: rawList, timestamp: Date.now() }));
+            }
+          } catch (e) {}
         }
       }
 
@@ -110,10 +116,19 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
     try {
       let rawList = [];
       try {
-        const rawCache = localStorage.getItem('wo_report_cache_data_all____');
-        if (rawCache) {
-          const { data } = JSON.parse(rawCache);
-          if (Array.isArray(data) && data.length > 0) rawList = data;
+        const woCacheKeys = [
+          'wo_report_cache_data_wo_report_master__',
+          'wo_report_cache_data_all____'
+        ];
+        for (const key of woCacheKeys) {
+          const rawCache = localStorage.getItem(key);
+          if (rawCache) {
+            const { data, timestamp } = JSON.parse(rawCache);
+            if (Array.isArray(data) && data.length > 0 && (Date.now() - (timestamp || 0) < 300000)) {
+              rawList = data;
+              break;
+            }
+          }
         }
       } catch (e) {}
 
@@ -122,6 +137,11 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
         const params = new URLSearchParams({ endpoint: 'warranty-wo', draw: 1, start: 0, length: 1000, fetchAll: 'true', status: '' });
         const res = await fetch(`/api/chery_dms?${params}`, { signal: controller.signal }).then(r => r.json()).catch(() => ({}));
         rawList = res.data || [];
+        try {
+          if (rawList.length > 0) {
+            localStorage.setItem('wo_report_cache_data_wo_report_master__', JSON.stringify({ data: rawList, timestamp: Date.now() }));
+          }
+        } catch (e) {}
       }
 
       if (controller.signal.aborted) return;
@@ -949,6 +969,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
     financial: { title: '💰 Laporan Revenue', subtitle: 'Audit transaksi & finansial service' },
     wo_tracking: { title: '🔧 Tracking Pengerjaan', subtitle: 'Status pengerjaan workshop realtime' },
     laporan_wo: { title: '📄 Laporan Work Order', subtitle: 'Rincian transaksi pekerjaan & spare part Work Order' },
+    work_item_service: { title: '🔧 Jasa Pengerjaan Mobil', subtitle: 'Daftar pekerjaan & labor hour dari DMS' },
     vehicles: { title: '🚗 Database Mobil', subtitle: 'Frekuensi kunjungan kendaraan' },
     cro_history: { title: '📋 Riwayat CRO', subtitle: 'Follow up customer relation' },
     holidays: { title: '🗓️ Libur Dealer', subtitle: 'Pengaturan hari libur dealer' },
@@ -964,7 +985,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
           ref={mainRef}
           className={`flex-1 ${activeTab === 'holidays' ? 'overflow-hidden' : 'overflow-y-auto'} p-4 md:p-8 custom-scrollbar space-y-6 pb-[72px] md:pb-8 overflow-x-hidden`}
         >
-        {activeTab !== 'performance' && activeTab !== 'staff' && activeTab !== 'laporan_wo' && activeTab !== 'laporan_invoice' && activeTab !== 'manager-laporan-invoice' && (
+        {activeTab !== 'performance' && activeTab !== 'staff' && activeTab !== 'laporan_wo' && activeTab !== 'laporan_invoice' && activeTab !== 'manager-laporan-invoice' && activeTab !== 'work_item_service' && activeTab !== 'manager-jasa-pengerjaan' && (
           <section className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
               <h2 className="text-sm font-black uppercase tracking-widest text-zinc-500">
@@ -1015,7 +1036,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
         )}
 
         {/* Status Indicators */}
-        {activeTab !== 'cro_history' && activeTab !== 'staff' && activeTab !== 'booking_mgmt' && activeTab !== 'holidays' && activeTab !== 'vehicles' && activeTab !== 'laporan_wo' && activeTab !== 'laporan_invoice' && activeTab !== 'manager-laporan-invoice' && (
+        {activeTab !== 'cro_history' && activeTab !== 'staff' && activeTab !== 'booking_mgmt' && activeTab !== 'holidays' && activeTab !== 'vehicles' && activeTab !== 'laporan_wo' && activeTab !== 'laporan_invoice' && activeTab !== 'manager-laporan-invoice' && activeTab !== 'work_item_service' && activeTab !== 'manager-jasa-pengerjaan' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             {activeTab === 'wo_tracking' ? (
               [
@@ -1071,6 +1092,12 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
           {(activeTab === 'laporan_wo' || activeTab === 'manager-laporan-wo') && (
             <div className="min-h-[calc(100vh-200px)]">
               <WorkOrderReportPage />
+            </div>
+          )}
+
+          {(activeTab === 'work_item_service' || activeTab === 'manager-jasa-pengerjaan') && (
+            <div className="min-h-[calc(100vh-200px)]">
+              <WorkItemServicePage />
             </div>
           )}
 

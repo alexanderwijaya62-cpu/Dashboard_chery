@@ -115,28 +115,28 @@ export default function BookingCalendar({
     const satHighlight = isSaturday(selectedDate) && slotConfig.saturdayEnabled;
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-1">
             {/* Calendar Grid */}
-            <div className="bg-zinc-50 border border-zinc-100 rounded-xl p-3 shadow-sm">
-                <div className="flex items-center justify-between mb-2 px-1">
+            <div className="bg-zinc-50 border border-zinc-100 rounded-lg p-2 shadow-sm">
+                <div className="flex items-center justify-between mb-1 px-0.5">
                     <button type="button" onClick={() => changeCalMonth(-1)}
-                        className="p-2 bg-white border border-zinc-100 rounded-xl hover:bg-zinc-900 hover:text-white transition-all shadow-sm">
-                        <ChevronLeft size={16} />
+                        className="p-1.5 bg-white border border-zinc-100 rounded-lg hover:bg-zinc-900 hover:text-white transition-all shadow-sm">
+                        <ChevronLeft size={14} />
                     </button>
-                    <h4 className="text-xs font-black uppercase tracking-[0.15em] text-zinc-900">
+                    <h4 className="text-[10px] font-black uppercase tracking-[0.15em] text-zinc-900">
                         {currentCalMonth.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
                     </h4>
                     <button type="button" onClick={() => changeCalMonth(1)}
-                        className="p-2 bg-white border border-zinc-100 rounded-xl hover:bg-zinc-900 hover:text-white transition-all shadow-sm">
-                        <ChevronRight size={16} />
+                        className="p-1.5 bg-white border border-zinc-100 rounded-lg hover:bg-zinc-900 hover:text-white transition-all shadow-sm">
+                        <ChevronRight size={14} />
                     </button>
                 </div>
-                <div className="grid grid-cols-7 gap-0.5 text-center text-[9px] font-black uppercase text-zinc-400 mb-1">
+                <div className="grid grid-cols-7 gap-0.5 text-center text-[8px] font-black uppercase text-zinc-400 mb-0.5">
                     {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sat'].map(d => <div key={d}>{d}</div>)}
                 </div>
-                <div className="grid grid-cols-7 gap-1">
+                <div className="grid grid-cols-7 gap-0.5">
                     {calendarGrid.map((item, idx) => {
-                        if (!item.currentMonth) return <div key={idx} className="aspect-square opacity-5"><div className="w-full h-full border border-dashed border-zinc-200 rounded-lg"></div></div>;
+                        if (!item.currentMonth) return <div key={idx} className="aspect-square opacity-5"><div className="w-full h-full border border-dashed border-zinc-200 rounded-md"></div></div>;
                         const isActive = selectedDate === item.date;
                         const past = isPastDate(item.date);
                         const holiday = isHolidayOrSunday(item.date, holidays);
@@ -168,12 +168,12 @@ export default function BookingCalendar({
 
             {/* Time Slots */}
             {showTimeSlots && selectedDate && (
-                <div className="space-y-2">
-                    <h4 className="text-xs font-black uppercase tracking-widest text-zinc-400 ml-1 flex items-center gap-2">
+                <div className="space-y-1">
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-400 flex items-center gap-1.5">
                         Jam Kedatangan
                         {satHighlight && <span className="text-amber-500 normal-case tracking-normal">(Sabtu — jam terbatas)</span>}
                     </h4>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-3 gap-1">
                         {JAM_PILIHAN.map((slot) => {
                             const [h, m] = slot.split('.');
                             const isToday = selectedDate === new Date().toISOString().split('T')[0];
@@ -183,12 +183,12 @@ export default function BookingCalendar({
                             return (
                                 <button key={slot} type="button" disabled={isPastTime || isFull}
                                     onClick={() => onTimeSelect?.(slot)}
-                                    className={`py-3 px-2 rounded-xl border-2 font-black text-sm uppercase tracking-widest transition-all ${selectedTime === slot ? 'bg-black border-black text-white shadow-lg' :
+                                    className={`py-2 px-1.5 rounded-lg border font-black text-[10px] uppercase tracking-wider transition-all ${selectedTime === slot ? 'bg-black border-black text-white shadow-lg' :
                                         isPastTime || isFull ? 'bg-zinc-50 border-transparent text-zinc-200 cursor-not-allowed' : satHighlight ? 'bg-white border-amber-200 text-amber-500 hover:border-amber-500 hover:text-amber-900' : 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
                                     }`}
                                 >
                                     {h}:{m} WIB
-                                    <span className="text-[10px] opacity-70 block">{count}/{selectedCapacity}</span>
+                                    <span className="text-[8px] opacity-70 block">{count}/{selectedCapacity}</span>
                                 </button>
                             );
                         })}

@@ -339,7 +339,7 @@ async function handleWarranty(req, res) {
 
     const cacheKey = `wo_${from}_${to}_${search}_${status}_${kategori}_${start}_${length}_${fetchAll}`;
     const cached = warrantyWoCacheStore.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp < 900000)) {
+    if (cached && (Date.now() - cached.timestamp < 1800000)) {
         return res.status(200).json(cached.json);
     }
 
@@ -739,10 +739,32 @@ async function handleWarrantyInvoiceReport(req, res) {
 
     const cacheKey = `tagihan_report_${from}_${to}_${search}`;
     const cached = invoiceReportCacheStore.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp < 300000)) {
-        return res.status(200).json(cached.json);
+    const CACHE_TTL = 1800000; // 30 minutes
+
+    if (cached) {
+        const age = Date.now() - cached.timestamp;
+        if (age < CACHE_TTL) {
+            return res.status(200).json(cached.json);
+        }
+        // Stale-while-revalidate: return stale data immediately, refresh background
+        res.status(200).json(cached.json);
+        // Fire-and-forget background refresh (don't await)
+        refreshInvoiceReportCache(cacheKey, from, to, search, BASE, draw).catch(() => {});
+        return;
     }
 
+    // No cache at all — blocking fetch (first time only)
+    const result = await fetchInvoiceReportFromDMS(from, to, search, BASE, draw);
+    invoiceReportCacheStore.set(cacheKey, { timestamp: Date.now(), json: result });
+    return res.status(200).json(result);
+}
+
+async function refreshInvoiceReportCache(cacheKey, from, to, search, BASE, draw) {
+    const result = await fetchInvoiceReportFromDMS(from, to, search, BASE, draw);
+    invoiceReportCacheStore.set(cacheKey, { timestamp: Date.now(), json: result });
+}
+
+async function fetchInvoiceReportFromDMS(from, to, search, BASE, draw) {
     let dmsFrom = from;
     let dmsTo = to;
     if (from && from.includes('-')) {
@@ -852,9 +874,7 @@ async function handleWarrantyInvoiceReport(req, res) {
         };
     });
 
-    const finalResult = { data: invoiceData };
-    invoiceReportCacheStore.set(cacheKey, { timestamp: Date.now(), json: finalResult });
-    return res.status(200).json(finalResult);
+    return { data: invoiceData };
 }
 
 async function getCsrfToken(url, cookie) {
@@ -1414,6 +1434,168 @@ async function handleBookingUpdate(req, res) {
     return res.status(500).json({ error: 'CRO login failed after 2 attempts' });
 }
 
+// ============================================================
+// WORK ITEM CATEGORIES HANDLER — jasa pengerjaan from dms.chery.co.id
+// ============================================================
+const workItemCacheStore = new Map();
+const WORK_ITEM_CACHE_TTL = 1800000; // 30 minutes
+
+const workItemRateLimitStore = new Map();
+function checkWorkItemRateLimit(key, maxPerMinute = 10) {
+    const now = Date.now();
+    const windowMs = 60000;
+    if (!workItemRateLimitStore.has(key)) {
+        workItemRateLimitStore.set(key, []);
+    }
+    const timestamps = workItemRateLimitStore.get(key).filter(t => now - t < windowMs);
+    if (timestamps.length >= maxPerMinute) {
+        return false;
+    }
+    timestamps.push(now);
+    workItemRateLimitStore.set(key, timestamps);
+    return true;
+}
+
+async function handleWorkItemCategories(req, res) {
+    if (!checkWorkItemRateLimit('work-item-categories', 15)) {
+        return res.status(429).json({ error: 'Too many requests. Please try again later.' });
+    }
+
+    const pageIndex = parseInt(req.query.pageIndex) || 0;
+    const pageSize = parseInt(req.query.pageSize) || 50;
+    const status = req.query.status || 1;
+    const sortField = req.query.sortField || 'workItemCode';
+    const search = (req.query.search || '').trim().toLowerCase();
+
+    const cacheKey = `wic_${pageIndex}_${pageSize}_${status}_${sortField}_${search}`;
+    const cached = workItemCacheStore.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < WORK_ITEM_CACHE_TTL)) {
+        return res.status(200).json(cached.json);
+    }
+
+    let cookie = getStoredCookie();
+
+    let attempts = 0;
+    while (attempts < 2) {
+        if (!cookie) {
+            const username = process.env.DMS_USER;
+            const password = process.env.DMS_PASS;
+            const enterpriseCode = process.env.DMS_ENTERPRISE_CODE;
+            if (!currentLoginPromise) {
+                currentLoginPromise = login(username, password, enterpriseCode)
+                    .finally(() => { currentLoginPromise = null; });
+            }
+            await currentLoginPromise;
+            cookie = getStoredCookie();
+        }
+
+        const allItems = [];
+        let totalElements = 0;
+        let totalPages = 1;
+
+        try {
+            const firstUrl = `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=0&pageSize=${pageSize}&status=${status}&sortField=${sortField}`;
+            const firstResp = await fetchWithHttps(firstUrl, {
+                method: 'GET',
+                headers: {
+                    'Cookie': cookie,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+                    'Referer': 'https://dms.chery.co.id/',
+                    'Origin': 'https://dms.chery.co.id',
+                    'Accept': 'application/json, application/vnd.api+json',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            if (firstResp.status === 401 || firstResp.status === 403) {
+                cachedCookie = null;
+                cookie = null;
+                attempts++;
+                continue;
+            }
+
+            const firstData = await firstResp.json();
+            const payload = firstData?.payload || firstData;
+            const content = Array.isArray(payload?.content) ? payload.content : (Array.isArray(firstData) ? firstData : []);
+            totalElements = payload?.totalElements || content.length;
+            totalPages = payload?.totalPages || Math.ceil(totalElements / pageSize);
+
+            allItems.push(...content);
+
+            const fetchAllPages = pageIndex === 0 && pageSize >= 50;
+            if (fetchAllPages && totalPages > 1) {
+                const pagesToFetch = [];
+                for (let p = 1; p < Math.min(totalPages, 50); p++) {
+                    pagesToFetch.push(p);
+                }
+
+                for (let i = 0; i < pagesToFetch.length; i += 5) {
+                    const batch = pagesToFetch.slice(i, i + 5);
+                    const results = await Promise.allSettled(
+                        batch.map(pg =>
+                            fetchWithHttps(
+                                `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=${pg}&pageSize=${pageSize}&status=${status}&sortField=${sortField}`,
+                                {
+                                    method: 'GET',
+                                    headers: {
+                                        'Cookie': cookie,
+                                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+                                        'Referer': 'https://dms.chery.co.id/',
+                                        'Origin': 'https://dms.chery.co.id',
+                                        'Accept': 'application/json, application/vnd.api+json',
+                                        'Accept-Language': 'en-US,en;q=0.9',
+                                        'Content-Type': 'application/json',
+                                    }
+                                }
+                            ).then(r => r.json())
+                        )
+                    );
+
+                    results.forEach(r => {
+                        if (r.status === 'fulfilled') {
+                            const p = r.value?.payload || r.value;
+                            const c = Array.isArray(p?.content) ? p.content : (Array.isArray(r.value) ? r.value : []);
+                            allItems.push(...c);
+                        }
+                    });
+                }
+            }
+
+            let filtered = allItems;
+            if (search) {
+                filtered = allItems.filter(item => {
+                    const hay = [
+                        item.workItemCode, item.workItemName, item.workItemLocalName,
+                        item.workItemEnglishName, item.productCategoryCode, item.productCategoryName,
+                        item.idmsProductCategoryCode
+                    ].filter(Boolean).join(' ').toLowerCase();
+                    return hay.includes(search);
+                });
+            }
+
+            const result = {
+                payload: {
+                    content: filtered,
+                    totalElements: search ? filtered.length : totalElements,
+                    totalPages: search ? 1 : totalPages,
+                    pageSize: filtered.length,
+                    pageIndex: 0
+                }
+            };
+
+            workItemCacheStore.set(cacheKey, { timestamp: Date.now(), json: result });
+            return res.status(200).json(result);
+
+        } catch (err) {
+            console.error('[WorkItemCategories] Error:', err.message);
+            return res.status(500).json({ error: err.message });
+        }
+    }
+
+    return res.status(500).json({ error: 'Failed to authenticate with DMS' });
+}
+
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', 'https://cherymedan.web.id');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -1421,7 +1603,6 @@ export default async function handler(req, res) {
 
     if (req.method === 'OPTIONS') return res.status(200).end();
 
-    // Ensure req.body is parsed if passed as string or Buffer by Vercel
     if (req.body) {
         let rawBody = req.body;
         if (Buffer.isBuffer(rawBody)) {
@@ -1489,10 +1670,7 @@ export default async function handler(req, res) {
     }
 
     if (endpoint === 'warranty-invoice-report') {
-        req.query.status = req.query.status || 'Closed';
-        req.query.fetchAll = 'true';
-        req.query.length = '10000';
-        return handleWarranty(req, res);
+        return handleWarrantyInvoiceReport(req, res);
     }
 
     // ============================================================
@@ -1584,6 +1762,13 @@ export default async function handler(req, res) {
             console.error('[Booking Error]', error.message);
             return res.status(500).json({ error: error.message });
         }
+    }
+
+    // ============================================================
+    // WORK ITEM CATEGORIES — fetch jasa pengerjaan from dms.chery.co.id
+    // ============================================================
+    if (endpoint === 'work-item-categories') {
+        return handleWorkItemCategories(req, res);
     }
 
     try {

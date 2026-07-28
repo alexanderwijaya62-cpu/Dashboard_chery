@@ -826,12 +826,12 @@ export default function CroBookingPanel({ user }) {
                             {/* STEP 2: Booking Form */}
                             {step === 'form' && (
                                 <div className="flex-1 flex flex-col overflow-hidden">
-                                    <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-4 overflow-hidden">
+                                    <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-2 overflow-hidden">
                                         {/* Left Column: Calendar + Time Slots (5 cols) */}
-                                        <div className="md:col-span-5 space-y-2 flex flex-col justify-between md:border-r border-zinc-100 md:pr-4 overflow-hidden">
+                                        <div className="md:col-span-5 flex flex-col gap-1.5 md:border-r border-zinc-100 md:pr-2 overflow-hidden">
                                             <div>
-                                                <h3 className="text-xs font-black uppercase tracking-widest text-zinc-900 flex items-center gap-2 mb-1">
-                                                    <div className="w-5 h-5 bg-zinc-900 text-white rounded-lg flex items-center justify-center text-[10px]">1</div> Pilih Tanggal & Jam
+                                                <h3 className="text-[10px] font-black uppercase tracking-widest text-zinc-900 flex items-center gap-1.5 mb-0.5">
+                                                    <div className="w-4 h-4 bg-zinc-900 text-white rounded-md flex items-center justify-center text-[8px]">1</div> Pilih Tanggal & Jam
                                                 </h3>
 
                                                 <BookingCalendar
@@ -846,9 +846,9 @@ export default function CroBookingPanel({ user }) {
                                                 />
                                             </div>
 
-                                            <div className="space-y-1">
-                                                <h4 className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Jam Kedatangan</h4>
-                                                <div className="grid grid-cols-3 sm:grid-cols-6 gap-1">
+                                            <div className="space-y-0.5">
+                                                <h4 className="text-[9px] font-black uppercase tracking-wider text-zinc-400">Jam Kedatangan</h4>
+                                                <div className="grid grid-cols-3 sm:grid-cols-6 gap-0.5">
                                                     {(() => {
                                                         const slots = getSlotsForDate(formData.tanggal, slotConfig);
                                                         const toMin = (j) => {
@@ -888,79 +888,79 @@ export default function CroBookingPanel({ user }) {
                                         </div>
 
                                         {/* Right Column: Vehicle + Form + Summary + Submit (7 cols) */}
-                                        <div className="md:col-span-7 flex flex-col justify-between overflow-hidden space-y-2">
+                                        <div className="md:col-span-7 flex flex-col gap-1.5 overflow-hidden">
                                             {/* Vehicle Info Badge */}
                                             {isManual ? (
-                                                <div className="p-2 bg-amber-50 border border-amber-200 rounded-xl shrink-0">
-                                                    <div className="flex items-center gap-1.5 text-[9px] font-black uppercase text-amber-700 tracking-wider mb-1">
-                                                        <Edit3 size={11} /> Data Manual Kendaraan
+                                                <div className="p-1.5 bg-amber-50 border border-amber-200 rounded-lg shrink-0">
+                                                    <div className="flex items-center gap-1 text-[8px] font-black uppercase text-amber-700 tracking-wider mb-0.5">
+                                                        <Edit3 size={10} /> Data Manual
                                                     </div>
-                                                    <div className="grid grid-cols-2 gap-2">
+                                                    <div className="grid grid-cols-2 gap-1.5">
                                                         <div>
-                                                            <label className="text-[8px] font-black uppercase text-amber-800 mb-0.5 block">No. Polisi</label>
+                                                            <label className="text-[7px] font-black uppercase text-amber-800 block">No. Polisi</label>
                                                             <input required type="text" placeholder="B 1234 ABC"
-                                                                className="w-full bg-white border border-amber-200 rounded-lg px-2.5 py-1 text-xs font-bold text-zinc-900 focus:border-amber-500 outline-none uppercase"
+                                                                className="w-full bg-white border border-amber-200 rounded px-2 py-0.5 text-[10px] font-bold text-zinc-900 focus:border-amber-500 outline-none uppercase"
                                                                 value={formData.noPolisi} onChange={e => setFormData({ ...formData, noPolisi: e.target.value.toUpperCase() })} />
                                                         </div>
                                                         <div>
-                                                            <label className="text-[8px] font-black uppercase text-amber-800 mb-0.5 block">Model Kendaraan</label>
+                                                            <label className="text-[7px] font-black uppercase text-amber-800 block">Model</label>
                                                             <input type="text" placeholder="Model (opsional)"
-                                                                className="w-full bg-white border border-amber-200 rounded-lg px-2.5 py-1 text-xs font-bold text-zinc-900 focus:border-amber-500 outline-none"
+                                                                className="w-full bg-white border border-amber-200 rounded px-2 py-0.5 text-[10px] font-bold text-zinc-900 focus:border-amber-500 outline-none"
                                                                 value={formData.modelKendaraan} onChange={e => setFormData({ ...formData, modelKendaraan: e.target.value })} />
                                                         </div>
                                                     </div>
                                                 </div>
                                             ) : (
-                                                <div className="p-2 bg-zinc-50 border border-zinc-200 rounded-xl shrink-0 flex items-center justify-between text-xs">
-                                                    <div className="flex items-center gap-2">
-                                                        <ShieldCheck size={14} className="text-emerald-600 shrink-0" />
+                                                <div className="p-1.5 bg-zinc-50 border border-zinc-200 rounded-lg shrink-0 flex items-center justify-between text-[10px]">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <ShieldCheck size={12} className="text-emerald-600 shrink-0" />
                                                         <span className="font-black text-zinc-900 uppercase">{foundVehicle?.no_polisi}</span>
-                                                        <span className="text-zinc-400">&bull;</span>
-                                                        <span className="font-bold text-zinc-600">{foundVehicle?.nama_kendaraan || foundVehicle?.model_kendaraan}</span>
+                                                        <span className="text-zinc-300">&bull;</span>
+                                                        <span className="font-bold text-zinc-600 truncate">{foundVehicle?.nama_kendaraan || foundVehicle?.model_kendaraan}</span>
                                                     </div>
-                                                    <span className="text-[10px] font-bold text-zinc-500">{foundVehicle?.nama_pelanggan}</span>
+                                                    <span className="text-[9px] font-bold text-zinc-500 shrink-0">{foundVehicle?.nama_pelanggan}</span>
                                                 </div>
                                             )}
 
                                             {/* Form Inputs Grid */}
-                                            <form id="bookingForm" onSubmit={handleFormSubmit} className="space-y-2 shrink-0">
-                                                <div className="grid grid-cols-2 gap-2">
+                                            <form id="bookingForm" onSubmit={handleFormSubmit} className="space-y-1 shrink-0">
+                                                <div className="grid grid-cols-2 gap-1.5">
                                                     <div>
-                                                        <h4 className="text-[8px] font-black uppercase tracking-wider text-zinc-400 mb-0.5">Atas Nama Booking</h4>
-                                                        <input required type="text" className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none" placeholder="Nama booking" value={formData.atasNama} onChange={e => setFormData({ ...formData, atasNama: e.target.value })} />
+                                                        <h4 className="text-[7px] font-black uppercase tracking-wider text-zinc-400">Atas Nama Booking</h4>
+                                                        <input required type="text" className="w-full bg-zinc-50 border border-zinc-200 rounded px-2 py-1 text-[10px] font-bold text-zinc-900 focus:bg-white focus:border-black outline-none" placeholder="Nama booking" value={formData.atasNama} onChange={e => setFormData({ ...formData, atasNama: e.target.value })} />
                                                     </div>
                                                     <div>
-                                                        <h4 className="text-[8px] font-black uppercase tracking-wider text-zinc-400 mb-0.5">No Telp Booking</h4>
-                                                        <input type="tel" className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none" placeholder="08..." value={formData.noTelp} onChange={e => setFormData({ ...formData, noTelp: e.target.value })} />
+                                                        <h4 className="text-[7px] font-black uppercase tracking-wider text-zinc-400">No Telp Booking</h4>
+                                                        <input type="tel" className="w-full bg-zinc-50 border border-zinc-200 rounded px-2 py-1 text-[10px] font-bold text-zinc-900 focus:bg-white focus:border-black outline-none" placeholder="08..." value={formData.noTelp} onChange={e => setFormData({ ...formData, noTelp: e.target.value })} />
                                                     </div>
                                                     <div>
-                                                        <h4 className="text-[8px] font-black uppercase tracking-wider text-zinc-400 mb-0.5">KM Kendaraan</h4>
-                                                        <input type="text" className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none" placeholder="Masukkan KM" value={formData.km} onChange={e => setFormData({ ...formData, km: e.target.value })} />
+                                                        <h4 className="text-[7px] font-black uppercase tracking-wider text-zinc-400">KM Kendaraan</h4>
+                                                        <input type="text" className="w-full bg-zinc-50 border border-zinc-200 rounded px-2 py-1 text-[10px] font-bold text-zinc-900 focus:bg-white focus:border-black outline-none" placeholder="Masukkan KM" value={formData.km} onChange={e => setFormData({ ...formData, km: e.target.value })} />
                                                     </div>
                                                     <div>
-                                                        <h4 className="text-[8px] font-black uppercase tracking-wider text-zinc-400 mb-0.5">Keluhan / Catatan</h4>
-                                                        <input type="text" className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none" placeholder="Deskripsi keluhan..." value={formData.keluhan} onChange={e => setFormData({ ...formData, keluhan: e.target.value })} />
+                                                        <h4 className="text-[7px] font-black uppercase tracking-wider text-zinc-400">Keluhan / Catatan</h4>
+                                                        <input type="text" className="w-full bg-zinc-50 border border-zinc-200 rounded px-2 py-1 text-[10px] font-bold text-zinc-900 focus:bg-white focus:border-black outline-none" placeholder="Deskripsi keluhan..." value={formData.keluhan} onChange={e => setFormData({ ...formData, keluhan: e.target.value })} />
                                                     </div>
                                                 </div>
                                             </form>
 
                                             {/* Compact Summary + Submit Buttons */}
-                                            <div className="pt-2 border-t border-zinc-100 space-y-2 shrink-0">
-                                                <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
-                                                    <div><span className="text-zinc-400 font-bold block text-[8px] uppercase">Tanggal</span><strong className="text-zinc-900 font-black">{formData.tanggal || '-'}</strong></div>
-                                                    <div><span className="text-zinc-400 font-bold block text-[8px] uppercase">Jam</span><strong className="text-zinc-900 font-black">{formData.jam ? `${formData.jam.replace('.', ':')} WIB` : '-'}</strong></div>
-                                                    <div><span className="text-zinc-400 font-bold block text-[8px] uppercase">Plat</span><strong className="text-zinc-900 font-black">{isManual ? (formData.noPolisi || '-') : foundVehicle?.no_polisi}</strong></div>
-                                                    <div><span className="text-zinc-400 font-bold block text-[8px] uppercase">Customer</span><strong className="text-zinc-900 font-black truncate block">{formData.atasNama || '-'}</strong></div>
+                                            <div className="pt-1 border-t border-zinc-100 space-y-1 shrink-0">
+                                                <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-1.5 grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[9px]">
+                                                    <div><span className="text-zinc-400 font-bold block text-[7px] uppercase">Tanggal</span><strong className="text-zinc-900 font-black">{formData.tanggal || '-'}</strong></div>
+                                                    <div><span className="text-zinc-400 font-bold block text-[7px] uppercase">Jam</span><strong className="text-zinc-900 font-black">{formData.jam ? `${formData.jam.replace('.', ':')} WIB` : '-'}</strong></div>
+                                                    <div><span className="text-zinc-400 font-bold block text-[7px] uppercase">Plat</span><strong className="text-zinc-900 font-black">{isManual ? (formData.noPolisi || '-') : foundVehicle?.no_polisi}</strong></div>
+                                                    <div><span className="text-zinc-400 font-bold block text-[7px] uppercase">Customer</span><strong className="text-zinc-900 font-black truncate block">{formData.atasNama || '-'}</strong></div>
                                                 </div>
 
-                                                <div className="flex gap-2">
+                                                <div className="flex gap-1.5">
                                                     <button type="button" onClick={() => setStep('search')}
-                                                        className="py-2 px-4 rounded-xl border border-zinc-200 text-zinc-600 font-black text-[10px] uppercase tracking-wider hover:bg-zinc-100 transition-all"
+                                                        className="py-1.5 px-3 rounded-lg border border-zinc-200 text-zinc-600 font-black text-[9px] uppercase tracking-wider hover:bg-zinc-100 transition-all"
                                                     >
                                                         Kembali
                                                     </button>
                                                     <button type="submit" form="bookingForm" disabled={isSubmitting}
-                                                        className="flex-1 bg-zinc-900 hover:bg-black text-white py-2 rounded-xl font-black text-xs uppercase tracking-widest shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 group disabled:opacity-40"
+                                                        className="flex-1 bg-zinc-900 hover:bg-black text-white py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest shadow-md transition-all flex items-center justify-center gap-1.5 active:scale-95 group disabled:opacity-40"
                                                     >
                                                         {isSubmitting ? 'Processing...' : 'Konfirmasi Booking'}
                                                         <Send size={14} className="group-hover:translate-x-1 transition-transform" />

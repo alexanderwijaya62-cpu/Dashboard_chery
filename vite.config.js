@@ -21,6 +21,9 @@ function stripLayerImportPlugin() {
 }
 
 function localCheryDmsPlugin() {
+  const apiModuleUrl = new URL('./api/chery_dms.js', import.meta.url).href;
+  let cachedHandler = null;
+
   return {
     name: 'local-chery-dms-middleware',
     configureServer(server) {
@@ -59,12 +62,17 @@ function localCheryDmsPlugin() {
                 }
               };
 
-              const cheryDmsModule = await import('./api/chery_dms.js');
-              const handler = cheryDmsModule.default || cheryDmsModule;
-              return await handler(mockReq, mockRes);
+              if (!cachedHandler) {
+                const cheryDmsModule = await import(apiModuleUrl);
+                cachedHandler = cheryDmsModule.default || cheryDmsModule;
+              }
+              return await cachedHandler(mockReq, mockRes);
             } catch (err) {
               console.error('Local Chery DMS Middleware Error:', err);
-              return next();
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: err.message || 'Internal Middleware Error' }));
+              return;
             }
           }
           next();
