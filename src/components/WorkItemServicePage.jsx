@@ -45,7 +45,14 @@ const WorkItemServicePage = () => {
     setError(null);
     try {
       const resp = await fetch(`/api/chery_dms?endpoint=work-item-categories&pageIndex=0&pageSize=10000&status=1&sortField=workItemCode&_=${Date.now()}`);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      if (!resp.ok) {
+        let message = `HTTP ${resp.status}`;
+        try {
+          const errBody = await resp.json();
+          if (errBody?.error) message = errBody.error;
+        } catch {}
+        throw new Error(message);
+      }
       const contentType = resp.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
         throw new Error(`Respons server bukan JSON (HTTP ${resp.status})`);

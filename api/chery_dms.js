@@ -1457,143 +1457,151 @@ function checkWorkItemRateLimit(key, maxPerMinute = 10) {
 }
 
 async function handleWorkItemCategories(req, res) {
-    if (!checkWorkItemRateLimit('work-item-categories', 15)) {
-        return res.status(429).json({ error: 'Too many requests. Please try again later.' });
-    }
-
-    const pageIndex = parseInt(req.query.pageIndex) || 0;
-    const pageSize = parseInt(req.query.pageSize) || 50;
-    const status = req.query.status || 1;
-    const sortField = req.query.sortField || 'workItemCode';
-    const search = (req.query.search || '').trim().toLowerCase();
-
-    const cacheKey = `wic_${pageIndex}_${pageSize}_${status}_${sortField}_${search}`;
-    const cached = workItemCacheStore.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp < WORK_ITEM_CACHE_TTL)) {
-        return res.status(200).json(cached.json);
-    }
-
-    let cookie = getStoredCookie();
-
-    let attempts = 0;
-    while (attempts < 2) {
-        if (!cookie) {
-            const username = process.env.DMS_USER;
-            const password = process.env.DMS_PASS;
-            const enterpriseCode = process.env.DMS_ENTERPRISE_CODE;
-            if (!currentLoginPromise) {
-                currentLoginPromise = login(username, password, enterpriseCode)
-                    .finally(() => { currentLoginPromise = null; });
-            }
-            await currentLoginPromise;
-            cookie = getStoredCookie();
+    try {
+        if (!checkWorkItemRateLimit('work-item-categories', 15)) {
+            return res.status(429).json({ error: 'Too many requests. Please try again later.' });
         }
 
-        const allItems = [];
-        let totalElements = 0;
-        let totalPages = 1;
+        const pageIndex = parseInt(req.query.pageIndex) || 0;
+        const pageSize = parseInt(req.query.pageSize) || 50;
+        const status = req.query.status || 1;
+        const sortField = req.query.sortField || 'workItemCode';
+        const search = (req.query.search || '').trim().toLowerCase();
 
-        try {
-            const firstUrl = `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=0&pageSize=${pageSize}&status=${status}&sortField=${sortField}`;
-            const firstResp = await fetchWithHttps(firstUrl, {
-                method: 'GET',
-                headers: {
-                    'Cookie': cookie,
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
-                    'Referer': 'https://dms.chery.co.id/',
-                    'Origin': 'https://dms.chery.co.id',
-                    'Accept': 'application/json, application/vnd.api+json',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Content-Type': 'application/json',
+        const cacheKey = `wic_${pageIndex}_${pageSize}_${status}_${sortField}_${search}`;
+        const cached = workItemCacheStore.get(cacheKey);
+        if (cached && (Date.now() - cached.timestamp < WORK_ITEM_CACHE_TTL)) {
+            return res.status(200).json(cached.json);
+        }
+
+        let cookie = getStoredCookie();
+
+        let attempts = 0;
+        while (attempts < 2) {
+            if (!cookie) {
+                const username = process.env.DMS_USER;
+                const password = process.env.DMS_PASS;
+                const enterpriseCode = process.env.DMS_ENTERPRISE_CODE;
+                if (!username || !password) {
+                    return res.status(500).json({ error: 'DMS_USER and DMS_PASS environment variables not configured' });
                 }
-            });
-
-            if (firstResp.status === 401 || firstResp.status === 403) {
-                cachedCookie = null;
-                cookie = null;
-                attempts++;
-                continue;
+                if (!currentLoginPromise) {
+                    currentLoginPromise = login(username, password, enterpriseCode)
+                        .finally(() => { currentLoginPromise = null; });
+                }
+                await currentLoginPromise;
+                cookie = getStoredCookie();
             }
 
-            const firstData = await firstResp.json();
-            const payload = firstData?.payload || firstData;
-            const content = Array.isArray(payload?.content) ? payload.content : (Array.isArray(firstData) ? firstData : []);
-            totalElements = payload?.totalElements || content.length;
-            totalPages = payload?.totalPages || Math.ceil(totalElements / pageSize);
+            const allItems = [];
+            let totalElements = 0;
+            let totalPages = 1;
 
-            allItems.push(...content);
+            try {
+                const firstUrl = `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=0&pageSize=${pageSize}&status=${status}&sortField=${sortField}`;
+                const firstResp = await fetchWithHttps(firstUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Cookie': cookie,
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+                        'Referer': 'https://dms.chery.co.id/',
+                        'Origin': 'https://dms.chery.co.id',
+                        'Accept': 'application/json, application/vnd.api+json',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Content-Type': 'application/json',
+                    }
+                });
 
-            const fetchAllPages = pageIndex === 0 && pageSize >= 50;
-            if (fetchAllPages && totalPages > 1) {
-                const pagesToFetch = [];
-                for (let p = 1; p < Math.min(totalPages, 50); p++) {
-                    pagesToFetch.push(p);
+                if (firstResp.status === 401 || firstResp.status === 403) {
+                    cachedCookie = null;
+                    cookie = null;
+                    attempts++;
+                    continue;
                 }
 
-                for (let i = 0; i < pagesToFetch.length; i += 5) {
-                    const batch = pagesToFetch.slice(i, i + 5);
-                    const results = await Promise.allSettled(
-                        batch.map(pg =>
-                            fetchWithHttps(
-                                `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=${pg}&pageSize=${pageSize}&status=${status}&sortField=${sortField}`,
-                                {
-                                    method: 'GET',
-                                    headers: {
-                                        'Cookie': cookie,
-                                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
-                                        'Referer': 'https://dms.chery.co.id/',
-                                        'Origin': 'https://dms.chery.co.id',
-                                        'Accept': 'application/json, application/vnd.api+json',
-                                        'Accept-Language': 'en-US,en;q=0.9',
-                                        'Content-Type': 'application/json',
-                                    }
-                                }
-                            ).then(r => r.json())
-                        )
-                    );
+                const firstData = await firstResp.json();
+                const payload = firstData?.payload || firstData;
+                const content = Array.isArray(payload?.content) ? payload.content : (Array.isArray(firstData) ? firstData : []);
+                totalElements = payload?.totalElements || content.length;
+                totalPages = payload?.totalPages || Math.ceil(totalElements / pageSize);
 
-                    results.forEach(r => {
-                        if (r.status === 'fulfilled') {
-                            const p = r.value?.payload || r.value;
-                            const c = Array.isArray(p?.content) ? p.content : (Array.isArray(r.value) ? r.value : []);
-                            allItems.push(...c);
-                        }
+                allItems.push(...content);
+
+                const fetchAllPages = pageIndex === 0 && pageSize >= 50;
+                if (fetchAllPages && totalPages > 1) {
+                    const pagesToFetch = [];
+                    for (let p = 1; p < Math.min(totalPages, 50); p++) {
+                        pagesToFetch.push(p);
+                    }
+
+                    for (let i = 0; i < pagesToFetch.length; i += 5) {
+                        const batch = pagesToFetch.slice(i, i + 5);
+                        const results = await Promise.allSettled(
+                            batch.map(pg =>
+                                fetchWithHttps(
+                                    `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=${pg}&pageSize=${pageSize}&status=${status}&sortField=${sortField}`,
+                                    {
+                                        method: 'GET',
+                                        headers: {
+                                            'Cookie': cookie,
+                                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+                                            'Referer': 'https://dms.chery.co.id/',
+                                            'Origin': 'https://dms.chery.co.id',
+                                            'Accept': 'application/json, application/vnd.api+json',
+                                            'Accept-Language': 'en-US,en;q=0.9',
+                                            'Content-Type': 'application/json',
+                                        }
+                                    }
+                                ).then(r => r.json())
+                            )
+                        );
+
+                        results.forEach(r => {
+                            if (r.status === 'fulfilled') {
+                                const p = r.value?.payload || r.value;
+                                const c = Array.isArray(p?.content) ? p.content : (Array.isArray(r.value) ? r.value : []);
+                                allItems.push(...c);
+                            }
+                        });
+                    }
+                }
+
+                let filtered = allItems;
+                if (search) {
+                    filtered = allItems.filter(item => {
+                        const hay = [
+                            item.workItemCode, item.workItemName, item.workItemLocalName,
+                            item.workItemEnglishName, item.productCategoryCode, item.productCategoryName,
+                            item.idmsProductCategoryCode
+                        ].filter(Boolean).join(' ').toLowerCase();
+                        return hay.includes(search);
                     });
                 }
+
+                const result = {
+                    payload: {
+                        content: filtered,
+                        totalElements: search ? filtered.length : totalElements,
+                        totalPages: search ? 1 : totalPages,
+                        pageSize: filtered.length,
+                        pageIndex: 0
+                    }
+                };
+
+                workItemCacheStore.set(cacheKey, { timestamp: Date.now(), json: result });
+                return res.status(200).json(result);
+
+            } catch (err) {
+                console.error('[WorkItemCategories] Inner error:', err.message);
+                return res.status(500).json({ error: err.message });
             }
-
-            let filtered = allItems;
-            if (search) {
-                filtered = allItems.filter(item => {
-                    const hay = [
-                        item.workItemCode, item.workItemName, item.workItemLocalName,
-                        item.workItemEnglishName, item.productCategoryCode, item.productCategoryName,
-                        item.idmsProductCategoryCode
-                    ].filter(Boolean).join(' ').toLowerCase();
-                    return hay.includes(search);
-                });
-            }
-
-            const result = {
-                payload: {
-                    content: filtered,
-                    totalElements: search ? filtered.length : totalElements,
-                    totalPages: search ? 1 : totalPages,
-                    pageSize: filtered.length,
-                    pageIndex: 0
-                }
-            };
-
-            workItemCacheStore.set(cacheKey, { timestamp: Date.now(), json: result });
-            return res.status(200).json(result);
-
-        } catch (err) {
-            console.error('[WorkItemCategories] Error:', err.message);
-            return res.status(500).json({ error: err.message });
         }
-    }
 
-    return res.status(500).json({ error: 'Failed to authenticate with DMS' });
+        return res.status(500).json({ error: 'Failed to authenticate with DMS' });
+    } catch (outerErr) {
+        console.error('[WorkItemCategories] Outer error:', outerErr.message);
+        return res.status(500).json({ error: outerErr.message });
+    }
 }
 
 export default async function handler(req, res) {
