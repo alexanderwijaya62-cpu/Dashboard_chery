@@ -52,11 +52,31 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   const [previewImage, setPreviewImage] = useState(null);
   const [financialData, setFinancialData] = useState([]);
 
+  const financialGen = useRef(0);
+  const woHistoryGen = useRef(0);
+
   const [croHistory, setCroHistory] = useState([]);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
 
+  function mapFinancial(rawList) {
+    return rawList.map(item => ({
+      no_wo: item.no_wo,
+      wkt_masuk: item.waktu_masuk || item.tgl_invoice || item.created_at,
+      bk: item.no_polisi || item.no_pol,
+      tipe_kendaraan: item.nama_kendaraan || item.tipe_kendaraan || item.kategori,
+      jasa: Number(item.lcVal || item.jasa || 0),
+      s_part: Number(item.partVal || item.spare_part || 0),
+      g_total: Number(item.grandTotalVal || item.total || (item.lcVal || 0) + (item.partVal || 0)),
+      sa: item.id_karyawan || item.nama_sa || item.sa || '---',
+      leader: '',
+      mekanik: '',
+      nohp: ''
+    }));
+  }
+
   const fetchFinancialData = React.useCallback(async () => {
     const cacheKey = 'invoice_report_cache_data_all___';
+    const gen = ++financialGen.current;
 
     const doFetch = async () => {
       const res = await fetch('/api/chery_dms?endpoint=warranty-invoice-report');
@@ -69,44 +89,19 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
       ttl: 300000,
       onLoading: (loading) => { setIsLoading(loading); },
       onFreshData: (freshData) => {
-        const dmsMapped = freshData.map(item => ({
-          no_wo: item.no_wo,
-          wkt_masuk: item.waktu_masuk || item.tgl_invoice || item.created_at,
-          bk: item.no_polisi || item.no_pol,
-          tipe_kendaraan: item.nama_kendaraan || item.tipe_kendaraan || item.kategori,
-          jasa: Number(item.lcVal || item.jasa || 0),
-          s_part: Number(item.partVal || item.spare_part || 0),
-          g_total: Number(item.grandTotalVal || item.total || (item.lcVal || 0) + (item.partVal || 0)),
-          sa: item.id_karyawan || item.nama_sa || item.sa || '---',
-          leader: '',
-          mekanik: '',
-          nohp: ''
-        }));
-        setFinancialData(dmsMapped);
+        if (gen === financialGen.current) setFinancialData(mapFinancial(freshData));
       },
       onError: (e) => { console.error("Gagal fetch financial:", e); }
     });
 
-    if (rawList) {
-      const dmsMapped = rawList.map(item => ({
-        no_wo: item.no_wo,
-        wkt_masuk: item.waktu_masuk || item.tgl_invoice || item.created_at,
-        bk: item.no_polisi || item.no_pol,
-        tipe_kendaraan: item.nama_kendaraan || item.tipe_kendaraan || item.kategori,
-        jasa: Number(item.lcVal || item.jasa || 0),
-        s_part: Number(item.partVal || item.spare_part || 0),
-        g_total: Number(item.grandTotalVal || item.total || (item.lcVal || 0) + (item.partVal || 0)),
-        sa: item.id_karyawan || item.nama_sa || item.sa || '---',
-        leader: '',
-        mekanik: '',
-        nohp: ''
-      }));
-      setFinancialData(dmsMapped);
+    if (rawList && gen === financialGen.current) {
+      setFinancialData(mapFinancial(rawList));
     }
   }, []);
 
   const fetchWoHistory = React.useCallback(async () => {
     const cacheKey = 'wo_report_cache_data_wo_report_master__';
+    const gen = ++woHistoryGen.current;
 
     const doFetch = async () => {
       const params = new URLSearchParams({ endpoint: 'warranty-wo', draw: 1, start: 0, length: 1000, fetchAll: 'true', status: '' });
@@ -119,12 +114,12 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
       ttl: 300000,
       onLoading: (loading) => { setIsLoading(loading); },
       onFreshData: (freshData) => {
-        setWoTrackingData(buildTrackingData(freshData));
+        if (gen === woHistoryGen.current) setWoTrackingData(buildTrackingData(freshData));
       },
       onError: (e) => { console.error("Gagal fetch tracking:", e); }
     });
 
-    if (rawList) {
+    if (rawList && gen === woHistoryGen.current) {
       setWoTrackingData(buildTrackingData(rawList));
     }
   }, []);
