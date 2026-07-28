@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { Calendar, ChevronLeft, ChevronRight, Info, Search, Send, Plus, ShieldCheck, Truck, X, Edit3, Upload, AlertTriangle, Check as CheckIcon, Database, RefreshCcw, Clock } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
@@ -883,21 +884,26 @@ export default function CroBookingPanel({ user }) {
                                                 </div>
                                             </div>
                                         </div>
-
                                         {/* Right: Vehicle + Form + Summary + Submit */}
-                                        <div className="md:w-[55%] flex flex-col overflow-y-auto lg:overflow-hidden">
+                                        <div className="md:w-[55%] flex flex-col overflow-y-auto">
                                             {isManual ? (
                                                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl mb-3">
                                                     <div className="flex items-center gap-2 text-[9px] font-black uppercase text-amber-700 tracking-wider mb-2">
-                                                        <Edit3 size={12} /> Data Manual
+                                                        <Edit3 size={12} /> Data Manual Kendaraan
                                                     </div>
-                                                    <div className="space-y-2">
-                                                        <input required type="text" placeholder="No Polisi"
-                                                            className="w-full bg-white border border-amber-200 rounded-lg p-2.5 text-xs font-bold text-zinc-900 focus:border-amber-500 outline-none transition-all"
-                                                            value={formData.noPolisi} onChange={e => setFormData({ ...formData, noPolisi: e.target.value.toUpperCase() })} />
-                                                        <input type="text" placeholder="Model Kendaraan (opsional)"
-                                                            className="w-full bg-white border border-amber-200 rounded-lg p-2.5 text-xs font-bold text-zinc-900 focus:border-amber-500 outline-none transition-all"
-                                                            value={formData.modelKendaraan} onChange={e => setFormData({ ...formData, modelKendaraan: e.target.value })} />
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <div>
+                                                            <label className="text-[9px] font-black uppercase tracking-widest text-amber-800 mb-1 block">No. Polisi</label>
+                                                            <input required type="text" placeholder="B 1234 ABC"
+                                                                className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-xs font-bold text-zinc-900 focus:border-amber-500 outline-none transition-all uppercase"
+                                                                value={formData.noPolisi} onChange={e => setFormData({ ...formData, noPolisi: e.target.value.toUpperCase() })} />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[9px] font-black uppercase tracking-widest text-amber-800 mb-1 block">Model Kendaraan</label>
+                                                            <input type="text" placeholder="Model (opsional)"
+                                                                className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-xs font-bold text-zinc-900 focus:border-amber-500 outline-none transition-all"
+                                                                value={formData.modelKendaraan} onChange={e => setFormData({ ...formData, modelKendaraan: e.target.value })} />
+                                                        </div>
                                                     </div>
                                                 </div>
                                             ) : (
@@ -916,30 +922,30 @@ export default function CroBookingPanel({ user }) {
                                                 </div>
                                             )}
 
-                                            <form id="bookingForm" onSubmit={handleFormSubmit} className="space-y-2">
-                                                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                                            <form id="bookingForm" onSubmit={handleFormSubmit} className="space-y-3">
+                                                <div className="grid grid-cols-2 gap-3">
                                                     <div>
                                                         <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1 mb-1">Atas Nama Booking</h4>
-                                                        <input required type="text" className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[36px]" placeholder="Nama booking" value={formData.atasNama} onChange={e => setFormData({ ...formData, atasNama: e.target.value })} />
+                                                        <input required type="text" className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all" placeholder="Nama booking" value={formData.atasNama} onChange={e => setFormData({ ...formData, atasNama: e.target.value })} />
                                                     </div>
                                                     <div>
                                                         <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1 mb-1">No Telp Booking</h4>
-                                                        <input type="tel" className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[36px]" placeholder="08..." value={formData.noTelp} onChange={e => setFormData({ ...formData, noTelp: e.target.value })} />
+                                                        <input type="tel" className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all" placeholder="08..." value={formData.noTelp} onChange={e => setFormData({ ...formData, noTelp: e.target.value })} />
                                                     </div>
-                                                    <div>
+                                                    <div className="col-span-2 sm:col-span-1">
                                                         <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1 mb-1">KM Kendaraan</h4>
-                                                        <input type="text" className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[36px]" placeholder="Masukkan KM" value={formData.km} onChange={e => setFormData({ ...formData, km: e.target.value })} />
+                                                        <input type="text" className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all" placeholder="Masukkan KM" value={formData.km} onChange={e => setFormData({ ...formData, km: e.target.value })} />
                                                     </div>
-                                                    <div>
-                                                        <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1 mb-1">Keluhan</h4>
-                                                        <textarea className="w-full bg-zinc-50 border border-zinc-100 rounded-xl p-2.5 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all min-h-[60px]" placeholder="Deskripsi keluhan (opsional)" value={formData.keluhan} onChange={e => setFormData({ ...formData, keluhan: e.target.value })} />
+                                                    <div className="col-span-2">
+                                                        <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-400 ml-1 mb-1">Keluhan / Catatan</h4>
+                                                        <input type="text" className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900 focus:bg-white focus:border-black outline-none transition-all" placeholder="Deskripsi keluhan (opsional)" value={formData.keluhan} onChange={e => setFormData({ ...formData, keluhan: e.target.value })} />
                                                     </div>
                                                 </div>
                                             </form>
 
                                             {/* Summary + Buttons */}
-                                            <div className="mt-auto pt-3 space-y-3">
-                                                <div className="bg-white border border-zinc-100 rounded-xl p-3 space-y-1">
+                                            <div className="mt-4 pt-3 border-t border-zinc-100 space-y-3">
+                                                <div className="bg-zinc-50/80 border border-zinc-200 rounded-xl p-3 space-y-1">
                                                     <div className="flex justify-between text-[11px]">
                                                         <span className="text-zinc-400 font-bold">Tanggal</span>
                                                         <span className="font-black text-zinc-900">{formData.tanggal || '-'}</span>
@@ -950,7 +956,7 @@ export default function CroBookingPanel({ user }) {
                                                     </div>
                                                     <div className="flex justify-between text-[11px]">
                                                         <span className="text-zinc-400 font-bold">Kendaraan</span>
-                                                        <span className="font-black text-zinc-900">{isManual ? formData.noPolisi : foundVehicle?.no_polisi}</span>
+                                                        <span className="font-black text-zinc-900">{isManual ? (formData.noPolisi || '-') : foundVehicle?.no_polisi}</span>
                                                     </div>
                                                     <div className="flex justify-between text-[11px]">
                                                         <span className="text-zinc-400 font-bold">Atas Nama</span>
@@ -960,15 +966,15 @@ export default function CroBookingPanel({ user }) {
 
                                                 <div className="flex gap-2">
                                                     <button type="button" onClick={() => setStep('search')}
-                                                        className="py-2.5 px-5 rounded-xl border-2 border-zinc-200 text-zinc-500 font-black text-[10px] uppercase tracking-widest hover:bg-zinc-50 transition-all"
+                                                        className="py-2.5 px-4 rounded-xl border border-zinc-200 text-zinc-600 font-black text-[10px] uppercase tracking-widest hover:bg-zinc-100 transition-all"
                                                     >
                                                         Kembali
                                                     </button>
                                                     <button type="submit" form="bookingForm" disabled={isSubmitting}
-                                                        className="flex-1 bg-zinc-900 hover:bg-black text-white py-3 rounded-xl font-black text-[11px] uppercase tracking-widest shadow-2xl shadow-zinc-200 transition-all flex items-center justify-center gap-3 active:scale-95 group disabled:opacity-40"
+                                                        className="flex-1 bg-zinc-900 hover:bg-black text-white py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest shadow-lg transition-all flex items-center justify-center gap-2 active:scale-95 group disabled:opacity-40"
                                                     >
                                                         {isSubmitting ? 'Processing...' : 'Konfirmasi Booking'}
-                                                        <Send size={16} className="group-hover:translate-x-2 group-hover:-translate-y-1 transition-transform" />
+                                                        <Send size={15} className="group-hover:translate-x-1 transition-transform" />
                                                     </button>
                                                 </div>
                                             </div>
@@ -1332,25 +1338,42 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
             </div>
 
             {/* Edit Modal */}
-            {editItem && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[999] flex items-center justify-center p-4" onClick={() => setEditItem(null)}>
-                    <div className="bg-white rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl p-6" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-between mb-6">
-                            <h3 className="text-lg font-black text-zinc-900 uppercase tracking-wider">Edit Booking</h3>
+            {editItem && createPortal(
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 md:p-6" onClick={() => setEditItem(null)}>
+                    <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 my-auto flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between pb-3 mb-4 border-b border-zinc-100 shrink-0">
+                            <div>
+                                <h3 className="text-base font-black text-zinc-900 uppercase tracking-wider">Edit Booking</h3>
+                                <p className="text-xs font-bold text-zinc-400 mt-0.5">ID: #{editItem.id} &bull; <span className="text-black font-black uppercase">{editItem.noPlat}</span> &bull; {editItem.namaCustomer}</p>
+                            </div>
                             <button onClick={() => setEditItem(null)} className="p-2 hover:bg-zinc-100 rounded-xl transition-all"><X size={18} /></button>
                         </div>
-                        <div className="flex flex-col gap-4">
-                            <div className="grid grid-cols-1 gap-4">
-                                <div>
-                                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">Tanggal</label>
-                                    <input type="date" value={editForm.tanggal} onChange={e => setEditForm(p => ({ ...p, tanggal: e.target.value, jam: '' }))}
-                                        className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none" />
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
+                            {/* Left Column: Tanggal & Slot Jam */}
+                            <div className="space-y-3 bg-zinc-50/70 p-4 rounded-2xl border border-zinc-100 flex flex-col justify-between">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">Tanggal</label>
+                                        <input type="date" value={editForm.tanggal} onChange={e => setEditForm(p => ({ ...p, tanggal: e.target.value, jam: '' }))}
+                                            className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold focus:border-black outline-none shadow-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">Status</label>
+                                        <select value={editForm.status} onChange={e => setEditForm(p => ({ ...p, status: e.target.value }))}
+                                            className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold focus:border-black outline-none shadow-sm">
+                                            <option value="accepted">Accepted</option>
+                                            <option value="synced">Synced (DMS)</option>
+                                            <option value="declined">Declined</option>
+                                            <option value="waiting confirm">Waiting Confirm</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div>
-                                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block flex items-center gap-2">
-                                        <Clock size={12} className="text-black" /> Jam Kedatangan (Slot Selection)
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1.5 flex items-center gap-1.5">
+                                        <Clock size={13} className="text-black" /> Slot Jam Kedatangan
                                     </label>
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1">
+                                    <div className="grid grid-cols-3 gap-1.5">
                                         {(() => {
                                             const config = slotConfig || { slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 };
                                             const capacity = getCapacityForDate(editForm.tanggal, config);
@@ -1360,7 +1383,6 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
                                                 const normalizedS = normalizeJam(s);
                                                 const normalizedCurrent = normalizeJam(editForm.jam);
                                                 
-                                                // Count other bookings in this slot (excluding the current edited booking)
                                                 const bookingsAtThisTime = (allBookings || []).filter(b => 
                                                     b.id !== editItem.id && 
                                                     b.tanggal === editForm.tanggal && 
@@ -1377,14 +1399,14 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
                                                         type="button"
                                                         disabled={isPastTime || (isFull && !isSelected)}
                                                         onClick={() => setEditForm(p => ({ ...p, jam: normalizedS }))}
-                                                        className={`py-2 px-1 rounded-xl border-2 font-black text-[9px] uppercase tracking-widest transition-all relative flex flex-col items-center justify-center gap-0.5
+                                                        className={`py-1.5 px-1.5 rounded-xl border-2 font-black text-[10px] uppercase tracking-wider transition-all flex flex-col items-center justify-center
                                                             ${isSelected ? 'bg-black border-black text-white shadow-md' : 
-                                                              isPastTime || isFull ? 'bg-zinc-50 border-transparent text-zinc-300 cursor-not-allowed opacity-60' : 
-                                                              'bg-white border-zinc-100 text-black hover:border-black'}`}
+                                                              isPastTime || isFull ? 'bg-zinc-100 border-transparent text-zinc-300 cursor-not-allowed opacity-60' : 
+                                                              'bg-white border-zinc-200 text-black hover:border-black'}`}
                                                     >
-                                                        <span>{s.replace('.', ':')}</span>
-                                                        <span className={`text-[6px] font-black ${isSelected ? 'text-white/60' : isFull ? 'text-zinc-400' : 'text-zinc-400'}`}>
-                                                            {isSelected ? 'SELECTED' : isFull ? 'FULL' : `${bookingsAtThisTime.length}/${capacity}`}
+                                                        <span className="text-xs">{s.replace('.', ':')}</span>
+                                                        <span className={`text-[7px] font-black ${isSelected ? 'text-white/70' : 'text-zinc-400'}`}>
+                                                            {isSelected ? 'PILIH' : isFull ? 'FULL' : `${bookingsAtThisTime.length}/${capacity}`}
                                                         </span>
                                                     </button>
                                                 );
@@ -1393,50 +1415,48 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
                                     </div>
                                 </div>
                             </div>
-                            <div>
-                                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">No Polisi</label>
-                                <input type="text" value={editForm.noPlat} onChange={e => setEditForm(p => ({ ...p, noPlat: e.target.value }))}
-                                    className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none uppercase" />
-                            </div>
-                            <div>
-                                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">Nama Customer</label>
-                                <input type="text" value={editForm.namaCustomer} onChange={e => setEditForm(p => ({ ...p, namaCustomer: e.target.value }))}
-                                    className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none" />
-                            </div>
-                            <div>
-                                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">No Telp</label>
-                                <input type="text" value={editForm.noTelp} onChange={e => setEditForm(p => ({ ...p, noTelp: e.target.value }))}
-                                    className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none" />
-                            </div>
-                            <div>
-                                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">Tipe Mobil</label>
-                                <input type="text" value={editForm.tipeMobil} onChange={e => setEditForm(p => ({ ...p, tipeMobil: e.target.value }))}
-                                    className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none" />
-                            </div>
-                            <div>
-                                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">Keperluan Service</label>
-                                <textarea value={editForm.keperluanService} onChange={e => setEditForm(p => ({ ...p, keperluanService: e.target.value }))}
-                                    className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none resize-none min-h-[60px]" />
-                            </div>
-                            <div>
-                                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">Status</label>
-                                <select value={editForm.status} onChange={e => setEditForm(p => ({ ...p, status: e.target.value }))}
-                                    className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none">
-                                    <option value="accepted">Accepted</option>
-                                    <option value="synced">Synced (DMS)</option>
-                                    <option value="declined">Declined</option>
-                                    <option value="waiting confirm">Waiting Confirm</option>
-                                </select>
+
+                            {/* Right Column: Customer & Vehicle Info */}
+                            <div className="space-y-3 bg-zinc-50/70 p-4 rounded-2xl border border-zinc-100 flex flex-col justify-between">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">No Polisi</label>
+                                        <input type="text" value={editForm.noPlat} onChange={e => setEditForm(p => ({ ...p, noPlat: e.target.value }))}
+                                            className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-black uppercase focus:border-black outline-none shadow-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">Nama Customer</label>
+                                        <input type="text" value={editForm.namaCustomer} onChange={e => setEditForm(p => ({ ...p, namaCustomer: e.target.value }))}
+                                            className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold focus:border-black outline-none shadow-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">No Telp</label>
+                                        <input type="text" value={editForm.noTelp} onChange={e => setEditForm(p => ({ ...p, noTelp: e.target.value }))}
+                                            className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold focus:border-black outline-none shadow-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">Tipe Mobil</label>
+                                        <input type="text" value={editForm.tipeMobil} onChange={e => setEditForm(p => ({ ...p, tipeMobil: e.target.value }))}
+                                            className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold focus:border-black outline-none shadow-sm" />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">Keperluan Service / Keluhan</label>
+                                    <input type="text" value={editForm.keperluanService} onChange={e => setEditForm(p => ({ ...p, keperluanService: e.target.value }))}
+                                        className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold focus:border-black outline-none shadow-sm" placeholder="Deskripsi keluhan..." />
+                                </div>
                             </div>
                         </div>
-                        <div className="flex gap-3 mt-8">
+
+                        <div className="flex gap-3 mt-5 pt-3 border-t border-zinc-100 shrink-0">
                             <button onClick={() => setEditItem(null)}
                                 className="flex-1 py-3 bg-zinc-100 hover:bg-zinc-200 rounded-2xl text-xs font-black uppercase tracking-widest transition-all">Batal</button>
                             <button onClick={handleEditSave}
-                                className="flex-1 py-3 bg-zinc-900 hover:bg-black text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl transition-all">Simpan</button>
+                                className="flex-1 py-3 bg-zinc-900 hover:bg-black text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg transition-all active:scale-95">Simpan Perubahan</button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );

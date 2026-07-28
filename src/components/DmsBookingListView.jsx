@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertCircle, Calendar, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Edit, FileText, Filter, Phone, RefreshCw, Search, Trash2, Truck, X, XCircle, Database, Settings, RefreshCcw } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
@@ -728,46 +729,45 @@ function EditModal({ booking, onClose, onSubmit }) {
     setLoading(false);
   };
 
-  return (
-    <div className="fixed inset-0 bg-black/40 z-[999] flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-zinc-200 overflow-hidden max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between shrink-0">
-          <h3 className="font-black text-base uppercase tracking-wider">Edit Booking</h3>
-          <button onClick={onClose} className="p-1.5 hover:bg-zinc-100 rounded-lg transition-colors"><X size={18} /></button>
-        </div>
-        <div className="px-6 py-4 space-y-4 overflow-y-auto">
-          <div className="bg-zinc-50 rounded-xl p-3 text-sm space-y-1">
-            <p className="font-bold text-zinc-900">{booking.no_booking}</p>
-            <p className="text-zinc-500">{booking.nama_pelanggan}</p>
+  return createPortal(
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center p-3">
+      <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-zinc-200 overflow-hidden max-h-[95vh] my-auto flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between shrink-0">
+          <div>
+            <h3 className="font-black text-sm uppercase tracking-wider text-zinc-900">Edit Booking DMS</h3>
+            <p className="text-[10px] font-bold text-zinc-400">{booking.no_booking} &bull; {booking.nama_pelanggan}</p>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <button onClick={onClose} className="p-1.5 hover:bg-zinc-100 rounded-lg transition-colors"><X size={16} /></button>
+        </div>
+        <div className="px-4 py-3 space-y-2 overflow-y-auto">
+          <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">No. Polisi</label>
-              <input type="text" value={form.no_polisi} onChange={e => setForm({ ...form, no_polisi: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
+              <label className="text-[8px] font-black uppercase tracking-wider text-zinc-400 block mb-0.5">No. Polisi</label>
+              <input type="text" value={form.no_polisi} onChange={e => setForm({ ...form, no_polisi: e.target.value })} className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-zinc-900" />
             </div>
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Nama Kendaraan</label>
-              <input type="text" value={form.nama_kendaraan} onChange={e => setForm({ ...form, nama_kendaraan: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
+              <label className="text-[8px] font-black uppercase tracking-wider text-zinc-400 block mb-0.5">Nama Kendaraan</label>
+              <input type="text" value={form.nama_kendaraan} onChange={e => setForm({ ...form, nama_kendaraan: e.target.value })} className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-zinc-900" />
             </div>
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">No. Chassis</label>
-              <input type="text" value={form.no_chassis} onChange={e => setForm({ ...form, no_chassis: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
+              <label className="text-[8px] font-black uppercase tracking-wider text-zinc-400 block mb-0.5">No. Chassis</label>
+              <input type="text" value={form.no_chassis} onChange={e => setForm({ ...form, no_chassis: e.target.value })} className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-zinc-900" />
             </div>
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">KM</label>
-              <input type="text" value={form.km} onChange={e => setForm({ ...form, km: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
+              <label className="text-[8px] font-black uppercase tracking-wider text-zinc-400 block mb-0.5">KM</label>
+              <input type="text" value={form.km} onChange={e => setForm({ ...form, km: e.target.value })} className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-zinc-900" />
             </div>
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Atas Nama Booking</label>
-              <input type="text" value={form.atas_nama_booking} onChange={e => setForm({ ...form, atas_nama_booking: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" placeholder="Kosongkan jika sama STNK" />
+              <label className="text-[8px] font-black uppercase tracking-wider text-zinc-400 block mb-0.5">Atas Nama Booking</label>
+              <input type="text" value={form.atas_nama_booking} onChange={e => setForm({ ...form, atas_nama_booking: e.target.value })} className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-zinc-900" placeholder="Sama STNK" />
             </div>
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">No. Telp Booking</label>
-              <input type="text" value={form.no_telp_booking} onChange={e => setForm({ ...form, no_telp_booking: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
+              <label className="text-[8px] font-black uppercase tracking-wider text-zinc-400 block mb-0.5">No. Telp Booking</label>
+              <input type="text" value={form.no_telp_booking} onChange={e => setForm({ ...form, no_telp_booking: e.target.value })} className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-zinc-900" />
             </div>
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Booking Via</label>
-              <select value={form.booking_via} onChange={e => setForm({ ...form, booking_via: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 bg-white">
+              <label className="text-[8px] font-black uppercase tracking-wider text-zinc-400 block mb-0.5">Booking Via</label>
+              <select value={form.booking_via} onChange={e => setForm({ ...form, booking_via: e.target.value })} className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-zinc-900 bg-white">
                 <option value="Personal">Personal</option>
                 <option value="WA CS Service">WA CS Service</option>
                 <option value="Telpon CS Service">Telpon CS Service</option>
@@ -776,23 +776,24 @@ function EditModal({ booking, onClose, onSubmit }) {
               </select>
             </div>
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Booking Via Personal</label>
-              <input type="text" value={form.booking_via_personal} onChange={e => setForm({ ...form, booking_via_personal: e.target.value })} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" placeholder="Nama personal booking" />
+              <label className="text-[8px] font-black uppercase tracking-wider text-zinc-400 block mb-0.5">Booking Via Personal</label>
+              <input type="text" value={form.booking_via_personal} onChange={e => setForm({ ...form, booking_via_personal: e.target.value })} className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-zinc-900" placeholder="Nama personal" />
             </div>
             <div className="col-span-2">
-              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-1">Keluhan</label>
-              <textarea value={form.keluhan} onChange={e => setForm({ ...form, keluhan: e.target.value })} rows={3} className="w-full px-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900" />
+              <label className="text-[8px] font-black uppercase tracking-wider text-zinc-400 block mb-0.5">Keluhan</label>
+              <input type="text" value={form.keluhan} onChange={e => setForm({ ...form, keluhan: e.target.value })} className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-zinc-900" placeholder="Deskripsi keluhan..." />
             </div>
           </div>
         </div>
-        <div className="px-6 py-4 border-t border-zinc-100 flex justify-end gap-3 shrink-0">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 rounded-xl transition-colors">Batal</button>
-          <button onClick={handleSubmit} disabled={loading} className="px-5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center gap-2">
+        <div className="px-4 py-3 border-t border-zinc-100 flex justify-end gap-2 shrink-0">
+          <button onClick={onClose} className="px-3 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors">Batal</button>
+          <button onClick={handleSubmit} disabled={loading} className="px-4 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
             {loading ? 'Menyimpan...' : 'Simpan'}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
