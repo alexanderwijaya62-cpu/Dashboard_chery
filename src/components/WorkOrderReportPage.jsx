@@ -447,7 +447,7 @@ export default function WorkOrderReportPage() {
   const [kategoriFilter, setKategoriFilter] = useState('');
 
   const [masterList, setMasterList] = useState(() => {
-    return getCachedWoData('wo_report_master__') || getCachedWoData('all____') || [];
+    return getCachedWoData('wo_report_master') || getCachedWoData('all____') || [];
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
@@ -481,7 +481,7 @@ export default function WorkOrderReportPage() {
 
   // Fetch Work Order data with caching support
   const fetchData = useCallback(async (forceFresh = false) => {
-    const masterCacheKey = `wo_report_master_${statusFilter}_${search}`;
+    const masterCacheKey = 'wo_report_master';
     let rawList = [];
 
     if (!forceFresh) {
@@ -495,7 +495,7 @@ export default function WorkOrderReportPage() {
       const dateFiltered = rawList.filter(row => isRowInSelectedRange(row, fromDate, toDate));
       setMasterList(dateFiltered);
       setIsLoading(false);
-      if (!forceFresh) return; // Instantly return 0ms if cached and forceFresh is false!
+      if (!forceFresh) return; // 0ms INSTANT RETURN, NO NETWORK REQUEST!
     }
 
     setIsLoading(rawList.length === 0);
@@ -520,10 +520,10 @@ export default function WorkOrderReportPage() {
         endpoint: 'warranty-wo',
         draw: 1,
         start: 0,
-        length: 1000,
+        length: 10000,
         fetchAll: 'true',
-        search,
-        status: statusFilter
+        search: '',
+        status: ''
       });
       const json = await safeFetchJson(`/api/chery_dms?${params}`);
       if (json.error) throw new Error(json.error);

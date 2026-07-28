@@ -77,7 +77,7 @@ export default function InvoiceReportPage() {
   const [kategoriFilter, setKategoriFilter] = useState('');
 
   const [masterClosedList, setMasterClosedList] = useState(() => {
-    return getCachedInvData('all___') || [];
+    return getCachedInvData('invoice_report_master') || getCachedInvData('all___') || [];
   });
   const [invoiceDetailsMap, setInvoiceDetailsMap] = useState({});
   const [isLoading, setIsLoading] = useState(false);
@@ -114,14 +114,21 @@ export default function InvoiceReportPage() {
 
   // Fetch Closed Work Orders (Invoices) with server-side 1-request backend aggregator
   const fetchInvoiceData = useCallback(async (forceFresh = false) => {
-    const cacheKey = `${timePreset}_${fromDate}_${toDate}_${search}`;
+    const masterCacheKey = 'invoice_report_master';
+    let rawList = [];
+
     if (!forceFresh) {
-      const cached = getCachedInvData(cacheKey);
+      const cached = getCachedInvData(masterCacheKey) || getCachedInvData('all___');
       if (cached && cached.length > 0) {
-        setMasterClosedList(cached);
-        setIsLoading(false);
-        return; // ABSOLUTELY 0 NETWORK REQUESTS!
+        rawList = cached;
       }
+    }
+
+    if (rawList.length > 0) {
+      const dateFiltered = rawList.filter(row => isRowInSelectedRange(row, fromDate, toDate));
+      setMasterClosedList(dateFiltered);
+      setIsLoading(false);
+      if (!forceFresh) return; // 0ms INSTANT RETURN, NO NETWORK REQUEST!
     }
 
     if (activeControllerRef.current) {
@@ -130,15 +137,12 @@ export default function InvoiceReportPage() {
     const controller = new AbortController();
     activeControllerRef.current = controller;
 
-    setIsLoading(true);
+    setIsLoading(rawList.length === 0);
     setError(null);
 
     try {
       const params = new URLSearchParams({
-        endpoint: 'warranty-invoice-report',
-        from: fromDate,
-        to: toDate,
-        search
+        endpoint: 'warranty-invoice-report'
       });
 
       const res = await fetch(`/api/chery_dms?${params}`, { signal: controller.signal });
@@ -153,15 +157,17 @@ export default function InvoiceReportPage() {
       const json = await res.json();
       if (json.error) throw new Error(json.error);
 
-      const rawList = Array.isArray(json.data) ? json.data : (json.payload?.content || []);
-      const dateFiltered = rawList.filter(row => isRowInSelectedRange(row, fromDate, toDate));
-      setMasterClosedList(dateFiltered);
-      const cacheKey = `${timePreset}_${fromDate}_${toDate}_${search}`;
-      setCachedInvData(cacheKey, dateFiltered);
+      const freshList = Array.isArray(json.data) ? json.data : (json.payload?.content || []);
+      if (freshList.length > 0) {
+        setCachedInvData(masterCacheKey, freshList);
+        setCachedInvData('all___', freshList);
+        const dateFiltered = freshList.filter(row => isRowInSelectedRange(row, fromDate, toDate));
+        setMasterClosedList(dateFiltered);
+      }
     } catch (err) {
       if (err.name === 'AbortError') return;
       console.error("Fetch invoice data error:", err);
-      setError(err.message);
+      if (rawList.length === 0) setError(err.message);
     } finally {
       if (activeControllerRef.current === controller) {
         setIsLoading(false);
