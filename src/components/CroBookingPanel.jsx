@@ -1339,29 +1339,29 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
 
             {/* Edit Modal */}
             {editItem && createPortal(
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 md:p-6" onClick={() => setEditItem(null)}>
-                    <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 my-auto flex flex-col" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-between pb-3 mb-4 border-b border-zinc-100 shrink-0">
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-3 sm:p-4 overflow-hidden" onClick={() => setEditItem(null)}>
+                    <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl p-4 my-auto flex flex-col border border-zinc-200 overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-100 shrink-0">
                             <div>
-                                <h3 className="text-base font-black text-zinc-900 uppercase tracking-wider">Edit Booking</h3>
-                                <p className="text-xs font-bold text-zinc-400 mt-0.5">ID: #{editItem.id} &bull; <span className="text-black font-black uppercase">{editItem.noPlat}</span> &bull; {editItem.namaCustomer}</p>
+                                <h3 className="text-xs font-black text-zinc-900 uppercase tracking-wider">Edit Booking</h3>
+                                <p className="text-[9px] font-bold text-zinc-400">ID: #{editItem.id} &bull; <span className="text-black font-black uppercase">{editItem.noPlat}</span> &bull; {editItem.namaCustomer}</p>
                             </div>
-                            <button onClick={() => setEditItem(null)} className="p-2 hover:bg-zinc-100 rounded-xl transition-all"><X size={18} /></button>
+                            <button onClick={() => setEditItem(null)} className="p-1 hover:bg-zinc-100 rounded-lg transition-all"><X size={15} /></button>
                         </div>
                         
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs overflow-hidden">
                             {/* Left Column: Tanggal & Slot Jam */}
-                            <div className="space-y-3 bg-zinc-50/70 p-4 rounded-2xl border border-zinc-100 flex flex-col justify-between">
-                                <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-2 bg-zinc-50/70 p-2.5 rounded-xl border border-zinc-100 flex flex-col justify-between">
+                                <div className="grid grid-cols-2 gap-2">
                                     <div>
-                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">Tanggal</label>
+                                        <label className="text-[9px] font-black uppercase tracking-wider text-zinc-500 mb-0.5 block">Tanggal</label>
                                         <input type="date" value={editForm.tanggal} onChange={e => setEditForm(p => ({ ...p, tanggal: e.target.value, jam: '' }))}
-                                            className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold focus:border-black outline-none shadow-sm" />
+                                            className="w-full px-2.5 py-1.5 bg-white border border-zinc-200 rounded-lg text-xs font-bold focus:border-black outline-none shadow-sm" />
                                     </div>
                                     <div>
-                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">Status</label>
+                                        <label className="text-[9px] font-black uppercase tracking-wider text-zinc-500 mb-0.5 block">Status</label>
                                         <select value={editForm.status} onChange={e => setEditForm(p => ({ ...p, status: e.target.value }))}
-                                            className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold focus:border-black outline-none shadow-sm">
+                                            className="w-full px-2.5 py-1.5 bg-white border border-zinc-200 rounded-lg text-xs font-bold focus:border-black outline-none shadow-sm">
                                             <option value="accepted">Accepted</option>
                                             <option value="synced">Synced (DMS)</option>
                                             <option value="declined">Declined</option>
@@ -1370,10 +1370,10 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1.5 flex items-center gap-1.5">
-                                        <Clock size={13} className="text-black" /> Slot Jam Kedatangan
+                                    <label className="text-[9px] font-black uppercase tracking-wider text-zinc-500 mb-1 flex items-center gap-1">
+                                        <Clock size={11} className="text-black" /> Slot Jam Kedatangan
                                     </label>
-                                    <div className="grid grid-cols-3 gap-1.5">
+                                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-1">
                                         {(() => {
                                             const config = slotConfig || { slotCount: 4, gapMinutes: 30, startHour: 8, startMinute: 30, slotCapacity: 1 };
                                             const capacity = getCapacityForDate(editForm.tanggal, config);
@@ -1399,13 +1399,13 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
                                                         type="button"
                                                         disabled={isPastTime || (isFull && !isSelected)}
                                                         onClick={() => setEditForm(p => ({ ...p, jam: normalizedS }))}
-                                                        className={`py-1.5 px-1.5 rounded-xl border-2 font-black text-[10px] uppercase tracking-wider transition-all flex flex-col items-center justify-center
-                                                            ${isSelected ? 'bg-black border-black text-white shadow-md' : 
+                                                        className={`py-1 px-1 rounded-lg border font-black text-[9px] uppercase tracking-wider transition-all flex flex-col items-center justify-center
+                                                            ${isSelected ? 'bg-black border-black text-white shadow-sm' : 
                                                               isPastTime || isFull ? 'bg-zinc-100 border-transparent text-zinc-300 cursor-not-allowed opacity-60' : 
                                                               'bg-white border-zinc-200 text-black hover:border-black'}`}
                                                     >
-                                                        <span className="text-xs">{s.replace('.', ':')}</span>
-                                                        <span className={`text-[7px] font-black ${isSelected ? 'text-white/70' : 'text-zinc-400'}`}>
+                                                        <span>{s.replace('.', ':')}</span>
+                                                        <span className={`text-[6px] font-black ${isSelected ? 'text-white/70' : 'text-zinc-400'}`}>
                                                             {isSelected ? 'PILIH' : isFull ? 'FULL' : `${bookingsAtThisTime.length}/${capacity}`}
                                                         </span>
                                                     </button>
@@ -1417,42 +1417,42 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
                             </div>
 
                             {/* Right Column: Customer & Vehicle Info */}
-                            <div className="space-y-3 bg-zinc-50/70 p-4 rounded-2xl border border-zinc-100 flex flex-col justify-between">
-                                <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-2 bg-zinc-50/70 p-2.5 rounded-xl border border-zinc-100 flex flex-col justify-between">
+                                <div className="grid grid-cols-2 gap-2">
                                     <div>
-                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">No Polisi</label>
+                                        <label className="text-[9px] font-black uppercase tracking-wider text-zinc-500 mb-0.5 block">No Polisi</label>
                                         <input type="text" value={editForm.noPlat} onChange={e => setEditForm(p => ({ ...p, noPlat: e.target.value }))}
-                                            className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-black uppercase focus:border-black outline-none shadow-sm" />
+                                            className="w-full px-2.5 py-1.5 bg-white border border-zinc-200 rounded-lg text-xs font-black uppercase focus:border-black outline-none shadow-sm" />
                                     </div>
                                     <div>
-                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">Nama Customer</label>
+                                        <label className="text-[9px] font-black uppercase tracking-wider text-zinc-500 mb-0.5 block">Nama Customer</label>
                                         <input type="text" value={editForm.namaCustomer} onChange={e => setEditForm(p => ({ ...p, namaCustomer: e.target.value }))}
-                                            className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold focus:border-black outline-none shadow-sm" />
+                                            className="w-full px-2.5 py-1.5 bg-white border border-zinc-200 rounded-lg text-xs font-bold focus:border-black outline-none shadow-sm" />
                                     </div>
                                     <div>
-                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">No Telp</label>
+                                        <label className="text-[9px] font-black uppercase tracking-wider text-zinc-500 mb-0.5 block">No Telp</label>
                                         <input type="text" value={editForm.noTelp} onChange={e => setEditForm(p => ({ ...p, noTelp: e.target.value }))}
-                                            className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold focus:border-black outline-none shadow-sm" />
+                                            className="w-full px-2.5 py-1.5 bg-white border border-zinc-200 rounded-lg text-xs font-bold focus:border-black outline-none shadow-sm" />
                                     </div>
                                     <div>
-                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">Tipe Mobil</label>
+                                        <label className="text-[9px] font-black uppercase tracking-wider text-zinc-500 mb-0.5 block">Tipe Mobil</label>
                                         <input type="text" value={editForm.tipeMobil} onChange={e => setEditForm(p => ({ ...p, tipeMobil: e.target.value }))}
-                                            className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold focus:border-black outline-none shadow-sm" />
+                                            className="w-full px-2.5 py-1.5 bg-white border border-zinc-200 rounded-lg text-xs font-bold focus:border-black outline-none shadow-sm" />
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1 block">Keperluan Service / Keluhan</label>
+                                    <label className="text-[9px] font-black uppercase tracking-wider text-zinc-500 mb-0.5 block">Keperluan Service / Keluhan</label>
                                     <input type="text" value={editForm.keperluanService} onChange={e => setEditForm(p => ({ ...p, keperluanService: e.target.value }))}
-                                        className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold focus:border-black outline-none shadow-sm" placeholder="Deskripsi keluhan..." />
+                                        className="w-full px-2.5 py-1.5 bg-white border border-zinc-200 rounded-lg text-xs font-bold focus:border-black outline-none shadow-sm" placeholder="Deskripsi keluhan..." />
                                 </div>
                             </div>
                         </div>
 
-                        <div className="flex gap-3 mt-5 pt-3 border-t border-zinc-100 shrink-0">
+                        <div className="flex gap-2 mt-3 pt-2 border-t border-zinc-100 shrink-0">
                             <button onClick={() => setEditItem(null)}
-                                className="flex-1 py-3 bg-zinc-100 hover:bg-zinc-200 rounded-2xl text-xs font-black uppercase tracking-widest transition-all">Batal</button>
+                                className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Batal</button>
                             <button onClick={handleEditSave}
-                                className="flex-1 py-3 bg-zinc-900 hover:bg-black text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg transition-all active:scale-95">Simpan Perubahan</button>
+                                className="flex-1 py-2 bg-zinc-900 hover:bg-black text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all active:scale-95">Simpan Perubahan</button>
                         </div>
                     </div>
                 </div>,
