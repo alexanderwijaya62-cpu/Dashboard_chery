@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Info, Search, Send, Plus, ShieldCheck, Truck, X, Edit3 } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Info, Search, Send, Plus, ShieldCheck, Truck, X, Edit3, LogOut, Key } from 'lucide-react';
+import ChangePasswordModal from './ChangePasswordModal';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import { supabase } from '../utils/supabaseClient';
@@ -12,8 +13,9 @@ import BookingCalendar from './BookingCalendar';
 const daysInMonth = (month, year) => new Date(year, month + 1, 0).getDate();
 const startDayOfMonth = (month, year) => new Date(year, month, 1).getDay();
 
-export default function SABookingPanel() {
+export default function SABookingPanel({ user, handleLogout, handleChangePassword }) {
   const [step, setStep] = useState('search');
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   const [plateSearch, setPlateSearch] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -333,13 +335,30 @@ export default function SABookingPanel() {
             <Calendar size={20} />
           </div>
           <h2 className="text-lg md:text-xl font-black text-zinc-900 leading-none">SA Booking</h2>
+          {user?.name && <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest ml-2 hidden sm:inline">— {user.name}</span>}
         </div>
-        <button
-          onClick={() => { resetModal(); }}
-          className="min-h-[44px] bg-zinc-900 hover:bg-zinc-800 text-white px-6 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-zinc-200 group"
-        >
-          <Plus size={14} className="group-hover:rotate-90 transition-transform" /> New Booking
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowPasswordModal(true)}
+            className="min-h-[44px] bg-white border-2 border-zinc-100 hover:border-zinc-900 px-3 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all text-zinc-500 hover:text-zinc-900"
+            title="Ubah Password"
+          >
+            <Key size={14} />
+          </button>
+          <button
+            onClick={handleLogout}
+            className="min-h-[44px] bg-red-500 hover:bg-red-600 text-white px-3 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-lg shadow-red-200"
+            title="Logout"
+          >
+            <LogOut size={14} />
+          </button>
+          <button
+            onClick={() => { resetModal(); }}
+            className="min-h-[44px] bg-zinc-900 hover:bg-zinc-800 text-white px-6 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-zinc-200 group"
+          >
+            <Plus size={14} className="group-hover:rotate-90 transition-transform" /> New Booking
+          </button>
+        </div>
       </div>
 
       {step === 'search' ? (
@@ -544,6 +563,8 @@ export default function SABookingPanel() {
           </div>
         </div>
       )}
+
+      <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { User, CheckCircle, Calendar, Key, AlertCircle, TrendingUp, CheckCircle2, Eye, EyeOff, Zap, Shield, Clock, Activity, FileText, X, Search } from 'lucide-react';
+import { User, CheckCircle, Calendar, Key, AlertCircle, TrendingUp, CheckCircle2, Eye, EyeOff, Zap, Shield, Clock, Activity, FileText, X, Search, LogOut } from 'lucide-react';
 import { db } from '../utils/dbClient';
 
 const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = [], queue = [], onStartWork, onComplete, onToggleTask, formatTime, onSetOvernight, onCancelOvernight, onRequestExtension, handleStartCuci, handleCompleteCuci }) => {
@@ -188,8 +188,16 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                     <button
                         onClick={() => setSelectedUnit('settings')}
                         className="p-3 min-w-[44px] min-h-[44px] bg-white/5 text-white/50 rounded-2xl hover:text-white transition-all ml-auto flex items-center justify-center"
+                        title="Ubah Password"
                     >
                         <Key size={20} />
+                    </button>
+                    <button
+                        onClick={handleLogout}
+                        className="p-3 min-w-[44px] min-h-[44px] bg-red-500/80 hover:bg-red-600 text-white rounded-2xl transition-all flex items-center justify-center"
+                        title="Logout"
+                    >
+                        <LogOut size={20} />
                     </button>
                 </div>
             </div>

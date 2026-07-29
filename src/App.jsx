@@ -2502,7 +2502,7 @@ const App = () => {
         <CsiCustomers />
       )}
       {currentPage === 'booking-public' && <PublicBooking user={user} setCurrentPage={navigate} />}
-      {currentPage === 'sa-booking' && <SABookingPanel />}
+      {currentPage === 'sa-booking' && <SABookingPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} />}
       {currentPage === 'sales-booking' && user?.role?.toLowerCase() === 'sales' && <StaffBookingPanel user={user} handleChangePassword={handleChangePassword} handleLogout={handleLogout} />}
       {currentPage === 'spv-booking' && user?.role?.toLowerCase() === 'spv' && <StaffBookingPanel user={user} handleChangePassword={handleChangePassword} handleLogout={handleLogout} />}
       {currentPage === 'booking-settings' && <BookingSettings />}

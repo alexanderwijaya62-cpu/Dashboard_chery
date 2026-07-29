@@ -271,6 +271,11 @@ export default function ForemanPanel({
                         title={showMonitor ? 'Sembunyikan Monitor' : 'Tampilkan Monitor'}>
                         {showMonitor ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
+                    <button onClick={() => setShowPasswordModal(true)}
+                        className="p-2.5 bg-white border-2 border-zinc-200 text-zinc-500 hover:border-zinc-900 hover:text-zinc-900 rounded-xl transition-all active:scale-95"
+                        title="Ubah Password">
+                        <Key size={16} />
+                    </button>
                     <button onClick={handleLogout}
                         className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-sm transition-all active:scale-95">
                         Logout

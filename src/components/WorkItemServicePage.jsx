@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Search, RefreshCw, FileText, Wrench, ChevronLeft, ChevronRight,
-  X, Clock, Car, Filter
+  X, Clock, Car, Filter, Package, Info, DollarSign
 } from 'lucide-react';
 import { fetchWithCache, getCache } from '../utils/dataCache';
 
 const PAGE_SIZE = 50;
+const RATE_PER_HOUR = 285000;
 
 function getStyleByKategori(kat) {
   if (!kat) return { bg: 'bg-zinc-50', text: 'text-zinc-600', border: 'border-zinc-200', label: '-' };
@@ -31,6 +32,20 @@ function formatLaborHour(h) {
   return `${num}m`;
 }
 
+function calculateLaborPrice(h) {
+  if (!h && h !== 0) return 0;
+  const num = parseFloat(h);
+  if (isNaN(num)) return 0;
+  // laborHour is given in minutes in DMS API (e.g. 60 = 1 hr)
+  const hours = num / 60;
+  return Math.round(hours * RATE_PER_HOUR);
+}
+
+function formatRp(val) {
+  if (!val && val !== 0) return 'Rp 0';
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+}
+
 const WorkItemServicePage = () => {
   const [data, setData] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -40,6 +55,12 @@ const WorkItemServicePage = () => {
   const [sortConfig, setSortConfig] = useState({ key: 'workItemCode', direction: 'asc' });
   const [filterKategori, setFilterKategori] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [selectedDetail, setSelectedDetail] = useState(null);
+  const [loadingDetailId, setLoadingDetailId] = useState(null);
+
+  const [searchPartCode, setSearchPartCode] = useState('');
+  const [partCodeSearchResults, setPartCodeSearchResults] = useState(null);
+  const [isSearchingPart, setIsSearchingPart] = useState(false);
 
   const fetchData = useCallback(async (forceFresh = false) => {
     const cacheKey = 'work_item_categories_cache';
@@ -84,6 +105,29 @@ const WorkItemServicePage = () => {
     }
   }, []);
 
+  // Server-side fast lookup when user searches specific partCode
+  const handlePartCodeSearch = async (codeToSearch) => {
+    const trimmed = codeToSearch.trim();
+    if (!trimmed) {
+      setPartCodeSearchResults(null);
+      return;
+    }
+
+    setIsSearchingPart(true);
+    try {
+      const resp = await fetch(`/api/chery_dms?endpoint=work-item-categories&partCode=${encodeURIComponent(trimmed)}&pageIndex=0&pageSize=50&status=1&sortField=workItemCode&_=${Date.now()}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const resJson = await resp.json();
+      const content = resJson?.payload?.content || [];
+      setPartCodeSearchResults(content);
+    } catch (err) {
+      console.error('Failed partCode search:', err);
+      setPartCodeSearchResults([]);
+    } finally {
+      setIsSearchingPart(false);
+    }
+  };
+
   useEffect(() => {
     const existingEntry = getCache('work_item_categories_cache');
     const hasStaleData = existingEntry && existingEntry.data && existingEntry.data.length > 0 && (Date.now() - existingEntry.timestamp >= 300000);
@@ -95,33 +139,76 @@ const WorkItemServicePage = () => {
     fetchData();
   }, [fetchData]);
 
+  const fetchWorkItemDetail = async (row) => {
+    const targetId = row.workItemId || row.id;
+    if (!targetId) return;
+    setLoadingDetailId(targetId);
+    try {
+      const resp = await fetch(`/api/chery_dms?endpoint=work-item-detail&id=${targetId}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const resJson = await resp.json();
+      const payload = resJson?.payload || resJson;
+      setSelectedDetail({ ...row, ...payload });
+    } catch (err) {
+      console.error('Failed to fetch work item detail:', err);
+      // Fallback show whatever row data exists
+      setSelectedDetail(row);
+    } finally {
+      setLoadingDetailId(null);
+    }
+  };
+
   const kategoriList = useMemo(() => {
-    const set = new Set(data.map(d => d.productCategoryName).filter(Boolean));
-    return [...set].sort();
-  }, [data]);
+    const map = {};
+    // Populate categories from all available items (both base data and search results if active)
+    const activeSource = partCodeSearchResults !== null ? partCodeSearchResults : data;
+    activeSource.forEach(d => {
+      const code = d.productCategoryCode;
+      const name = d.productCategoryName;
+      if (code && !map[code]) map[code] = name || code;
+    });
+    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0])).map(([code, name]) => ({ code, name }));
+  }, [data, partCodeSearchResults]);
 
   const filteredData = useMemo(() => {
-    let result = data;
+    let result = partCodeSearchResults !== null ? partCodeSearchResults : data;
     if (filterKategori) {
-      result = result.filter(r => r.productCategoryName === filterKategori);
+      result = result.filter(r => {
+        const itemCatCode = String(r.productCategoryCode || '').trim().toUpperCase();
+        const filterCatCode = String(filterKategori).trim().toUpperCase();
+        return itemCatCode === filterCatCode;
+      });
     }
-    if (search) {
+    if (search && partCodeSearchResults === null) {
       const q = search.toLowerCase();
       result = result.filter(r => {
-        const hay = [r.workItemCode, r.workItemName, r.productCategoryCode, r.productCategoryName, r.idmsProductCategoryCode]
+        const partsStr = Array.isArray(r.parts) ? r.parts.map(p => `${p.partCode} ${p.partName}`).join(' ') : (r.partCode || '');
+        const hay = [r.workItemCode, r.workItemName, r.productCategoryCode, r.productCategoryName, r.idmsProductCategoryCode, partsStr]
           .filter(Boolean).join(' ').toLowerCase();
         return hay.includes(q);
       });
     }
     return result;
-  }, [data, search, filterKategori]);
+  }, [data, search, filterKategori, partCodeSearchResults]);
 
   const sortedData = useMemo(() => {
     const sorted = [...filteredData];
+    // Disable default sort on 'workItemCode' if partCodeSearchResults is active so we preserve DMS returned order.
+    // Allow sorting only if the user explicitly clicked on a column to change sorting.
     if (sortConfig.key) {
+      // If we are searching part code and sort is still the default 'workItemCode' asc, do not sort, keep DMS API order
+      if (partCodeSearchResults !== null && sortConfig.key === 'workItemCode') {
+        return sorted;
+      }
       sorted.sort((a, b) => {
-        let aVal = a[sortConfig.key];
-        let bVal = b[sortConfig.key];
+        let aVal, bVal;
+        if (sortConfig.key === 'totalLaborPrice') {
+          aVal = calculateLaborPrice(a.laborHour);
+          bVal = calculateLaborPrice(b.laborHour);
+        } else {
+          aVal = a[sortConfig.key];
+          bVal = b[sortConfig.key];
+        }
         if (aVal == null) aVal = '';
         if (bVal == null) bVal = '';
         if (typeof aVal === 'number' && typeof bVal === 'number') {
@@ -132,14 +219,14 @@ const WorkItemServicePage = () => {
       });
     }
     return sorted;
-  }, [filteredData, sortConfig]);
+  }, [filteredData, sortConfig, partCodeSearchResults]);
 
   const totalPages = Math.ceil(sortedData.length / PAGE_SIZE);
   const pagedData = sortedData.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   useEffect(() => {
     setPage(0);
-  }, [search, filterKategori]);
+  }, [search, filterKategori, partCodeSearchResults]);
 
   const handleSort = (key) => {
     setSortConfig(prev => ({
@@ -160,9 +247,11 @@ const WorkItemServicePage = () => {
   const columns = [
     { key: 'workItemCode', label: 'Kode Jasa', sortable: true },
     { key: 'workItemName', label: 'Nama Pekerjaan', sortable: true },
+    { key: 'parts', label: 'Part Code (Sparepart)', sortable: false },
     { key: 'productCategoryCode', label: 'Kode Kategori', sortable: true },
     { key: 'productCategoryName', label: 'Kategori Kendaraan', sortable: true },
     { key: 'laborHour', label: 'Labor Hour', sortable: true },
+    { key: 'totalLaborPrice', label: 'Total Harga Jasa (285K/jam)', sortable: true },
   ];
 
   return (
@@ -171,15 +260,19 @@ const WorkItemServicePage = () => {
 
         {/* TOOLBAR */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-4 border-b border-zinc-200 bg-zinc-50/50 shrink-0">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="relative flex-1 max-w-xs">
+          <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+            {/* SEARCH 1: General search */}
+            <div className="relative flex-1 min-w-[200px] max-w-xs">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
               <input
                 type="text"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  if (searchPartCode) setSearchPartCode('');
+                }}
                 placeholder="Cari kode, nama pekerjaan, kategori..."
-                className="w-full bg-white border border-zinc-200 rounded-lg pl-9 pr-3 py-2.5 text-xs font-medium outline-none focus:border-zinc-900 transition-all placeholder:text-zinc-400"
+                className="w-full bg-white border border-zinc-200 rounded-lg pl-9 pr-3 py-2 text-xs font-medium outline-none focus:border-zinc-900 transition-all placeholder:text-zinc-400"
               />
               {search && (
                 <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600">
@@ -188,16 +281,67 @@ const WorkItemServicePage = () => {
               )}
             </div>
 
+            {/* SEARCH 2: Fast Part Code API search */}
+            <div className="flex items-center gap-1.5 flex-1 min-w-[280px] max-w-sm">
+              <div className="relative flex-1">
+                <Package size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-600" />
+                <input
+                  type="text"
+                  value={searchPartCode}
+                  onChange={(e) => {
+                    setSearchPartCode(e.target.value);
+                    if (!e.target.value.trim()) {
+                      setPartCodeSearchResults(null);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      if (search) setSearch('');
+                      handlePartCodeSearch(searchPartCode);
+                    }
+                  }}
+                  placeholder="Part Code (misal: 602002777)..."
+                  className="w-full bg-white border border-emerald-300 rounded-lg pl-9 pr-8 py-2 text-xs font-semibold outline-none focus:border-emerald-600 transition-all placeholder:text-zinc-400 text-emerald-900 bg-emerald-50/20"
+                />
+                {searchPartCode && (
+                  <button 
+                    onClick={() => {
+                      setSearchPartCode('');
+                      setPartCodeSearchResults(null);
+                    }} 
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  if (search) setSearch('');
+                  handlePartCodeSearch(searchPartCode);
+                }}
+                disabled={isSearchingPart || !searchPartCode.trim()}
+                className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-bold px-3 py-2 rounded-lg text-xs transition-all flex items-center gap-1 shrink-0"
+              >
+                {isSearchingPart ? (
+                  <RefreshCw size={11} className="animate-spin" />
+                ) : (
+                  <Search size={11} />
+                )}
+                Cari Part
+              </button>
+            </div>
+
             <div className="flex items-center gap-2">
               <Filter size={12} className="text-zinc-400" />
               <select
                 value={filterKategori}
                 onChange={(e) => setFilterKategori(e.target.value)}
-                className="bg-white border border-zinc-200 rounded-lg px-3 py-2.5 text-xs font-medium outline-none focus:border-zinc-900 transition-all cursor-pointer appearance-none pr-7"
+                className="bg-white border border-zinc-200 rounded-lg px-3 py-2 text-xs font-medium outline-none focus:border-zinc-900 transition-all cursor-pointer appearance-none pr-7"
               >
                 <option value="">Semua Kategori</option>
-                {kategoriList.map(k => (
-                  <option key={k} value={k}>{k}</option>
+                  {kategoriList.map(k => (
+                  <option key={k.code} value={k.code}>{k.code}</option>
                 ))}
               </select>
             </div>
@@ -212,7 +356,8 @@ const WorkItemServicePage = () => {
             <button
               onClick={() => fetchData(true)}
               disabled={isLoading}
-              className="p-2.5 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-100 transition-all disabled:opacity-40"
+              className="p-2 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-100 transition-all disabled:opacity-40"
+              title="Refresh Data"
             >
               <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
             </button>
@@ -222,16 +367,17 @@ const WorkItemServicePage = () => {
         {/* SUMMARY CARDS */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 p-4 shrink-0">
           {[
-            { label: 'Total Item', value: data.length, icon: Wrench, color: 'text-zinc-700', bg: 'bg-zinc-50' },
-            { label: 'Kategori', value: kategoriList.length, icon: Car, color: 'text-zinc-700', bg: 'bg-zinc-50' },
+            { label: 'Total Item Jasa', value: data.length, icon: Wrench, color: 'text-zinc-700', bg: 'bg-zinc-50' },
+            { label: 'Kategori Kendaraan', value: kategoriList.length, icon: Car, color: 'text-zinc-700', bg: 'bg-zinc-50' },
             { label: 'Ditampilkan', value: sortedData.length, icon: FileText, color: 'text-zinc-700', bg: 'bg-zinc-50' },
+            { label: 'Tarif Jasa / Jam', value: 'Rp 285.000', icon: DollarSign, color: 'text-emerald-700', bg: 'bg-emerald-50' },
           ].map((s, i) => (
-            <div key={i} className="bg-white border border-zinc-200 rounded-lg p-4">
-              <div className={`w-8 h-8 ${s.bg} ${s.color} rounded-md flex items-center justify-center mb-2`}>
-                <s.icon size={16} strokeWidth={2} />
+            <div key={i} className="bg-white border border-zinc-200 rounded-lg p-3.5">
+              <div className={`w-7 h-7 ${s.bg} ${s.color} rounded-md flex items-center justify-center mb-1.5`}>
+                <s.icon size={15} strokeWidth={2} />
               </div>
-              <p className="text-lg font-black text-zinc-900">{s.value?.toLocaleString()}</p>
-              <p className="text-zinc-500 text-[10px] font-medium mt-0.5 uppercase tracking-wider">{s.label}</p>
+              <p className="text-base font-black text-zinc-900">{typeof s.value === 'number' ? s.value.toLocaleString() : s.value}</p>
+              <p className="text-zinc-500 text-[9px] font-bold mt-0.5 uppercase tracking-wider">{s.label}</p>
             </div>
           ))}
         </div>
@@ -255,7 +401,7 @@ const WorkItemServicePage = () => {
               <p className="text-xs font-bold text-zinc-400">Tidak ada data Jasa Pengerjaan</p>
             </div>
           ) : (
-            <table className="w-full text-xs min-w-[800px]">
+            <table className="w-full text-xs min-w-[950px]">
               <thead>
                 <tr className="bg-zinc-50 border-b border-zinc-200 sticky top-0 z-10">
                   <th className="w-10 pl-4 py-2.5 text-center text-[10px] font-black uppercase tracking-wider text-zinc-500">#</th>
@@ -274,11 +420,43 @@ const WorkItemServicePage = () => {
               <tbody className="divide-y divide-zinc-100">
                 {pagedData.map((row, i) => {
                   const kat = getStyleByKategori(row.productCategoryName);
+                  const totalPrice = calculateLaborPrice(row.laborHour);
+                  const rowId = row.workItemId || row.id;
+
+                  // Extract part codes from all potential DMS response fields
+                  let partCodes = [];
+                  if (Array.isArray(row.parts) && row.parts.length > 0) {
+                    partCodes = row.parts.map(p => typeof p === 'string' ? p : p?.partCode).filter(Boolean);
+                  } else if (Array.isArray(row.workItemParts) && row.workItemParts.length > 0) {
+                    partCodes = row.workItemParts.map(p => typeof p === 'string' ? p : p?.partCode).filter(Boolean);
+                  } else if (Array.isArray(row.partCodes) && row.partCodes.length > 0) {
+                    partCodes = row.partCodes.filter(Boolean);
+                  } else if (row.partCode) {
+                    partCodes = String(row.partCode).split(',').map(s => s.trim()).filter(Boolean);
+                  }
+
                   return (
-                    <tr key={row.id || row.workItemId || i} className="hover:bg-zinc-50 transition-colors">
+                    <tr key={rowId || i} className="hover:bg-zinc-50/80 transition-colors">
                       <td className="pl-4 py-2.5 text-center text-zinc-400 font-medium text-[10px]">{page * PAGE_SIZE + i + 1}</td>
                       <td className="px-3 py-2.5 font-bold text-zinc-900 whitespace-nowrap text-xs">{row.workItemCode || '-'}</td>
-                      <td className="px-3 py-2.5 text-zinc-700 whitespace-nowrap text-xs max-w-[280px] truncate">{row.workItemName || row.workItemLocalName || '-'}</td>
+                      <td className="px-3 py-2.5 text-zinc-700 text-xs max-w-[280px] font-medium">{row.workItemName || row.workItemLocalName || '-'}</td>
+                      
+                      {/* PART CODE (SPAREPART) DIRECT COLUMN */}
+                      <td className="px-3 py-2.5 text-xs">
+                        {partCodes.length > 0 ? (
+                          <div className="flex flex-wrap gap-1 max-w-[260px]">
+                            {partCodes.map((pc, idx) => (
+                              <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 font-mono text-[10px] font-bold text-emerald-900">
+                                <Package size={9} className="mr-1 text-emerald-600" />
+                                {pc}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-zinc-400 italic text-[11px]">-</span>
+                        )}
+                      </td>
+
                       <td className="px-3 py-2.5 font-mono text-zinc-600 whitespace-nowrap text-[10px]">{row.productCategoryCode || '-'}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${kat.bg} ${kat.text} ${kat.border}`}>
@@ -289,6 +467,13 @@ const WorkItemServicePage = () => {
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border bg-amber-50 text-amber-700 border-amber-200">
                           <Clock size={9} />
                           {formatLaborHour(row.laborHour)}
+                        </span>
+                      </td>
+
+                      {/* TOTAL HARGA JASA COLUMN */}
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold border bg-emerald-50 text-emerald-800 border-emerald-200">
+                          {formatRp(totalPrice)}
                         </span>
                       </td>
                     </tr>
@@ -326,6 +511,87 @@ const WorkItemServicePage = () => {
         )}
       </div>
 
+      {/* DETAIL & SPAREPART MODAL */}
+      {selectedDetail && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-xl w-full p-6 flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-zinc-900 text-white flex items-center justify-center font-bold">
+                  <Wrench size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-zinc-900">Rincian Jasa & Sparepart</h3>
+                  <p className="text-[10px] text-zinc-400 font-medium">Kode: {selectedDetail.workItemCode || '-'}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedDetail(null)}
+                className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 transition-all"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="py-4 space-y-4 overflow-y-auto custom-scrollbar flex-1">
+              <div className="grid grid-cols-2 gap-3 bg-zinc-50 p-3 rounded-xl border border-zinc-100 text-xs">
+                <div>
+                  <span className="text-[10px] font-bold text-zinc-400 block uppercase">Nama Pekerjaan</span>
+                  <span className="font-bold text-zinc-900">{selectedDetail.workItemName || selectedDetail.workItemLocalName || '-'}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-zinc-400 block uppercase">Kategori Kendaraan</span>
+                  <span className="font-bold text-zinc-900">{selectedDetail.productCategoryName || selectedDetail.productCategoryCode || '-'}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-zinc-400 block uppercase">Labor Hour</span>
+                  <span className="font-bold text-amber-700">{formatLaborHour(selectedDetail.laborHour)} ({selectedDetail.laborHour || 0} menit)</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-zinc-400 block uppercase">Total Harga Jasa</span>
+                  <span className="font-extrabold text-emerald-700">{formatRp(calculateLaborPrice(selectedDetail.laborHour))}</span>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-black text-zinc-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Package size={14} className="text-zinc-600" />
+                  Daftar Sparepart Terkait ({Array.isArray(selectedDetail.parts) ? selectedDetail.parts.length : 0})
+                </h4>
+
+                {Array.isArray(selectedDetail.parts) && selectedDetail.parts.length > 0 ? (
+                  <div className="border border-zinc-200 rounded-xl overflow-hidden divide-y divide-zinc-100">
+                    {selectedDetail.parts.map((part, pIdx) => (
+                      <div key={part.partId || pIdx} className="p-3 bg-white hover:bg-zinc-50/80 transition-colors flex items-center justify-between gap-3 text-xs">
+                        <div className="min-w-0 flex-1">
+                          <span className="inline-block px-2 py-0.5 rounded bg-zinc-900 text-white font-mono text-[10px] font-bold mb-1">
+                            {part.partCode}
+                          </span>
+                          <p className="font-bold text-zinc-800 truncate">{part.partName}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-zinc-50 rounded-xl border border-zinc-200 text-center">
+                    <p className="text-xs font-medium text-zinc-400">Tidak ada sparepart khusus yang tertaut untuk ID pekerjaan ini.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-zinc-100 flex justify-end">
+              <button
+                onClick={() => setSelectedDetail(null)}
+                className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs transition-all"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -336,3 +602,4 @@ const WorkItemServicePage = () => {
 };
 
 export default WorkItemServicePage;
+

@@ -1468,8 +1468,9 @@ async function handleWorkItemCategories(req, res) {
         const status = req.query.status || 1;
         const sortField = req.query.sortField || 'workItemCode';
         const search = (req.query.search || '').trim().toLowerCase();
+        const partCode = (req.query.partCode || req.query.PartCode || '').trim();
 
-        const cacheKey = `wic_${pageIndex}_${pageSize}_${status}_${sortField}_${search}`;
+        const cacheKey = `wic_${pageIndex}_${pageSize}_${status}_${sortField}_${search}_${partCode}`;
         const cached = workItemCacheStore.get(cacheKey);
         if (cached && (Date.now() - cached.timestamp < WORK_ITEM_CACHE_TTL)) {
             return res.status(200).json(cached.json);
@@ -1499,8 +1500,13 @@ async function handleWorkItemCategories(req, res) {
             let totalPages = 1;
 
             try {
-                const firstUrl = `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=0&pageSize=${pageSize}&status=${status}&sortField=${sortField}`;
-                const firstResp = await fetchWithHttps(firstUrl, {
+                let baseUrl = `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=${pageIndex}&pageSize=${pageSize}&status=${status}&sortField=${sortField}`;
+                if (partCode) {
+                    // Note: DMS URL uses PartCode with capital P when checking repair projects/man-hours
+                    baseUrl = `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=${pageIndex}&pageSize=${pageSize}&status=${status}&sortField=${sortField}&PartCode=${encodeURIComponent(partCode)}`;
+                }
+
+                const firstResp = await fetchWithHttps(baseUrl, {
                     method: 'GET',
                     headers: {
                         'Cookie': cookie,
@@ -1528,7 +1534,8 @@ async function handleWorkItemCategories(req, res) {
 
                 allItems.push(...content);
 
-                const fetchAllPages = pageIndex === 0 && pageSize >= 50;
+                // Skip full pagination fetch if searching by specific partCode or custom pageIndex
+                const fetchAllPages = !partCode && pageIndex === 0 && pageSize >= 50;
                 if (fetchAllPages && totalPages > 1) {
                     const pagesToFetch = [];
                     for (let p = 1; p < Math.min(totalPages, 50); p++) {
@@ -1538,9 +1545,13 @@ async function handleWorkItemCategories(req, res) {
                     for (let i = 0; i < pagesToFetch.length; i += 5) {
                         const batch = pagesToFetch.slice(i, i + 5);
                         const results = await Promise.allSettled(
-                            batch.map(pg =>
-                                fetchWithHttps(
-                                    `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=${pg}&pageSize=${pageSize}&status=${status}&sortField=${sortField}`,
+                            batch.map(pg => {
+                                let pageUrl = `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=${pg}&pageSize=${pageSize}&status=${status}&sortField=${sortField}`;
+                                if (partCode) {
+                                    pageUrl += `&PartCode=${encodeURIComponent(partCode)}`;
+                                }
+                                return fetchWithHttps(
+                                    pageUrl,
                                     {
                                         method: 'GET',
                                         headers: {
@@ -1553,8 +1564,8 @@ async function handleWorkItemCategories(req, res) {
                                             'Content-Type': 'application/json',
                                         }
                                     }
-                                ).then(r => r.json())
-                            )
+                                ).then(r => r.json());
+                            })
                         );
 
                         results.forEach(r => {
@@ -1567,9 +1578,95 @@ async function handleWorkItemCategories(req, res) {
                     }
                 }
 
-                let filtered = allItems;
+                // Populate detail parts for each work item ONLY when loading a small, filtered dataset (like searching by partCode, or a custom page)
+                // If it is initial bulk loading (> 100 items), we do not block the request for thousands of details.
+                let processedContent = allItems;
+                const shouldFetchParts = allItems.length > 0 && (allItems.length <= 100 || partCode);
+                if (shouldFetchParts) {
+                    const BATCH_SIZE = 8;
+                    const results = [];
+                    for (let i = 0; i < allItems.length; i += BATCH_SIZE) {
+                        const batch = allItems.slice(i, i + BATCH_SIZE);
+                        const batchResults = await Promise.all(
+                            batch.map(async (item) => {
+                                const targetId = item.workItemId || item.id;
+                                if (!targetId) return item;
+                                try {
+                                    const detailUrl = `https://dms.chery.co.id/afterSales/api/v1/workItems/${targetId}`;
+                                    const detailResp = await fetchWithHttps(detailUrl, {
+                                        method: 'GET',
+                                        headers: {
+                                            'Cookie': cookie,
+                                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+                                            'Referer': 'https://dms.chery.co.id/',
+                                            'Accept': 'application/json',
+                                        }
+                                    });
+                                    if (detailResp.ok) {
+                                        const detailData = await detailResp.json();
+                                        const detailPayload = detailData?.payload || detailData;
+                                        let extractedParts = [];
+                                        const itemCatCode = String(item.productCategoryCode || '').trim().toUpperCase();
+                                        if (Array.isArray(detailPayload?.productCategories)) {
+                                            let foundMatch = false;
+                                            detailPayload.productCategories.forEach(cat => {
+                                                const catCode = String(cat.productCategoryCode || '').trim().toUpperCase();
+                                                if (catCode === itemCatCode && Array.isArray(cat.parts)) {
+                                                    foundMatch = true;
+                                                    cat.parts.forEach(p => {
+                                                        if (p && p.partCode && !extractedParts.some(ep => ep.partCode === p.partCode)) {
+                                                            extractedParts.push(p);
+                                                        }
+                                                    });
+                                                }
+                                            });
+                                            
+                                            // If no strict category matched, fallback to collecting parts from all categories
+                                            if (!foundMatch) {
+                                                detailPayload.productCategories.forEach(cat => {
+                                                    if (Array.isArray(cat.parts)) {
+                                                        cat.parts.forEach(p => {
+                                                            if (p && p.partCode && !extractedParts.some(ep => ep.partCode === p.partCode)) {
+                                                                extractedParts.push(p);
+                                                            }
+                                                        });
+                                                    }
+                                                });
+                                            }
+                                        }
+                                        
+                                        return { 
+                                            ...item, 
+                                            ...detailPayload,
+                                            parts: extractedParts.length > 0 ? extractedParts : []
+                                        };
+                                    }
+                                } catch (e) {
+                                    console.error(`Error fetching detail for work item ${targetId}:`, e.message);
+                                }
+                                return item;
+                            })
+                        );
+                        results.push(...batchResults);
+                    }
+                    processedContent = results;
+                }
+
+                // Filter strictly: exclude item if category code contains universal or general, and filter out items if they belong to different categories during bulk load.
+                // We keep only the valid categories.
+                let filtered = processedContent.filter(item => {
+                    const code = String(item.productCategoryCode || '').toUpperCase();
+                    // Exclude any junk categories that aren't real vehicle types (like 'S56MY', 'T28-PHEV', 'T19FL2' are fine)
+                    if (!code) return false;
+                    // Exclude universal/general work items (code 999999) that DMS assigns to every vehicle category with 0 labor hour
+                    const wCode = String(item.workItemCode || '').trim();
+                    const wName = String(item.workItemName || '').toLowerCase();
+                    if (wCode === '999999' || wName.includes('universal')) return false;
+                    return true;
+                });
+
                 if (search) {
-                    filtered = allItems.filter(item => {
+                    filtered = filtered.filter(item => {
                         const hay = [
                             item.workItemCode, item.workItemName, item.workItemLocalName,
                             item.workItemEnglishName, item.productCategoryCode, item.productCategoryName,
@@ -1591,7 +1688,6 @@ async function handleWorkItemCategories(req, res) {
 
                 workItemCacheStore.set(cacheKey, { timestamp: Date.now(), json: result });
                 return res.status(200).json(result);
-
             } catch (err) {
                 console.error('[WorkItemCategories] Inner error:', err.message);
                 return res.status(500).json({ error: err.message });
@@ -1774,10 +1870,63 @@ export default async function handler(req, res) {
     }
 
     // ============================================================
-    // WORK ITEM CATEGORIES — fetch jasa pengerjaan from dms.chery.co.id
+    // WORK ITEM CATEGORIES & DETAIL — fetch jasa pengerjaan & sparepart from dms.chery.co.id
     // ============================================================
     if (endpoint === 'work-item-categories') {
         return handleWorkItemCategories(req, res);
+    }
+
+    if (endpoint === 'work-item-detail') {
+        const id = req.query.id || '';
+        if (!id) return res.status(400).json({ error: 'Missing workItem ID' });
+
+        let cookie = getStoredCookie();
+        let attempts = 0;
+        while (attempts < 2) {
+            if (!cookie) {
+                const username = process.env.DMS_USER;
+                const password = process.env.DMS_PASS;
+                const enterpriseCode = process.env.DMS_ENTERPRISE_CODE;
+                if (!username || !password) {
+                    return res.status(500).json({ error: 'DMS_USER and DMS_PASS environment variables not configured' });
+                }
+                if (!currentLoginPromise) {
+                    currentLoginPromise = login(username, password, enterpriseCode)
+                        .finally(() => { currentLoginPromise = null; });
+                }
+                await currentLoginPromise;
+                cookie = getStoredCookie();
+            }
+
+            try {
+                const url = `https://dms.chery.co.id/afterSales/api/v1/workItems/${id}`;
+                const resp = await fetchWithHttps(url, {
+                    method: 'GET',
+                    headers: {
+                        'Cookie': cookie,
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+                        'Referer': 'https://dms.chery.co.id/',
+                        'Origin': 'https://dms.chery.co.id',
+                        'Accept': 'application/json, application/vnd.api+json',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                if (resp.status === 401 || resp.status === 403) {
+                    cachedCookie = null;
+                    cookie = null;
+                    attempts++;
+                    continue;
+                }
+
+                const data = await resp.json();
+                return res.status(200).json(data);
+            } catch (err) {
+                return res.status(500).json({ error: err.message });
+            }
+        }
+        return res.status(500).json({ error: 'Failed to fetch workItem detail' });
     }
 
     try {
