@@ -173,37 +173,121 @@ const WorkItemServicePage = () => {
     const itemsToExport = sortedData;
     if (itemsToExport.length === 0) return;
 
-    setExportState({ phase: 'generating', label: 'Menyusun file Excel...', progress: 0, total: itemsToExport.length });
+    // Check if we already have parts cached in localStorage
+    const CACHE_KEY = 'work_item_parts_cache';
+    const cachedParts = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+    const itemsWithParts = itemsToExport.filter(i => {
+      const id = i.workItemId || i.id;
+      return id && cachedParts[id];
+    });
 
-    try {
-      const excelData = itemsToExport.map((row, idx) => ({
+    if (itemsWithParts.length === itemsToExport.length) {
+      // All parts already cached — export immediately
+      setExportState({ phase: 'generating', label: 'Menyusun file Excel...', progress: 0, total: itemsToExport.length });
+      exportExcel(itemsToExport, cachedParts);
+      return;
+    }
+
+    // Need to fetch parts — show progress
+    setExportState({ phase: 'generating', label: 'Mengambil data sparepart...', progress: 0, total: itemsToExport.length });
+
+    const allIds = itemsToExport.map(i => i.workItemId || i.id).filter(Boolean);
+    const MAX_CONCURRENT = 3;
+    const BATCH_SEND = 200; // Send this many IDs per request; server processes ~35-40 within 10s
+    const queue = [...allIds];
+    let processedCount = 0;
+    const partsData = { ...cachedParts };
+    let stopped = false;
+
+    const fetchChunk = async (chunkIds) => {
+      if (stopped || chunkIds.length === 0) return;
+      try {
+        const resp = await fetch('/api/chery_dms?endpoint=work-item-parts-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: chunkIds }),
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data.results) {
+          data.results.forEach(r => {
+            if (r.id) partsData[r.id] = r.partCodes || [];
+          });
+          processedCount += data.processedCount || 0;
+          setExportState(st => ({
+            ...st,
+            progress: processedCount,
+            label: `${processedCount} / ${allIds.length} item diproses...`,
+          }));
+        }
+        // Return unprocessed IDs to queue
+        if (Array.isArray(data.unprocessedIds) && data.unprocessedIds.length > 0) {
+          queue.unshift(...data.unprocessedIds);
+        }
+      } catch (err) {
+        console.error('Chunk fetch failed:', err);
+        // Re-queue the chunk IDs on error
+        queue.unshift(...chunkIds);
+      }
+    };
+
+    // Process chunks with limited concurrency
+    const workers = [];
+    for (let w = 0; w < MAX_CONCURRENT; w++) {
+      workers.push((async () => {
+        while (queue.length > 0 && !stopped) {
+          const chunkIds = queue.splice(0, BATCH_SEND);
+          if (chunkIds.length === 0) break;
+          await fetchChunk(chunkIds);
+        }
+      })());
+    }
+    await Promise.all(workers);
+
+    if (stopped) return;
+
+    // Save to localStorage cache
+    localStorage.setItem(CACHE_KEY, JSON.stringify(partsData));
+
+    // Export with all obtained parts
+    setExportState({ phase: 'generating', label: 'Menyusun file Excel...', progress: 0, total: itemsToExport.length });
+    exportExcel(itemsToExport, partsData);
+  };
+
+  const exportExcel = (items, partsData) => {
+    const excelData = items.map((row, idx) => {
+      const id = row.workItemId || row.id;
+      const cachedPartCodes = id && partsData[id] ? partsData[id] : [];
+      const rowParts = getItemPartCodes(row);
+      const allParts = [...new Set([
+        ...(rowParts ? rowParts.split(', ').filter(Boolean) : []),
+        ...(Array.isArray(cachedPartCodes) ? cachedPartCodes : [])
+      ])];
+      return {
         'No': idx + 1,
         'Kode Jasa': row.workItemCode || '',
         'Nama Pekerjaan': row.workItemName || row.workItemLocalName || '',
-        'Part Code (Sparepart)': getItemPartCodes(row),
+        'Part Code (Sparepart)': allParts.join(', '),
         'Kode Kategori': row.productCategoryCode || '',
         'Kategori Kendaraan': row.productCategoryName || '',
         'Labor Hour (menit)': row.laborHour || 0,
         'Total Harga Jasa': calculateLaborPrice(row.laborHour),
-      }));
+      };
+    });
 
-      const ws = XLSX.utils.json_to_sheet(excelData);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Jasa Pengerjaan');
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Jasa Pengerjaan');
 
-      const colWidths = Object.keys(excelData[0]).map(k => ({
-        wch: Math.max(k.length * 2, ...excelData.map(r => String(r[k] || '').length)) + 2
-      }));
-      ws['!cols'] = colWidths;
+    const colWidths = Object.keys(excelData[0]).map(k => ({
+      wch: Math.max(k.length * 2, ...excelData.map(r => String(r[k] || '').length)) + 2
+    }));
+    ws['!cols'] = colWidths;
 
-      XLSX.writeFile(wb, `Jasa_Pengerjaan_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(wb, `Jasa_Pengerjaan_${new Date().toISOString().slice(0, 10)}.xlsx`);
 
-      setExportState({ phase: 'done', label: `Selesai! ${itemsToExport.length} item diexport`, progress: itemsToExport.length, total: itemsToExport.length });
-      setTimeout(() => setExportState(null), 2000);
-    } catch (err) {
-      console.error('Export failed:', err);
-      setExportState(null);
-    }
+    setExportState({ phase: 'done', label: `Selesai! ${items.length} item diexport`, progress: items.length, total: items.length });
+    setTimeout(() => setExportState(null), 2000);
   };
 
   const fetchWorkItemDetail = async (row) => {
@@ -695,11 +779,11 @@ const WorkItemServicePage = () => {
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between text-[10px] font-bold">
-                <span className="text-zinc-600">{exportState.phase === 'generating' ? 'Menyusun file Excel...' : 'Selesai'}</span>
+                <span className="text-zinc-600">{exportState.phase === 'generating' ? `Memproses ${exportState.progress} / ${exportState.total}` : 'Selesai'}</span>
               </div>
               <div className="w-full bg-zinc-100 rounded-full h-2 overflow-hidden">
                 {exportState.phase === 'generating' ? (
-                  <div className="h-full bg-emerald-500 rounded-full animate-pulse" style={{ width: '100%' }} />
+                  <div className="h-full bg-emerald-500 rounded-full animate-pulse" style={{ width: `${Math.min(100, (exportState.progress / exportState.total) * 100)}%` }} />
                 ) : (
                   <div className="h-full bg-emerald-500 rounded-full" style={{ width: '100%' }} />
                 )}

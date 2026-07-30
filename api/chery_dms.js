@@ -60,13 +60,16 @@ function fetchWithHttps(urlStr, options = {}) {
         const isHttps = u.protocol === 'https:';
         const client = isHttps ? https : http;
 
+        const timeout = options.timeout || 15000;
+
         const reqOptions = {
             hostname: u.hostname,
             port: u.port || (isHttps ? 443 : 80),
             path: u.pathname + u.search,
             method: options.method || 'GET',
             headers: options.headers || {},
-            agent: isHttps ? httpsAgent : undefined
+            agent: isHttps ? httpsAgent : undefined,
+            timeout,
         };
 
         const req = client.request(reqOptions, (res) => {
@@ -93,6 +96,10 @@ function fetchWithHttps(urlStr, options = {}) {
         });
 
         req.on('error', (err) => reject(err));
+        req.on('timeout', () => {
+            req.destroy();
+            reject(new Error(`Request timeout after ${timeout}ms`));
+        });
 
         if (options.body) {
             req.write(options.body);
@@ -1834,6 +1841,121 @@ export default async function handler(req, res) {
     // ============================================================
     if (endpoint === 'work-item-categories') {
         return handleWorkItemCategories(req, res);
+    }
+
+    if (endpoint === 'work-item-parts-batch') {
+        const { ids } = req.body || {};
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: 'Missing ids array' });
+        }
+
+        let cookie = getStoredCookie();
+        let cookieRefreshed = false;
+
+        const ensureLogin = async () => {
+            if (cookie) return;
+            const username = process.env.DMS_USER;
+            const password = process.env.DMS_PASS;
+            const enterpriseCode = process.env.DMS_ENTERPRISE_CODE;
+            if (!username || !password) throw new Error('DMS credentials not configured');
+            if (!currentLoginPromise) {
+                currentLoginPromise = login(username, password, enterpriseCode)
+                    .finally(() => { currentLoginPromise = null; });
+            }
+            await currentLoginPromise;
+            cookie = getStoredCookie();
+        };
+
+        const getDetailParts = async (id) => {
+            const url = `https://dms.chery.co.id/afterSales/api/v1/workItems/${id}`;
+            const resp = await fetchWithHttps(url, {
+                method: 'GET',
+                headers: {
+                    'Cookie': cookie,
+                    'User-Agent': 'Mozilla/5.0',
+                    'Referer': 'https://dms.chery.co.id/',
+                    'Accept': 'application/json',
+                },
+                timeout: 10000,
+            });
+            if (!resp.ok) {
+                if (resp.status === 401 || resp.status === 403) {
+                    cachedCookie = null;
+                    cookie = null;
+                    throw new Error('unauthorized');
+                }
+                return { id, partCodes: [] };
+            }
+            const data = await resp.json();
+            const payload = data?.payload || data;
+            const codes = new Set();
+            if (Array.isArray(payload?.productCategories)) {
+                payload.productCategories.forEach(cat => {
+                    if (Array.isArray(cat.parts)) {
+                        cat.parts.forEach(p => { if (p && p.partCode) codes.add(p.partCode); });
+                    }
+                });
+            }
+            return { id, partCodes: [...codes] };
+        };
+
+        try {
+            await ensureLogin();
+            const results = [];
+            const BATCH_SIZE = 3;
+            const processedIds = [];
+            const unprocessedIds = [];
+            const startTime = Date.now();
+            const MAX_DURATION = 8500; // Stop 1.5s before Vercel 10s timeout
+
+            for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+                if (Date.now() - startTime > MAX_DURATION) {
+                    // No more time — collect remaining as unprocessed
+                    for (let j = i; j < ids.length; j++) {
+                        unprocessedIds.push(ids[j]);
+                    }
+                    break;
+                }
+
+                const batchIds = ids.slice(i, i + BATCH_SIZE);
+                const batchResults = await Promise.allSettled(
+                    batchIds.map(async (id) => {
+                        for (let attempt = 0; attempt < 2; attempt++) {
+                            try {
+                                return await getDetailParts(id);
+                            } catch (e) {
+                                if (e.message === 'unauthorized' && !cookieRefreshed) {
+                                    cookieRefreshed = true;
+                                    cachedCookie = null;
+                                    cookie = null;
+                                    await ensureLogin();
+                                    continue;
+                                }
+                                return { id, partCodes: [] };
+                            }
+                        }
+                        return { id, partCodes: [] };
+                    })
+                );
+                batchResults.forEach(r => {
+                    if (r.status === 'fulfilled' && r.value) {
+                        results.push(r.value);
+                        processedIds.push(r.value.id);
+                    }
+                });
+                // Gentle delay between batches to avoid DMS rate limit
+                await new Promise(r => setTimeout(r, 300));
+            }
+
+            return res.status(200).json({
+                results,
+                processedCount: results.length,
+                unprocessedIds,
+                totalCount: ids.length,
+            });
+        } catch (err) {
+            return res.status(500).json({ error: err.message });
+        }
     }
 
     if (endpoint === 'work-item-detail') {
