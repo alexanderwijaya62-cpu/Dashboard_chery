@@ -1500,10 +1500,16 @@ async function handleWorkItemCategories(req, res) {
             let totalPages = 1;
 
             try {
-                let baseUrl = `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=${pageIndex}&pageSize=${pageSize}&status=${status}&sortField=${sortField}`;
+                // Try workItems collection endpoint first (may return parts directly), fallback to workItemProductCategories
+                let useWorkItemsApi = req.query.useWorkItems === '1';
+                let baseUrl;
+                if (useWorkItemsApi) {
+                    baseUrl = `https://dms.chery.co.id/afterSales/api/v1/workItems?pageIndex=${pageIndex}&pageSize=${pageSize}&status=${status}&sortField=${sortField}`;
+                } else {
+                    baseUrl = `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=${pageIndex}&pageSize=${pageSize}&status=${status}&sortField=${sortField}`;
+                }
                 if (partCode) {
-                    // Note: DMS URL uses PartCode with capital P when checking repair projects/man-hours
-                    baseUrl = `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=${pageIndex}&pageSize=${pageSize}&status=${status}&sortField=${sortField}&PartCode=${encodeURIComponent(partCode)}`;
+                    baseUrl += `&PartCode=${encodeURIComponent(partCode)}`;
                 }
 
                 const firstResp = await fetchWithHttps(baseUrl, {
@@ -1546,7 +1552,8 @@ async function handleWorkItemCategories(req, res) {
                         const batch = pagesToFetch.slice(i, i + 5);
                         const results = await Promise.allSettled(
                             batch.map(pg => {
-                                let pageUrl = `https://dms.chery.co.id/afterSales/api/v1/workItemProductCategories/forCurrentUser?pageIndex=${pg}&pageSize=${pageSize}&status=${status}&sortField=${sortField}`;
+                                const pageApi = useWorkItemsApi ? 'workItems' : 'workItemProductCategories/forCurrentUser';
+                                let pageUrl = `https://dms.chery.co.id/afterSales/api/v1/${pageApi}?pageIndex=${pg}&pageSize=${pageSize}&status=${status}&sortField=${sortField}`;
                                 if (partCode) {
                                     pageUrl += `&PartCode=${encodeURIComponent(partCode)}`;
                                 }
@@ -1578,79 +1585,32 @@ async function handleWorkItemCategories(req, res) {
                     }
                 }
 
-                // Populate detail parts for each work item ONLY when loading a small, filtered dataset (like searching by partCode, or a custom page)
-                // If it is initial bulk loading (> 100 items), we do not block the request for thousands of details.
-                let processedContent = allItems;
-                const shouldFetchParts = allItems.length > 0 && (allItems.length <= 100 || partCode);
-                if (shouldFetchParts) {
-                    const BATCH_SIZE = 8;
-                    const results = [];
-                    for (let i = 0; i < allItems.length; i += BATCH_SIZE) {
-                        const batch = allItems.slice(i, i + BATCH_SIZE);
-                        const batchResults = await Promise.all(
-                            batch.map(async (item) => {
-                                const targetId = item.workItemId || item.id;
-                                if (!targetId) return item;
-                                try {
-                                    const detailUrl = `https://dms.chery.co.id/afterSales/api/v1/workItems/${targetId}`;
-                                    const detailResp = await fetchWithHttps(detailUrl, {
-                                        method: 'GET',
-                                        headers: {
-                                            'Cookie': cookie,
-                                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
-                                            'Referer': 'https://dms.chery.co.id/',
-                                            'Accept': 'application/json',
-                                        }
-                                    });
-                                    if (detailResp.ok) {
-                                        const detailData = await detailResp.json();
-                                        const detailPayload = detailData?.payload || detailData;
-                                        let extractedParts = [];
-                                        const itemCatCode = String(item.productCategoryCode || '').trim().toUpperCase();
-                                        if (Array.isArray(detailPayload?.productCategories)) {
-                                            let foundMatch = false;
-                                            detailPayload.productCategories.forEach(cat => {
-                                                const catCode = String(cat.productCategoryCode || '').trim().toUpperCase();
-                                                if (catCode === itemCatCode && Array.isArray(cat.parts)) {
-                                                    foundMatch = true;
-                                                    cat.parts.forEach(p => {
-                                                        if (p && p.partCode && !extractedParts.some(ep => ep.partCode === p.partCode)) {
-                                                            extractedParts.push(p);
-                                                        }
-                                                    });
-                                                }
-                                            });
-                                            
-                                            // If no strict category matched, fallback to collecting parts from all categories
-                                            if (!foundMatch) {
-                                                detailPayload.productCategories.forEach(cat => {
-                                                    if (Array.isArray(cat.parts)) {
-                                                        cat.parts.forEach(p => {
-                                                            if (p && p.partCode && !extractedParts.some(ep => ep.partCode === p.partCode)) {
-                                                                extractedParts.push(p);
-                                                            }
-                                                        });
-                                                    }
-                                                });
-                                            }
-                                        }
-                                        
-                                        return { 
-                                            ...item, 
-                                            ...detailPayload,
-                                            parts: extractedParts.length > 0 ? extractedParts : []
-                                        };
+                // If DMS returned parts (via include=parts) in the list response, extract them from productCategories
+                for (const item of allItems) {
+                    if (Array.isArray(item.productCategories)) {
+                        const extracted = [];
+                        item.productCategories.forEach(cat => {
+                            if (Array.isArray(cat.parts)) {
+                                cat.parts.forEach(p => {
+                                    if (p && p.partCode && !extracted.some(e => e.partCode === p.partCode)) {
+                                        extracted.push(p);
                                     }
-                                } catch (e) {
-                                    console.error(`Error fetching detail for work item ${targetId}:`, e.message);
+                                });
+                            }
+                        });
+                        if (extracted.length > 0) {
+                            item.parts = item.parts || [];
+                            // Merge with existing parts, avoid duplicates
+                            extracted.forEach(p => {
+                                if (!item.parts.some(e => e.partCode === p.partCode)) {
+                                    item.parts.push(p);
                                 }
-                                return item;
-                            })
-                        );
-                        results.push(...batchResults);
+                            });
+                        }
                     }
-                    processedContent = results;
                 }
+
+                let processedContent = allItems;
 
                 // Filter strictly: exclude item if category code contains universal or general, and filter out items if they belong to different categories during bulk load.
                 // We keep only the valid categories.

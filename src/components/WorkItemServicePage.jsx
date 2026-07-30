@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Search, RefreshCw, FileText, Wrench, ChevronLeft, ChevronRight,
-  X, Clock, Car, Filter, Package, Info, DollarSign
+  X, Clock, Car, Filter, Package, DollarSign, Download
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { fetchWithCache, getCache } from '../utils/dataCache';
 
 const PAGE_SIZE = 50;
@@ -52,21 +53,25 @@ const WorkItemServicePage = () => {
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
-  const [sortConfig, setSortConfig] = useState({ key: 'workItemCode', direction: 'asc' });
+  const [sortConfig, setSortConfig] = useState({ key: 'productCategoryCode', direction: 'asc' });
   const [filterKategori, setFilterKategori] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [selectedDetail, setSelectedDetail] = useState(null);
   const [loadingDetailId, setLoadingDetailId] = useState(null);
+  const [useWorkItemsApi, setUseWorkItemsApi] = useState(false);
 
   const [searchPartCode, setSearchPartCode] = useState('');
   const [partCodeSearchResults, setPartCodeSearchResults] = useState(null);
   const [isSearchingPart, setIsSearchingPart] = useState(false);
 
+  // Export state
+  const [exportState, setExportState] = useState(null); // { phase: 'fetching'|'generating'|'done', progress: 0, total: 0 }
+
   const fetchData = useCallback(async (forceFresh = false) => {
     const cacheKey = 'work_item_categories_cache';
 
     const doFetch = async () => {
-      const resp = await fetch(`/api/chery_dms?endpoint=work-item-categories&pageIndex=0&pageSize=10000&status=1&sortField=workItemCode&_=${Date.now()}`);
+      const resp = await fetch(`/api/chery_dms?endpoint=work-item-categories&pageIndex=0&pageSize=10000&status=1&sortField=workItemCode${useWorkItemsApi ? '&useWorkItems=1' : ''}&_=${Date.now()}`);
       if (!resp.ok) {
         let message = `HTTP ${resp.status}`;
         try {
@@ -103,7 +108,7 @@ const WorkItemServicePage = () => {
     if (items) {
       setData(items);
     }
-  }, []);
+  }, [useWorkItemsApi]);
 
   // Server-side fast lookup when user searches specific partCode
   const handlePartCodeSearch = async (codeToSearch) => {
@@ -138,6 +143,68 @@ const WorkItemServicePage = () => {
 
     fetchData();
   }, [fetchData]);
+
+  // Export to Excel with progress
+  const getItemPartCodes = (item) => {
+    const codes = new Set();
+    if (Array.isArray(item.parts)) {
+      item.parts.forEach(p => { const c = typeof p === 'string' ? p : p?.partCode; if (c) codes.add(c); });
+    }
+    if (Array.isArray(item.workItemParts)) {
+      item.workItemParts.forEach(p => { const c = typeof p === 'string' ? p : p?.partCode; if (c) codes.add(c); });
+    }
+    if (Array.isArray(item.productCategories)) {
+      item.productCategories.forEach(cat => {
+        if (Array.isArray(cat.parts)) {
+          cat.parts.forEach(p => { if (p && p.partCode) codes.add(p.partCode); });
+        }
+      });
+    }
+    if (Array.isArray(item.partCodes)) {
+      item.partCodes.forEach(c => { if (c) codes.add(c); });
+    }
+    if (item.partCode) {
+      String(item.partCode).split(',').forEach(s => { const t = s.trim(); if (t) codes.add(t); });
+    }
+    return [...codes].join(', ');
+  };
+
+  const handleExport = async () => {
+    const itemsToExport = sortedData;
+    if (itemsToExport.length === 0) return;
+
+    setExportState({ phase: 'generating', label: 'Menyusun file Excel...', progress: 0, total: itemsToExport.length });
+
+    try {
+      const excelData = itemsToExport.map((row, idx) => ({
+        'No': idx + 1,
+        'Kode Jasa': row.workItemCode || '',
+        'Nama Pekerjaan': row.workItemName || row.workItemLocalName || '',
+        'Part Code (Sparepart)': getItemPartCodes(row),
+        'Kode Kategori': row.productCategoryCode || '',
+        'Kategori Kendaraan': row.productCategoryName || '',
+        'Labor Hour (menit)': row.laborHour || 0,
+        'Total Harga Jasa': calculateLaborPrice(row.laborHour),
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(excelData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Jasa Pengerjaan');
+
+      const colWidths = Object.keys(excelData[0]).map(k => ({
+        wch: Math.max(k.length * 2, ...excelData.map(r => String(r[k] || '').length)) + 2
+      }));
+      ws['!cols'] = colWidths;
+
+      XLSX.writeFile(wb, `Jasa_Pengerjaan_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+      setExportState({ phase: 'done', label: `Selesai! ${itemsToExport.length} item diexport`, progress: itemsToExport.length, total: itemsToExport.length });
+      setTimeout(() => setExportState(null), 2000);
+    } catch (err) {
+      console.error('Export failed:', err);
+      setExportState(null);
+    }
+  };
 
   const fetchWorkItemDetail = async (row) => {
     const targetId = row.workItemId || row.id;
@@ -193,13 +260,7 @@ const WorkItemServicePage = () => {
 
   const sortedData = useMemo(() => {
     const sorted = [...filteredData];
-    // Disable default sort on 'workItemCode' if partCodeSearchResults is active so we preserve DMS returned order.
-    // Allow sorting only if the user explicitly clicked on a column to change sorting.
     if (sortConfig.key) {
-      // If we are searching part code and sort is still the default 'workItemCode' asc, do not sort, keep DMS API order
-      if (partCodeSearchResults !== null && sortConfig.key === 'workItemCode') {
-        return sorted;
-      }
       sorted.sort((a, b) => {
         let aVal, bVal;
         if (sortConfig.key === 'totalLaborPrice') {
@@ -354,6 +415,25 @@ const WorkItemServicePage = () => {
               </span>
             )}
             <button
+              onClick={() => { setUseWorkItemsApi(v => !v); }}
+              className={`px-2 py-1.5 rounded-lg border text-[9px] font-bold transition-all ${
+                useWorkItemsApi
+                  ? 'bg-violet-100 border-violet-300 text-violet-700'
+                  : 'bg-zinc-100 border-zinc-200 text-zinc-500'
+              }`}
+              title="Toggle API endpoint (workItems vs workItemProductCategories)"
+            >
+              {useWorkItemsApi ? 'API: workItems' : 'API: default'}
+            </button>
+            <button
+              onClick={handleExport}
+              disabled={isLoading || sortedData.length === 0}
+              className="p-2 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-50 transition-all disabled:opacity-40"
+              title="Export ke Excel"
+            >
+              <Download size={14} />
+            </button>
+            <button
               onClick={() => fetchData(true)}
               disabled={isLoading}
               className="p-2 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-100 transition-all disabled:opacity-40"
@@ -429,6 +509,14 @@ const WorkItemServicePage = () => {
                     partCodes = row.parts.map(p => typeof p === 'string' ? p : p?.partCode).filter(Boolean);
                   } else if (Array.isArray(row.workItemParts) && row.workItemParts.length > 0) {
                     partCodes = row.workItemParts.map(p => typeof p === 'string' ? p : p?.partCode).filter(Boolean);
+                  } else if (Array.isArray(row.productCategories)) {
+                    row.productCategories.forEach(cat => {
+                      if (Array.isArray(cat.parts)) {
+                        cat.parts.forEach(p => {
+                          if (p && p.partCode && !partCodes.includes(p.partCode)) partCodes.push(p.partCode);
+                        });
+                      }
+                    });
                   } else if (Array.isArray(row.partCodes) && row.partCodes.length > 0) {
                     partCodes = row.partCodes.filter(Boolean);
                   } else if (row.partCode) {
@@ -587,6 +675,35 @@ const WorkItemServicePage = () => {
               >
                 Tutup
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EXPORT PROGRESS MODAL */}
+      {exportState && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-sm w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                <Download size={18} />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-zinc-900">Export Excel</h3>
+                <p className="text-[10px] text-zinc-400 font-medium">{exportState.label}</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[10px] font-bold">
+                <span className="text-zinc-600">{exportState.phase === 'generating' ? 'Menyusun file Excel...' : 'Selesai'}</span>
+              </div>
+              <div className="w-full bg-zinc-100 rounded-full h-2 overflow-hidden">
+                {exportState.phase === 'generating' ? (
+                  <div className="h-full bg-emerald-500 rounded-full animate-pulse" style={{ width: '100%' }} />
+                ) : (
+                  <div className="h-full bg-emerald-500 rounded-full" style={{ width: '100%' }} />
+                )}
+              </div>
             </div>
           </div>
         </div>
