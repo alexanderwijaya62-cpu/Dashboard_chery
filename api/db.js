@@ -371,24 +371,12 @@ async function cleanPastBookings(supabase) {
     const m = String(nowWib.getMonth() + 1).padStart(2, '0');
     const d = String(nowWib.getDate()).padStart(2, '0');
     const currentDateStr = `${y}-${m}-${d}`;
-    
-    const h = String(nowWib.getHours()).padStart(2, '0');
-    const min = String(nowWib.getMinutes()).padStart(2, '0');
-    const currentJamStr = `${h}.${min}`;
-    const currentJamStrColon = `${h}:${min}`;
 
-    // Delete bookings with date strictly in the past
+    // Delete bookings with date strictly in the past (1 day after the booking day passed)
     await supabase
       .from('booking')
       .delete()
       .lt('tanggal', currentDateStr);
-
-    // Delete bookings for today where the time is in the past
-    await supabase
-      .from('booking')
-      .delete()
-      .eq('tanggal', currentDateStr)
-      .or(`jam.lt.${currentJamStr},jam.lt.${currentJamStrColon}`);
   } catch (e) {
     console.error('Failed to clean past bookings:', e);
   }
