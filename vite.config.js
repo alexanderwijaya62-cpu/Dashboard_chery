@@ -35,11 +35,22 @@ function localCheryDmsPlugin() {
               const urlObj = new URL(req.url, 'http://localhost');
               const query = Object.fromEntries(urlObj.searchParams.entries());
 
+              let reqBody = '';
+              if (req.method === 'POST') {
+                reqBody = await new Promise((resolve, reject) => {
+                  let chunks = [];
+                  req.on('data', chunk => chunks.push(chunk));
+                  req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+                  req.on('error', err => reject(err));
+                });
+              }
+
               const isInvoiceReport = req.url.startsWith('/api/invoice_report');
               const mockReq = {
                 query: isInvoiceReport ? { endpoint: 'warranty-invoice-report', ...query } : query,
                 headers: req.headers,
-                method: req.method
+                method: req.method,
+                body: reqBody
               };
 
               const mockRes = {

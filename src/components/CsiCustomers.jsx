@@ -1,19 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Search, Phone, Calendar, Car, RefreshCw,
-  ChevronDown, ChevronUp, ExternalLink, CheckCircle, XCircle, Eye,
-  Download, AlertCircle
+  ChevronDown, ChevronUp, ChevronRight, ExternalLink, CheckCircle, XCircle, Eye,
+  Download, AlertCircle, MessageSquare, Star, MapPin
 } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import { CSI_PROXY_URL } from '../utils/config';
-
-const SENT_STATUS_LABEL = {
-  optjRRw2sJ: { label: 'Success', color: 'bg-green-100 text-green-700' },
-  optBIxMgX1: { label: 'Failed', color: 'bg-red-100 text-red-700' },
-  optqng9Ywq: { label: 'Read', color: 'bg-blue-100 text-blue-700' },
-  '': { label: 'Belum', color: 'bg-zinc-100 text-zinc-500' },
-};
 
 const DEALER_OPTIONS = [
   { id: 'optef3IAAh', name: 'ORIENTAL SM RAJA AMPLAS' },
@@ -93,54 +86,77 @@ const DEALER_OPTIONS = [
   { id: 'optldt2fta', name: 'Wonder Palembang' },
 ];
 
-const formatDate = (ts) => {
-  if (!ts) return '-';
-  const d = new Date(ts);
-  return d.toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' });
-};
-
-const formatPhone = (phone) => {
-  if (!phone) return '-';
-  let p = phone.replace(/[^\d+]/g, '');
-  if (p.startsWith('+')) return p;
-  if (p.startsWith('62')) return `+${p}`;
-  if (p.startsWith('0')) return `+62${p.slice(1)}`;
-  return p;
+const PRODUCT_OPTIONS = {
+  optxfimvab: 'Tiggo7 Pro',
+  optfdcDebe: 'Tiggo 8',
+  optxXsi6iC: 'Tiggo 8 Pro',
+  optju8SoUb: 'Tiggo 8 Pro MaX',
+  optscNaaTz: 'OMODA 5',
+  optA4J85zi: 'OMODA 5 GT',
+  opt5Xci0JP: 'OMODA E5',
+  opt2tAqKT4: 'Tiggo 5X',
+  opt9yPXPZ0: 'J6',
+  optNVNnTlI: 'Tiggo Cross',
+  optEwG7YIW: 'Tiggo 8 CSH',
+  opts9CythE: 'Chery C5',
+  opttFUGVro: 'Chery E5',
+  optn1gyvHX: 'Tiggo 9 CSH',
+  optlp3ysj5: 'J6T'
 };
 
 export default function CsiCustomers() {
-  const [customers, setCustomers] = useState([]);
+  const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [dealerFilter, setDealerFilter] = useState('optef3IAAh');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [expandedRows, setExpandedRows] = useState(new Set());
-  const [stats, setStats] = useState({ total: 0, belum: 0, success: 0, failed: 0, read: 0 });
+  const [monthFilter, setMonthFilter] = useState('7');
+  const [selectedReview, setSelectedReview] = useState(null);
   const [error, setError] = useState(null);
 
-  const fetchCustomers = useCallback(async () => {
+  const fetchReviews = useCallback(async (isRefresh = false) => {
+    const cacheKey = `feishu_csi_customers_cache_${dealerFilter}_${monthFilter}`;
+    if (!isRefresh) {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const { data, timestamp } = JSON.parse(cached);
+          if (Date.now() - timestamp < 5 * 60 * 1000) {
+            setReviews(data);
+            return;
+          }
+        } catch (_) {}
+      }
+    }
+
     setLoading(true);
     setError(null);
     try {
       const filterConditions = [
         {
-          fieldId: 'fldXbpXoZU',
-          fieldType: 3,
-          operator: 'contains',
-          value: [dealerFilter],
-          conditionId: 'coneubJhk9',
-        },
-        {
-          fieldId: 'fldTcWjbEB',
+          fieldId: 'fldA9Oa6IA',
           fieldType: 19,
           operator: 'contains',
+          value: [dealerFilter],
+          conditionId: 'con2GlKFnL',
+        },
+        {
+          fieldId: 'fldc3urooF',
+          fieldType: 20,
+          operator: 'contains',
+          value: [monthFilter],
+          conditionId: 'conhboX683',
+        },
+        {
+          fieldId: 'fldHYwLI9Z',
+          fieldType: 20,
+          operator: 'contains',
           value: ['csi-7901-16'],
-          conditionId: 'conLSv3LxC',
+          conditionId: 'conQiBWHmX',
         },
       ];
 
       const body = {
-        view: 'customers',
+        view: 'results',
         filter: JSON.stringify({
           conditions: filterConditions,
           conjunction: 'and',
@@ -158,327 +174,401 @@ export default function CsiCustomers() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
       if (json.code === 99991668 || json.code === 99991667) {
-        throw new Error('Sesi Feishu expired. Hubungi admin untuk update env FEISHU_COOKIE di Vercel.');
+        throw new Error('Sesi Feishu expired. Hubungi admin untuk update env FEISHU_COOKIE.');
       }
       if (json.code !== 0) throw new Error(json.msg || `Error Feishu: ${json.code}`);
 
       const records = json.data?.recordMap || {};
       const recordIds = json.data?.recordIDs || [];
 
-      const mapped = recordIds
-        .map((id) => {
-          const r = records[id];
-          if (!r) return null;
-          const isFilling = r.fldWnp00bO?.value?.val;
-          if (!isFilling || isFilling[0] === 'optVoofegw') {
-            return {
-              id,
-              dealer: r.fldXbpXoZU?.value,
-              vin: r.fld8vB2Jl0?.value?.[0]?.text || '',
-              plate: r.fldQkWE0Me?.value?.[0]?.text || '',
-              phone: r.fldXQx3HDS?.value?.[0]?.text || '',
-              serviceDate: r.fldKxjArvz?.value,
-              sentStatus: r.fldqkGnFzl?.value?.val?.[0] || '',
-            };
-          }
-          return null;
-        })
-        .filter(Boolean);
+      const mapped = recordIds.map((id) => {
+        const r = records[id];
+        if (!r) return null;
+        
+        return {
+          id,
+          month: r.fldXU4Zx8g?.value?.val || r.fldXU4Zx8g?.value || '-',
+          week: r.fldpzQRX9s?.value?.val?.[0]?.text || r.fldpzQRX9s?.value?.[0]?.text || '-',
+          name: r.fldLOfP6ht?.value?.[0]?.text || r.fldLOfP6ht?.value || '-',
+          product: PRODUCT_OPTIONS[r.flduCHkcFO?.value] || r.flduCHkcFO?.value || '-',
+          dealerId: r.fldA9Oa6IA?.value?.val?.[0] || r.fldA9Oa6IA?.value?.[0] || '-',
+          ratingOverall: r.fld0l3XtOx?.value || 0,
+          comments: r.fldIfJu5jY?.value?.map(c => c.text).join('\n') || r.fldIfJu5jY?.value || '',
+          commentsQ8: r.fld4gEPGVF?.value?.map(c => c.text).join('\n') || r.fld4gEPGVF?.value || '',
+          recommend: r.fldYktqdva?.value || 0,
+          vin: r.fldBbJb9CA?.value?.val?.[0]?.text || r.fldBbJb9CA?.value?.[0]?.text || '-',
+          q1: r.fld77RDhPZ?.value || 0,
+          q2: r.fldGneeuoD?.value || 0,
+          q3: r.fldpOMkOr5?.value || 0,
+          q4: r.fldqBAJgeU?.value || 0,
+          q5: r.fldvf2MIJv?.value || 0,
+          q6: r.fldA6l5y5x?.value || 0,
+          q7: r.fldlvE1YfV?.value || 0,
+          scoreOverall: r.fldKw5T576?.value?.val || r.fldKw5T576?.value || 0,
+          scoreApp: r.fld4QH5nYf?.value?.val || r.fld4QH5nYf?.value || 0,
+          scoreAdv: r.fldIgOOJb4?.value?.val || r.fldIgOOJb4?.value || 0,
+          scoreFac: r.fldolgjXG7?.value?.val || r.fldolgjXG7?.value || 0,
+          scoreQual: r.fldc1yukie?.value?.val || r.fldc1yukie?.value || 0,
+          scoreLt: r.fldDMpKDF5?.value?.val || r.fldDMpKDF5?.value || 0,
+          scoreDel: r.fld6u1SCVQ?.value?.val || r.fld6u1SCVQ?.value || 0,
+          scorePart: r.fldSHHL9LJ?.value?.val || r.fldSHHL9LJ?.value || 0,
+        };
+      }).filter(Boolean);
 
-      const total = json.data?.total || 0;
-      const statusCounts = { belum: 0, success: 0, failed: 0, read: 0 };
-      mapped.forEach((c) => {
-        if (c.sentStatus === 'optjRRw2sJ') statusCounts.success++;
-        else if (c.sentStatus === 'optBIxMgX1') statusCounts.failed++;
-        else if (c.sentStatus === 'optqng9Ywq') statusCounts.read++;
-        else statusCounts.belum++;
-      });
+      setReviews(mapped);
 
-      setStats({ total, ...statusCounts });
-      setCustomers(mapped);
+      // Save to cache
+      sessionStorage.setItem(cacheKey, JSON.stringify({ data: mapped, timestamp: Date.now() }));
     } catch (err) {
       setError(err.message);
       Toastify({
-        text: `${err.message}`,
+        text: `⚠️ Gagal sinkronisasi data review: ${err.message}`,
         style: { background: '#ef4444', borderRadius: '12px' },
       }).showToast();
     } finally {
       setLoading(false);
     }
-  }, [dealerFilter]);
+  }, [dealerFilter, monthFilter]);
 
   useEffect(() => {
-    fetchCustomers();
-  }, [fetchCustomers]);
+    fetchReviews(false);
+  }, [fetchReviews]);
 
   const filtered = useMemo(() => {
-    return customers.filter((c) => {
-      if (statusFilter === 'belum' && c.sentStatus) return false;
-      if (statusFilter === 'success' && c.sentStatus !== 'optjRRw2sJ') return false;
-      if (statusFilter === 'failed' && c.sentStatus !== 'optBIxMgX1') return false;
-      if (statusFilter === 'read' && c.sentStatus !== 'optqng9Ywq') return false;
+    return reviews.filter((r) => {
       if (search) {
         const q = search.toLowerCase();
         return (
-          c.plate.toLowerCase().includes(q) ||
-          c.vin.toLowerCase().includes(q) ||
-          c.phone.includes(q) ||
-          c.id.toLowerCase().includes(q)
+          r.name.toLowerCase().includes(q) ||
+          r.product.toLowerCase().includes(q) ||
+          r.vin.toLowerCase().includes(q) ||
+          r.comments.toLowerCase().includes(q)
         );
       }
       return true;
     });
-  }, [customers, search, statusFilter]);
+  }, [reviews, search]);
 
-  const toggleRow = (id) => {
-    setExpandedRows((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const getRatingColor = (val) => {
+    if (val >= 9) return 'bg-indigo-600 text-white';
+    if (val >= 7) return 'bg-blue-600 text-white';
+    if (val >= 5) return 'bg-amber-500 text-white';
+    return 'bg-rose-500 text-white';
   };
 
-  const exportCSV = () => {
-    const header = 'No,Dealer,VIN,Plat Nomor,Telepon,Service Date,Sent Status';
-    const rows = filtered.map((c, i) =>
-      `${i + 1},"${DEALER_OPTIONS.find((d) => d.id === c.dealer)?.name || '-'}","${c.vin}","${c.plate}","${c.phone}","${formatDate(c.serviceDate)}","${SENT_STATUS_LABEL[c.sentStatus]?.label || 'Belum'}"`
-    );
-    const csv = [header, ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `csi_customers_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    Toastify({
-      text: `✅ ${filtered.length} data di-export`,
-      style: { background: '#10b981', borderRadius: '12px' },
-    }).showToast();
+  const dealerNameMapped = (id) => {
+    return DEALER_OPTIONS.find((d) => d.id === id)?.name || id;
   };
 
   return (
-    <div className="p-4 lg:p-8 max-w-7xl mx-auto space-y-6 animate-fade-in">
+    <div className="h-[calc(100vh-80px)] flex flex-col p-6 lg:p-10 w-full space-y-6 animate-fade-in overflow-hidden">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-zinc-900 tracking-tight">
-            CSI Customer Belum Review
+          <h1 className="text-3xl font-black text-zinc-950 tracking-tight flex items-center gap-2">
+            CSI Customer Review
           </h1>
           <p className="text-zinc-500 text-sm font-medium mt-1">
-            Daftar pelanggan yang belum mengisi survey kepuasan
+            Ulasan lengkap kustomer dan skor survei CSI langsung dari Feishu
           </p>
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={fetchCustomers}
+            onClick={() => fetchReviews(true)}
             disabled={loading}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-zinc-900 text-white rounded-xl text-sm font-bold hover:bg-zinc-800 transition-all disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-5 py-3 bg-zinc-900 text-white rounded-2xl text-sm font-bold hover:bg-zinc-800 transition-all disabled:opacity-50 shadow-md shadow-zinc-900/10"
           >
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            Refresh
+            Refresh Data
           </button>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        {[
-          { label: 'Total', value: stats.total, color: 'bg-zinc-900', textColor: 'text-white' },
-          { label: 'Belum Review', value: stats.belum, color: 'bg-yellow-100 border-yellow-200', textColor: 'text-yellow-800' },
-          { label: 'Success', value: stats.success, color: 'bg-green-100 border-green-200', textColor: 'text-green-800' },
-          { label: 'Failed', value: stats.failed, color: 'bg-red-100 border-red-200', textColor: 'text-red-800' },
-          { label: 'Read', value: stats.read, color: 'bg-blue-100 border-blue-200', textColor: 'text-blue-800' },
-        ].map((s) => (
-          <div key={s.label} className={`rounded-xl border-2 p-4 ${s.color} ${s.textColor}`}>
-            <div className="text-[10px] font-black uppercase tracking-widest opacity-70">{s.label}</div>
-            <div className="text-3xl font-black mt-1">{s.value}</div>
-          </div>
-        ))}
-      </div>
-
       {/* Filters */}
-      <div className="bg-white rounded-2xl border-2 border-zinc-200 p-4 flex flex-col md:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+      <div className="bg-white rounded-2xl border border-zinc-200 p-4 flex flex-col md:flex-row gap-4 items-center justify-between shadow-sm shrink-0">
+        <div className="relative w-full md:w-96">
+          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
           <input
             type="text"
-            placeholder="Cari plat, VIN, atau nomor telepon..."
+            placeholder="Cari nama kustomer, mobil, komentar..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-zinc-50 border-2 border-zinc-200 rounded-xl text-sm font-medium focus:outline-none focus:border-zinc-900 transition-colors"
+            className="w-full pl-10 pr-4 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium focus:outline-none focus:border-zinc-900 focus:bg-white transition-all"
           />
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3 w-full md:w-auto justify-end">
+          <select
+            value={monthFilter}
+            onChange={(e) => setMonthFilter(e.target.value)}
+            className="px-4 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-zinc-900 transition-colors cursor-pointer"
+          >
+            <option value="1">Januari</option>
+            <option value="2">Februari</option>
+            <option value="3">Maret</option>
+            <option value="4">April</option>
+            <option value="5">Mei</option>
+            <option value="6">Juni</option>
+            <option value="7">Juli</option>
+            <option value="8">Agustus</option>
+            <option value="9">September</option>
+            <option value="10">Oktober</option>
+            <option value="11">November</option>
+            <option value="12">Desember</option>
+          </select>
           <select
             value={dealerFilter}
             onChange={(e) => setDealerFilter(e.target.value)}
-            className="px-4 py-2.5 bg-zinc-50 border-2 border-zinc-200 rounded-xl text-sm font-medium focus:outline-none focus:border-zinc-900 transition-colors"
+            className="px-4 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-zinc-900 transition-colors cursor-pointer"
           >
             {DEALER_OPTIONS.map((d) => (
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2.5 bg-zinc-50 border-2 border-zinc-200 rounded-xl text-sm font-medium focus:outline-none focus:border-zinc-900 transition-colors"
-          >
-            <option value="all">Semua Status</option>
-            <option value="belum">Belum</option>
-            <option value="success">Success</option>
-            <option value="failed">Failed</option>
-            <option value="read">Read</option>
-          </select>
-          <button
-            onClick={exportCSV}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border-2 border-zinc-200 rounded-xl text-sm font-bold hover:bg-zinc-50 transition-all"
-          >
-            <Download size={16} />
-            Export CSV
-          </button>
         </div>
       </div>
 
-      {/* Error Banner */}
-      {error && (
-        <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4 flex items-start gap-3">
-          <AlertCircle size={20} className="text-red-500 shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="font-bold text-red-800 text-sm">Gagal mengambil data</p>
-            <p className="text-red-600 text-xs mt-0.5">{error}</p>
+      {/* Main Grid: Left is Cards List, Right is Details Panel if selected */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start flex-1 min-h-0">
+        {/* Cards List */}
+        <div className={`space-y-4 h-full overflow-y-auto pr-2 ${selectedReview ? 'lg:col-span-7' : 'lg:col-span-12'}`}>
+          <div className="text-zinc-500 text-xs font-black uppercase tracking-widest pl-2">
+            {filtered.length} Results
           </div>
-          <button
-            onClick={fetchCustomers}
-            className="text-xs font-bold text-red-700 hover:text-red-900 bg-red-100 px-3 py-1.5 rounded-lg transition-colors shrink-0"
-          >
-            Coba Lagi
-          </button>
-        </div>
-      )}
 
-      {/* Table */}
-        <div className="bg-white rounded-2xl border-2 border-zinc-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b-2 border-zinc-200 bg-zinc-50">
-                  <th className="text-left p-3 text-[10px] font-black text-zinc-400 uppercase tracking-widest">No</th>
-                  <th className="text-left p-3 text-[10px] font-black text-zinc-400 uppercase tracking-widest">Plat Nomor</th>
-                  <th className="text-left p-3 text-[10px] font-black text-zinc-400 uppercase tracking-widest">VIN</th>
-                  <th className="text-left p-3 text-[10px] font-black text-zinc-400 uppercase tracking-widest">Telepon</th>
-                  <th className="text-left p-3 text-[10px] font-black text-zinc-400 uppercase tracking-widest">Service Date</th>
-                  <th className="text-center p-3 text-[10px] font-black text-zinc-400 uppercase tracking-widest">Status</th>
-                  <th className="text-center p-3 text-[10px] font-black text-zinc-400 uppercase tracking-widest"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan={7} className="p-12 text-center">
-                      <div className="flex items-center justify-center gap-3">
-                        <RefreshCw size={20} className="animate-spin text-zinc-400" />
-                        <span className="text-zinc-500 font-bold">Memuat data...</span>
+          {loading ? (
+            <div className="bg-white rounded-2xl border border-zinc-200 p-16 text-center shadow-sm">
+              <RefreshCw size={24} className="animate-spin text-zinc-400 mx-auto mb-3" />
+              <p className="text-zinc-500 font-bold text-sm">Mengambil Ulasan Kustomer...</p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-zinc-200 p-16 text-center shadow-sm">
+              <div className="text-zinc-300 font-black text-xl">Ulasan Kosong</div>
+              <p className="text-zinc-400 text-sm mt-1.5 font-medium">Belum ada review survei untuk filter cabang/bulan ini.</p>
+            </div>
+          ) : (
+            filtered.map((r) => (
+              <div
+                key={r.id}
+                onClick={() => setSelectedReview(r)}
+                className={`bg-white rounded-2xl border transition-all p-5 flex items-center justify-between cursor-pointer shadow-sm ${
+                  selectedReview?.id === r.id ? 'border-zinc-900 ring-2 ring-zinc-900/10' : 'border-zinc-200 hover:border-zinc-400'
+                }`}
+              >
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center w-full pr-4">
+                  {/* Left block: Month, Week, Dealer */}
+                  <div className="md:col-span-3 space-y-1">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Month</span>
+                        <span className="text-sm font-black text-zinc-900">{r.month}</span>
                       </div>
-                    </td>
-                  </tr>
-                ) : filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-12 text-center">
-                      <div className="text-zinc-300 font-bold text-lg">Tidak ada data</div>
-                      <p className="text-zinc-400 text-sm mt-1">Tidak ada pelanggan yang belum review untuk filter ini</p>
-                    </td>
-                  </tr>
-                ) : (
-                  filtered.map((c, i) => {
-                    const statusInfo = SENT_STATUS_LABEL[c.sentStatus] || SENT_STATUS_LABEL[''];
-                    return (
-                      <React.Fragment key={c.id}>
-                        <tr className="border-b border-zinc-100 hover:bg-zinc-50 transition-colors">
-                          <td className="p-3 text-zinc-400 font-bold text-xs">{i + 1}</td>
-                          <td className="p-3">
-                            <div className="flex items-center gap-2">
-                              <Car size={14} className="text-zinc-400 shrink-0" />
-                              <span className="font-bold text-zinc-900">{c.plate || '-'}</span>
-                            </div>
-                          </td>
-                          <td className="p-3">
-                            <span className="font-mono text-xs text-zinc-600">{c.vin || '-'}</span>
-                          </td>
-                          <td className="p-3">
-                            <div className="flex items-center gap-1.5">
-                              <Phone size={12} className="text-zinc-400 shrink-0" />
-                              <span className="text-sm text-zinc-700">{formatPhone(c.phone)}</span>
-                            </div>
-                          </td>
-                          <td className="p-3">
-                            <div className="flex items-center gap-1.5">
-                              <Calendar size={12} className="text-zinc-400 shrink-0" />
-                              <span className="text-sm text-zinc-700">{formatDate(c.serviceDate)}</span>
-                            </div>
-                          </td>
-                          <td className="p-3 text-center">
-                            <span className={`inline-block px-2.5 py-1 rounded-lg text-[10px] font-bold ${statusInfo.color}`}>
-                              {statusInfo.label}
-                            </span>
-                          </td>
-                          <td className="p-3 text-center">
-                            <button
-                              onClick={() => toggleRow(c.id)}
-                              className="text-zinc-400 hover:text-zinc-900 transition-colors"
-                            >
-                              {expandedRows.has(c.id) ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                            </button>
-                          </td>
-                        </tr>
-                        {expandedRows.has(c.id) && (
-                          <tr className="bg-zinc-50 border-b border-zinc-100">
-                            <td colSpan={7} className="p-4">
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                                <div>
-                                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Record ID</span>
-                                  <span className="font-mono text-xs text-zinc-700">{c.id}</span>
-                                </div>
-                                <div>
-                                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Dealer</span>
-                                  <span className="font-bold text-zinc-900">{DEALER_OPTIONS.find((d) => d.id === c.dealer)?.name || '-'}</span>
-                                </div>
-                                <div>
-                                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">VIN</span>
-                                  <span className="font-mono text-xs text-zinc-700">{c.vin || '-'}</span>
-                                </div>
-                                <div>
-                                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">WhatsApp</span>
-                                  <a
-                                    href={`https://wa.me/${formatPhone(c.phone).replace(/[^\d]/g, '')}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-green-600 font-bold hover:underline"
-                                  >
-                                    <ExternalLink size={12} />
-                                    Kirim WA
-                                  </a>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                      <div className="text-right">
+                        <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block">Score</span>
+                        <span className="text-xs font-black text-emerald-600 bg-emerald-50 border border-emerald-250 px-1.5 py-0.5 rounded-lg">{r.scoreOverall}</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1 mt-1.5">
+                      <div className="text-xs font-semibold text-zinc-600">
+                        <span className="text-zinc-400 font-bold">Week:</span> {r.week}
+                      </div>
+                      <span className="inline-block self-start px-2.5 py-1 bg-violet-55 border border-violet-100 rounded-lg text-[9px] font-extrabold text-violet-700">
+                        {dealerNameMapped(r.dealerId)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Middle block: Name, Rating */}
+                  <div className="md:col-span-5 space-y-2">
+                    <div>
+                      <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Nama Anda</span>
+                      <span className="text-sm font-bold text-zinc-900">{r.name}</span>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[9px] font-bold text-zinc-400 block">Bagaimana penilaian Anda...</span>
+                      <div className="flex gap-0.5 flex-wrap">
+                        {Array.from({ length: 11 }, (_, val) => (
+                          <span
+                            key={val}
+                            className={`w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold border ${
+                              r.ratingOverall === val
+                                ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                                : 'bg-zinc-55 text-zinc-400 border-zinc-200'
+                            }`}
+                          >
+                            {val}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right block: Product, Comments */}
+                  <div className="md:col-span-4 space-y-1 min-w-0">
+                    <div>
+                      <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Silahkan pilih produk...</span>
+                      <span className="inline-block px-2.5 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full text-xs font-bold mt-0.5">
+                        {r.product}
+                      </span>
+                    </div>
+                    <div className="min-w-0 mt-1.5">
+                      <span className="text-[9px] font-bold text-zinc-400 block">Kami dengan tulus...</span>
+                      <p className="text-xs text-zinc-600 font-semibold truncate leading-tight mt-0.5">
+                        {r.comments || r.commentsQ8 || <span className="text-zinc-350 italic">No feedback comment</span>}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight size={20} className="text-zinc-400 shrink-0" />
+              </div>
+            ))
+          )}
         </div>
 
-      {/* Info */}
-      {customers.length > 0 && (
-        <div className="text-center text-[10px] font-bold text-zinc-300 uppercase tracking-widest">
-          {customers.length} data ditampilkan dari {stats.total} total record
-        </div>
-      )}
+        {/* Details Panel */}
+        {selectedReview && (
+          <div className="lg:col-span-5 bg-white rounded-2xl border border-zinc-200 p-6 space-y-6 shadow-md animate-slideInRight h-full overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-zinc-150 pb-4">
+              <h2 className="text-lg font-black text-zinc-950">Detail Hasil Survei</h2>
+              <button
+                onClick={() => setSelectedReview(null)}
+                className="text-xs font-extrabold text-zinc-400 hover:text-zinc-900 border border-zinc-200 hover:border-zinc-300 px-3 py-1.5 rounded-xl transition-all"
+              >
+                Tutup
+              </button>
+            </div>
+
+            <div className="space-y-4 text-sm">
+              <div className="bg-zinc-900 text-white rounded-xl p-4 flex justify-between items-center shadow-sm">
+                <div>
+                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-0.5">Overall Score</span>
+                  <span className="font-mono text-[10px] text-zinc-450">VIN: {selectedReview.vin}</span>
+                </div>
+                <div className="text-2xl font-black text-emerald-400">
+                  {selectedReview.scoreOverall} <span className="text-[10px] text-zinc-400 font-normal">/ 1000</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-0.5">1 → Month</span>
+                  <span className="font-bold text-zinc-950 text-base">{selectedReview.month}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-0.5">2 → Week</span>
+                  <span className="font-bold text-zinc-950 text-base">{selectedReview.week}</span>
+                </div>
+              </div>
+
+              <div className="border-t border-zinc-100 pt-4">
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-1">3 → Nama Anda</span>
+                <div className="p-3 bg-zinc-50 border border-zinc-150 rounded-xl font-bold text-zinc-900">
+                  {selectedReview.name}
+                </div>
+              </div>
+
+              <div className="border-t border-zinc-100 pt-4">
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-1">4 → Silahkan pilih produk Chery Anda</span>
+                <div className="inline-block px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl font-bold">
+                  {selectedReview.product}
+                </div>
+              </div>
+
+              <div className="border-t border-zinc-100 pt-4">
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-1">5 → Dealer Names</span>
+                <div className="p-3 bg-zinc-50 border border-zinc-150 rounded-xl font-semibold text-zinc-700">
+                  {dealerNameMapped(selectedReview.dealerId)}
+                </div>
+              </div>
+
+              <div className="border-t border-zinc-100 pt-4 space-y-2">
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">
+                  6 → Bagaimana penilaian Anda mengenai pengalaman layanan purna jual Chery secara keseluruhan di bengkel resmi Chery saat ini?
+                </span>
+                <div className="flex gap-1 flex-wrap">
+                  {Array.from({ length: 11 }, (_, val) => (
+                    <span
+                      key={val}
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black border ${
+                        selectedReview.ratingOverall === val
+                          ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                          : 'bg-zinc-50 text-zinc-400 border-zinc-200'
+                      }`}
+                    >
+                      {val}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-zinc-100 pt-4">
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-1">
+                  7 → Aspek pengalaman mana yang membuat Anda ragu untuk merekomendasikan kami?
+                </span>
+                <div className="p-4 bg-zinc-55 border border-zinc-150 rounded-xl font-semibold text-zinc-700 leading-relaxed min-h-12">
+                  {selectedReview.comments || <span className="text-zinc-350 italic">Tidak ada keluhan tertulis</span>}
+                </div>
+              </div>
+
+              <div className="border-t border-zinc-100 pt-4 space-y-2">
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">
+                  8 → Apakah Anda bersedia merekomendasikan CHERY kepada kerabat dan teman Anda?
+                </span>
+                <div className="flex gap-1 flex-wrap">
+                  {Array.from({ length: 11 }, (_, val) => (
+                    <span
+                      key={val}
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black border ${
+                        selectedReview.recommend === val
+                          ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                          : 'bg-zinc-50 text-zinc-400 border-zinc-200'
+                      }`}
+                    >
+                      {val}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {selectedReview.commentsQ8 && (
+                <div className="border-t border-zinc-100 pt-4">
+                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-1">
+                    Q8. Komentar Akhir & Kebutuhan Spesifik Anda
+                  </span>
+                  <div className="p-4 bg-zinc-55 border border-zinc-150 rounded-xl font-semibold text-zinc-700 leading-relaxed">
+                    {selectedReview.commentsQ8}
+                  </div>
+                </div>
+              )}
+
+              {/* Individual Question Ratings breakdown */}
+              <div className="border-t border-zinc-100 pt-4 space-y-3">
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">
+                  Detail Skor Dimensi & Rating
+                </span>
+                <div className="grid grid-cols-1 gap-2 text-xs">
+                  {[
+                    { label: 'Q1. Penjadwalan Servis (Service Appointment)', val: selectedReview.q1, score: selectedReview.scoreApp },
+                    { label: 'Q2. Layanan Resepsionis (Service Advisor)', val: selectedReview.q2, score: selectedReview.scoreAdv },
+                    { label: 'Q3. Fasilitas & Lingkungan (Dealer Facility)', val: selectedReview.q3, score: selectedReview.scoreFac },
+                    { label: 'Q4. Profesionalisme Teknisi (Service Quality)', val: selectedReview.q4, score: selectedReview.scoreQual },
+                    { label: 'Q5. Waktu Servis (Maintenance Time)', val: selectedReview.q5, score: selectedReview.scoreLt },
+                    { label: 'Q6. Penerimaan Kendaraan (Delivery Process)', val: selectedReview.q6, score: selectedReview.scoreDel },
+                    { label: 'Q7. Ketepatan Waktu Part (Spare Part Availibility)', val: selectedReview.q7, score: selectedReview.scorePart },
+                  ].map((q, idx) => (
+                    <div key={idx} className="flex justify-between items-center p-2.5 bg-zinc-50 border border-zinc-150 rounded-lg">
+                      <span className="font-semibold text-zinc-650 truncate w-72" title={q.label}>{q.label}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-zinc-500 bg-zinc-200/50 px-2 py-0.5 rounded text-[10px]">Rating: {q.val}/5</span>
+                        <span className="font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded text-[10px]">{q.score} pts</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

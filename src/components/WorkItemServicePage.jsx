@@ -192,8 +192,8 @@ const WorkItemServicePage = () => {
     setExportState({ phase: 'generating', label: 'Mengambil data sparepart...', progress: 0, total: itemsToExport.length });
 
     const allIds = itemsToExport.map(i => i.workItemId || i.id).filter(Boolean);
-    const MAX_CONCURRENT = 3;
-    const BATCH_SEND = 200; // Send this many IDs per request; server processes ~35-40 within 10s
+    const MAX_CONCURRENT = 1;
+    const BATCH_SEND = 2000; // Send this many IDs per request
     const queue = [...allIds];
     let processedCount = 0;
     const partsData = { ...cachedParts };
@@ -207,7 +207,12 @@ const WorkItemServicePage = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ids: chunkIds }),
         });
-        if (!resp.ok) return;
+        if (!resp.ok) {
+          stopped = true;
+          setExportState({ phase: 'done', label: 'Gagal mengambil data sparepart', progress: 0, total: 0 });
+          setTimeout(() => setExportState(null), 3000);
+          return;
+        }
         const data = await resp.json();
         if (data.results) {
           data.results.forEach(r => {

@@ -25,7 +25,6 @@ import PublicBooking from './components/PublicBooking';
 import CroBookingPanel from './components/CroBookingPanel';
 import AdminBookingPanel from './components/AdminBookingPanel';
 import BookingManager from './components/BookingManager';
-import BookingApprovalQueue from './components/BookingApprovalQueue';
 import SABookingPanel from './components/SABookingPanel';
 import StaffBookingPanel from './components/StaffBookingPanel';
 import BookingSettings from './components/BookingSettings';
@@ -34,6 +33,7 @@ import StockComparison from './components/StockComparison';
 import RegisterPage from './components/RegisterPage';
 import CsiResult from './components/CsiResult';
 import CsiCustomers from './components/CsiCustomers';
+import CsiFollowup from './components/CsiFollowup';
 import CustomerProfile from './components/CustomerProfile';
 import CustomerPanel from './components/CustomerPanel';
 import CustomerComplaint from './components/CustomerComplaint';
@@ -349,7 +349,7 @@ const App = () => {
           const allowedPages = {
             admin: ['admin', 'admin-booking', 'admin-wo', 'promo', 'display', 'booking-public', 'sa-booking'],
             manager: ['manager', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'manager-laporan-invoice', 'manager-laporan-wo', 'manager-jasa-pengerjaan', 'display', 'booking-public'],
-            cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-booking-approval', 'cro-holidays', 'cro-csi', 'cro-customers', 'display', 'booking-public', 'sa-booking', 'booking-settings'],
+            cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-holidays', 'cro-csi', 'cro-customers', 'display', 'booking-public', 'sa-booking', 'booking-settings'],
             sparepart: ['sparepart-dms-order', 'sparepart-dms', 'sparepart-cost', 'sparepart-profit', 'display', 'booking-public', 'stock-comparison'],
             owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-sparepart-cost', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'owner-unit-entry', 'display', 'booking-public', 'stock-comparison'],
             warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-proforma'],
@@ -436,12 +436,14 @@ const App = () => {
   }, []);
 
   // Auto Logout setelah 1 hari — cek tiap 30 detik + pas tab di-focus
+  // Mekanik & Foreman dikecualikan supaya sesi dan data mereka tetap bertahan
   useEffect(() => {
     const checkDailyLogout = () => {
       const today = new Date().toDateString();
       const storedDate = localStorage.getItem('chery_last_login_date');
+      const role = user?.role?.toLowerCase();
 
-      if (user && user.role?.toLowerCase() !== 'display' && storedDate && storedDate !== today) {
+      if (user && !['display', 'mekanik', 'foreman'].includes(role) && storedDate && storedDate !== today) {
         handleLogout(true);
         localStorage.removeItem('chery_last_login_date');
         Toastify({
@@ -2489,9 +2491,6 @@ const App = () => {
       {currentPage === 'cro-booking' && (
         <FollowupPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} isNavbarVisible={true} initialTab="booking" setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
       )}
-      {currentPage === 'cro-booking-approval' && (
-        <BookingApprovalQueue user={user} setCurrentPage={navigate} />
-      )}
       {currentPage === 'cro-holidays' && (
         <FollowupPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} isNavbarVisible={true} initialTab="holidays" setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
       )}
@@ -2500,6 +2499,9 @@ const App = () => {
       )}
       {currentPage === 'cro-customers' && (
         <CsiCustomers />
+      )}
+      {currentPage === 'cro-csi-followup' && (
+        <CsiFollowup />
       )}
       {currentPage === 'booking-public' && <PublicBooking user={user} setCurrentPage={navigate} />}
       {currentPage === 'sa-booking' && <SABookingPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} />}

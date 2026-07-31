@@ -49,7 +49,10 @@ export default async function handler(req, res) {
       'Origin': FEISHU_BASE,
       'Referer': `${FEISHU_BASE}/`,
     };
-    if (csrfToken) headers['x-csrf-token'] = csrfToken;
+    if (csrfToken) {
+      headers['x-csrf-token'] = csrfToken;
+      headers['x-csrftoken'] = csrfToken;
+    }
     if (swpCsrfToken) headers['x-csrf-header'] = swpCsrfToken;
 
     const response = await fetch(`${FEISHU_BASE}/space/api/bitable/form/external/list_records`, {

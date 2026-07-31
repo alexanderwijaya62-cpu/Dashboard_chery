@@ -312,7 +312,7 @@ async function croLogin() {
 const warrantyWoCacheStore = new Map();
 
 async function handleWarranty(req, res) {
-    const BASE = process.env.WARRANTY_BASE_URL;
+    const BASE = getWarrantyBaseUrl();
     const draw = req.query.draw || 1;
     const start = parseInt(req.query.start, 10) || 0;
     const length = parseInt(req.query.length, 10) || 25;
@@ -321,6 +321,7 @@ async function handleWarranty(req, res) {
     const kategori = req.query.kategori || '';
     const from = req.query.from || '';
     const to = req.query.to || '';
+
     const fetchAll = req.query.fetchAll === 'true' || req.query.fetchAll === '1' || length >= 500;
 
     const CACHE_TTL = 1800000;
@@ -741,8 +742,22 @@ async function handleWarrantyInvoiceReport(req, res) {
     const BASE = getWarrantyBaseUrl();
     const draw = req.query.draw || 1;
     const search = req.query.search || '';
-    const from = req.query.from || '';
-    const to = req.query.to || '';
+    let from = req.query.from || '';
+    let to = req.query.to || '';
+
+    if (!search && !from && !to) {
+        const today = new Date();
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(today.getDate() - 30);
+        const formatDateStr = (d) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        };
+        from = formatDateStr(thirtyDaysAgo);
+        to = formatDateStr(today);
+    }
 
     const cacheKey = `tagihan_report_${from}_${to}_${search}`;
     const cached = invoiceReportCacheStore.get(cacheKey);
@@ -788,7 +803,8 @@ async function fetchInvoiceReportFromDMS(from, to, search, BASE, draw) {
     }
 
     let tagihanList = [];
-    const getPageUrl = (startOffset) => `${BASE}/aftersales/tagihan/data?draw=${draw}&start=${startOffset}&length=10000` +
+    const PAGE_SIZE = 250;
+    const getPageUrl = (startOffset) => `${BASE}/aftersales/tagihan/data?draw=${draw}&start=${startOffset}&length=${PAGE_SIZE}` +
         `&columns[0][data]=action&columns[0][name]=action&columns[0][searchable]=false&columns[0][orderable]=false&columns[0][search][value]=&columns[0][search][regex]=false` +
         `&columns[1][data]=no_wo&columns[1][name]=svc_wo.no_wo&columns[1][searchable]=true&columns[1][orderable]=true&columns[1][search][value]=&columns[1][search][regex]=false` +
         `&columns[2][data]=no_polisi&columns[2][name]=svc_wo.no_polisi&columns[2][searchable]=true&columns[2][orderable]=true&columns[2][search][value]=&columns[2][search][regex]=false` +
@@ -832,34 +848,40 @@ async function fetchInvoiceReportFromDMS(from, to, search, BASE, draw) {
         const parsed = JSON.parse(firstBody);
         tagihanList = parsed.data || [];
         totalRecords = parsed.recordsFiltered || parsed.recordsTotal || tagihanList.length;
+        if (!search && !from && !to) {
+            totalRecords = Math.min(totalRecords, 500);
+        }
     } catch {}
 
     if (totalRecords > tagihanList.length) {
-        const fetchLen = 10000;
         const remainingOffsets = [];
-        for (let offset = tagihanList.length; offset < totalRecords; offset += fetchLen) {
+        for (let offset = tagihanList.length; offset < totalRecords; offset += PAGE_SIZE) {
             remainingOffsets.push(offset);
         }
 
-        const remainingResults = await Promise.allSettled(
-            remainingOffsets.map(offset =>
-                fetchWithHttps(getPageUrl(offset), {
-                    headers: {
-                        'Cookie': warrantyCookie,
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                        'Referer': `${BASE}/aftersales/tagihan`,
-                        'Accept': 'application/json, text/javascript, */*; q=0.01',
-                        'X-Requested-With': 'XMLHttpRequest',
-                    },
-                }).then(r => r.json())
-            )
-        );
+        const BATCH_SIZE = 4;
+        for (let i = 0; i < remainingOffsets.length; i += BATCH_SIZE) {
+            const batch = remainingOffsets.slice(i, i + BATCH_SIZE);
+            const remainingResults = await Promise.allSettled(
+                batch.map(offset =>
+                    fetchWithHttps(getPageUrl(offset), {
+                        headers: {
+                            'Cookie': warrantyCookie,
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                            'Referer': `${BASE}/aftersales/tagihan`,
+                            'Accept': 'application/json, text/javascript, */*; q=0.01',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                    }).then(r => r.json())
+                )
+            );
 
-        remainingResults.forEach(r => {
-            if (r.status === 'fulfilled' && r.value && r.value.data) {
-                tagihanList = tagihanList.concat(r.value.data);
-            }
-        });
+            remainingResults.forEach(r => {
+                if (r.status === 'fulfilled' && r.value && r.value.data) {
+                    tagihanList = tagihanList.concat(r.value.data);
+                }
+            });
+        }
     }
 
     const invoiceData = tagihanList.map(item => {
@@ -1902,11 +1924,11 @@ export default async function handler(req, res) {
         try {
             await ensureLogin();
             const results = [];
-            const BATCH_SIZE = 3;
+            const BATCH_SIZE = 40;
             const processedIds = [];
             const unprocessedIds = [];
             const startTime = Date.now();
-            const MAX_DURATION = 8500; // Stop 1.5s before Vercel 10s timeout
+            const MAX_DURATION = 120000; // 120 seconds timeout for local processing
 
             for (let i = 0; i < ids.length; i += BATCH_SIZE) {
                 if (Date.now() - startTime > MAX_DURATION) {
@@ -1944,7 +1966,7 @@ export default async function handler(req, res) {
                     }
                 });
                 // Gentle delay between batches to avoid DMS rate limit
-                await new Promise(r => setTimeout(r, 300));
+                await new Promise(r => setTimeout(r, 30));
             }
 
             return res.status(200).json({

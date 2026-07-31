@@ -84,8 +84,6 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
         if (!isBackground) loadFromLocal();
 
         try {
-            if (!isBackground) showLoading("Mengambil data dari server...");
-
             // Cek pengaturan bandwidth: Apakah gambar harus dimuat?
             const { data: settingsData } = await db.select('settings', { eq: { key: 'cro_images_enabled' }, maybeSingle: true });
             const showImages = settingsData ? settingsData.value === 'true' : true;
@@ -835,7 +833,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
     };
 
     return (
-        <div className="flex flex-col w-full h-full bg-white relative">
+        <div className="flex flex-col w-full h-[calc(100vh-80px)] bg-white relative overflow-hidden">
             {isLoading && (
                 <div className="fixed inset-0 bg-black/50 z-[9999] flex flex-col justify-center items-center">
                     <p className="text-white font-medium text-lg">{loadingText}</p>
@@ -1189,7 +1187,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                                     </button>
                                                 </td>
                                             </tr>
-                                        ))}                                    </tbody>
+                                        ))}</tbody>
                                 </table>
                             </div>
                         </div>

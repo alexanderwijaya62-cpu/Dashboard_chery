@@ -1,4 +1,18 @@
 import http from 'http';
+import fs from 'fs';
+
+// Load .env manually if FEISHU_COOKIE is not set in environment
+if (!process.env.FEISHU_COOKIE && fs.existsSync('.env')) {
+  const envContent = fs.readFileSync('.env', 'utf8');
+  envContent.split('\n').forEach(line => {
+    const parts = line.split('=');
+    if (parts.length >= 2) {
+      const key = parts[0].trim();
+      const val = parts.slice(1).join('=').trim();
+      process.env[key] = val;
+    }
+  });
+}
 
 const FEISHU_BASE = process.env.FEISHU_BASE_URL || 'https://my-ichery.feishu.cn';
 const cookies = process.env.FEISHU_COOKIE || '';
@@ -75,7 +89,15 @@ const server = http.createServer(async (req, res) => {
   let rawBody = '';
   for await (const chunk of req) rawBody += chunk;
   const reqParsed = JSON.parse(rawBody);
-  const { shareToken, filter, offset, password } = reqParsed;
+  let { shareToken, view, filter, offset, password } = reqParsed;
+
+  if (!shareToken && view) {
+    shareToken = view === 'customers'
+      ? process.env.FEISHU_CUSTOMERS_SHARE_TOKEN
+      : view === 'results'
+        ? process.env.FEISHU_CSI_RESULT_SHARE_TOKEN
+        : null;
+  }
 
   if (!shareToken) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -86,13 +108,17 @@ const server = http.createServer(async (req, res) => {
   console.log('\n====== Request ======');
   console.log('shareToken:', shareToken);
 
+  const requestBody = { shareToken, page_size: 100 };
+  if (filter) requestBody.filter = filter;
+  if (offset !== undefined) requestBody.offset = offset;
+
   const results = [];
 
   // ========== Strategy A: Clean cookies + csrf, server-style (no origin/referer) ==========
   let r = await tryRequest(
     '/space/api/bitable/form/external/list_records',
-    { shareToken, page_size: 100 },
-    { 'x-csrf-token': tokens.csrfToken, 'Cookie': cleanCookies },
+    requestBody,
+    { 'x-csrf-token': tokens.csrfToken, 'x-csrftoken': tokens.csrfToken, 'Cookie': cleanCookies },
     'A: clean cookies + csrf, no origin'
   );
   results.push(r);
@@ -101,8 +127,8 @@ const server = http.createServer(async (req, res) => {
   // ========== Strategy B: All original cookies + csrf, no origin ==========
   r = await tryRequest(
     '/space/api/bitable/form/external/list_records',
-    { shareToken, page_size: 100 },
-    { 'x-csrf-token': tokens.csrfToken, 'Cookie': tokens.all },
+    requestBody,
+    { 'x-csrf-token': tokens.csrfToken, 'x-csrftoken': tokens.csrfToken, 'Cookie': tokens.all },
     'B: all cookies + csrf, no origin'
   );
   results.push(r);
@@ -111,9 +137,10 @@ const server = http.createServer(async (req, res) => {
   // ========== Strategy C: All cookies + csrf + browser headers ==========
   r = await tryRequest(
     '/space/api/bitable/form/external/list_records',
-    { shareToken, page_size: 100 },
+    requestBody,
     {
       'x-csrf-token': tokens.csrfToken,
+      'x-csrftoken': tokens.csrfToken,
       'Cookie': tokens.all,
       'Origin': FEISHU_BASE,
       'Referer': `${FEISHU_BASE}/share/base/query/${shareToken}`,
@@ -126,7 +153,7 @@ const server = http.createServer(async (req, res) => {
   // ========== Strategy D: Only session cookies, no csrf, with browser headers ==========
   r = await tryRequest(
     '/space/api/bitable/form/external/list_records',
-    { shareToken, page_size: 100 },
+    requestBody,
     { 'Cookie': cleanCookies, 'Origin': FEISHU_BASE, 'Referer': `${FEISHU_BASE}/share/base/query/${shareToken}` },
     'D: session cookies + browser headers (no csrf)'
   );
@@ -137,7 +164,7 @@ const server = http.createServer(async (req, res) => {
   const shareConfigs = [
     { auth: 'no auth', headers: {} },
     { auth: 'all cookies', headers: { 'Cookie': tokens.all } },
-    { auth: 'all cookies + csrf', headers: { 'Cookie': tokens.all, 'x-csrf-token': tokens.csrfToken } },
+    { auth: 'all cookies + csrf', headers: { 'Cookie': tokens.all, 'x-csrf-token': tokens.csrfToken, 'x-csrftoken': tokens.csrfToken } },
   ];
   for (const cfg of shareConfigs) {
     r = await tryRequest(
