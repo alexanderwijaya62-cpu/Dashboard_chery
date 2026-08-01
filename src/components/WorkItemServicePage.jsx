@@ -251,8 +251,12 @@ const WorkItemServicePage = () => {
 
     if (stopped) return;
 
-    // Save to localStorage cache
-    localStorage.setItem(CACHE_KEY, JSON.stringify(partsData));
+    // Save to localStorage cache (ignore quota exceeded errors for large datasets)
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify(partsData));
+    } catch (e) {
+      console.warn('Gagal menyimpan cache sparepart ke localStorage (batas ukuran terlampaui):', e);
+    }
 
     // Export with all obtained parts
     setExportState({ phase: 'generating', label: 'Menyusun file Excel...', progress: 0, total: itemsToExport.length });

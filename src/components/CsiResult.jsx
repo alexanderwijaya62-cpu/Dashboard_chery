@@ -165,11 +165,13 @@ export default function CsiResult() {
 
   // Fetch active month + yearly trend details in a single query
   const fetchCSIData = useCallback(async (isRefresh = false) => {
-    const cacheKey = `feishu_csi_result_full_cache_${dealerFilter}_${selectedYear}`;
+    const cacheKey = `feishu_csi_result_full_cache_${dealerFilter}_${selectedMonth}_${selectedYear}`;
     let allRecordsData = null;
+    let trendScores = null;
 
     if (!isRefresh) {
       const cached = sessionStorage.getItem(cacheKey);
+      const cachedTrend = sessionStorage.getItem(`feishu_csi_trend_cache_${dealerFilter}_${selectedYear}`);
       if (cached) {
         try {
           const { data, timestamp } = JSON.parse(cached);
@@ -178,12 +180,22 @@ export default function CsiResult() {
           }
         } catch (_) {}
       }
+      if (cachedTrend) {
+        try {
+          const { data, timestamp } = JSON.parse(cachedTrend);
+          if (Date.now() - timestamp < 15 * 60 * 1000) { // 15 minutes cache
+            trendScores = data;
+          }
+        } catch (_) {}
+      }
     }
 
     setLoading(true);
     setError(null);
-    if (!allRecordsData) {
-      try {
+
+    try {
+      // 1. Fetch active month records if not cached
+      if (!allRecordsData) {
         const filterConditions = [
           {
             fieldId: 'fldA9Oa6IA',
@@ -199,23 +211,31 @@ export default function CsiResult() {
             value: ['csi-7901-16'],
             conditionId: 'conQiBWHmX',
           },
+          {
+            fieldId: 'fldc3urooF',
+            fieldType: 20,
+            operator: 'contains',
+            value: [String(selectedMonth)],
+            conditionId: 'conhboX683',
+          }
         ];
-
-        const body = {
-          view: 'results',
-          filter: JSON.stringify({
-            conditions: filterConditions,
-            conjunction: 'and',
-          }),
-        };
 
         const res = await fetch(CSI_PROXY_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify({
+            view: 'results',
+            filter: JSON.stringify({
+              conditions: filterConditions,
+              conjunction: 'and',
+            }),
+          }),
         });
 
-        const json = await res.json();
+        const text = await res.text();
+        if (!text) throw new Error('Server Feishu tidak merespons (respons kosong). Coba lagi.');
+        let json;
+        try { json = JSON.parse(text); } catch { json = {}; }
         if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
         if (json.code === 99991668 || json.code === 99991667) {
           throw new Error('Sesi Feishu expired. Hubungi admin untuk update env FEISHU_COOKIE.');
@@ -224,60 +244,55 @@ export default function CsiResult() {
 
         const recordMap = json.data?.recordMap || {};
         const recordIDs = json.data?.recordIDs || [];
-        
         allRecordsData = { recordMap, recordIDs };
-        
+
         sessionStorage.setItem(cacheKey, JSON.stringify({
           data: allRecordsData,
           timestamp: Date.now()
         }));
-      } catch (err) {
-        setError(err.message);
-        Toastify({
-          text: `⚠️ Gagal sinkronisasi data CSI: ${err.message}`,
-          style: { background: '#ef4444', borderRadius: '12px' },
-        }).showToast();
-        setLoading(false);
-        return;
       }
+
+      // 2. Fetch yearly trend scores if not cached
+      if (!trendScores) {
+        const trendRes = await fetch(CSI_PROXY_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            view: 'results',
+            action: 'yearly-trend',
+            dealerFilter: dealerFilter
+          }),
+        });
+
+        const trendText = await trendRes.text();
+        if (!trendText) throw new Error('Server Feishu tidak merespons untuk data tren.');
+        let trendJson;
+        try { trendJson = JSON.parse(trendText); } catch { trendJson = {}; }
+        if (trendJson.scores) {
+          trendScores = trendJson.scores;
+          sessionStorage.setItem(`feishu_csi_trend_cache_${dealerFilter}_${selectedYear}`, JSON.stringify({
+            data: trendScores,
+            timestamp: Date.now()
+          }));
+        } else {
+          trendScores = Array.from({ length: 12 }, () => 0);
+        }
+      }
+
+      setYearlyScores(trendScores);
+    } catch (err) {
+      setError(err.message);
+      Toastify({
+        text: `⚠️ Gagal sinkronisasi data CSI: ${err.message}`,
+        style: { background: '#ef4444', borderRadius: '12px' },
+      }).showToast();
+      setLoading(false);
+      return;
     }
 
-    // Process all records locally
+    // Process active month records locally
     const { recordMap, recordIDs } = allRecordsData;
-    
-    // 1. Calculate Yearly Trend Scores (Months 1 to 12)
-    const trendScores = Array.from({ length: 12 }, () => 0);
-    const trendSums = Array.from({ length: 12 }, () => 0);
-    const trendCounts = Array.from({ length: 12 }, () => 0);
-
-    recordIDs.forEach(id => {
-      const r = recordMap[id];
-      if (!r) return;
-      
-      const monthRaw = r.fldc3urooF?.value;
-      const monthStr = typeof monthRaw === 'object' && monthRaw !== null ? String(monthRaw.text || monthRaw.val || '') : String(monthRaw || '');
-      const monthVal = parseInt(monthStr.replace(/[^0-9]/g, ''), 10);
-      
-      const overallVal = r.fldKw5T576?.value?.val || r.fldKw5T576?.value;
-      if (monthVal >= 1 && monthVal <= 12 && overallVal !== undefined && overallVal !== null) {
-        trendSums[monthVal - 1] += Number(overallVal);
-        trendCounts[monthVal - 1]++;
-      }
-    });
-
-    for (let m = 0; m < 12; m++) {
-      trendScores[m] = trendCounts[m] > 0 ? Math.round(trendSums[m] / trendCounts[m]) : 0;
-    }
-    setYearlyScores(trendScores);
-
-    // 2. Filter records for the CURRENT active month
-    const activeRecordIDs = recordIDs.filter(id => {
-      const r = recordMap[id];
-      if (!r) return false;
-      const monthRaw = r.fldc3urooF?.value;
-      const monthStr = typeof monthRaw === 'object' && monthRaw !== null ? String(monthRaw.text || monthRaw.val || '') : String(monthRaw || '');
-      return monthStr === String(selectedMonth);
-    });
+    const activeRecordIDs = recordIDs;
 
     // 3. Map respondents and compute metrics for active month
     if (activeRecordIDs.length > 0) {
@@ -599,8 +614,8 @@ export default function CsiResult() {
             <option value="2024">Tahun 2024</option>
           </select>
           <button
-            onClick={() => { fetchCSIData(true); fetchTrendData(dealerFilter, true); }}
-            disabled={loading || loadingTrend}
+            onClick={() => fetchCSIData(true)}
+            disabled={loading}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-zinc-900 text-white rounded-xl text-sm font-bold hover:bg-zinc-800 transition-all disabled:opacity-50"
           >
             <RefreshCw size={16} className={(loading || loadingTrend) ? 'animate-spin' : ''} />

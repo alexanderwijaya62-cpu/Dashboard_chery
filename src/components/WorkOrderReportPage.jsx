@@ -476,6 +476,9 @@ export default function WorkOrderReportPage() {
         search,
         status: statusFilter
       });
+      if (forceFresh) {
+        params.set('forceFresh', 'true');
+      }
       const res = await fetch(`/api/chery_dms?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const contentType = res.headers.get('content-type') || '';

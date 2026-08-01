@@ -3,9 +3,13 @@ import { Calendar, Trash2, Plus, Info, Settings, ShieldCheck, Clock, Save } from
 import TimeInput from './TimeInput';
 import Toastify from 'toastify-js';
 import { db } from '../utils/dbClient';
+import { normalizeDateStr } from '../utils/holidayHelpers';
 
-export default function HolidaySettings({ user, breakSettings, setBreakSettings }) {
-    const [holidays, setHolidays] = useState([]);
+export default function HolidaySettings({ user, breakSettings, setBreakSettings, holidays: propsHolidays, setHolidays: propsSetHolidays }) {
+    const [localHolidays, setLocalHolidays] = useState([]);
+    const holidays = propsHolidays || localHolidays;
+    const setHolidays = propsSetHolidays || setLocalHolidays;
+
     const [isLoading, setIsLoading] = useState(false);
     const [newDate, setNewDate] = useState('');
     const [note, setNote] = useState('');
@@ -15,7 +19,7 @@ export default function HolidaySettings({ user, breakSettings, setBreakSettings 
         try {
             const { data, error } = await db.select('libur', { order: { column: 'date', ascending: true } });
             if (error) throw error;
-            setHolidays(data || []);
+            setHolidays((data || []).map(h => ({ ...h, date: normalizeDateStr(h.date) })));
         } catch (e) {
             console.error('Gagal ambil data libur:', e);
             Toastify({ text: `❌ Gagal memuat data libur: ${e.message}`, style: { background: 'red' } }).showToast();
@@ -31,20 +35,23 @@ export default function HolidaySettings({ user, breakSettings, setBreakSettings 
     const handleAddHoliday = async (e) => {
         if (e) e.preventDefault();
         if (!newDate) return;
+        const normalizedDate = normalizeDateStr(newDate);
+        if (!normalizedDate) return;
         setIsLoading(true);
         try {
-            const { data: existing } = await db.select('libur', { select: 'id', eq: { date: newDate }, maybeSingle: true });
+            const { data: allHolidays } = await db.select('libur', { select: 'id, date' });
+            const existing = (allHolidays || []).find(h => normalizeDateStr(h.date) === normalizedDate);
 
             if (existing) {
                 Toastify({
-                    text: `⚠️ Duplikat: Tanggal ${newDate} sudah terdaftar sebagai hari libur!`,
+                    text: `⚠️ Duplikat: Tanggal ${normalizedDate} sudah terdaftar sebagai hari libur!`,
                     style: { background: '#f97316' }, duration: 4000
                 }).showToast();
                 setIsLoading(false);
                 return;
             }
 
-            const { error } = await db.insert('libur', { date: newDate, note: note || 'Libur Dealer' });
+            const { error } = await db.insert('libur', { date: normalizedDate, note: note || 'Libur Dealer' });
 
             if (error) throw error;
 

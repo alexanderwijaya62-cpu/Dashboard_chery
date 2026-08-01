@@ -21,8 +21,10 @@ function stripLayerImportPlugin() {
 }
 
 function localCheryDmsPlugin() {
-  const apiModuleUrl = new URL('./api/chery_dms.js', import.meta.url).href;
-  let cachedHandler = null;
+  const dmsModuleUrl = new URL('./api/chery_dms.js', import.meta.url).href;
+  const csiModuleUrl = new URL('./api/csi-proxy.js', import.meta.url).href;
+  let cachedDmsHandler = null;
+  let cachedCsiHandler = null;
 
   return {
     name: 'local-chery-dms-middleware',
@@ -30,7 +32,11 @@ function localCheryDmsPlugin() {
       server.middlewares.stack.unshift({
         route: '',
         handle: async (req, res, next) => {
-          if (req.url && (req.url.startsWith('/api/invoice_report') || req.url.startsWith('/api/chery_dms'))) {
+          if (req.url && (
+            req.url.startsWith('/api/invoice_report') || 
+            req.url.startsWith('/api/chery_dms') || 
+            req.url.startsWith('/api/csi-proxy')
+          )) {
             try {
               const urlObj = new URL(req.url, 'http://localhost');
               const query = Object.fromEntries(urlObj.searchParams.entries());
@@ -45,12 +51,21 @@ function localCheryDmsPlugin() {
                 });
               }
 
+              let parsedBody = reqBody;
+              if (typeof reqBody === 'string' && reqBody.trim()) {
+                if (req.headers['content-type']?.includes('application/json')) {
+                  try { parsedBody = JSON.parse(reqBody); } catch (e) {}
+                }
+              }
+
               const isInvoiceReport = req.url.startsWith('/api/invoice_report');
+              const isCsiProxy = req.url.startsWith('/api/csi-proxy');
+
               const mockReq = {
                 query: isInvoiceReport ? { endpoint: 'warranty-invoice-report', ...query } : query,
                 headers: req.headers,
                 method: req.method,
-                body: reqBody
+                body: parsedBody
               };
 
               const mockRes = {
@@ -73,11 +88,19 @@ function localCheryDmsPlugin() {
                 }
               };
 
-              if (!cachedHandler) {
-                const cheryDmsModule = await import(apiModuleUrl);
-                cachedHandler = cheryDmsModule.default || cheryDmsModule;
+              if (isCsiProxy) {
+                if (!cachedCsiHandler) {
+                  const csiModule = await import(csiModuleUrl);
+                  cachedCsiHandler = csiModule.default || csiModule;
+                }
+                return await cachedCsiHandler(mockReq, mockRes);
+              } else {
+                if (!cachedDmsHandler) {
+                  const dmsModule = await import(dmsModuleUrl);
+                  cachedDmsHandler = dmsModule.default || dmsModule;
+                }
+                return await cachedDmsHandler(mockReq, mockRes);
               }
-              return await cachedHandler(mockReq, mockRes);
             } catch (err) {
               console.error('Local Chery DMS Middleware Error:', err);
               res.statusCode = 500;
@@ -123,8 +146,8 @@ export default defineConfig({
         }
       },
       '/api/csi-proxy': {
-        target: 'http://localhost:3099',
-        changeOrigin: true,
+        target: 'http://localhost:5173',
+        bypass: (req) => req.url
       },
       '/api/invoice_report': {
         target: 'http://localhost:5173',

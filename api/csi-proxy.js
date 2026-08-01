@@ -1,3 +1,5 @@
+const trendCache = new Map();
+
 function extractCsrf(cookieStr) {
   const match = cookieStr.match(/(?:^|;\s*)_csrf_token=([^;]+)/);
   return match ? match[1] : '';
@@ -16,7 +18,7 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { view, filter, offset, shareToken: bodyShareToken } = req.body || {};
+  const { view, filter, offset, shareToken: bodyShareToken, action, dealerFilter } = req.body || {};
   const shareToken = bodyShareToken || (
     view === 'customers'
       ? process.env.FEISHU_CUSTOMERS_SHARE_TOKEN
@@ -32,6 +34,100 @@ export default async function handler(req, res) {
   const cookies = process.env.FEISHU_COOKIE || '';
   const csrfToken = extractCsrf(cookies);
   const swpCsrfToken = extractSwpCsrf(cookies);
+
+  if (action === 'yearly-trend') {
+    if (!dealerFilter) {
+      return res.status(400).json({ error: 'dealerFilter is required for yearly-trend' });
+    }
+
+    const forceFresh = req.body.forceFresh === 'true' || req.body.forceFresh === true;
+    const cacheKey = `${dealerFilter}`;
+    const cached = trendCache.get(cacheKey);
+
+    // Use backend cache for 1 hour
+    if (cached && !forceFresh && (Date.now() - cached.timestamp < 3600000)) {
+      return res.status(200).json({ scores: cached.scores });
+    }
+
+    const months = Array.from({ length: 12 }, (_, i) => i + 1);
+    const scores = Array.from({ length: 12 }, () => 0);
+    
+    const headers = {
+      'Content-Type': 'application/json',
+      'Cookie': cookies,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+      'Origin': FEISHU_BASE,
+      'Referer': `${FEISHU_BASE}/`,
+    };
+    if (csrfToken) {
+      headers['x-csrf-token'] = csrfToken;
+      headers['x-csrftoken'] = csrfToken;
+    }
+    if (swpCsrfToken) headers['x-csrf-header'] = swpCsrfToken;
+
+    try {
+      // Process months in batches of 3 to avoid Feishu concurrency rate-limiting
+      const batchSize = 3;
+      for (let i = 0; i < months.length; i += batchSize) {
+        const batch = months.slice(i, i + batchSize);
+        await Promise.all(
+          batch.map(async (month) => {
+            const body = {
+              shareToken,
+              page_size: 100,
+              filter: JSON.stringify({
+                conditions: [
+                  { fieldId: 'fldA9Oa6IA', fieldType: 19, operator: 'contains', value: [dealerFilter], conditionId: 'con2GlKFnL' },
+                  { fieldId: 'fldc3urooF', fieldType: 20, operator: 'contains', value: [String(month)], conditionId: 'conhboX683' },
+                  { fieldId: 'fldHYwLI9Z', fieldType: 20, operator: 'contains', value: ['csi-7901-16'], conditionId: 'conQiBWHmX' }
+                ],
+                conjunction: 'and'
+              })
+            };
+            if (csrfToken) body.csrf_token = csrfToken;
+
+            try {
+              const response = await fetch(`${FEISHU_BASE}/space/api/bitable/form/external/list_records`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+              });
+              const text = await response.text();
+              if (!text) return;
+              const json = JSON.parse(text);
+              if (json.code !== 0) return;
+              const records = json.data?.recordMap || {};
+              const recordIds = json.data?.recordIDs || [];
+              if (recordIds.length === 0) return;
+
+              let sum = 0;
+              let count = 0;
+              recordIds.forEach(id => {
+                const val = records[id]?.fldKw5T576?.value?.val || records[id]?.fldKw5T576?.value;
+                if (val !== undefined && val !== null) {
+                  sum += Number(val);
+                  count++;
+                }
+              });
+              scores[month - 1] = count > 0 ? Math.round(sum / count) : 0;
+            } catch (errMonth) {
+              console.error(`Error fetching trend for month ${month}:`, errMonth.message);
+            }
+          })
+        );
+      }
+
+      // Save to backend cache
+      trendCache.set(cacheKey, {
+        scores,
+        timestamp: Date.now()
+      });
+
+      return res.status(200).json({ scores });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
 
   try {
     const body = {
@@ -55,13 +151,27 @@ export default async function handler(req, res) {
     }
     if (swpCsrfToken) headers['x-csrf-header'] = swpCsrfToken;
 
-    const response = await fetch(`${FEISHU_BASE}/space/api/bitable/form/external/list_records`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    let response;
+    try {
+      response = await fetch(`${FEISHU_BASE}/space/api/bitable/form/external/list_records`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      clearTimeout(timeoutId);
+      return res.status(504).json({ error: `Feishu timeout/gagal terhubung: ${error.message || 'Request aborted'}` });
+    }
+    clearTimeout(timeoutId);
 
     const text = await response.text();
+    if (!text) {
+      return res.status(504).json({ error: 'Feishu merespons kosong (timeout). Coba lagi.' });
+    }
     let data;
     try { data = JSON.parse(text); } catch { data = { error: text }; }
 

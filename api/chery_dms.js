@@ -60,7 +60,7 @@ function fetchWithHttps(urlStr, options = {}) {
         const isHttps = u.protocol === 'https:';
         const client = isHttps ? https : http;
 
-        const timeout = options.timeout || 15000;
+        const timeout = options.timeout || 30000;
 
         const reqOptions = {
             hostname: u.hostname,
@@ -326,7 +326,8 @@ async function handleWarranty(req, res) {
 
     const CACHE_TTL = 1800000;
     const cacheKey = fetchAll ? `wo_all_${from}_${to}_${search}_${status}_${kategori}` : `wo_${from}_${to}_${search}_${status}_${kategori}_${start}_${length}`;
-    const cached = warrantyWoCacheStore.get(cacheKey);
+    const forceFresh = req.query.forceFresh === 'true' || req.query.forceFresh === '1';
+    const cached = forceFresh ? null : warrantyWoCacheStore.get(cacheKey);
     if (cached) {
         const age = Date.now() - cached.timestamp;
         if (age < CACHE_TTL) {
@@ -365,6 +366,8 @@ async function doFetchWarranty({ draw, status, search, kategori, from, to, start
         const [y, m, d] = to.split('-');
         dmsTo = `${d}/${m}/${y}`;
     }
+
+
 
     let dateQuery = '';
     if (dmsFrom && dmsTo) {
@@ -440,10 +443,8 @@ async function doFetchWarranty({ draw, status, search, kategori, from, to, start
             let combinedList;
 
             if (status === '' && fetchAll) {
-                const [activeList, closedList] = await Promise.all([
-                    fetchAllPagesForStatus(''),
-                    fetchAllPagesForStatus('Closed')
-                ]);
+                const activeList = await fetchAllPagesForStatus('');
+                const closedList = await fetchAllPagesForStatus('Closed');
 
                 const mergedMap = new Map();
                 [...activeList, ...closedList].forEach(item => {

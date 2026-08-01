@@ -3,14 +3,17 @@ import { Calendar, MessageSquare, Settings, LayoutDashboard } from 'lucide-react
 import CroBookingPanel from './CroBookingPanel';
 import FollowupPanel from './FollowupPanel';
 import HolidaySettings from './HolidaySettings';
+import { fetchHolidays } from '../utils/holidayHelpers';
 
 export default function BookingManager({ user, handleLogout, isNavbarVisible, initialTab = 'booking', setCurrentPage, breakSettings, setBreakSettings }) {
     const [activeTab, setActiveTab] = useState(initialTab);
+    const [holidays, setHolidays] = useState([]);
 
     // Sync tab with localStorage if needed
     useEffect(() => {
         const savedTab = localStorage.getItem('chery_booking_manager_tab');
         if (savedTab) setActiveTab(savedTab);
+        fetchHolidays().then(setHolidays);
     }, []);
 
     useEffect(() => {
@@ -20,7 +23,7 @@ export default function BookingManager({ user, handleLogout, isNavbarVisible, in
     return (
         <div className="flex flex-col h-full overflow-hidden bg-white">
             {/* Sub-Navbar / Tabs */}
-            <div className={`bg-white border-b border-zinc-200 px-4 py-2 flex items-center justify-between shadow-sm z-30 transition-all duration-300 ${isNavbarVisible ? 'mt-0' : '-mt-0'}`}>
+            <div className={`bg-white border-b border-zinc-200 px-4 py-2 flex items-center justify-between shadow-sm z-30 shrink-0 transition-all duration-300 ${isNavbarVisible ? 'mt-0' : '-mt-0'}`}>
                 <div className="flex bg-zinc-100 p-1 rounded-2xl border border-zinc-200 shadow-inner">
                     <button 
                         onClick={() => setActiveTab('booking')}
@@ -51,10 +54,10 @@ export default function BookingManager({ user, handleLogout, isNavbarVisible, in
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 overflow-hidden relative">
+            <div className="flex-1 min-h-0 overflow-hidden relative">
                 {activeTab === 'booking' && (
-                    <div className="h-full">
-                        <CroBookingPanel user={user} setCurrentPage={setCurrentPage} />
+                    <div className="h-full overflow-hidden">
+                        <CroBookingPanel user={user} setCurrentPage={setCurrentPage} holidays={holidays} setHolidays={setHolidays} />
                     </div>
                 )}
                 {activeTab === 'followup' && (
@@ -64,7 +67,7 @@ export default function BookingManager({ user, handleLogout, isNavbarVisible, in
                 )}
                 {activeTab === 'holidays' && (
                     <div className="h-full overflow-hidden">
-                        <HolidaySettings user={user} breakSettings={breakSettings} setBreakSettings={setBreakSettings} />
+                        <HolidaySettings user={user} breakSettings={breakSettings} setBreakSettings={setBreakSettings} holidays={holidays} setHolidays={setHolidays} />
                     </div>
                 )}
             </div>

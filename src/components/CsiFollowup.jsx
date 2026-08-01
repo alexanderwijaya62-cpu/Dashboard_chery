@@ -184,7 +184,10 @@ export default function CsiFollowup() {
           body: JSON.stringify(body),
         });
 
-        const json = await res.json();
+        const text = await res.text();
+        if (!text) throw new Error('Server Feishu tidak merespons (respons kosong). Coba lagi.');
+        let json;
+        try { json = JSON.parse(text); } catch { json = {}; }
         if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
         if (json.code === 99991668 || json.code === 99991667) {
           throw new Error('Sesi Feishu expired. Hubungi admin untuk update env FEISHU_COOKIE.');

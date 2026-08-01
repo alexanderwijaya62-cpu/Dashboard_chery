@@ -21,7 +21,7 @@ const KEPERLUAN = ["Free Service 1", "Free Service 2", "Free Service 3", "Genera
 const daysInMonth = (month, year) => new Date(year, month + 1, 0).getDate();
 const startDayOfMonth = (month, year) => new Date(year, month, 1).getDay();
 
-export default function CroBookingPanel({ user }) {
+export default function CroBookingPanel({ user, holidays: propsHolidays }) {
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [step, setStep] = useState('search'); // 'search' | 'form'
@@ -93,9 +93,14 @@ export default function CroBookingPanel({ user }) {
     const [foundVehicle, setFoundVehicle] = useState(null);
     const [searchError, setSearchError] = useState('');
     const [isManual, setIsManual] = useState(false);
-    const [holidays, setHolidays] = useState([]);
+    const [localHolidays, setLocalHolidays] = useState([]);
+    const holidays = propsHolidays || localHolidays;
 
-    useEffect(() => { fetchHolidays().then(setHolidays); }, []);
+    useEffect(() => {
+        if (!propsHolidays) {
+            fetchHolidays().then(setLocalHolidays);
+        }
+    }, [propsHolidays]);
 
     // Form State
     const [formData, setFormData] = useState({
@@ -579,7 +584,7 @@ export default function CroBookingPanel({ user }) {
     };
 
     return (
-        <div className="flex-1 w-full max-w-[100vw] bg-white relative overflow-hidden flex flex-col h-full animate-fade-in transition-colors duration-500 p-0">
+        <div className="w-full max-w-[100vw] bg-white relative flex flex-col h-full animate-fade-in transition-colors duration-500 p-0">
             {/* Header */}
             <div className="flex justify-between items-center px-4 md:px-6 py-3 shrink-0 border-b border-zinc-100">
                 <div className="flex items-center gap-3">
@@ -620,11 +625,11 @@ export default function CroBookingPanel({ user }) {
 
             {/* Content */}
             {bookingListTab === 'dms' ? (
-                <div className="flex-1 overflow-hidden">
+                <div className="flex-1 min-h-0 overflow-hidden">
                     <DmsBookingListView user={user} refreshTrigger={refreshTrigger} />
                 </div>
             ) : (
-                <div className="flex-1 overflow-hidden">
+                <div className="flex-1 min-h-0 overflow-hidden">
                     <SupabaseBookingList refreshTrigger={refreshTrigger} slotConfig={slotConfig} allBookings={bookings} />
                 </div>
             )}
@@ -748,7 +753,7 @@ export default function CroBookingPanel({ user }) {
 
                             {/* STEP 1: Vehicle Search */}
                             {step === 'search' && (
-                                <div className="flex-1 flex flex-col items-center justify-center max-w-lg mx-auto w-full">
+                                <div className="flex-1 flex flex-col items-center justify-center max-w-lg mx-auto w-full overflow-y-auto custom-scrollbar py-4">
                                     <div className="w-16 h-16 bg-zinc-100 rounded-full flex items-center justify-center mb-6">
                                         <Truck size={28} className="text-zinc-800" />
                                     </div>
@@ -826,9 +831,9 @@ export default function CroBookingPanel({ user }) {
                             {/* STEP 2: Booking Form */}
                             {step === 'form' && (
                                 <div className="flex-1 flex flex-col overflow-hidden">
-                                    <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 overflow-hidden">
+                                    <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 overflow-y-auto md:overflow-hidden custom-scrollbar">
                                         {/* Left Column: Calendar + Time Slots (5 cols) */}
-                                        <div className="md:col-span-5 flex flex-col gap-2 md:border-r-2 border-zinc-100 md:pr-3 overflow-hidden">
+                                        <div className="md:col-span-5 flex flex-col gap-2 md:border-r-2 border-zinc-100 md:pr-3 md:overflow-y-auto custom-scrollbar">
                                             <div>
                                                 <h3 className="text-[11px] font-black uppercase tracking-widest text-zinc-900 flex items-center gap-1.5 mb-1">
                                                     <div className="w-5 h-5 bg-zinc-900 text-white rounded-md flex items-center justify-center text-[9px]">1</div> Pilih Tanggal & Jam
@@ -890,7 +895,7 @@ export default function CroBookingPanel({ user }) {
                                         </div>
 
                                         {/* Right Column: Vehicle + Form + Summary + Submit (7 cols) */}
-                                        <div className="md:col-span-7 flex flex-col gap-2 overflow-hidden">
+                                        <div className="md:col-span-7 flex flex-col gap-2 md:overflow-y-auto custom-scrollbar pb-4">
                                             <h3 className="text-[11px] font-black uppercase tracking-widest text-zinc-900 flex items-center gap-1.5 mb-0.5">
                                                 <div className="w-5 h-5 bg-zinc-900 text-white rounded-md flex items-center justify-center text-[9px]">2</div> Data Booking
                                             </h3>
