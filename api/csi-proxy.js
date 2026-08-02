@@ -1,5 +1,25 @@
 const trendCache = new Map();
 
+const DEFAULT_DIMENSIONS = [
+  { id: 'fld72xtQlM', name: 'Service Appointment' },
+  { id: 'fldoCOV1H9', name: 'Service Advisor' },
+  { id: 'fldwSnxNc2', name: 'Dealer Facility & Service Image' },
+  { id: 'fldeHCGTJE', name: 'Service Quality' },
+  { id: 'fld2P5DxKQ', name: 'Leadtime Service' },
+  { id: 'fldggEklVL', name: 'Delivery Process' },
+  { id: 'fldwvPaNZU', name: 'Spare Part Availibility' },
+];
+
+const DIMENSION_FIELD_MAP = {
+  fld72xtQlM: 'fld4QH5nYf',
+  fldoCOV1H9: 'fldIgOOJb4',
+  fldwSnxNc2: 'fldolgjXG7',
+  fldeHCGTJE: 'fldc1yukie',
+  fld2P5DxKQ: 'fldDMpKDF5',
+  fldggEklVL: 'fld6u1SCVQ',
+  fldwvPaNZU: 'fldSHHL9LJ',
+};
+
 function extractCsrf(cookieStr) {
   const match = cookieStr.match(/(?:^|;\s*)_csrf_token=([^;]+)/);
   return match ? match[1] : '';
@@ -41,17 +61,29 @@ export default async function handler(req, res) {
     }
 
     const forceFresh = req.body.forceFresh === 'true' || req.body.forceFresh === true;
+    const activeMonth = req.body.month ? String(req.body.month) : null;
     const cacheKey = `${dealerFilter}`;
     const cached = trendCache.get(cacheKey);
 
     // Use backend cache for 1 hour
     if (cached && !forceFresh && (Date.now() - cached.timestamp < 3600000)) {
-      return res.status(200).json({ scores: cached.scores });
+      const response = { code: 0, scores: cached.scores, monthly: cached.monthly };
+      if (activeMonth && cached.records && cached.records[activeMonth]) {
+        response.records = cached.records[activeMonth];
+      }
+      return res.status(200).json(response);
     }
 
     const months = Array.from({ length: 12 }, (_, i) => i + 1);
     const scores = Array.from({ length: 12 }, () => 0);
-    
+    const monthly = months.map(m => ({
+      month: m,
+      csiScore: 0,
+      totalSample: 0,
+      dimensions: DEFAULT_DIMENSIONS.map(d => ({ id: d.id, name: d.name, value: 0 })),
+    }));
+    const recordsByMonth = {};
+
     const headers = {
       'Content-Type': 'application/json',
       'Cookie': cookies,
@@ -98,18 +130,42 @@ export default async function handler(req, res) {
               if (json.code !== 0) return;
               const records = json.data?.recordMap || {};
               const recordIds = json.data?.recordIDs || [];
-              if (recordIds.length === 0) return;
 
               let sum = 0;
               let count = 0;
+              const dimSum = {};
+              const dimCount = {};
+              DEFAULT_DIMENSIONS.forEach(d => { dimSum[d.id] = 0; dimCount[d.id] = 0; });
               recordIds.forEach(id => {
-                const val = records[id]?.fldKw5T576?.value?.val || records[id]?.fldKw5T576?.value;
+                const r = records[id];
+                const val = r?.fldKw5T576?.value?.val || r?.fldKw5T576?.value;
                 if (val !== undefined && val !== null) {
                   sum += Number(val);
                   count++;
                 }
+                DEFAULT_DIMENSIONS.forEach(d => {
+                  const fieldId = DIMENSION_FIELD_MAP[d.id];
+                  if (!fieldId) return;
+                  const dv = r?.[fieldId]?.value?.val || r?.[fieldId]?.value;
+                  if (dv !== undefined && dv !== null) {
+                    dimSum[d.id] += Number(dv);
+                    dimCount[d.id]++;
+                  }
+                });
               });
+
               scores[month - 1] = count > 0 ? Math.round(sum / count) : 0;
+              monthly[month - 1].csiScore = scores[month - 1];
+              monthly[month - 1].totalSample = count;
+              monthly[month - 1].dimensions = DEFAULT_DIMENSIONS.map(d => ({
+                id: d.id,
+                name: d.name,
+                value: dimCount[d.id] > 0 ? Math.round(dimSum[d.id] / dimCount[d.id]) : 0,
+              }));
+
+              if (recordIds.length > 0) {
+                recordsByMonth[String(month)] = { recordMap: records, recordIDs: recordIds };
+              }
             } catch (errMonth) {
               console.error(`Error fetching trend for month ${month}:`, errMonth.message);
             }
@@ -120,10 +176,16 @@ export default async function handler(req, res) {
       // Save to backend cache
       trendCache.set(cacheKey, {
         scores,
+        monthly,
+        records: recordsByMonth,
         timestamp: Date.now()
       });
 
-      return res.status(200).json({ scores });
+      const response = { code: 0, scores, monthly };
+      if (activeMonth && recordsByMonth[activeMonth]) {
+        response.records = recordsByMonth[activeMonth];
+      }
+      return res.status(200).json(response);
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }

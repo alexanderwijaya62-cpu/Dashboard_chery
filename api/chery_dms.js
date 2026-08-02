@@ -144,6 +144,9 @@ async function login(username, password, enterpriseCode) {
         if (!resp.ok) {
             const errorText = await resp.text();
             console.error(`[DMS Login] POST https://dms.chery.co.id/api/v1/login → ${resp.status}, body=${errorText.substring(0, 300)}`);
+            if (resp.status === 433) {
+                throw new Error('DMS login ditolak (status 433): password akun DMS tidak memenuhi kebijakan password baru — reset password via https://dms.chery.co.id/login/ lalu perbarui DMS_PASS di environment.');
+            }
             throw new Error(`Login failed with status ${resp.status}: ${errorText}`);
         }
 
@@ -398,7 +401,8 @@ async function doFetchWarranty({ draw, status, search, kategori, from, to, start
         '&search[value]=' + encodeURIComponent(search) + '&search[regex]=false' +
         '&status=' + encodeURIComponent(st) + '&kategori=' + encodeURIComponent(kategori) + dateQuery + '&_=' + Date.now();
 
-    const PAGE_SIZE = 1000;
+    const PAGE_SIZE = 100;
+    const PAGE_CONCURRENCY = 10;
     const reqHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': BASE + '/aftersales/work-order',
@@ -408,26 +412,60 @@ async function doFetchWarranty({ draw, status, search, kategori, from, to, start
 
     async function fetchAllPagesForStatus(st) {
         let allData = [];
-        let offset = 0;
-        while (true) {
-            if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
-                warrantyCookie = await warrantyLogin();
+        let totalPages = 0;
+
+        const fetchPageOnce = async (offset, withTotal = false) => {
+            for (let attempt = 0; attempt < 2; attempt++) {
+                try {
+                    if (!warrantyCookie || Date.now() > warrantyCookieExpiry) {
+                        warrantyCookie = await warrantyLogin();
+                    }
+                    const url = buildUrlCustom(st, offset, PAGE_SIZE);
+                    const resp = await fetchWithHttps(url, {
+                        headers: { ...reqHeaders, Cookie: warrantyCookie },
+                        timeout: 60000,
+                    });
+                    const body = await resp.text();
+                    if (resp.status === 302 || resp.status === 401 || body.trimStart().startsWith('<')) {
+                        warrantyCookie = null;
+                        continue;
+                    }
+                    const parsed = JSON.parse(body);
+                    const data = Array.isArray(parsed.data) ? parsed.data : [];
+                    return withTotal
+                        ? {
+                            data,
+                            total: parsed.recordsTotal || parsed.recordsFiltered || data.length,
+                        }
+                        : data;
+                } catch (e) {
+                    if (attempt === 1) throw e;
+                }
             }
-            const url = buildUrlCustom(st, offset, PAGE_SIZE);
-            const resp = await fetchWithHttps(url, { headers: { ...reqHeaders, Cookie: warrantyCookie } });
-            const body = await resp.text();
-            if (resp.status === 302 || resp.status === 401 || body.trimStart().startsWith('<')) {
-                warrantyCookie = null;
-                continue;
-            }
-            try {
-                const parsed = JSON.parse(body);
-                const pageData = Array.isArray(parsed.data) ? parsed.data : [];
-                allData = allData.concat(pageData);
-                if (pageData.length < PAGE_SIZE) break;
-                offset += PAGE_SIZE;
-            } catch (e) {
-                break;
+            return withTotal ? { data: [], total: 0 } : [];
+        };
+
+        const firstPage = await fetchPageOnce(0, true);
+        allData = allData.concat(firstPage.data);
+        const total = firstPage.total || firstPage.data.length;
+        totalPages = Math.ceil(total / PAGE_SIZE);
+
+        const remainingOffsets = [];
+        for (let p = 1; p < totalPages; p++) {
+            remainingOffsets.push(p * PAGE_SIZE);
+        }
+
+        for (let i = 0; i < remainingOffsets.length; i += PAGE_CONCURRENCY) {
+            const batch = remainingOffsets.slice(i, i + PAGE_CONCURRENCY);
+            const results = await Promise.allSettled(batch.map(offset =>
+                fetchPageOnce(offset, false)
+            ));
+            for (const r of results) {
+                if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+                    allData = allData.concat(r.value);
+                } else {
+                    console.warn('[doFetchWarranty] Page fetch failed:', r.reason ? r.reason.message : 'unknown');
+                }
             }
         }
         return allData;
@@ -443,8 +481,10 @@ async function doFetchWarranty({ draw, status, search, kategori, from, to, start
             let combinedList;
 
             if (status === '' && fetchAll) {
-                const activeList = await fetchAllPagesForStatus('');
-                const closedList = await fetchAllPagesForStatus('Closed');
+                const [activeList, closedList] = await Promise.all([
+                    fetchAllPagesForStatus(''),
+                    fetchAllPagesForStatus('Closed'),
+                ]);
 
                 const mergedMap = new Map();
                 [...activeList, ...closedList].forEach(item => {
@@ -461,6 +501,7 @@ async function doFetchWarranty({ draw, status, search, kategori, from, to, start
                 const targetUrl = buildUrlCustom(status, start, length);
                 const response = await fetchWithHttps(targetUrl, {
                     headers: { ...reqHeaders, Cookie: warrantyCookie },
+                    timeout: 60000,
                 });
                 const body = await response.text();
                 const isHtml = body.trimStart().startsWith('<');
@@ -1664,6 +1705,62 @@ async function handleWorkItemCategories(req, res) {
                         ].filter(Boolean).join(' ').toLowerCase();
                         return hay.includes(search);
                     });
+                }
+
+                // When searching by a specific sparepart (PartCode), enrich each matched
+                // work item with its actual part codes so the sparepart column displays
+                // them directly instead of "-".
+                if (partCode && filtered.length > 0) {
+                    const enrichItemParts = async (item) => {
+                        const targetId = item.workItemId || item.id;
+                        if (!targetId) return item;
+                        try {
+                            const detailUrl = `https://dms.chery.co.id/afterSales/api/v1/workItems/${encodeURIComponent(targetId)}`;
+                            const resp = await fetchWithHttps(detailUrl, {
+                                method: 'GET',
+                                headers: {
+                                    'Cookie': cookie,
+                                    'User-Agent': 'Mozilla/5.0',
+                                    'Referer': 'https://dms.chery.co.id/',
+                                    'Accept': 'application/json',
+                                },
+                                timeout: 10000,
+                            });
+                            if (resp.status === 401 || resp.status === 403) {
+                                cachedCookie = null;
+                                cookie = null;
+                                return item;
+                            }
+                            if (!resp.ok) return item;
+                            const data = await resp.json();
+                            const payload = data?.payload || data;
+                            const codes = new Set();
+                            if (Array.isArray(payload?.productCategories)) {
+                                payload.productCategories.forEach(cat => {
+                                    if (Array.isArray(cat.parts)) {
+                                        cat.parts.forEach(p => { if (p && p.partCode) codes.add(p.partCode); });
+                                    }
+                                });
+                            }
+                            if (codes.size > 0) {
+                                item.partCodes = [...codes];
+                            }
+                        } catch (e) {
+                            // ignore per-item enrichment failure
+                        }
+                        return item;
+                    };
+
+                    const enriched = [];
+                    const enrichConcurrency = 5;
+                    for (let i = 0; i < filtered.length; i += enrichConcurrency) {
+                        const batch = filtered.slice(i, i + enrichConcurrency);
+                        const results = await Promise.allSettled(batch.map(enrichItemParts));
+                        results.forEach(r => {
+                            if (r.status === 'fulfilled' && r.value) enriched.push(r.value);
+                        });
+                    }
+                    filtered = enriched;
                 }
 
                 const result = {

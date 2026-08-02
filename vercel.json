@@ -1,6 +1,6 @@
 {
   "builds": [
-    { "src": "api/chery_dms.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },
+    { "src": "api/chery_dms.js", "use": "@vercel/node", "config": { "maxDuration": 60 } },
     { "src": "api/chery_epc.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },
     { "src": "api/warranty.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },
     { "src": "api/login.js", "use": "@vercel/node", "config": { "maxDuration": 10 } },

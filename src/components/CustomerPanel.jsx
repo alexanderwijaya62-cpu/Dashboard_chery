@@ -13,6 +13,7 @@ import { speak } from '../utils/tts';
 import { supabase } from '../utils/supabaseClient';
 import { pushSubscribe, pushUnsubscribe } from '../utils/pushClient';
 import { fetchBookingConfig, generateSlots } from '../utils/bookingConfig';
+import { getTodayStr } from '../utils/bookingHelpers';
 
 const HISTORY_CACHE_KEY = 'chery_history_cache';
 const HISTORY_CACHE_DURATION = 5 * 60 * 1000;
@@ -462,6 +463,10 @@ const CustomerPanel = ({ user, handleLogout, handleChangePassword, setCurrentPag
 
   const handleReschedule = async (newJam) => {
     if (!rescheduleBooking || !newJam) return;
+    if (rescheduleDate <= getTodayStr()) {
+      Toastify({ text: 'Tidak bisa reschedule ke hari ini! Pilih besok atau setelahnya.', style: { background: '#f97316' } }).showToast();
+      return;
+    }
     setIsRescheduling(true);
     try {
       const newDate = rescheduleDate;
@@ -880,12 +885,14 @@ const CustomerPanel = ({ user, handleLogout, handleChangePassword, setCurrentPag
                         </span>
                       </div>
                     </div>
+                    {bk.tanggal !== getTodayStr() && (
                     <button
                       onClick={() => openRescheduleModal(bk)}
                       className="flex items-center gap-1.5 bg-zinc-50 hover:bg-zinc-100 text-zinc-600 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 border border-zinc-200"
                     >
                       <RefreshCw size={12} /> Reschedule
                     </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1072,7 +1079,7 @@ const CustomerPanel = ({ user, handleLogout, handleChangePassword, setCurrentPag
                       const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                       const isSelected = rescheduleDate === dateStr;
                       const isToday = dateStr === new Date().toISOString().split('T')[0];
-                      const isPast = new Date(dateStr) < new Date().setHours(0, 0, 0, 0);
+                      const isPast = new Date(dateStr) <= new Date().setHours(0, 0, 0, 0);
                       const isSunday = new Date(dateStr).getDay() === 0;
                       const isDisabled = isPast || isSunday;
                       return (

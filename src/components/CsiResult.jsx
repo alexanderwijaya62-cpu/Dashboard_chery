@@ -163,7 +163,7 @@ export default function CsiResult() {
   const [showDebug, setShowDebug] = useState(false);
   const [rawRecords, setRawRecords] = useState(null);
 
-  // Fetch active month + yearly trend details in a single query
+  // Fetch yearly trend (month 1-12) + active month records in a single query
   const fetchCSIData = useCallback(async (isRefresh = false) => {
     const cacheKey = `feishu_csi_result_full_cache_${dealerFilter}_${selectedMonth}_${selectedYear}`;
     let allRecordsData = null;
@@ -171,20 +171,12 @@ export default function CsiResult() {
 
     if (!isRefresh) {
       const cached = sessionStorage.getItem(cacheKey);
-      const cachedTrend = sessionStorage.getItem(`feishu_csi_trend_cache_${dealerFilter}_${selectedYear}`);
       if (cached) {
         try {
           const { data, timestamp } = JSON.parse(cached);
           if (Date.now() - timestamp < 5 * 60 * 1000) { // 5 minutes cache
-            allRecordsData = data;
-          }
-        } catch (_) {}
-      }
-      if (cachedTrend) {
-        try {
-          const { data, timestamp } = JSON.parse(cachedTrend);
-          if (Date.now() - timestamp < 15 * 60 * 1000) { // 15 minutes cache
-            trendScores = data;
+            allRecordsData = data.records;
+            trendScores = data.scores;
           }
         } catch (_) {}
       }
@@ -194,88 +186,47 @@ export default function CsiResult() {
     setError(null);
 
     try {
-      // 1. Fetch active month records if not cached
-      if (!allRecordsData) {
-        const filterConditions = [
-          {
-            fieldId: 'fldA9Oa6IA',
-            fieldType: 19,
-            operator: 'contains',
-            value: [dealerFilter],
-            conditionId: 'con2GlKFnL',
-          },
-          {
-            fieldId: 'fldHYwLI9Z',
-            fieldType: 20,
-            operator: 'contains',
-            value: ['csi-7901-16'],
-            conditionId: 'conQiBWHmX',
-          },
-          {
-            fieldId: 'fldc3urooF',
-            fieldType: 20,
-            operator: 'contains',
-            value: [String(selectedMonth)],
-            conditionId: 'conhboX683',
-          }
-        ];
-
-        const res = await fetch(CSI_PROXY_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            view: 'results',
-            filter: JSON.stringify({
-              conditions: filterConditions,
-              conjunction: 'and',
+      // 1. Fetch the whole year (months 1-12) + active month records in ONE request
+      if (!allRecordsData || !trendScores) {
+        setLoadingTrend(true);
+        try {
+          const res = await fetch(CSI_PROXY_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              view: 'results',
+              action: 'yearly-trend',
+              dealerFilter: dealerFilter,
+              month: String(selectedMonth),
             }),
-          }),
-        });
+          });
 
-        const text = await res.text();
-        if (!text) throw new Error('Server Feishu tidak merespons (respons kosong). Coba lagi.');
-        let json;
-        try { json = JSON.parse(text); } catch { json = {}; }
-        if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-        if (json.code === 99991668 || json.code === 99991667) {
-          throw new Error('Sesi Feishu expired. Hubungi admin untuk update env FEISHU_COOKIE.');
-        }
-        if (json.code !== 0) throw new Error(json.msg || `Error Feishu: ${json.code}`);
+          const text = await res.text();
+          if (!text) throw new Error('Server Feishu tidak merespons (respons kosong). Coba lagi.');
+          let json;
+          try { json = JSON.parse(text); } catch { json = {}; }
+          if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+          if (json.code === 99991668 || json.code === 99991667) {
+            throw new Error('Sesi Feishu expired. Hubungi admin untuk update env FEISHU_COOKIE.');
+          }
+          if (json.code !== 0) throw new Error(json.msg || `Error Feishu: ${json.code}`);
 
-        const recordMap = json.data?.recordMap || {};
-        const recordIDs = json.data?.recordIDs || [];
-        allRecordsData = { recordMap, recordIDs };
+          if (Array.isArray(json.scores) && json.scores.length === 12) {
+            trendScores = json.scores;
+          } else {
+            trendScores = Array.from({ length: 12 }, () => 0);
+          }
 
-        sessionStorage.setItem(cacheKey, JSON.stringify({
-          data: allRecordsData,
-          timestamp: Date.now()
-        }));
-      }
+          const recordMap = json.records?.recordMap || {};
+          const recordIDs = json.records?.recordIDs || [];
+          allRecordsData = { recordMap, recordIDs };
 
-      // 2. Fetch yearly trend scores if not cached
-      if (!trendScores) {
-        const trendRes = await fetch(CSI_PROXY_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            view: 'results',
-            action: 'yearly-trend',
-            dealerFilter: dealerFilter
-          }),
-        });
-
-        const trendText = await trendRes.text();
-        if (!trendText) throw new Error('Server Feishu tidak merespons untuk data tren.');
-        let trendJson;
-        try { trendJson = JSON.parse(trendText); } catch { trendJson = {}; }
-        if (trendJson.scores) {
-          trendScores = trendJson.scores;
-          sessionStorage.setItem(`feishu_csi_trend_cache_${dealerFilter}_${selectedYear}`, JSON.stringify({
-            data: trendScores,
+          sessionStorage.setItem(cacheKey, JSON.stringify({
+            data: { scores: trendScores, records: allRecordsData },
             timestamp: Date.now()
           }));
-        } else {
-          trendScores = Array.from({ length: 12 }, () => 0);
+        } finally {
+          setLoadingTrend(false);
         }
       }
 

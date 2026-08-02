@@ -5,6 +5,7 @@ import { supabase } from '../utils/supabaseClient';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
+import { normalizePlate } from '../utils/bookingHelpers';
 
 export default function BookingApprovalQueue({ user, setCurrentPage }) {
   const [holidays, setHolidays] = useState([]);
@@ -244,12 +245,12 @@ export default function BookingApprovalQueue({ user, setCurrentPage }) {
 
   // Filtering
   const filteredBookings = pendingBookings.filter(b => {
-    const query = searchQuery.toLowerCase();
+    const query = normalizePlate(searchQuery);
     return (
-      (b.namaCustomer || '').toLowerCase().includes(query) ||
-      (b.noPlat || '').toLowerCase().includes(query) ||
-      (b.tipeMobil || '').toLowerCase().includes(query) ||
-      String(b.noUrut || b.id || '').toLowerCase().includes(query)
+      normalizePlate(b.namaCustomer).includes(query) ||
+      normalizePlate(b.noPlat).includes(query) ||
+      normalizePlate(b.tipeMobil).includes(query) ||
+      normalizePlate(String(b.noUrut || b.id || '')).includes(query)
     );
   });
 

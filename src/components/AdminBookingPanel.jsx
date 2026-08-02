@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Calendar, Search, Database } from 'lucide-react';
 import { db } from '../utils/dbClient';
+import { normalizePlate } from '../utils/bookingHelpers';
 
 function normalizeJam(j) {
     if (!j) return '';
@@ -49,11 +50,11 @@ export default function AdminBookingPanel() {
     const filtered = useMemo(() => {
         let list = bookings;
         if (search.trim()) {
-            const q = search.toLowerCase();
+            const q = normalizePlate(search);
             list = list.filter(b =>
-                (b.noPlat || '').toLowerCase().includes(q) ||
-                (b.namaCustomer || '').toLowerCase().includes(q) ||
-                (b.noTelp || '').includes(q)
+                normalizePlate(b.noPlat).includes(q) ||
+                normalizePlate(b.namaCustomer).includes(q) ||
+                normalizePlate(b.noTelp).includes(q)
             );
         }
         const normalizeJamNum = (j) => {

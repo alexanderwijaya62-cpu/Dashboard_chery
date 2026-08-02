@@ -9,6 +9,7 @@ import { db } from '../utils/dbClient';
 import { fetchBookingConfig, getSlotsForDate, getCapacityForDate } from '../utils/bookingConfig';
 import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
 import { normalizeDmsBooking, parseDmsDate, parseDmsTime } from '../utils/dateHelpers';
+import { getMinBookingDateStr, getTodayStr } from '../utils/bookingHelpers';
 import BookingCalendar from './BookingCalendar';
 
 const TIPE_MOBIL = [
@@ -76,6 +77,10 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
         }
         if (isHolidayOrSunday(editForm.tanggal, holidays)) {
             Toastify({ text: "Tanggal yang dipilih adalah hari libur atau Minggu!", background: "red" }).showToast();
+            return;
+        }
+        if (editForm.tanggal <= getTodayStr()) {
+            Toastify({ text: "Tidak bisa reschedule ke hari ini! Pilih besok atau setelahnya.", background: "red" }).showToast();
             return;
         }
         try {
@@ -198,12 +203,19 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
                 console.warn('Gagal fetch DMS bookings:', dmsErr);
             }
 
-            const dedupKey = (b) => `${(b.noPlat || '').replace(/\s+/g, '').toUpperCase()}_${b.tanggal}_${String(b.jam || '').replace(':', '.')}`;
+            const supabaseIds = new Set();
             const seenKeys = new Set();
             const deduped = [];
             merged.forEach(b => {
-                const key = dedupKey(b);
-                if (!seenKeys.has(key)) {
+                const isSupabase = !String(b.id || '').startsWith('dms_');
+                const key = `${(b.noPlat || '').replace(/\s+/g, '').toUpperCase()}_${b.tanggal}_${String(b.jam || '').replace(':', '.')}`;
+                if (isSupabase) {
+                    if (b.id && !supabaseIds.has(b.id)) {
+                        supabaseIds.add(b.id);
+                        deduped.push(b);
+                    }
+                    if (b.noPlat) seenKeys.add(key);
+                } else if (!seenKeys.has(key)) {
                     seenKeys.add(key);
                     deduped.push(b);
                 }
@@ -688,7 +700,7 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
                                         {b.keperluanService && b.keperluanService !== '-' && <span className="flex items-center gap-1 truncate max-w-[200px]"><FileText size={10} />{b.keperluanService}</span>}
                                     </div>
                                     <div className="flex items-center gap-2 mt-3 pt-3 border-t border-zinc-100 flex-wrap">
-                                        {(b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed') && (
+                                        {(b.tanggal !== getTodayStr() && (b.status === 'waiting confirm' || b.status === 'accepted' || b.status === 'completed')) && (
                                             <button
                                                 onClick={() => {
                                                     setEditBookingItem(b);
@@ -843,7 +855,7 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
                             <div className="space-y-2 bg-zinc-50/70 p-2.5 rounded-xl border border-zinc-100 flex flex-col justify-between">
                                 <div>
                                     <label className="text-[9px] font-black uppercase tracking-wider text-zinc-500 mb-0.5 block">Pilih Tanggal Baru</label>
-                                    <input type="date" value={editForm.tanggal} onChange={e => setEditForm(p => ({ ...p, tanggal: e.target.value, jam: '' }))}
+                                    <input type="date" min={getMinBookingDateStr()} value={editForm.tanggal} onChange={e => setEditForm(p => ({ ...p, tanggal: e.target.value, jam: '' }))}
                                         className="w-full px-2.5 py-1.5 bg-white border border-zinc-200 rounded-lg text-xs font-bold focus:border-zinc-900 outline-none shadow-sm" />
                                 </div>
 

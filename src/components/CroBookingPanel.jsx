@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Calendar, ChevronLeft, ChevronRight, Info, Search, Send, Plus, ShieldCheck, Truck, X, Edit3, Upload, AlertTriangle, Check as CheckIcon, Database, RefreshCcw, Clock, User, Car, FileText, Activity, Zap, PlusCircle } from 'lucide-react';
 import Toastify from 'toastify-js';
@@ -8,6 +8,8 @@ import { db } from '../utils/dbClient';
 import { fetchBookingConfig, generateSlots, getSlotsForDate, getCapacityForDate } from '../utils/bookingConfig';
 import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
 import { normalizeDmsBooking } from '../utils/dateHelpers';
+import { supabase } from '../utils/supabaseClient';
+import { normalizePlate, getTodayStr, getMinBookingDateStr } from '../utils/bookingHelpers';
 import BookingCalendar from './BookingCalendar';
 
 const TIPE_MOBIL = [
@@ -38,54 +40,69 @@ export default function CroBookingPanel({ user, holidays: propsHolidays }) {
         })();
     }, []);
 
-    useEffect(() => {
-        (async () => {
+    const fetchBookings = useCallback(async () => {
+        try {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const dateStr = yesterday.toISOString().split('T')[0];
+            const { data } = await db.select('booking', {
+                select: 'id, tanggal, jam, noPlat, status',
+                gte: { tanggal: dateStr }
+            });
+            let merged = Array.isArray(data) ? [...data] : [];
+
+            // === Fetch DMS internal bookings ===
             try {
-                const yesterday = new Date();
-                yesterday.setDate(yesterday.getDate() - 1);
-                const dateStr = yesterday.toISOString().split('T')[0];
-                const { data } = await db.select('booking', {
-                    select: 'id, tanggal, jam, noPlat, status',
-                    gte: { tanggal: dateStr }
-                });
-                let merged = Array.isArray(data) ? [...data] : [];
-
-                // === Fetch DMS internal bookings ===
-                try {
-                    const now = new Date();
-                    const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-                    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
-                    const to = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-${String(nextMonth.getDate()).padStart(2, '0')}`;
-                    const dmsRes = await fetch(`/api/chery_dms?endpoint=booking-data&datefrom=${from}&dateto=${to}&length=500`);
-                    if (dmsRes.ok) {
-                        const dmsJson = await dmsRes.json();
-                        const dmsEntries = (dmsJson.data || []).map(normalizeDmsBooking).filter(Boolean).filter(b => b.tanggal >= dateStr);
-                        merged = [...merged, ...dmsEntries];
-                    }
-                } catch (dmsErr) {
-                    console.warn('Gagal fetch DMS bookings:', dmsErr);
+                const now = new Date();
+                const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+                const nextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+                const to = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-${String(nextMonth.getDate()).padStart(2, '0')}`;
+                const dmsRes = await fetch(`/api/chery_dms?endpoint=booking-data&datefrom=${from}&dateto=${to}&length=500`);
+                if (dmsRes.ok) {
+                    const dmsJson = await dmsRes.json();
+                    const dmsEntries = (dmsJson.data || []).map(normalizeDmsBooking).filter(Boolean).filter(b => b.tanggal >= dateStr);
+                    merged = [...merged, ...dmsEntries];
                 }
+            } catch (dmsErr) {
+                console.warn('Gagal fetch DMS bookings:', dmsErr);
+            }
 
-                // Dedup by plate + date + time (Supabase first, DMS only if not already present)
-                const dedupKey = (b) => {
-                    const plat = (b.noPlat || '').replace(/\s+/g, '').toUpperCase();
-                    if (!plat) return `id_${b.id}`;
-                    return `${plat}_${b.tanggal}_${String(b.jam || '').replace(':', '.')}`;
-                };
-                const seenKeys = new Set();
-                const deduped = [];
-                merged.forEach(b => {
-                    const key = dedupKey(b);
-                    if (!seenKeys.has(key)) {
-                        seenKeys.add(key);
+            // Dedup: selalu pertahankan setiap baris Supabase (unik per id).
+            // Baris DMS hanya dibuang bila menduplikasi booking Supabase/DMS
+            // yang sudah terlihat (plat + tanggal + jam sama).
+            const supabaseIds = new Set();
+            const seenKeys = new Set();
+            const deduped = [];
+            merged.forEach(b => {
+                const isSupabase = !String(b.id || '').startsWith('dms_');
+                const key = `${normalizePlate(b.noPlat)}_${b.tanggal}_${String(b.jam || '').replace(':', '.')}`;
+                if (isSupabase) {
+                    if (b.id && !supabaseIds.has(b.id)) {
+                        supabaseIds.add(b.id);
                         deduped.push(b);
                     }
-                });
+                    if (b.noPlat) seenKeys.add(key);
+                } else if (!seenKeys.has(key)) {
+                    seenKeys.add(key);
+                    deduped.push(b);
+                }
+            });
 
-                setBookings(deduped);
-            } catch (_) {}
-        })();
-    }, [refreshTrigger]);
+            setBookings(deduped);
+        } catch (_) {}
+    }, []);
+
+    useEffect(() => {
+        fetchBookings();
+    }, [fetchBookings, refreshTrigger]);
+
+    // Realtime: refresh booking data whenever any booking is inserted/updated/deleted
+    useEffect(() => {
+        const channel = supabase?.channel('cro-booking-calendar')
+            ?.on('postgres_changes', { event: '*', schema: 'public', table: 'booking' }, () => setRefreshTrigger(p => p + 1))
+            ?.subscribe();
+        return () => { channel?.unsubscribe(); };
+    }, []);
 
     // Vehicle search state
     const [plateSearch, setPlateSearch] = useState('');
@@ -466,6 +483,11 @@ export default function CroBookingPanel({ user, holidays: propsHolidays }) {
             return;
         }
 
+        if (formData.tanggal <= getTodayStr()) {
+            Toastify({ text: "Tidak bisa booking untuk hari ini! Pilih tanggal besok atau setelahnya.", background: "red" }).showToast();
+            return;
+        }
+
         if (isHolidayOrSunday(formData.tanggal, holidays)) {
             Toastify({ text: "Tidak bisa booking di hari libur atau Minggu!", background: "red" }).showToast();
             return;
@@ -603,7 +625,7 @@ export default function CroBookingPanel({ user, holidays: propsHolidays }) {
                         <Upload size={14} /> Import
                     </button>
                     <button
-                        onClick={() => { resetModal(); setIsModalOpen(true); }}
+                        onClick={() => { resetModal(); fetchBookings(); setIsModalOpen(true); }}
                         className="min-h-[44px] bg-zinc-900 hover:bg-zinc-800 text-white px-6 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-zinc-200 group"
                     >
                         <Plus size={14} className="group-hover:rotate-90 transition-transform" /> New
@@ -1115,11 +1137,11 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
         if (startDate) list = list.filter(b => b.tanggal >= startDate);
         if (endDate) list = list.filter(b => b.tanggal <= endDate);
         if (search.trim()) {
-            const q = search.toLowerCase();
+            const q = normalizePlate(search);
             list = list.filter(b =>
-                (b.noPlat || '').toLowerCase().includes(q) ||
-                (b.namaCustomer || '').toLowerCase().includes(q) ||
-                (b.noTelp || '').includes(q)
+                normalizePlate(b.noPlat).includes(q) ||
+                normalizePlate(b.namaCustomer).includes(q) ||
+                normalizePlate(b.noTelp).includes(q)
             );
         }
         return list;
@@ -1366,7 +1388,7 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
                                 <div className="space-y-4">
                                     <div className="space-y-3">
                                         <label className="text-sm md:text-[10px] font-black uppercase tracking-widest text-zinc-400 ml-1">Tanggal Kedatangan</label>
-                                        <input type="date" value={editForm.tanggal} onChange={e => setEditForm(p => ({ ...p, tanggal: e.target.value, jam: '' }))}
+                                        <input type="date" min={getMinBookingDateStr()} value={editForm.tanggal} onChange={e => setEditForm(p => ({ ...p, tanggal: e.target.value, jam: '' }))}
                                             className="w-full bg-zinc-50 border-2 border-zinc-100 p-3 min-h-[44px] rounded-2xl font-black text-sm text-black focus:border-black outline-none transition-all" />
                                     </div>
                                     <div className="space-y-1">

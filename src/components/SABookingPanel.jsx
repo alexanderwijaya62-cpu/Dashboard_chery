@@ -8,6 +8,7 @@ import { db } from '../utils/dbClient';
 import { fetchBookingConfig, generateSlots, getSlotsForDate, getCapacityForDate } from '../utils/bookingConfig';
 import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
 import { normalizeDmsBooking } from '../utils/dateHelpers';
+import { getTodayStr } from '../utils/bookingHelpers';
 import BookingCalendar from './BookingCalendar';
 
 const daysInMonth = (month, year) => new Date(year, month + 1, 0).getDate();
@@ -114,17 +115,22 @@ export default function SABookingPanel({ user, handleLogout, handleChangePasswor
       console.warn('Gagal fetch DMS bookings:', dmsErr);
     }
 
-    // Dedup by plate + date + time (Supabase first, DMS only if not already present)
-    const dedupKey = (b) => {
-      const plat = (b.noPlat || '').replace(/\s+/g, '').toUpperCase();
-      if (!plat) return `id_${b.id}`;
-      return `${plat}_${b.tanggal}_${String(b.jam || '').replace(':', '.')}`;
-    };
+    // Dedup: selalu pertahankan setiap baris Supabase (unik per id).
+    // Baris DMS hanya dibuang bila menduplikasi booking Supabase/DMS
+    // yang sudah terlihat (plat + tanggal + jam sama).
+    const supabaseIds = new Set();
     const seenKeys = new Set();
     const deduped = [];
     merged.forEach(b => {
-      const key = dedupKey(b);
-      if (!seenKeys.has(key)) {
+      const isSupabase = !String(b.id || '').startsWith('dms_');
+      const key = `${(b.noPlat || '').replace(/\s+/g, '').toUpperCase()}_${b.tanggal}_${String(b.jam || '').replace(':', '.')}`;
+      if (isSupabase) {
+        if (b.id && !supabaseIds.has(b.id)) {
+          supabaseIds.add(b.id);
+          deduped.push(b);
+        }
+        if (b.noPlat) seenKeys.add(key);
+      } else if (!seenKeys.has(key)) {
         seenKeys.add(key);
         deduped.push(b);
       }
@@ -215,6 +221,10 @@ export default function SABookingPanel({ user, handleLogout, handleChangePasswor
     e.preventDefault();
     if (!formData.jam || !formData.atasNama) {
       Toastify({ text: "Harap isi jam dan nama booking!", background: "orange" }).showToast();
+      return;
+    }
+    if (formData.tanggal <= getTodayStr()) {
+      Toastify({ text: "Tidak bisa booking untuk hari ini! Pilih besok atau setelahnya.", background: "red" }).showToast();
       return;
     }
     if (isHolidayOrSunday(formData.tanggal, holidays)) {

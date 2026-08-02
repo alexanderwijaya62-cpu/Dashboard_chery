@@ -131,7 +131,7 @@ export default function BookingCalendar({
                         <ChevronRight size={14} />
                     </button>
                 </div>
-                <div className="grid grid-cols-7 gap-0.5 text-center text-[8px] font-black uppercase text-zinc-400 mb-0.5">
+                <div className="grid grid-cols-7 gap-0.5 text-center text-[8px] font-bold uppercase text-zinc-400 mb-0.5">
                     {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sat'].map(d => <div key={d}>{d}</div>)}
                 </div>
                 <div className="grid grid-cols-7 gap-0.5">
@@ -143,8 +143,8 @@ export default function BookingCalendar({
                         const satDay = isSaturday(item.date);
                         const disabled = past || holiday;
                         const fill = dateFillMap[item.date];
-                        const fillBg = !disabled && fill?.full ? 'bg-red-500 border-red-600 text-white' :
-                            !disabled && fill?.partial ? 'bg-yellow-300 border-yellow-400 text-yellow-900' :
+                        const fillBg = !disabled && fill?.full ? 'bg-red-50 border-red-200 text-red-600' :
+                            !disabled && fill?.partial ? 'bg-amber-50 border-amber-200 text-amber-700' :
                             !disabled && fill ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:border-emerald-400' : '';
                         return (
                             <button key={idx} type="button" disabled={disabled}
@@ -153,9 +153,9 @@ export default function BookingCalendar({
                                     isActive ? 'bg-black border-black text-white shadow-lg z-10 scale-110' : fillBg || 'bg-white border-zinc-100 text-zinc-400 hover:border-zinc-400 hover:text-black'
                                 } ${!disabled && satDay && !isActive ? 'border-amber-300 bg-amber-50' : ''}`}
                             >
-                                <span className="text-[11px] font-black">{item.day}</span>
+                                <span className="text-[11px] font-bold">{item.day}</span>
                                 {!disabled && satDay && (
-                                    <span className="text-[7px] font-black text-amber-500 leading-none uppercase">Sab</span>
+                                    <span className="text-[7px] font-bold text-amber-500 leading-none uppercase">Sab</span>
                                 )}
                                 {!disabled && fill && (
                                     <span className="text-[8px] opacity-70 leading-none">{fill.count}/{fill.total}</span>

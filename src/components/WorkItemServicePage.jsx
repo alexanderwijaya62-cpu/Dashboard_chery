@@ -8,6 +8,8 @@ import { fetchWithCache, getCache } from '../utils/dataCache';
 
 const PAGE_SIZE = 50;
 const RATE_PER_HOUR = 285000;
+const UP_PERCENT = 30;
+const PPN_PERCENT = 11;
 
 function getStyleByKategori(kat) {
   if (!kat) return { bg: 'bg-zinc-50', text: 'text-zinc-600', border: 'border-zinc-200', label: '-' };
@@ -40,6 +42,14 @@ function calculateLaborPrice(h) {
   // laborHour is given in minutes in DMS API (e.g. 60 = 1 hr)
   const hours = num / 60;
   return Math.round(hours * RATE_PER_HOUR);
+}
+
+function calculateLaborPriceUp(h) {
+  return Math.round(calculateLaborPrice(h) * (1 + UP_PERCENT / 100));
+}
+
+function calculateLaborPricePpn(h) {
+  return Math.round(calculateLaborPriceUp(h) * (1 + PPN_PERCENT / 100));
 }
 
 function formatRp(val) {
@@ -281,6 +291,8 @@ const WorkItemServicePage = () => {
         'Kategori Kendaraan': row.productCategoryName || '',
         'Labor Hour (menit)': row.laborHour || 0,
         'Total Harga Jasa': calculateLaborPrice(row.laborHour),
+        'Total + UP 30%': calculateLaborPriceUp(row.laborHour),
+        'Total + PPN 11%': calculateLaborPricePpn(row.laborHour),
       };
     });
 
@@ -359,6 +371,12 @@ const WorkItemServicePage = () => {
         if (sortConfig.key === 'totalLaborPrice') {
           aVal = calculateLaborPrice(a.laborHour);
           bVal = calculateLaborPrice(b.laborHour);
+        } else if (sortConfig.key === 'totalLaborPriceUp') {
+          aVal = calculateLaborPriceUp(a.laborHour);
+          bVal = calculateLaborPriceUp(b.laborHour);
+        } else if (sortConfig.key === 'totalLaborPricePpn') {
+          aVal = calculateLaborPricePpn(a.laborHour);
+          bVal = calculateLaborPricePpn(b.laborHour);
         } else {
           aVal = a[sortConfig.key];
           bVal = b[sortConfig.key];
@@ -406,6 +424,8 @@ const WorkItemServicePage = () => {
     { key: 'productCategoryName', label: 'Kategori Kendaraan', sortable: true },
     { key: 'laborHour', label: 'Labor Hour', sortable: true },
     { key: 'totalLaborPrice', label: 'Total Harga Jasa (285K/jam)', sortable: true },
+    { key: 'totalLaborPriceUp', label: 'Total + UP 30%', sortable: true },
+    { key: 'totalLaborPricePpn', label: 'Total + PPN 11%', sortable: true },
   ];
 
   return (
@@ -574,7 +594,7 @@ const WorkItemServicePage = () => {
               <p className="text-xs font-bold text-zinc-400">Tidak ada data Jasa Pengerjaan</p>
             </div>
           ) : (
-            <table className="w-full text-xs min-w-[950px]">
+            <table className="w-full text-xs min-w-[1100px]">
               <thead>
                 <tr className="bg-zinc-50 border-b border-zinc-200 sticky top-0 z-10">
                   <th className="w-10 pl-4 py-2.5 text-center text-[10px] font-black uppercase tracking-wider text-zinc-500">#</th>
@@ -594,6 +614,8 @@ const WorkItemServicePage = () => {
                 {pagedData.map((row, i) => {
                   const kat = getStyleByKategori(row.productCategoryName);
                   const totalPrice = calculateLaborPrice(row.laborHour);
+                  const totalPriceUp = calculateLaborPriceUp(row.laborHour);
+                  const totalPricePpn = calculateLaborPricePpn(row.laborHour);
                   const rowId = row.workItemId || row.id;
 
                   // Extract part codes from all potential DMS response fields
@@ -655,6 +677,20 @@ const WorkItemServicePage = () => {
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold border bg-emerald-50 text-emerald-800 border-emerald-200">
                           {formatRp(totalPrice)}
+                        </span>
+                      </td>
+
+                      {/* TOTAL + UP 30% COLUMN */}
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold border bg-indigo-50 text-indigo-800 border-indigo-200">
+                          {formatRp(totalPriceUp)}
+                        </span>
+                      </td>
+
+                      {/* TOTAL + PPN 11% COLUMN */}
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold border bg-violet-50 text-violet-800 border-violet-200">
+                          {formatRp(totalPricePpn)}
                         </span>
                       </td>
                     </tr>
@@ -731,6 +767,14 @@ const WorkItemServicePage = () => {
                 <div>
                   <span className="text-[10px] font-bold text-zinc-400 block uppercase">Total Harga Jasa</span>
                   <span className="font-extrabold text-emerald-700">{formatRp(calculateLaborPrice(selectedDetail.laborHour))}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-zinc-400 block uppercase">Total + UP 30%</span>
+                  <span className="font-extrabold text-indigo-700">{formatRp(calculateLaborPriceUp(selectedDetail.laborHour))}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-zinc-400 block uppercase">Total + PPN 11%</span>
+                  <span className="font-extrabold text-violet-700">{formatRp(calculateLaborPricePpn(selectedDetail.laborHour))}</span>
                 </div>
               </div>
 

@@ -8,7 +8,7 @@
     --color-bg-secondary: #fafafa; /* zinc-50 */
     --color-border: #e4e4e7; /* zinc-200 */
     --color-text: #000000;
-    --color-text-muted: #a1a1aa; /* zinc-400 */
+    --color-text-muted: #71717a; /* zinc-500 */
     --color-disabled-text: #d4d4d8; /* zinc-300 */
     --color-disabled-bg: #e4e4e7; /* zinc-200 */
 }
@@ -17,7 +17,7 @@
     --bg-primary: #ffffff;
     --bg-secondary: #fafafa;
     --text-primary: #000000;
-    --text-muted: #a1a1aa;
+    --text-muted: #71717a;
     --border-primary: #e4e4e7;
     color-scheme: light;
 

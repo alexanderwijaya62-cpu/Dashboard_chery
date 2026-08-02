@@ -625,7 +625,7 @@ export default function PublicBooking({ user, setCurrentPage }) {
                             const availability = getDateAvailability(item.date);
                             const isSelectable = availability !== 'closed';
                             const isActive = selectedDate === item.date;
-                            const isPast = new Date(item.date) < new Date().setHours(0, 0, 0, 0);
+                            const isPast = new Date(item.date) <= new Date().setHours(0, 0, 0, 0);
 
                             return (
                                 <button

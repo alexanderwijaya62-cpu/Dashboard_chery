@@ -3,6 +3,7 @@ import { Shield, UserPlus, Check, Search, Clock, Calendar, Database, Ban, Megaph
 import { db } from '../utils/dbClient';
 import { supabase } from '../utils/supabaseClient';
 import { speak } from '../utils/tts';
+import { normalizePlate } from '../utils/bookingHelpers';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import ChangePasswordModal from './ChangePasswordModal';
@@ -174,10 +175,10 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
   const filteredBookings = useMemo(() => {
     return bookings.filter(b => {
       if (!searchBooking.trim()) return true;
-      const q = searchBooking.toLowerCase();
-      return (b.noPlat || '').toLowerCase().includes(q) ||
-             (b.namaCustomer || '').toLowerCase().includes(q) ||
-             (b.jam || '').includes(q);
+      const q = normalizePlate(searchBooking);
+      return normalizePlate(b.noPlat).includes(q) ||
+             normalizePlate(b.namaCustomer).includes(q) ||
+             normalizePlate(b.jam).includes(q);
     });
   }, [bookings, searchBooking]);
 
@@ -200,11 +201,11 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
   const filteredListBookings = useMemo(() => {
     return listBookings.filter(b => {
       if (!listSearch.trim()) return true;
-      const q = listSearch.toLowerCase();
-      return (b.noPlat || '').toLowerCase().includes(q) ||
-             (b.namaCustomer || '').toLowerCase().includes(q) ||
-             (b.jam || '').includes(q) ||
-             (b.tipeMobil || '').toLowerCase().includes(q);
+      const q = normalizePlate(listSearch);
+      return normalizePlate(b.noPlat).includes(q) ||
+             normalizePlate(b.namaCustomer).includes(q) ||
+             normalizePlate(b.jam).includes(q) ||
+             normalizePlate(b.tipeMobil).includes(q);
     });
   }, [listBookings, listSearch]);
 

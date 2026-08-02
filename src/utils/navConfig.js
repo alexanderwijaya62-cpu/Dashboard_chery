@@ -123,7 +123,7 @@ export const DEFAULT_PAGES = {
   admin: 'admin',
   manager: 'manager',
   cro: 'cro',
-  sparepart: 'sparepart',
+  sparepart: 'sparepart-dms-order',
   owner: 'owner',
   mekanik: 'mechanic',
   customer: 'customer',

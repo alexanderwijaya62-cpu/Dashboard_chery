@@ -6,6 +6,8 @@ import "toastify-js/src/toastify.css";
 import BookingSettings from './BookingSettings';
 import { db } from '../utils/dbClient';
 import { fetchHolidays, isHolidayOrSunday } from '../utils/holidayHelpers';
+import { normalizePlate, getTodayStr } from '../utils/bookingHelpers';
+import { parseDmsDate } from '../utils/dateHelpers';
 
 const STATUS_STYLES = {
   'Baru': { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200' },
@@ -97,12 +99,12 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
 
       if (needsClientFilter) {
         if (search) {
-          const q = search.toLowerCase();
+          const q = normalizePlate(search);
           raw = raw.filter(r =>
-            (r.no_booking || '').toLowerCase().includes(q) ||
-            (r.no_polisi || '').toLowerCase().includes(q) ||
-            (r.nama_pelanggan || '').toLowerCase().includes(q) ||
-            (r.nama_kendaraan || '').toLowerCase().includes(q)
+            normalizePlate(r.no_booking).includes(q) ||
+            normalizePlate(r.no_polisi).includes(q) ||
+            normalizePlate(r.nama_pelanggan).includes(q) ||
+            normalizePlate(r.nama_kendaraan).includes(q)
           );
         }
         if (statusFilter) {
@@ -217,6 +219,11 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
   };
 
   const handleReschedule = async (id, janjiBaru, alasan) => {
+    const newDate = (janjiBaru || '').split('T')[0];
+    if (newDate && newDate <= getTodayStr()) {
+      Toastify({ text: '❌ Tidak bisa reschedule ke hari ini!', background: 'red' }).showToast();
+      return;
+    }
     try {
       const formData = new URLSearchParams();
       formData.set('janji_datang', janjiBaru);
@@ -438,6 +445,7 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
                               >
                                 {syncingId === row.no_booking ? <RefreshCw size={14} className="animate-spin" /> : <RefreshCcw size={14} />}
                               </button>
+                              {parseDmsDate(row.janji_datang) !== getTodayStr() && (
                               <button
                                 onClick={() => setRescheduleModal(row)}
                                 className="p-1.5 rounded-lg text-zinc-500 hover:bg-blue-50 hover:text-blue-700 transition-all"
@@ -445,6 +453,7 @@ export default function DmsBookingListView({ user, refreshTrigger }) {
                               >
                                 <Calendar size={14} />
                               </button>
+                              )}
                               <button
                                 onClick={() => setEditModal(row)}
                                 className="p-1.5 rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-all"
@@ -627,7 +636,7 @@ function RescheduleModal({ booking, onClose, onSubmit }) {
     for (let i = 1; i <= new Date(y, m + 1, 0).getDate(); i++) {
       const ds = `${y}-${String(m + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
       const now = new Date(); now.setHours(0, 0, 0, 0);
-      const isPast = new Date(ds + 'T00:00:00') < now;
+      const isPast = new Date(ds + 'T00:00:00') <= now;
       const isDisabled = isPast || isHolidayOrSunday(ds, holidays);
       days.push({ day: i, currentMonth: true, date: ds, isDisabled });
     }
