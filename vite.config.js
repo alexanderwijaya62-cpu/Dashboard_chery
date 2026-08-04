@@ -62,6 +62,7 @@ function localCheryDmsPlugin() {
               const isCsiProxy = req.url.startsWith('/api/csi-proxy');
 
               const mockReq = {
+                url: req.url,
                 query: isInvoiceReport ? { endpoint: 'warranty-invoice-report', ...query } : query,
                 headers: req.headers,
                 method: req.method,

@@ -56,6 +56,14 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
     const [filterDateStart, setFilterDateStart] = useState('');
     const [filterDateEnd, setFilterDateEnd] = useState('');
     const [isDeepSearching, setIsDeepSearching] = useState(false);
+    const shipmentCacheRef = useRef({});
+    const [shipmentVersion, setShipmentVersion] = useState(0);
+
+    const updateShipmentCache = (obj) => {
+        if (!obj || Object.keys(obj).length === 0) return;
+        shipmentCacheRef.current = { ...shipmentCacheRef.current, ...obj };
+        setShipmentVersion(v => v + 1);
+    };
 
     const fetchDmsOrders = async (page = 0, code = '') => {
         setIsLoading(true);
@@ -80,16 +88,93 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
         }
     };
 
+    // Status shipment di detail order (partSaleOrders/{id}) sering tidak sinkron dengan data
+    // aktual di DMS (masih status 1 padahal sudah diterima). Status asli diambil dari endpoint
+    // partShipments/forCurrentUser dengan filter partSaleOrderProcessCode (prefix = kode order).
+    // Agar hemat request: 1x fetch daftar shipment terbaru (pageSize=100) untuk seluruh halaman,
+    // lalu fallback fetch per order hanya untuk order yang tidak tercakup.
+    const ensureShipments = async (orders) => {
+        if (!Array.isArray(orders) || orders.length === 0) return;
+        const missing = orders.filter(o => o?.code && !shipmentCacheRef.current[o.code]);
+        if (missing.length === 0) return;
+
+        try {
+            const resp = await fetch(`${CHERY_DMS_URL}?endpoint=part_shipments&pageIndex=0&pageSize=100`);
+            const result = await resp.json();
+            const payload = result?.payload || result;
+            const content = Array.isArray(payload?.content) ? payload.content : [];
+            const byOrder = {};
+            content.forEach(s => {
+                const oc = s?.partSaleOrderCode;
+                if (!oc) return;
+                if (!byOrder[oc]) byOrder[oc] = [];
+                byOrder[oc].push({ code: s.partSaleOrderProcessCode, status: s.status, receivingTime: s.receivingTime, receiverName: s.receiverName, isSatisfied: s.isSatisfied, options: s.options });
+            });
+            updateShipmentCache(byOrder);
+        } catch { /* fallthrough ke per-order */ }
+
+        const stillMissing = missing.filter(o => !shipmentCacheRef.current[o.code]);
+        if (stillMissing.length === 0) return;
+
+        const results = await Promise.allSettled(
+            stillMissing.map(o =>
+                fetch(`${CHERY_DMS_URL}?endpoint=part_shipments&processCode=${encodeURIComponent(o.code)}&pageIndex=0&pageSize=10`)
+                    .then(r => r.json())
+                    .then(r => ({ code: o.code, payload: r?.payload || r }))
+            )
+        );
+        const byOrder2 = {};
+        results.forEach(r => {
+            if (r.status === 'fulfilled' && r.value) {
+                const content = Array.isArray(r.value.payload?.content)
+                    ? r.value.payload.content
+                    : (Array.isArray(r.value.payload) ? r.value.payload : []);
+                byOrder2[r.value.code] = content.map(s => ({ code: s.partSaleOrderProcessCode, status: s.status, receivingTime: s.receivingTime, receiverName: s.receiverName, isSatisfied: s.isSatisfied, options: s.options }));
+            }
+        });
+        updateShipmentCache(byOrder2);
+    };
+
+    const enrichOrderDetail = async (detail) => {
+        if (!detail || !Array.isArray(detail.partSaleOrderProcesses) || detail.partSaleOrderProcesses.length === 0) {
+            return detail;
+        }
+        const orderCode = detail.partSaleOrderCode || (detail.partSaleOrderProcesses[0].code || '').replace(/_\d+$/, '');
+        if (!orderCode) return detail;
+        if (!shipmentCacheRef.current[orderCode]) {
+            await ensureShipments([{ code: orderCode }]);
+        }
+        const rows = shipmentCacheRef.current[orderCode];
+        if (!rows || rows.length === 0) return detail;
+        const rowByCode = {};
+        rows.forEach(r => { rowByCode[r.code] = r; });
+        return {
+            ...detail,
+            partSaleOrderProcesses: detail.partSaleOrderProcesses.map(p => {
+                const ship = rowByCode[p.code];
+                if (!ship) return p;
+                return {
+                    ...p,
+                    status: ship.status,
+                    receivingTime: ship.receivingTime,
+                    receiverName: ship.receiverName,
+                    isSatisfied: ship.isSatisfied,
+                    options: ship.options,
+                };
+            })
+        };
+    };
+
     const fetchOrderDetail = async (orderId) => {
         if (detailCache[orderId]) {
-            setOrderDetail(detailCache[orderId]);
+            setOrderDetail(await enrichOrderDetail(detailCache[orderId]));
             return;
         }
         setDetailLoading(true);
         try {
             const resp = await fetch(`${CHERY_DMS_URL}?endpoint=part_order_detail&orderId=${orderId}`);
             const result = await resp.json();
-            const detail = result?.payload || result;
+            const detail = await enrichOrderDetail(result?.payload || result);
             setDetailCache(prev => ({ ...prev, [orderId]: detail }));
             setOrderDetail(detail);
         } catch (e) {
@@ -177,28 +262,13 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
         } catch (e) { console.warn('Search fetch failed:', e); }
     };
 
-    // Auto-load details for all orders on current page (for search)
+    // Muat status shipment untuk order yang tampil di halaman (hemat request:
+    // 1x daftar shipment + fallback per order, tanpa fetch detail semua order).
     useEffect(() => {
-        const uncached = dmsOrders.filter(o => !detailCache[o.id]);
-        if (uncached.length === 0) return;
-        const fetchAllDetails = async () => {
-            const results = await Promise.allSettled(
-                uncached.map(o =>
-                    fetch(`${CHERY_DMS_URL}?endpoint=part_order_detail&orderId=${o.id}`)
-                        .then(r => r.json())
-                        .then(r => ({ id: o.id, detail: r?.payload || r }))
-                )
-            );
-            const newCache = {};
-            results.forEach(r => {
-                if (r.status === 'fulfilled' && r.value?.detail) {
-                    newCache[r.value.id] = r.value.detail;
-                }
-            });
-            setDetailCache(prev => ({ ...prev, ...newCache }));
-        };
-        fetchAllDetails();
-    }, [dmsOrders]); // eslint-disable-line
+        if (activeTab === 'dms_order' && dmsOrders.length > 0) {
+            ensureShipments(dmsOrders);
+        }
+    }, [dmsOrders, activeTab, shipmentVersion]); // eslint-disable-line
 
     const filteredOrders = useMemo(() => {
         const q = (searchCode || '').toLowerCase().trim();
@@ -251,7 +321,50 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
         return null;
     };
 
-    const getStatusInfo = (status) => STATUS_MAP[status] || { label: 'Unknown', color: 'bg-zinc-100 text-zinc-500' };
+    // Order status diturunkan dari status konfirmasi pengiriman (partShipments),
+    // bukan status order DMS ("Approved" ≠ sudah sampai). Order baru dianggap SELESAI
+    // ketika SEMUA shipment sudah di-confirm (status 2 = Sudah Diterima).
+    // Kalau masih ada shipment status 1 (Awaiting Confirmation) berarti belum sampai.
+    const getOrderStatusInfo = (order) => {
+        const shipments = shipmentCacheRef.current[order.code];
+        if (Array.isArray(shipments) && shipments.length > 0) {
+            const statuses = shipments.map(s => s.status);
+            if (statuses.every(s => s === 2)) {
+                return { label: 'Sudah Diterima', color: 'bg-emerald-100 text-emerald-700' };
+            }
+            if (statuses.some(s => s === 3)) {
+                return { label: 'Freeze', color: 'bg-red-100 text-red-700' };
+            }
+            if (statuses.some(s => s === 0)) {
+                return { label: 'Void', color: 'bg-zinc-200 text-zinc-500' };
+            }
+            return { label: 'Belum Sampai', color: 'bg-amber-100 text-amber-700' };
+        }
+        const detail = detailCache[order.id];
+        const processes = detail?.partSaleOrderProcesses;
+        if (Array.isArray(processes) && processes.length > 0) {
+            const statuses = processes.map(p => p.status);
+            if (statuses.every(s => s === 2)) {
+                return { label: 'Sudah Diterima', color: 'bg-emerald-100 text-emerald-700' };
+            }
+            if (statuses.some(s => s === 3)) {
+                return { label: 'Freeze', color: 'bg-red-100 text-red-700' };
+            }
+            if (statuses.some(s => s === 0)) {
+                return { label: 'Void', color: 'bg-zinc-200 text-zinc-500' };
+            }
+            return { label: 'Belum Sampai', color: 'bg-amber-100 text-amber-700' };
+        }
+        const fallback = STATUS_MAP[order.status];
+        if (!fallback) return { label: 'Unknown', color: 'bg-zinc-100 text-zinc-500' };
+        if (order.status === 3 || order.status === 4 || order.status === 2) {
+            return { label: 'Belum Sampai', color: 'bg-amber-100 text-amber-700' };
+        }
+        if (order.status === 5) {
+            return { label: 'Sudah Diterima', color: 'bg-emerald-100 text-emerald-700' };
+        }
+        return fallback;
+    };
 
     const formatCurrency = (val) => {
         if (!val && val !== 0) return 'Rp 0';
@@ -349,7 +462,7 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
                     <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-50 flex items-center justify-center">
                         <div className="bg-zinc-900 text-white px-5 py-3 rounded-lg flex items-center gap-3 font-bold shadow-lg">
                             <span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></span>
-                            {isDeepSearching ? 'Mencari di semua halaman...' : 'Memuat...'}
+                            {isDeepSearching ? 'Mencari...' : 'Memuat...'}
                         </div>
                     </div>
                 )}
@@ -404,7 +517,7 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
                                 )}
 
                                 {filteredOrders.map((order) => {
-                                    const statusInfo = getStatusInfo(order.status);
+                                    const statusInfo = getOrderStatusInfo(order);
                                     const isExpanded = expandedOrderId === order.id;
 
                                     return (
@@ -570,20 +683,28 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
                                                                                             <p className="text-zinc-500 text-[9px] font-bold uppercase tracking-wider">{process.shippingWarehouseName || process.shippingCompanyName}</p>
                                                                                         </div>
                                                                                     </div>
-                                                                                    <div className="flex items-center gap-4">
-                                                                                        {process.sapDeliveryCode && (
-                                                                                            <div className="text-right">
-                                                                                                <p className="text-zinc-900 font-black text-[10px]">SAP: {process.sapDeliveryCode}</p>
-                                                                                                <p className="text-zinc-400 text-[8px] font-bold uppercase tracking-wider">Delivery Code</p>
-                                                                                            </div>
-                                                                                        )}
-                                                                                         <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${getShipmentStatusInfo(process.status).color}`}>
-                                                                                             {getShipmentStatusInfo(process.status).label}
-                                                                                         </span>
-                                                                                        {process.processTime && (
-                                                                                            <p className="text-zinc-400 text-[9px] font-bold">{formatDate(process.processTime)}</p>
-                                                                                        )}
-                                                                                    </div>
+                                                                                     <div className="flex items-center gap-4">
+                                                                                         {process.sapDeliveryCode && (
+                                                                                             <div className="text-right">
+                                                                                                 <p className="text-zinc-900 font-black text-[10px]">SAP: {process.sapDeliveryCode}</p>
+                                                                                                 <p className="text-zinc-400 text-[8px] font-bold uppercase tracking-wider">Delivery Code</p>
+                                                                                             </div>
+                                                                                         )}
+                                                                                          <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${getShipmentStatusInfo(process.status).color}`}>
+                                                                                              {getShipmentStatusInfo(process.status).label}
+                                                                                          </span>
+                                                                                         {process.receivingTime && (
+                                                                                             <div className="text-right">
+                                                                                                 <p className="text-zinc-900 font-black text-[10px]">{formatDate(process.receivingTime)}</p>
+                                                                                                 <p className="text-zinc-400 text-[8px] font-bold uppercase tracking-wider">
+                                                                                                     Diterima {process.receiverName ? `oleh ${process.receiverName}` : ''}
+                                                                                                 </p>
+                                                                                             </div>
+                                                                                         )}
+                                                                                         {process.processTime && (
+                                                                                             <p className="text-zinc-400 text-[9px] font-bold">{formatDate(process.processTime)}</p>
+                                                                                         )}
+                                                                                     </div>
                                                                                 </div>
 
                                                                                 <div className="overflow-x-auto border border-zinc-200 rounded-lg">

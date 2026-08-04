@@ -145,9 +145,10 @@ const CSI_SUMMARY_FALLBACK = {
 };
 
 export default function CsiResult() {
+  const today = new Date();
   const [dealerFilter, setDealerFilter] = useState('optef3IAAh');
-  const [selectedMonth, setSelectedMonth] = useState('7');
-  const [selectedYear, setSelectedYear] = useState('2026');
+  const [selectedMonth, setSelectedMonth] = useState(String(today.getMonth() + 1));
+  const [selectedYear, setSelectedYear] = useState(String(today.getFullYear()));
 
   const [loading, setLoading] = useState(false);
   const [loadingTrend, setLoadingTrend] = useState(false);

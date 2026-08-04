@@ -19,6 +19,8 @@ import QuotationSPA from './quotation/QuotationSPA';
 import MechanicPanel from './components/MechanicPanel';
 import ForemanPanel from './components/ForemanPanel';
 import SparepartPanel from './components/SparepartPanel';
+import WorkItemServicePage from './components/WorkItemServicePage';
+import EstimasiPanel from './components/EstimasiPanel';
 import FollowupPanel from './components/FollowupPanel';
 import ManagerPanel from './components/ManagerPanel';
 import PublicBooking from './components/PublicBooking';
@@ -347,8 +349,8 @@ const App = () => {
           setCurrentPage('display');
         } else if (['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty', 'foreman', 'security', 'sales', 'spv'].includes(role)) {
           const allowedPages = {
-            admin: ['admin', 'admin-booking', 'admin-wo', 'promo', 'display', 'booking-public', 'sa-booking'],
-            manager: ['manager', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'manager-laporan-invoice', 'manager-laporan-wo', 'manager-jasa-pengerjaan', 'display', 'booking-public'],
+            admin: ['admin', 'admin-booking', 'admin-wo', 'admin-estimasi', 'promo', 'display', 'booking-public', 'sa-booking', 'sparepart-dms-order', 'manager-jasa-pengerjaan'],
+            manager: ['manager', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'manager-laporan-invoice', 'manager-laporan-wo', 'manager-keuntungan-sparepart', 'manager-jasa-pengerjaan', 'display', 'booking-public'],
             cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-holidays', 'cro-csi', 'cro-customers', 'display', 'booking-public', 'sa-booking', 'booking-settings'],
             sparepart: ['sparepart-dms-order', 'sparepart-dms', 'sparepart-cost', 'sparepart-profit', 'display', 'booking-public', 'stock-comparison'],
             owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-sparepart-cost', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'owner-unit-entry', 'display', 'booking-public', 'stock-comparison'],
@@ -512,9 +514,6 @@ const App = () => {
       }
       if (e.key === 'chery_session_id') {
         setSessionId(e.newValue || null);
-      }
-      if (e.key === 'chery_current_page') {
-        if (e.newValue) setCurrentPage(e.newValue);
       }
     };
     window.addEventListener('storage', handleStorageChange);
@@ -1811,6 +1810,156 @@ const App = () => {
     }
   };
 
+  const finalizeItem = async (item, overrides = {}) => {
+    const now = new Date();
+    const nowISO = now.toISOString();
+
+    // Hitung sisa waktu (remaining) — jangan timpa estimasiDefault biar display konsisten
+    const tTime = parseInt(overrides.targetTime ?? item.target_time ?? item.targetTime);
+    const estDef = parseInt(overrides.estimasiDefault ?? item.estimasiDefault) || 0;
+    const remainingAtComplete = tTime > 0 ? Math.max(0, Math.ceil((tTime - Date.now()) / 1000)) : estDef;
+
+    // Hitung lama pengerjaan aktual untuk riwayat — utamakan yang sudah tersimpan (mis. dari antrian cuci)
+    let elapsedSeconds = parseInt(item.elapsedSeconds) || 0;
+    if (elapsedSeconds <= 0 && tTime > 0 && estDef > 0) {
+      elapsedSeconds = Math.max(0, estDef - remainingAtComplete);
+    }
+
+    const finalItem = { ...item, ...overrides, waktuSelesai: nowISO, estimasiDefault: elapsedSeconds || remainingAtComplete, elapsedSeconds };
+
+    const elapsedSec = parseInt(finalItem.elapsedSeconds) || 0;
+
+    const tanggalISO = now.toISOString().split('T')[0];
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    const tanggalIndo = `${day}-${month}-${year}`;
+
+    // 1. Insert into history
+    const checklist = Array.isArray(finalItem.checklist) ? finalItem.checklist : [];
+    let historyKeluhan = finalItem.keluhan || '';
+    if (checklist.length > 0) {
+      const s = checklist.map(t => `${t.completed ? '✅' : '❌'} ${t.text}`).join('\n');
+      historyKeluhan = (historyKeluhan ? historyKeluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + s;
+    }
+
+    let historyAttempt = {
+      id: item.id, 
+      bk: finalItem.bk || '', 
+      tipe: finalItem.tipe || '',
+      keluhan: historyKeluhan, 
+      status: 'completed',
+      mechanicName: finalItem.mechanicName || '',
+      category: finalItem.category || 'Reguler',
+      addedBy: finalItem.addedBy || user?.name || '',
+      checklist: finalItem.checklist || [],
+      waktuSelesai: finalItem.waktuSelesai,
+      targetTime: finalItem.targetTime || 0,
+      elapsedSeconds: elapsedSec || 0,
+      estimasiDefault: finalItem.estimasiDefault || 0,
+      Tanggal: tanggalIndo,
+      noTelp: finalItem.noTelp || '',
+      jam: finalItem.jam || null,
+      menginap_reason: finalItem.menginap_reason || '',
+      pendingExtra: finalItem.pendingExtra || null
+    };
+    let historyError = null;
+    for (let i = 0; i < 5; i++) {
+      const { error: e } = await db.insert('history', historyAttempt);
+      if (!e || e.code === '23505') { historyAttempt = null; historyError = null; break; }
+      historyError = e;
+      console.error("Gagal insert history (retry " + (i+1) + "):", e);
+      if (e.code === '22P02' && historyAttempt.bk !== undefined) {
+        const { bk: _, ...rest } = historyAttempt;
+        historyAttempt = rest;
+        continue;
+      }
+      if (e.code === 'PGRST204') {
+        const m = e.message.match(/'([^']+)'/);
+        const bad = m ? m[1] : null;
+        if (bad && historyAttempt[bad] !== undefined) {
+          const { [bad]: _, ...rest } = historyAttempt;
+          historyAttempt = rest;
+          continue;
+        }
+      }
+      const key = Object.keys(historyAttempt).find(k => k !== 'id');
+      if (!key) break;
+      const { [key]: _, ...rest } = historyAttempt;
+      historyAttempt = rest;
+    }
+    if (historyAttempt) {
+      const { error: last } = await db.insert('history', { id: item.id, status: 'completed' });
+      if (last && last.code !== '23505') {
+        historyError = last;
+      }
+    }
+    if (historyError) {
+      Toastify({ 
+        text: `❌ Gagal Simpan Riwayat: ${historyError.message} (Code: ${historyError.code})`, 
+        duration: 10000, 
+        style: { background: "#dc2626", borderRadius: "12px", fontWeight: "900" } 
+      }).showToast();
+      throw new Error(`Database Error (History): ${historyError.message}`);
+    }
+
+    // 2. Delete from antrian
+    const { error: deleteError } = await db.delete('antrian', { eq: { id: item.id } });
+    if (deleteError) {
+      console.error("Antrian Delete Error:", deleteError);
+      throw new Error(`Database Error (Antrian): ${deleteError.message}`);
+    }
+
+    // 3. Sync to CRO Table
+    try {
+      const croDataBase = {
+        id: Date.now(),
+        workOrderNo: String(item.id).substring(0, 15),
+        nama: finalItem.addedBy || 'Pelanggan Workshop',
+        telepon: finalItem.noTelp ? (parseInt(finalItem.noTelp.replace(/\D/g, '')) || 0) : 0,
+        vin: 0,
+        plat: finalItem.bk,
+        serviceAdvisor: finalItem.addedBy || '',
+        tipeMobil: finalItem.tipe,
+        deskripsi: `• ${finalItem.keluhan || 'Perbaikan Workshop'}`,
+        tanggalDatang: tanggalISO.split('-').reverse().join('-'),
+        status: 'Belum',
+        respon: '',
+        lampiran: '[]'
+      };
+      let croAttempt = { ...croDataBase };
+      for (let i = 0; i < 10; i++) {
+        const { error: ce } = await db.insert('cro', croAttempt);
+        if (!ce || ce.code === '23505') break;
+        if (ce.code !== '22P02') break;
+        const key = Object.keys(croAttempt).find(k => k !== 'id');
+        if (!key) break;
+        const { [key]: _, ...rest } = croAttempt;
+        croAttempt = rest;
+      }
+    } catch (e) {}
+
+    // 4. Notify customer
+    const plat = finalItem.bk || '';
+    const announceText = `${plat} telah selesai, mobil bisa diambil`;
+
+    fetch('/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        plat,
+        title: '✅ Kendaraan Selesai',
+        body: announceText,
+        url: '/customer'
+      })
+    }).catch(() => {});
+
+    // Optimistic remove + re-fetch
+    setQueue(prev => prev.filter(q => q.id !== item.id));
+    fetchQueueRef.current();
+    return finalItem;
+  };
+
   const handleComplete = async (item, force = false) => {
     if (isLoadingProcess) return;
 
@@ -1857,24 +2006,12 @@ const App = () => {
       const now = new Date();
       const nowISO = now.toISOString();
 
-      // Hitung sisa waktu (remaining) — jangan timpa estimasiDefault biar display konsisten
-      const tTime = parseInt(item.target_time || item.targetTime);
-      const estDef = parseInt(item.estimasiDefault) || 0;
-      const remainingAtComplete = tTime > 0 ? Math.max(0, Math.ceil((tTime - Date.now()) / 1000)) : estDef;
-
-      // Hitung lama pengerjaan aktual untuk riwayat
-      let elapsedSeconds = 0;
-      if (tTime > 0 && estDef > 0) {
-        elapsedSeconds = Math.max(0, estDef - remainingAtComplete);
-      }
-
-      // If cuci required → go to cuci queue instead of konfirmasi
-      // If cuci required → go to cuci queue instead of konfirmasi
+      // If cuci required → go to cuci queue instead of langsung selesai
       const isCuci = item.cuci_required === true || item.cuci_required === 'true' || item.cuci_required === 1 || item.cuci_required === '1' || item.cuci === true || item.cuci === 'true';
-      let finalStatus = 'menunggu_konfirmasi';
-      let cuciAdditions = {};
 
       if (isCuci) {
+        let finalStatus;
+        let cuciAdditions = {};
         const isAnyCarWashing = queue.some(q => q.status === 'sedang_dicuci' && q.id !== item.id);
         if (isAnyCarWashing) {
           finalStatus = 'menunggu_cuci';
@@ -1886,43 +2023,49 @@ const App = () => {
             targetTime: Date.now() + (cuciDurasi * 1000)
           };
         }
-      }
 
-      const updatePayload = {
-        status: finalStatus,
-        waktuSelesai: nowISO,
-        estimasiDefault: elapsedSeconds || remainingAtComplete,
-        elapsedSeconds: elapsedSeconds,
-        is_called: false,
-        ...(force && itemChecklist.length > 0 ? { checklist: itemChecklist } : {}),
-        ...cuciAdditions
-      };
+        const updatePayload = {
+          status: finalStatus,
+          waktuSelesai: nowISO,
+          ...cuciAdditions
+        };
 
-      const { error: updateError } = await db.update('antrian', updatePayload, { eq: { id: item.id } });
+        const { error: updateError } = await db.update('antrian', updatePayload, { eq: { id: item.id } });
 
-      if (updateError) {
-        if (updateError.code === 'PGRST204') {
-          delete updatePayload.elapsedSeconds;
-          delete updatePayload.cuci_mulai;
-          const { error: retryError } = await db.update('antrian', updatePayload, { eq: { id: item.id } });
-          if (retryError) throw retryError;
-        } else {
-          throw new Error(`Database Error (Update Antrian): ${updateError.message}`);
+        if (updateError) {
+          if (updateError.code === 'PGRST204') {
+            delete updatePayload.cuci_mulai;
+            const { error: retryError } = await db.update('antrian', updatePayload, { eq: { id: item.id } });
+            if (retryError) throw retryError;
+          } else {
+            throw new Error(`Database Error (Update Antrian): ${updateError.message}`);
+          }
         }
+
+        Toastify({
+          text: finalStatus === 'sedang_dicuci' ? `🚗 ${item.bk} selesai dikerjakan — Sedang dicuci 30 menit` : `🚗 ${item.bk} selesai dikerjakan — Menunggu antrian cuci`,
+          duration: 4000,
+          style: { background: "linear-gradient(135deg, #0d9488, #0f766e)", borderRadius: "12px", fontWeight: "900" }
+        }).showToast();
+
+        // Optimistic update + immediate re-fetch
+        setQueue(prev => prev.map(q =>
+          q.id === item.id ? { ...q, ...updatePayload } : q
+        ));
+      } else {
+        // TANPA cuci → langsung selesai, tanpa menunggu konfirmasi admin
+        await finalizeItem(item, {
+          status: 'completed',
+          ...(force && itemChecklist.length > 0 ? { checklist: itemChecklist } : {})
+        });
+
+        Toastify({
+          text: `✅ ${item.bk} selesai dikerjakan — unit sudah selesai`,
+          duration: 4000,
+          style: { background: "linear-gradient(135deg, #10b981, #059669)", borderRadius: "12px", fontWeight: "900" }
+        }).showToast();
       }
 
-      Toastify({
-        text: isCuci 
-          ? (finalStatus === 'sedang_dicuci' ? `🚗 ${item.bk} selesai dikerjakan — Sedang dicuci 30 menit` : `🚗 ${item.bk} selesai dikerjakan — Menunggu antrian cuci`) 
-          : `⏳ ${item.bk} selesai dikerjakan — Menunggu konfirmasi admin`,
-        duration: 4000,
-        style: { background: isCuci ? "linear-gradient(135deg, #0d9488, #0f766e)" : "linear-gradient(135deg, #f59e0b, #d97706)", borderRadius: "12px", fontWeight: "900" }
-      }).showToast();
-
-      // Optimistic update + immediate re-fetch
-      setQueue(prev => prev.map(q =>
-        q.id === item.id ? { ...q, ...updatePayload } : q
-      ));
       fetchQueueRef.current();
 
     } catch (err) {
@@ -1946,172 +2089,13 @@ const App = () => {
 
     setIsLoadingProcess(true);
     try {
-      const now = new Date();
-      const jakartaNow = new Date(now.getTime() + (7 * 3600000));
-
-      // Gunakan elapsedSeconds kalo ada (hasil dari timer countdown)
-      const elapsedSec = parseInt(item.elapsedSeconds) || 0;
-      let jarakWaktuStr = '-';
-      if (elapsedSec > 0) {
-        const j = Math.floor(elapsedSec / 3600);
-        const m = Math.floor((elapsedSec % 3600) / 60);
-        jarakWaktuStr = j > 0 ? `${j} jam ${m} menit` : `${m} menit`;
-      } else {
-        // Fallback: hitung dari id (waktu dibuat)
-        const itemIdNum = parseInt(item.id);
-        const waktuMasukMs = itemIdNum < 2000000000 ? itemIdNum * 1000 : itemIdNum;
-        const waktuMasukDate = new Date(waktuMasukMs);
-        const waktuSelesaiDate = item.waktuSelesai ? new Date(item.waktuSelesai) : now;
-        const selisihMs = waktuSelesaiDate.getTime() - waktuMasukDate.getTime();
-        const selisihMenit = Math.max(0, Math.round(selisihMs / 60000));
-        const jamKerja = Math.floor(selisihMenit / 60);
-        const menitKerja = selisihMenit % 60;
-        jarakWaktuStr = jamKerja > 0 ? `${jamKerja} jam ${menitKerja} menit` : `${menitKerja} menit`;
-      }
-
-      const namaBulan = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-      const bulanStr = namaBulan[now.getMonth()];
-      const tanggalISO = now.toISOString().split('T')[0];
-      const day = String(now.getDate()).padStart(2, '0');
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const year = now.getFullYear();
-      const tanggalIndo = `${day}-${month}-${year}`;
-
-      // 1. Insert into history
-      const checklist = Array.isArray(item.checklist) ? item.checklist : [];
-      let historyKeluhan = item.keluhan || '';
-      if (checklist.length > 0) {
-        const s = checklist.map(t => `${t.completed ? '✅' : '❌'} ${t.text}`).join('\n');
-        historyKeluhan = (historyKeluhan ? historyKeluhan + '\n\n' : '') + "--- CHECKLIST ---\n" + s;
-      }
-
-      // Hitung waktuMasuk dari item.id (timestamp creation)
-      const itemIdNum = parseInt(item.id);
-      const waktuMasukMs = itemIdNum < 2000000000 ? itemIdNum * 1000 : itemIdNum;
-      const waktuMasukISO = new Date(waktuMasukMs).toISOString();
-      // Pakai waktuSelesai dari item (disimpan pas mechanic klik selesai) atau now
-      const waktuSelesaiPakai = item.waktuSelesai || now.toISOString();
-
-      let historyAttempt = {
-        id: item.id, 
-        bk: item.bk || '', 
-        tipe: item.tipe || '',
-        keluhan: historyKeluhan, 
-        status: 'completed',
-        mechanicName: item.mechanicName || '',
-        category: item.category || 'Reguler',
-        addedBy: item.addedBy || user?.name || '',
-        checklist: item.checklist || [],
-        waktuSelesai: waktuSelesaiPakai,
-        targetTime: item.targetTime || 0,
-        elapsedSeconds: elapsedSec || 0,
-        estimasiDefault: item.estimasiDefault || 0,
-        Tanggal: tanggalIndo,
-        noTelp: item.noTelp || '',
-        jam: item.jam || null,
-        menginap_reason: item.menginap_reason || '',
-        pendingExtra: item.pendingExtra || null
-      };
-      let historyError = null;
-      for (let i = 0; i < 5; i++) {
-        const { error: e } = await db.insert('history', historyAttempt);
-        if (!e || e.code === '23505') { historyAttempt = null; historyError = null; break; }
-        historyError = e;
-        console.error("Gagal insert history (retry " + (i+1) + "):", e);
-        if (e.code === '22P02' && historyAttempt.bk !== undefined) {
-          const { bk: _, ...rest } = historyAttempt;
-          historyAttempt = rest;
-          continue;
-        }
-        if (e.code === 'PGRST204') {
-          const m = e.message.match(/'([^']+)'/);
-          const bad = m ? m[1] : null;
-          if (bad && historyAttempt[bad] !== undefined) {
-            const { [bad]: _, ...rest } = historyAttempt;
-            historyAttempt = rest;
-            continue;
-          }
-        }
-        const key = Object.keys(historyAttempt).find(k => k !== 'id');
-        if (!key) break;
-        const { [key]: _, ...rest } = historyAttempt;
-        historyAttempt = rest;
-      }
-      if (historyAttempt) {
-        const { error: last } = await db.insert('history', { id: item.id, status: 'completed' });
-        if (last && last.code !== '23505') {
-          historyError = last;
-        }
-      }
-      if (historyError) {
-        Toastify({ 
-          text: `❌ Gagal Simpan Riwayat: ${historyError.message} (Code: ${historyError.code})`, 
-          duration: 10000, 
-          style: { background: "#dc2626", borderRadius: "12px", fontWeight: "900" } 
-        }).showToast();
-        throw new Error(`Database Error (History): ${historyError.message}`);
-      }
-
-      // 2. Delete from antrian
-      const { error: deleteError } = await db.delete('antrian', { eq: { id: item.id } });
-      if (deleteError) {
-        console.error("Antrian Delete Error:", deleteError);
-        throw new Error(`Database Error (Antrian): ${deleteError.message}`);
-      }
-
-      // 3. Sync to CRO Table
-      try {
-        const croDataBase = {
-          id: Date.now(),
-          workOrderNo: String(item.id).substring(0, 15),
-          nama: item.addedBy || 'Pelanggan Workshop',
-          telepon: item.noTelp ? (parseInt(item.noTelp.replace(/\D/g, '')) || 0) : 0,
-          vin: 0,
-          plat: item.bk,
-          serviceAdvisor: item.addedBy || '',
-          tipeMobil: item.tipe,
-          deskripsi: `• ${item.keluhan || 'Perbaikan Workshop'}`,
-          tanggalDatang: tanggalISO.split('-').reverse().join('-'),
-          status: 'Belum',
-          respon: '',
-          lampiran: '[]'
-        };
-        let croAttempt = { ...croDataBase };
-        for (let i = 0; i < 10; i++) {
-          const { error: ce } = await db.insert('cro', croAttempt);
-          if (!ce || ce.code === '23505') break;
-          if (ce.code !== '22P02') break;
-          const key = Object.keys(croAttempt).find(k => k !== 'id');
-          if (!key) break;
-          const { [key]: _, ...rest } = croAttempt;
-          croAttempt = rest;
-        }
-      } catch (e) {}
-
-      // 4. Notify customer
-      const plat = item.bk || '';
-      const announceText = `${plat} telah selesai, mobil bisa diambil`;
-
-      fetch('/api/notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          plat,
-          title: '✅ Kendaraan Selesai',
-          body: announceText,
-          url: '/customer'
-        })
-      }).catch(() => {});
+      await finalizeItem(item);
 
       Toastify({
         text: `✅ Konfirmasi ${item.bk} berhasil — Data dipindahkan ke riwayat`,
         duration: 4000,
         style: { background: "linear-gradient(135deg, #10b981, #059669)", borderRadius: "12px", fontWeight: "900" }
       }).showToast();
-
-      // Optimistic remove + re-fetch
-      setQueue(prev => prev.filter(q => q.id !== item.id));
-      fetchQueueRef.current();
 
     } catch (err) {
       console.error("Confirm Completion Error:", err);
@@ -2400,7 +2384,7 @@ const App = () => {
 
       {/* Render Pages - Full screen scrollable area */}
       <main className={`flex-1 flex flex-col overflow-y-auto overflow-x-hidden ${showNavbar ? 'md:ml-[220px]' : ''}`}>
-      <div key={currentPage} className={`w-full flex-1 min-h-0 ${animDir === 'forward' ? 'animate-slideInRight' : 'animate-slideInLeft'}`}>
+      <div key={currentPage} className={`w-full flex-1 min-h-0 flex flex-col ${animDir === 'forward' ? 'animate-slideInRight' : 'animate-slideInLeft'}`}>
       {currentPage === 'display' && user?.role?.toLowerCase() !== 'customer' && (
         <DisplayBoard
           processedQueue={processedQueue}
@@ -2432,6 +2416,7 @@ const App = () => {
       {currentPage === 'admin' && <AdminPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={fullProcessedQueue} rawHistory={rawHistory} deleteItem={deleteItem} clearQueue={clearQueue} editItem={editItem} handleSave={handleSave} handleCancelEdit={handleCancelEdit} formData={formData} setFormData={setFormData} isEditing={isEditing} setIsEditing={setIsEditing} errorMessage={errorMessage} isLoadingProcess={isLoadingProcess} formatTime={formatTime} handleComplete={handleComplete} handleConfirmCompletion={handleConfirmCompletion} handleSetOvernight={handleSetOvernight} handleCancelOvernight={handleCancelOvernight} breakSettings={breakSettings} setBreakSettings={setBreakSettings} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} playNotificationSound={playNotificationSound} handleCallQueue={handleCallQueue} activeTab="dashboard" callCooldown={callCooldownRef.current} onApproveExtension={handleApproveExtension} onRejectExtension={handleRejectExtension} handleStartCuci={handleStartCuci} handleCompleteCuci={handleCompleteCuci} showJenis={adminShowJenisRef.current} showChecklist={adminShowChecklistRef.current} />}
       {currentPage === 'admin-booking' && <AdminBookingPanel />}
       {currentPage === 'admin-wo' && <WarrantyWorkOrderPage />}
+      {currentPage === 'admin-estimasi' && user?.role === 'admin' && <EstimasiPanel />}
       {currentPage === 'mechanic' && (
         <MechanicPanel
           user={user}
@@ -2513,11 +2498,14 @@ const App = () => {
       {currentPage === 'manager-wo' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="wo_tracking" />}
       {currentPage === 'manager-laporan-invoice' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="laporan_invoice" />}
       {currentPage === 'manager-laporan-wo' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="laporan_wo" />}
+      {currentPage === 'manager-keuntungan-sparepart' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="sparepart_profit" />}
       {currentPage === 'manager-jasa-pengerjaan' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="work_item_service" />}
+      {currentPage === 'manager-jasa-pengerjaan' && user?.role === 'admin' && <WorkItemServicePage />}
       {currentPage === 'manager-vehicles' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="vehicles" />}
       {currentPage === 'manager-cro' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="cro_history" />}
       {currentPage === 'manager-holidays' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="holidays" />}
       {currentPage === 'manager-staff' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="staff" />}
+      {currentPage === 'manager-keuntungan-staff' && user?.role === 'manager' && <ManagerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} queue={queue} rawHistory={rawHistory} setCurrentPage={navigate} breakSettings={breakSettings} setBreakSettings={setBreakSettings} setIsNavbarVisible={() => {}} activeTab="staff_revenue" />}
       {currentPage === 'owner' && user?.role === 'owner' && (
         <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="monitoring" />
       )}

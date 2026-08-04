@@ -456,7 +456,7 @@ const WorkItemServicePage = () => {
             </div>
 
             {/* SEARCH 2: Fast Part Code API search */}
-            <div className="flex items-center gap-1.5 flex-1 min-w-[280px] max-w-sm">
+            <div className="flex items-center gap-1.5 flex-1 min-w-[220px] sm:min-w-[280px] max-w-sm w-full sm:w-auto">
               <div className="relative flex-1">
                 <Package size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-600" />
                 <input
@@ -558,7 +558,7 @@ const WorkItemServicePage = () => {
         </div>
 
         {/* SUMMARY CARDS */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 p-4 shrink-0">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 shrink-0">
           {[
             { label: 'Total Item Jasa', value: data.length, icon: Wrench, color: 'text-zinc-700', bg: 'bg-zinc-50' },
             { label: 'Kategori Kendaraan', value: kategoriList.length, icon: Car, color: 'text-zinc-700', bg: 'bg-zinc-50' },
@@ -731,7 +731,7 @@ const WorkItemServicePage = () => {
       {/* DETAIL & SPAREPART MODAL */}
       {selectedDetail && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-xl w-full p-6 flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-xl w-full p-4 sm:p-6 flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between pb-4 border-b border-zinc-100">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-zinc-900 text-white flex items-center justify-center font-bold">
@@ -751,7 +751,7 @@ const WorkItemServicePage = () => {
             </div>
 
             <div className="py-4 space-y-4 overflow-y-auto custom-scrollbar flex-1">
-              <div className="grid grid-cols-2 gap-3 bg-zinc-50 p-3 rounded-xl border border-zinc-100 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-zinc-50 p-3 rounded-xl border border-zinc-100 text-xs">
                 <div>
                   <span className="text-[10px] font-bold text-zinc-400 block uppercase">Nama Pekerjaan</span>
                   <span className="font-bold text-zinc-900">{selectedDetail.workItemName || selectedDetail.workItemLocalName || '-'}</span>

@@ -29,6 +29,7 @@ import {
   MessageCircle,
   Home,
   RefreshCw,
+  Receipt,
 } from 'lucide-react';
 
 /**
@@ -40,6 +41,9 @@ export const NAV_CONFIG = {
     { id: 'admin-dashboard', icon: LayoutDashboard, label: 'Operations', page: 'admin', ariaLabel: 'Admin Operations' },
     { id: 'admin-booking', icon: Calendar, label: 'Daftar Booking', page: 'admin-booking', ariaLabel: 'Daftar Booking' },
     { id: 'admin-wo', icon: ShieldCheck, label: 'Work Order', page: 'admin-wo', ariaLabel: 'Work Order' },
+    { id: 'admin-dms-order', icon: FileText, label: 'DMS Order', page: 'sparepart-dms-order', ariaLabel: 'DMS Order' },
+    { id: 'admin-jasa-pengerjaan', icon: Wrench, label: 'Jasa Pengerjaan', page: 'manager-jasa-pengerjaan', ariaLabel: 'Jasa Pengerjaan Mobil' },
+    { id: 'admin-estimasi', icon: Receipt, label: 'Estimasi', page: 'admin-estimasi', ariaLabel: 'Estimasi Sparepart' },
     { id: 'sa-booking', icon: Calendar, label: 'SA Booking', page: 'sa-booking', ariaLabel: 'SA Booking' },
   ],
   cro: [
@@ -55,7 +59,9 @@ export const NAV_CONFIG = {
     { id: 'manager-performance', icon: LayoutDashboard, label: 'Dashboard Utama', page: 'manager', ariaLabel: 'Dashboard Utama' },
     { id: 'manager-laporan-invoice', icon: FileText, label: 'Laporan Invoice', page: 'manager-laporan-invoice', ariaLabel: 'Laporan Invoice' },
     { id: 'manager-laporan-wo', icon: FileText, label: 'Laporan Work Order', page: 'manager-laporan-wo', ariaLabel: 'Laporan Work Order' },
+    { id: 'manager-keuntungan-sparepart', icon: DollarSign, label: 'Keuntungan Sparepart', page: 'manager-keuntungan-sparepart', ariaLabel: 'Keuntungan Sparepart' },
     { id: 'manager-jasa-pengerjaan', icon: Wrench, label: 'Jasa Pengerjaan', page: 'manager-jasa-pengerjaan', ariaLabel: 'Jasa Pengerjaan Mobil' },
+    { id: 'manager-keuntungan-staff', icon: TrendingUp, label: 'Kinerja Staff', page: 'manager-keuntungan-staff', ariaLabel: 'Kinerja Staff' },
     { id: 'manager-staff', icon: Users, label: 'Manajemen Staff', page: 'manager-staff', ariaLabel: 'Manajemen Staff' },
     { id: 'cro-csi', icon: BarChart3, label: 'CSI Result', page: 'cro-csi', ariaLabel: 'CSI Result' },
     { id: 'cro-customers', icon: Users, label: 'CSI Customer Review', page: 'cro-customers', ariaLabel: 'CSI Customer Review' },

@@ -833,7 +833,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
     };
 
     return (
-        <div className="flex flex-col w-full h-[calc(100vh-80px)] bg-white relative overflow-hidden">
+        <div className="flex flex-col w-full h-full flex-1 bg-white relative overflow-hidden">
             {isLoading && (
                 <div className="fixed inset-0 bg-black/50 z-[9999] flex flex-col justify-center items-center">
                     <p className="text-white font-medium text-lg">{loadingText}</p>

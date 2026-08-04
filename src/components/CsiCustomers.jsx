@@ -105,11 +105,12 @@ const PRODUCT_OPTIONS = {
 };
 
 export default function CsiCustomers() {
+  const today = new Date();
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [dealerFilter, setDealerFilter] = useState('optef3IAAh');
-  const [monthFilter, setMonthFilter] = useState('7');
+  const [monthFilter, setMonthFilter] = useState(String(today.getMonth() + 1));
   const [selectedReview, setSelectedReview] = useState(null);
   const [error, setError] = useState(null);
 

@@ -1539,9 +1539,10 @@ async function handleWorkItemCategories(req, res) {
         const status = req.query.status || 1;
         const sortField = req.query.sortField || 'workItemCode';
         const search = (req.query.search || '').trim().toLowerCase();
+        const keyword = (req.query.keyword || '').trim().toLowerCase();
         const partCode = (req.query.partCode || req.query.PartCode || '').trim();
 
-        const cacheKey = `wic_${pageIndex}_${pageSize}_${status}_${sortField}_${search}_${partCode}`;
+        const cacheKey = `wic_${pageIndex}_${pageSize}_${status}_${sortField}_${search}_${partCode}_${keyword}`;
         const cached = workItemCacheStore.get(cacheKey);
         if (cached && (Date.now() - cached.timestamp < WORK_ITEM_CACHE_TTL)) {
             return res.status(200).json(cached.json);
@@ -1704,6 +1705,16 @@ async function handleWorkItemCategories(req, res) {
                             item.idmsProductCategoryCode
                         ].filter(Boolean).join(' ').toLowerCase();
                         return hay.includes(search);
+                    });
+                }
+
+                if (keyword) {
+                    filtered = filtered.filter(item => {
+                        const hay = [
+                            item.workItemCode, item.workItemName, item.workItemLocalName,
+                            item.workItemEnglishName
+                        ].filter(Boolean).join(' ').toLowerCase();
+                        return hay.includes(keyword);
                     });
                 }
 
@@ -2250,26 +2261,13 @@ export default async function handler(req, res) {
                 };
                 const DMS_BASE = 'https://dms.chery.co.id/parts/api/v1/partSaleOrders';
 
-                let directSearchOrders = [];
-                if (q) {
-                    const queryParams = [`code=${encodeURIComponent(q)}`, `orderCode=${encodeURIComponent(q)}`, `partSaleOrderCode=${encodeURIComponent(q)}`, `chassisNo=${encodeURIComponent(q)}`, `vin=${encodeURIComponent(q)}`];
-                    for (const param of queryParams) {
-                        try {
-                            const sResp = await fetchWithHttps(`${DMS_BASE}/forCurrentUser?pageIndex=0&pageSize=50&isBuyer=true&${param}`, opts);
-                            if (sResp.status === 401 || sResp.status === 403) {
-                                cachedCookie = null;
-                                attempts++;
-                                break;
-                            }
-                            const sRes = await sResp.json();
-                            const sContent = (sRes?.payload || sRes)?.content || [];
-                            if (Array.isArray(sContent) && sContent.length > 0) {
-                                directSearchOrders.push(...sContent);
-                            }
-                        } catch (e) {}
-                    }
-                    if (cachedCookie === null && attempts < 2) continue;
-                }
+                const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, '');
+                const qNorm = norm(q);
+                const orderMatches = (o) => {
+                    if (!o) return false;
+                    const orderStr = Object.values(o).filter(v => typeof v === 'string' || typeof v === 'number').join(' ');
+                    return orderStr.toLowerCase().includes(q) || norm(orderStr).includes(qNorm);
+                };
 
                 const countResp = await fetchWithHttps(`${DMS_BASE}/forCurrentUser?pageIndex=0&pageSize=50&isBuyer=true`, opts);
                 if (countResp.status === 401 || countResp.status === 403) {
@@ -2280,17 +2278,60 @@ export default async function handler(req, res) {
                 const countResult = await countResp.json();
                 const payload = countResult?.payload || countResult || {};
                 const totalPages = payload.totalPages || 1;
-                let orders = Array.isArray(payload.content) ? [...payload.content] : [];
+                const orders = [];
+                const seenIds = new Set();
+                const addOrder = (o) => {
+                    if (!o || !o.id || seenIds.has(o.id)) return;
+                    seenIds.add(o.id);
+                    orders.push(o);
+                };
+                (Array.isArray(payload.content) ? payload.content : []).forEach(addOrder);
 
-                directSearchOrders.forEach(ds => {
-                    if (!orders.some(o => o && o.id === ds.id)) {
-                        orders.push(ds);
+                const matchedIds = new Set();
+                let unmatchedOrders = [];
+                const considerOrder = (o) => {
+                    if (orderMatches(o)) matchedIds.add(o.id);
+                    else unmatchedOrders.push(o);
+                };
+                orders.forEach(considerOrder);
+
+                const detailChecked = new Set();
+                const DETAIL_BATCH = 15;
+                let detailBudget = 100;
+                const checkDetails = async () => {
+                    const candidates = unmatchedOrders.filter(o => !detailChecked.has(o.id));
+                    while (detailBudget > 0 && candidates.length > 0 && matchedIds.size === 0) {
+                        const batch = candidates.splice(0, Math.min(DETAIL_BATCH, detailBudget));
+                        batch.forEach(o => detailChecked.add(o.id));
+                        detailBudget -= batch.length;
+                        const detailResults = await Promise.allSettled(
+                            batch.map(o =>
+                                fetchWithHttps(`${DMS_BASE}/${o.id}`, opts).then(r => r.json())
+                            )
+                        );
+                        detailResults.forEach((r) => {
+                            if (r.status === 'fulfilled') {
+                                const d = r.value?.payload || r.value;
+                                if (!d || !d.id) return;
+                                const dStr = JSON.stringify(d).toLowerCase();
+                                if (dStr.includes(q) || norm(dStr).includes(qNorm)) {
+                                    matchedIds.add(d.id);
+                                }
+                            }
+                        });
                     }
-                });
+                    return matchedIds.size > 0;
+                };
 
-                if (totalPages > 1) {
+                // Check details of the already-collected orders first, so if the match is
+                // on the current page we stop right away without scanning further pages.
+                if (matchedIds.size === 0 && q) await checkDetails();
+
+                // Scan the remaining pages in batches, stopping as soon as a match is
+                // found (field or detail), so we never walk through every page.
+                if (matchedIds.size === 0 && totalPages > 1) {
                     const MAX_PAGES = Math.min(totalPages, 20);
-                    for (let p = 1; p < MAX_PAGES; p += 5) {
+                    for (let p = 1; p < MAX_PAGES && matchedIds.size === 0; p += 5) {
                         const pageBatch = [];
                         for (let j = p; j < Math.min(p + 5, MAX_PAGES); j++) {
                             pageBatch.push(j);
@@ -2306,50 +2347,13 @@ export default async function handler(req, res) {
                                 const pContent = (r.value?.payload || r.value)?.content || [];
                                 if (Array.isArray(pContent)) {
                                     pContent.forEach(item => {
-                                        if (item && !orders.some(o => o && o.id === item.id)) {
-                                            orders.push(item);
-                                        }
+                                        addOrder(item);
+                                        considerOrder(item);
                                     });
                                 }
                             }
                         });
-                    }
-                }
-
-                const matchedIds = new Set();
-                const unmatched = [];
-
-                orders.forEach(o => {
-                    if (!o) return;
-                    const orderStr = Object.values(o).filter(v => typeof v === 'string' || typeof v === 'number').join(' ');
-                    if (!q || orderStr.toLowerCase().includes(q)) {
-                        matchedIds.add(o.id);
-                    } else {
-                        unmatched.push(o);
-                    }
-                });
-
-                if (q && unmatched.length > 0) {
-                    const BATCH_SIZE = 15;
-                    const MAX_DETAIL_FETCHES = 100;
-                    const toFetch = unmatched.slice(0, MAX_DETAIL_FETCHES);
-                    for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
-                        const batch = toFetch.slice(i, i + BATCH_SIZE);
-                        const detailResults = await Promise.allSettled(
-                            batch.map(o =>
-                                fetchWithHttps(`${DMS_BASE}/${o.id}`, opts).then(r => r.json())
-                            )
-                        );
-                        detailResults.forEach((r) => {
-                            if (r.status === 'fulfilled') {
-                                const d = r.value?.payload || r.value;
-                                if (!d || !d.id) return;
-                                const dStr = JSON.stringify(d).toLowerCase();
-                                if (dStr.includes(q)) {
-                                    matchedIds.add(d.id);
-                                }
-                            }
-                        });
+                        if (matchedIds.size === 0) await checkDetails();
                     }
                 }
 
@@ -2363,6 +2367,7 @@ export default async function handler(req, res) {
                 }));
 
                 data = { payload: { content: withDetails, totalPages: 1, totalElements: withDetails.length } };
+                break;
             } else if (endpoint === 'dms-part-stocks') {
                 targetUrl = `https://dms.chery.co.id/dms/parts/api/v1/partStocks/forRetail?pageIndex=${pageIndex}&pageSize=${pageSize}`;
                 if (code) targetUrl += `&partCode=${encodeURIComponent(code)}`;
@@ -2382,7 +2387,7 @@ export default async function handler(req, res) {
                 targetUrl = `https://dms.chery.co.id/parts/api/v1/partSalesProperties/forCurrentUser?pageSize=${pageSize}&status=${status}&pageIndex=${pageIndex}`;
                 if (code) targetUrl += `&code=${encodeURIComponent(code)}`;
                 if (name) targetUrl += `&name=${encodeURIComponent(name)}`;
-                if (req.url.includes('/search')) {
+                if (req.url?.includes('/search')) {
                    const q = req.query.q || '';
                    if (q) targetUrl += `&code=${encodeURIComponent(q)}`;
                 }

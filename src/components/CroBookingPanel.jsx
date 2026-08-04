@@ -654,23 +654,21 @@ export default function CroBookingPanel({ user, holidays: propsHolidays }) {
                 <div className="flex-1 min-h-0 overflow-hidden">
                     <SupabaseBookingList refreshTrigger={refreshTrigger} slotConfig={slotConfig} allBookings={bookings} />
                 </div>
-            )}
-
-            {/* Import Modal */}
+            )}            {/* Import Modal */}
             {showImport && (
-                <div className="fixed inset-0 bg-white z-[999] flex flex-col animate-fade-in overflow-hidden">
-                    <div className="flex-1 relative flex flex-col overflow-hidden">
-                        <button onClick={() => setShowImport(false)} className="absolute top-6 right-8 p-3 bg-zinc-100 hover:bg-black text-black hover:text-white rounded-2xl transition-all z-[1000] shadow-sm">
-                            <X size={24} />
+                <div className="fixed inset-0 bg-zinc-950/60 backdrop-blur-sm z-[999] flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+                    <div className="bg-white rounded-3xl border border-zinc-200 shadow-2xl w-full max-w-5xl h-[90vh] md:h-[85vh] flex flex-col overflow-hidden relative">
+                        <button onClick={() => setShowImport(false)} className="absolute top-4 right-4 p-2 bg-zinc-100 hover:bg-black text-black hover:text-white rounded-xl transition-all z-[1000] shadow-sm">
+                            <X size={18} />
                         </button>
 
-                        <div className="px-4 py-4 md:px-8 md:py-6 lg:px-12 lg:py-10 flex-1 flex flex-col overflow-hidden">
+                        <div className="p-4 sm:p-6 md:p-8 flex-1 flex flex-col overflow-hidden">
                             <h2 className="text-xl font-black text-zinc-900 mb-1">Import Booking</h2>
-                            <p className="text-xs font-bold text-zinc-400 mb-6">Paste data dari Excel (tab-separated)</p>
+                            <p className="text-xs font-bold text-zinc-400 mb-4">Paste data dari Excel (tab-separated)</p>
 
                             <div className="flex-1 flex flex-col lg:flex-row gap-6 overflow-hidden">
                                 {/* Left: Input */}
-                                <div className="lg:w-1/2 flex flex-col gap-4">
+                                <div className="lg:w-1/2 flex flex-col gap-4 overflow-y-auto">
                                     <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4">
                                         <h3 className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-2">Urutan Kolom (tab-separated)</h3>
                                         <div className="text-[10px] font-mono font-bold text-zinc-700 bg-white border border-zinc-200 rounded-xl p-3 leading-relaxed">
@@ -681,7 +679,7 @@ export default function CroBookingPanel({ user, holidays: propsHolidays }) {
 
                                     <textarea value={importText} onChange={e => { setImportText(e.target.value); parseImportRows(e.target.value); }}
                                         placeholder={`11/07/2026\t08:30\tCHERY C5\tBL 1755 DN\tDHARA AFRISSA\tService 15.000km, pasang part dan pentil\t\tSA\t895-0543-0261`}
-                                        className="w-full flex-1 min-h-[200px] bg-zinc-50 border-2 border-zinc-200 rounded-2xl p-4 text-xs font-mono font-bold text-zinc-900 focus:border-black focus:bg-white outline-none transition-all resize-none"
+                                        className="w-full flex-1 min-h-[150px] bg-zinc-50 border-2 border-zinc-200 rounded-2xl p-4 text-xs font-mono font-bold text-zinc-900 focus:border-black focus:bg-white outline-none transition-all resize-none"
                                     />
 
                                     <div className="flex items-center gap-2 text-[9px] font-bold text-zinc-400">
@@ -701,7 +699,7 @@ export default function CroBookingPanel({ user, holidays: propsHolidays }) {
                                 </div>
 
                                 {/* Right: Preview */}
-                                <div className="lg:w-1/2 flex flex-col gap-4">
+                                <div className="lg:w-1/2 flex flex-col gap-4 overflow-hidden">
                                     <h3 className="text-[9px] font-black uppercase tracking-widest text-zinc-500 flex items-center gap-2">
                                         <CheckIcon size={12} className="text-emerald-500" />
                                         Preview ({parsedRows.filter(r => r._valid).length} valid)
@@ -736,7 +734,7 @@ export default function CroBookingPanel({ user, holidays: propsHolidays }) {
                                     </div>
 
                                     <button onClick={handleImport} disabled={isImporting || parsedRows.filter(r => r._valid).length === 0}
-                                        className="w-full bg-zinc-900 hover:bg-black disabled:bg-zinc-200 text-white disabled:text-zinc-400 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl shadow-zinc-200 transition-all flex items-center justify-center gap-3 active:scale-95"
+                                        className="w-full bg-zinc-900 hover:bg-black disabled:bg-zinc-200 text-white disabled:text-zinc-400 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl shadow-zinc-200 transition-all flex items-center justify-center gap-3 active:scale-95"
                                     >
                                         {isImporting ? (
                                             <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Importing...</>
@@ -753,15 +751,15 @@ export default function CroBookingPanel({ user, holidays: propsHolidays }) {
 
             {/* Create Booking Modal */}
             {isModalOpen && (
-                <div className="fixed inset-0 bg-white z-[999] flex flex-col animate-fade-in overflow-hidden">
-                    <div className="flex-1 relative flex flex-col overflow-hidden">
-                        <button onClick={resetModal} className="absolute top-6 right-8 p-3 bg-zinc-100 hover:bg-black text-black hover:text-white rounded-2xl transition-all z-[1000] shadow-sm">
-                            <X size={24} />
+                <div className="fixed inset-0 bg-zinc-950/60 backdrop-blur-sm z-[999] flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+                    <div className="bg-white rounded-3xl border border-zinc-200 shadow-2xl w-full max-w-5xl h-[90vh] md:h-[85vh] flex flex-col overflow-hidden relative">
+                        <button onClick={resetModal} className="absolute top-4 right-4 p-2 bg-zinc-100 hover:bg-black text-black hover:text-white rounded-xl transition-all z-[1000] shadow-sm">
+                            <X size={18} />
                         </button>
 
-                        <div className="px-4 py-3 md:px-6 md:py-4 lg:px-8 lg:py-4 flex-1 flex flex-col overflow-hidden">
+                        <div className="p-4 sm:p-6 flex-1 flex flex-col overflow-hidden">
                             {/* Step indicator */}
-                            <div className="mb-3 flex items-center gap-4 border-b border-zinc-100 pb-2 shrink-0">
+                            <div className="mb-4 flex items-center gap-4 border-b border-zinc-100 pb-3 shrink-0">
                                 <div className="flex items-center gap-2">
                                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black ${step === 'search' ? 'bg-black text-white' : 'bg-green-500 text-white'}`}>1</div>
                                     <span className={`text-xs font-black uppercase tracking-widest ${step === 'search' ? 'text-zinc-900' : 'text-green-600'}`}>Cari Kendaraan</span>

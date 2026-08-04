@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Search, RefreshCw, AlertCircle, Clock, FileText, Wrench, Filter, X, ChevronLeft, ChevronRight,
-  Car, User, ChevronDown, ChevronUp, DollarSign, Layers, CheckCircle2, TrendingUp, ShieldCheck, Zap, Star, Activity
+  Car, User, ChevronDown, ChevronUp, DollarSign, Layers, CheckCircle2, TrendingUp, ShieldCheck, Zap, Star, Activity, FileDown
 } from 'lucide-react';
 import {
   getStatusStyle, getKategoriStyle, formatDate, formatKm, formatRp
 } from '../utils/warrantyConfig';
 import { WorkOrderDetailView } from './WorkOrderReportPage';
 import { fetchWithCache, getCache } from '../utils/dataCache';
+import * as XLSX from 'xlsx';
+import Toastify from 'toastify-js';
 
 // Helper to calculate YYYY-MM-DD string with optional day offset
 function getFormattedDate(daysAgo = 0) {
@@ -20,7 +22,7 @@ function getFormattedDate(daysAgo = 0) {
 function isRowInSelectedRange(row, fromStr, toStr) {
   if (!fromStr && !toStr) return true;
 
-  const rawDate = row.waktu_masuk || row.created_at;
+  const rawDate = row.waktu_selesai || row.last_update || row.updated_at || row.created_at;
   if (!rawDate) return true;
 
   let dateObj = new Date(rawDate);
@@ -173,16 +175,25 @@ export default function InvoiceReportPage() {
           count: 0,
           totalLaborCharge: 0,
           totalSparePart: 0,
+          totalSO: 0,
           grandTotal: 0
         };
       }
 
       categoriesMap[kat].count += 1;
 
+      // Helper to parse currency strings from DMS
+      const parseRpVal = (val) => {
+        if (typeof val === 'number') return val;
+        if (!val) return 0;
+        return parseFloat(String(val).replace(/[^0-9]/g, '')) || 0;
+      };
+
       // Extract details if available, or fall back to server pre-calculated values
       const detail = invoiceDetailsMap[row.id_wo];
       let lcTotal = 0;
       let partTotal = 0;
+      let soTotal = parseRpVal(row.sub_order);
 
       if (detail) {
         lcTotal = (detail.pekerjaanSummary?.total || 0) || (detail.pekerjaan || []).reduce((s, p) => s + (p.total || p.sub_total || 0), 0);
@@ -190,20 +201,23 @@ export default function InvoiceReportPage() {
       } else {
         lcTotal = row.lcVal ?? (parseFloat(row.total_jasa || row.jasa || row.biaya_jasa || 0) || 0);
         partTotal = row.partVal ?? (parseFloat(row.total_part || row.sparepart || row.biaya_part || 0) || 0);
-        
-        const totalBiaya = row.subTotalVal ?? (parseFloat(row.total_biaya || row.grand_total || row.total || 0) || 0);
-        if (lcTotal === 0 && partTotal === 0 && totalBiaya > 0) {
-          lcTotal = totalBiaya;
-        }
       }
 
-      const rowSubtotal = lcTotal + partTotal;
+      // Do not count internal IOB financial values
+      if (kat === 'IOB') {
+        lcTotal = 0;
+        partTotal = 0;
+        soTotal = 0;
+      }
+
+      const rowSubtotal = lcTotal + partTotal + soTotal;
       const rowDpp = rowSubtotal;
       const rowPpn = row.ppnVal ?? Math.round(rowDpp * 0.11);
       const rowGrandTotal = row.grandTotalVal ?? (rowDpp + rowPpn);
 
-      categoriesMap[kat].totalLaborCharge += lcTotal;
+      categoriesMap[kat].totalLaborCharge += (lcTotal + soTotal); // Sum SO directly into Labor Charge (LC)
       categoriesMap[kat].totalSparePart += partTotal;
+      categoriesMap[kat].totalSO += soTotal;
       categoriesMap[kat].grandTotal += rowGrandTotal;
     });
 
@@ -212,15 +226,21 @@ export default function InvoiceReportPage() {
 
   // Global Financial Totals across all Closed Invoices
   const globalFinancials = useMemo(() => {
-    const totalCount = masterClosedList.length;
-    const totalLaborCharge = categoryFinancials.reduce((s, c) => s + c.totalLaborCharge, 0);
-    const totalSparePart = categoryFinancials.reduce((s, c) => s + c.totalSparePart, 0);
-    const grandTotal = categoryFinancials.reduce((s, c) => s + c.grandTotal, 0);
+    const nonIobList = masterClosedList.filter(row => {
+      const kat = (row.kategori || row.no_wo?.split('-')?.[0] || 'LAINNYA').toUpperCase().trim();
+      return kat !== 'IOB';
+    });
+    const totalCount = nonIobList.length;
+    const totalLaborCharge = categoryFinancials.filter(c => c.kategori !== 'IOB').reduce((s, c) => s + c.totalLaborCharge, 0);
+    const totalSparePart = categoryFinancials.filter(c => c.kategori !== 'IOB').reduce((s, c) => s + c.totalSparePart, 0);
+    const totalSO = categoryFinancials.filter(c => c.kategori !== 'IOB').reduce((s, c) => s + (c.totalSO || 0), 0);
+    const grandTotal = categoryFinancials.filter(c => c.kategori !== 'IOB').reduce((s, c) => s + c.grandTotal, 0);
 
     return {
       totalCount,
       totalLaborCharge,
       totalSparePart,
+      totalSO,
       grandTotal
     };
   }, [masterClosedList, categoryFinancials]);
@@ -233,11 +253,70 @@ export default function InvoiceReportPage() {
     return displayFilteredData.slice(startIdx, startIdx + pageSize);
   }, [displayFilteredData, page, pageSize]);
 
+  const handleExportExcel = () => {
+    try {
+      const parseRpVal = (val) => {
+        if (typeof val === 'number') return val;
+        if (!val) return 0;
+        return parseFloat(String(val).replace(/[^0-9]/g, '')) || 0;
+      };
+
+      const dataToExport = displayFilteredData
+        .filter(row => {
+          const kat = (row.kategori || row.no_wo?.split('-')?.[0] || 'LAINNYA').toUpperCase().trim();
+          return kat !== 'IOB';
+        })
+        .map((row, i) => {
+          const detail = invoiceDetailsMap[row.id_wo];
+          let lcVal = 0;
+          let partVal = 0;
+          let soVal = parseRpVal(row.sub_order);
+
+          if (detail) {
+            lcVal = (detail.pekerjaanSummary?.total || 0) || (detail.pekerjaan || []).reduce((s, p) => s + (p.total || p.sub_total || 0), 0);
+            partVal = (detail.partsSummary?.sub_total || 0) || (detail.parts || []).reduce((s, p) => s + (p.sub_total || p.total || 0), 0);
+          } else {
+            lcVal = row.lcVal ?? (parseFloat(row.total_jasa || row.jasa || row.biaya_jasa || 0) || 0);
+            partVal = row.partVal ?? (parseFloat(row.total_part || row.sparepart || row.biaya_part || 0) || 0);
+          }
+
+          const subTotalVal = lcVal + partVal + soVal;
+          const ppnVal = row.ppnVal ?? Math.round(subTotalVal * 0.11);
+          const grandTotalVal = row.grandTotalVal ?? (subTotalVal + ppnVal);
+
+          return {
+            'No.': i + 1,
+            'No. Invoice / WO': row.no_wo || '-',
+            'Kategori': row.kategori || '-',
+            'Pelanggan': row.nama_pelanggan || '-',
+            'No. Polisi': row.no_polisi || '-',
+            'Kendaraan': row.nama_kendaraan || '-',
+            'Waktu Closed': row.waktu_selesai || row.last_update || '-',
+            'Sub Order (SO)': soVal,
+            'Labor Charge (LC)': lcVal,
+            'Spare Part': partVal,
+            'PPN (11%)': ppnVal,
+            'Grand Total': grandTotalVal
+          };
+        });
+
+      const ws = XLSX.utils.json_to_sheet(dataToExport);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Invoices Closed');
+      
+      const fileName = `Laporan_Invoice_Closed_${fromDate || 'All'}_to_${toDate || 'All'}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      Toastify({ text: '✅ Berhasil mengekspor Laporan Invoice!', style: { background: '#10b981' } }).showToast();
+    } catch (e) {
+      Toastify({ text: `❌ Gagal mengekspor: ${e.message}`, style: { background: 'red' } }).showToast();
+    }
+  };
+
   return (
     <div className="w-full min-h-screen p-3 sm:p-5 flex flex-col space-y-5 bg-zinc-100 overflow-y-auto">
 
-      {/* 4 TOP SUMMARY METRIC CARDS */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 5 TOP SUMMARY METRIC CARDS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Total Invoice Closed</span>
@@ -253,7 +332,16 @@ export default function InvoiceReportPage() {
             <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600"><Wrench size={18} /></div>
           </div>
           <p className="text-2xl font-black text-blue-600">{formatRp(globalFinancials.totalLaborCharge)}</p>
-          <p className="text-[10px] text-zinc-400 font-bold mt-1 uppercase">Pendapatan Jasa Pekerjaan</p>
+          <p className="text-[10px] text-zinc-400 font-bold mt-1 uppercase">Jasa Pekerjaan + SO</p>
+        </div>
+
+        <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Total SO (Sub Order)</span>
+            <div className="w-9 h-9 bg-orange-50 rounded-xl flex items-center justify-center text-orange-600"><FileText size={18} /></div>
+          </div>
+          <p className="text-2xl font-black text-orange-600">{formatRp(globalFinancials.totalSO)}</p>
+          <p className="text-[10px] text-zinc-400 font-bold mt-1 uppercase">Pekerjaan Sub Order</p>
         </div>
 
         <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-sm">
@@ -284,8 +372,8 @@ export default function InvoiceReportPage() {
           <span className="text-[10px] font-bold text-zinc-400">IFS, IKC, EUR, IOB, EUK, PDI, dll.</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-          {['IFS', 'IKC', 'EUR', 'IOB', 'EUK', 'PDI'].map(katName => {
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+          {['IFS', 'IKC', 'EUR', 'EUK', 'PDI'].map(katName => {
             const item = categoryFinancials.find(c => c.kategori === katName) || { count: 0, totalLaborCharge: 0, totalSparePart: 0, grandTotal: 0 };
             return (
               <div key={katName} className="p-3.5 bg-zinc-50 border border-zinc-200 rounded-xl space-y-2">
@@ -399,6 +487,13 @@ export default function InvoiceReportPage() {
           <button onClick={() => fetchInvoiceData(true)} disabled={isLoading} className="p-2 rounded-xl border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 transition-colors">
             <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
           </button>
+
+          <button 
+            onClick={handleExportExcel} 
+            className="flex items-center gap-1.5 px-4 py-1.5 bg-black text-white rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-zinc-800 transition-all shadow-sm"
+          >
+            <FileDown size={14} /> Export Excel
+          </button>
         </div>
       </div>
 
@@ -441,8 +536,10 @@ export default function InvoiceReportPage() {
                   <th className="text-left px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">No. Polisi</th>
                   <th className="text-left px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Kendaraan</th>
                   <th className="text-left px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Waktu Closed</th>
+                  <th className="text-right px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">SO</th>
                   <th className="text-right px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Labor Charge (LC)</th>
                   <th className="text-right px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Spare Part</th>
+                  <th className="text-right px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">PPN (11%)</th>
                   <th className="text-right px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-500 whitespace-nowrap">Grand Total</th>
                 </tr>
               </thead>
@@ -461,11 +558,14 @@ export default function InvoiceReportPage() {
                     lcVal = row.lcVal ?? (parseFloat(row.total_jasa || row.jasa || row.biaya_jasa || 0) || 0);
                     partVal = row.partVal ?? (parseFloat(row.total_part || row.sparepart || row.biaya_part || 0) || 0);
                   }
-                  let subTotalVal = row.subTotalVal ?? (lcVal + partVal);
-                  if (subTotalVal === 0 && !detail) {
-                    subTotalVal = parseFloat(row.total_biaya || row.grand_total || row.total || 0) || 0;
-                    if (lcVal === 0) lcVal = subTotalVal;
-                  }
+                  
+                  const parseRpVal = (val) => {
+                    if (typeof val === 'number') return val;
+                    if (!val) return 0;
+                    return parseFloat(String(val).replace(/[^0-9]/g, '')) || 0;
+                  };
+                  const soVal = parseRpVal(row.sub_order);
+                  const subTotalVal = lcVal + partVal + soVal;
                   const ppnVal = row.ppnVal ?? Math.round(subTotalVal * 0.11);
                   const grandTotalVal = row.grandTotalVal ?? (subTotalVal + ppnVal);
 
@@ -486,13 +586,15 @@ export default function InvoiceReportPage() {
                         <td className="px-3 py-2.5 font-mono text-zinc-700 whitespace-nowrap text-xs">{row.no_polisi || '-'}</td>
                         <td className="px-3 py-2.5 text-zinc-600 whitespace-nowrap text-xs max-w-[160px] truncate">{row.nama_kendaraan || '-'}</td>
                         <td className="px-3 py-2.5 text-zinc-500 text-xs whitespace-nowrap">{formatDate(row.waktu_selesai || row.last_update)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-orange-600 font-bold whitespace-nowrap text-xs">{formatRp(soVal)}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-blue-600 font-bold whitespace-nowrap text-xs">{formatRp(lcVal)}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-purple-600 font-bold whitespace-nowrap text-xs">{formatRp(partVal)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-amber-500 font-bold whitespace-nowrap text-xs">{formatRp(ppnVal)}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-emerald-600 font-black whitespace-nowrap text-xs">{formatRp(grandTotalVal)}</td>
                       </tr>
                       {isExp && (
                         <tr className="bg-zinc-50 border-b border-zinc-200">
-                          <td colSpan={10} className="px-4 py-4">
+                          <td colSpan={12} className="px-4 py-4">
                             <WorkOrderDetailView
                               row={row}
                               onDetailLoaded={(id, data) => {

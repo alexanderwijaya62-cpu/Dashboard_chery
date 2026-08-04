@@ -12,6 +12,8 @@ import { fetchWithCache, getCache } from '../utils/dataCache';
 import WorkOrderReportPage from './WorkOrderReportPage';
 import InvoiceReportPage from './InvoiceReportPage';
 import WorkItemServicePage from './WorkItemServicePage';
+import SparepartRevenuePage from './SparepartRevenuePage';
+import StaffRevenuePage from './StaffRevenuePage';
 import * as XLSX from 'xlsx';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
@@ -51,6 +53,18 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [financialData, setFinancialData] = useState([]);
+  const [sparepartRevenueData, setSparepartRevenueData] = useState([]);
+
+  const fetchSparepartRevenue = React.useCallback(async () => {
+    try {
+      const { data, error } = await db.select('sparepart_revenue', { range: { from: 0, to: 99999 } });
+      if (!error && data) {
+        setSparepartRevenueData(data);
+      }
+    } catch (e) {
+      console.error("Gagal fetch sparepart revenue:", e);
+    }
+  }, []);
 
   const financialGen = useRef(0);
   const woHistoryGen = useRef(0);
@@ -132,6 +146,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
         dmsMap.set(key, {
           no_wo: item.no_wo,
           bk: item.no_polisi,
+          no_chassis: item.no_chassis || item.no_polisi,
           tipe_kendaraan: item.nama_kendaraan,
           sa: item.id_karyawan || item.nama_sa || item.sa || '---',
           mekanik: item.nama_mekanik1 || '---',
@@ -172,6 +187,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
     if (activeTab === 'performance') {
       fetchFinancialData();
       fetchWoHistory();
+      fetchSparepartRevenue();
     } else if (activeTab === 'wo_tracking') {
       fetchWoHistory();
     } else if (activeTab === 'staff') {
@@ -179,7 +195,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
     } else if (activeTab === 'cro_history') {
       fetchCroHistory();
     }
-  }, [activeTab, fetchFinancialData, fetchWoHistory, fetchUsers, fetchCroHistory]);
+  }, [activeTab, fetchFinancialData, fetchWoHistory, fetchUsers, fetchCroHistory, fetchSparepartRevenue]);
 
   useEffect(() => {
     setFinancialPage(1);
@@ -472,6 +488,94 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
     ];
     return { series, categories, year: targetYear };
   }, [woTrackingData, selectedYear]);
+
+  const unitEntryMonthlyChartData = useMemo(() => {
+    const targetYear = selectedYear || 2026;
+    const fullYearMap = {};
+    for (let m = 0; m < 12; m++) {
+      const mKey = `${targetYear}-${String(m + 1).padStart(2, '0')}`;
+      fullYearMap[mKey] = new Set();
+    }
+
+    woTrackingData.forEach(item => {
+      const dateStr = normalizeDateStr(item.wkt_masuk);
+      if (!dateStr) return;
+      const mKey = dateStr.substring(0, 7);
+      if (fullYearMap[mKey] !== undefined) {
+        const vin = String(item.no_chassis || item.bk || '').trim().toUpperCase();
+        if (vin) {
+          fullYearMap[mKey].add(vin);
+        }
+      }
+    });
+
+    const sortedMonths = Object.keys(fullYearMap).sort();
+    const categories = sortedMonths.map(tag => {
+      const [y, m] = tag.split('-');
+      return `${getMonthName(parseInt(m) - 1)}`;
+    });
+
+    const series = [
+      { name: 'Unit Masuk', data: sortedMonths.map(m => fullYearMap[m].size) }
+    ];
+
+    const yearVins = new Set();
+    woTrackingData.forEach(item => {
+      const dateStr = normalizeDateStr(item.wkt_masuk);
+      if (!dateStr) return;
+      const mKey = dateStr.substring(0, 7);
+      if (mKey.startsWith(String(targetYear))) {
+        const vin = String(item.no_chassis || item.bk || '').trim().toUpperCase();
+        if (vin) yearVins.add(vin);
+      }
+    });
+    const total = yearVins.size;
+
+    return { series, categories, year: targetYear, total };
+  }, [woTrackingData, selectedYear]);
+
+  const getSegmentHelper = (pelanggan) => {
+    const p = String(pelanggan || '').trim().toUpperCase();
+    if (p.startsWith('RS0001C')) return 'Penjualan Customer';
+    if (p.startsWith('RS0001')) return 'Penjualan Service';
+    if (p.startsWith('RMS') || p.startsWith('GJ1') || p.startsWith('PAM')) return 'Partshop';
+    return 'Lainnya';
+  };
+
+  const sparepartMonthlyChartData = useMemo(() => {
+    const targetYear = selectedYear || 2026;
+    const fullYearMap = {};
+    for (let m = 0; m < 12; m++) {
+      const mKey = `${targetYear}-${String(m + 1).padStart(2, '0')}`;
+      fullYearMap[mKey] = { service: 0, customer: 0, partshop: 0 };
+    }
+
+    sparepartRevenueData.forEach(item => {
+      const dateStr = normalizeDateStr(item.Tgl);
+      if (!dateStr) return;
+      const mKey = dateStr.substring(0, 7);
+      if (fullYearMap[mKey] !== undefined) {
+        const seg = getSegmentHelper(item.Pelanggan);
+        const amt = parseFloat(item.Total) || 0;
+        if (seg === 'Penjualan Service') fullYearMap[mKey].service += amt;
+        else if (seg === 'Penjualan Customer') fullYearMap[mKey].customer += amt;
+        else if (seg === 'Partshop') fullYearMap[mKey].partshop += amt;
+      }
+    });
+
+    const sortedMonths = Object.keys(fullYearMap).sort();
+    const categories = sortedMonths.map(tag => {
+      const [y, m] = tag.split('-');
+      return `${getMonthName(parseInt(m) - 1)}`;
+    });
+
+    const series = [
+      { name: 'Penjualan Service', data: sortedMonths.map(m => fullYearMap[m].service) },
+      { name: 'Penjualan Customer', data: sortedMonths.map(m => fullYearMap[m].customer) },
+      { name: 'Partshop', data: sortedMonths.map(m => fullYearMap[m].partshop) }
+    ];
+    return { series, categories, year: targetYear };
+  }, [sparepartRevenueData, selectedYear]);
 
   const saLeaderboard = useMemo(() => {
     const map = {};
@@ -958,7 +1062,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
           ref={mainRef}
           className={`flex-1 ${activeTab === 'holidays' ? 'overflow-hidden' : 'overflow-y-auto'} p-4 md:p-8 custom-scrollbar space-y-6 pb-[72px] md:pb-8 overflow-x-hidden`}
         >
-        {activeTab !== 'performance' && activeTab !== 'staff' && activeTab !== 'laporan_wo' && activeTab !== 'laporan_invoice' && activeTab !== 'manager-laporan-invoice' && activeTab !== 'work_item_service' && activeTab !== 'manager-jasa-pengerjaan' && (
+        {activeTab !== 'performance' && activeTab !== 'staff' && activeTab !== 'laporan_wo' && activeTab !== 'laporan_invoice' && activeTab !== 'manager-laporan-invoice' && activeTab !== 'work_item_service' && activeTab !== 'manager-jasa-pengerjaan' && activeTab !== 'sparepart_profit' && activeTab !== 'manager-keuntungan-sparepart' && activeTab !== 'staff_revenue' && activeTab !== 'manager-keuntungan-staff' && (
           <section className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
               <h2 className="text-sm font-black uppercase tracking-widest text-zinc-500">
@@ -1009,7 +1113,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
         )}
 
         {/* Status Indicators */}
-        {activeTab !== 'cro_history' && activeTab !== 'staff' && activeTab !== 'booking_mgmt' && activeTab !== 'holidays' && activeTab !== 'vehicles' && activeTab !== 'laporan_wo' && activeTab !== 'laporan_invoice' && activeTab !== 'manager-laporan-invoice' && activeTab !== 'work_item_service' && activeTab !== 'manager-jasa-pengerjaan' && (
+        {activeTab !== 'cro_history' && activeTab !== 'staff' && activeTab !== 'booking_mgmt' && activeTab !== 'holidays' && activeTab !== 'vehicles' && activeTab !== 'laporan_wo' && activeTab !== 'laporan_invoice' && activeTab !== 'manager-laporan-invoice' && activeTab !== 'work_item_service' && activeTab !== 'manager-jasa-pengerjaan' && activeTab !== 'sparepart_profit' && activeTab !== 'manager-keuntungan-sparepart' && activeTab !== 'staff_revenue' && activeTab !== 'manager-keuntungan-staff' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             {activeTab === 'wo_tracking' ? (
               [
@@ -1068,9 +1172,21 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
             </div>
           )}
 
+          {(activeTab === 'sparepart_profit' || activeTab === 'manager-keuntungan-sparepart') && (
+            <div className="min-h-[calc(100vh-200px)]">
+              <SparepartRevenuePage />
+            </div>
+          )}
+
           {(activeTab === 'work_item_service' || activeTab === 'manager-jasa-pengerjaan') && (
             <div className="min-h-[calc(100vh-200px)]">
               <WorkItemServicePage />
+            </div>
+          )}
+
+          {(activeTab === 'staff_revenue' || activeTab === 'manager-keuntungan-staff') && (
+            <div className="min-h-[calc(100vh-200px)]">
+              <StaffRevenuePage />
             </div>
           )}
 
@@ -1162,6 +1278,92 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
                   )}
                 </div>
               </div>
+
+              {/* Chart 3: Tren Unit Entry Bulanan */}
+              <div className="bg-white p-5 md:p-8 border border-zinc-200 rounded-lg">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                  <div>
+                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">Tren Unit Entry Bulanan ({unitEntryMonthlyChartData.year})</h3>
+                    <p className="text-zinc-400 text-[10px] font-medium mt-1">Grafik Unit Masuk Unik / VIN (Januari - Desember {unitEntryMonthlyChartData.year})</p>
+                  </div>
+                  <div className="bg-zinc-50 border border-zinc-200 px-3 py-1.5 rounded-lg text-right">
+                    <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block">Total Unit Masuk (Tahun)</span>
+                    <span className="text-sm font-black text-zinc-900">{unitEntryMonthlyChartData.total} Unit</span>
+                  </div>
+                </div>
+                <div className="w-full h-[260px] md:h-[320px]">
+                  {woTrackingData.length === 0 ? (
+                    <div className="w-full h-full flex items-center justify-center border border-dashed border-zinc-200 rounded-lg text-zinc-400 text-xs font-medium uppercase tracking-wider">Belum ada data Unit Entry</div>
+                  ) : (
+                    <ReactApexChart
+                      options={{
+                        legend: {
+                          show: true,
+                          position: 'top',
+                          horizontalAlign: 'right',
+                          labels: { colors: '#71717a' },
+                          fontFamily: 'Inter',
+                          fontWeight: 700
+                        },
+                        chart: { type: 'area', background: 'transparent', toolbar: { show: false }, zoom: { enabled: false } },
+                        colors: ['#000000'],
+                        fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.05, stops: [0, 90, 100] } },
+                        dataLabels: { enabled: true, style: { fontSize: '11px', fontWeight: 'bold', colors: ['#000000'] } },
+                        stroke: { curve: 'smooth', width: 3 },
+                        markers: { size: 5, colors: ['#000000'], strokeColors: '#fff', strokeWidth: 2 },
+                        xaxis: { categories: unitEntryMonthlyChartData.categories, labels: { style: { colors: '#71717a', fontWeight: 700, fontFamily: 'Inter', fontSize: '10px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
+                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700, fontSize: '10px' }, formatter: (val) => `${Math.round(val)} Unit` } },
+                        grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
+                        tooltip: { theme: 'light', x: { show: true } }
+                      }}
+                      series={unitEntryMonthlyChartData.series}
+                      type="area"
+                      height="100%"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Chart 4: Tren Penjualan Sparepart per Kategori */}
+              <div className="bg-white p-5 md:p-8 border border-zinc-200 rounded-lg">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                  <div>
+                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">Tren Penjualan Sparepart per Kategori ({sparepartMonthlyChartData.year})</h3>
+                    <p className="text-zinc-400 text-[10px] font-medium mt-1">Grafik Nilai Penjualan Sparepart Bulanan per Kategori Pelanggan ({sparepartMonthlyChartData.year})</p>
+                  </div>
+                </div>
+                <div className="w-full h-[260px] md:h-[320px]">
+                  {sparepartRevenueData.length === 0 ? (
+                    <div className="w-full h-full flex items-center justify-center border border-dashed border-zinc-200 rounded-lg text-zinc-400 text-xs font-medium uppercase tracking-wider">Belum ada data Penjualan Sparepart</div>
+                  ) : (
+                    <ReactApexChart
+                      options={{
+                        legend: {
+                          show: true,
+                          position: 'top',
+                          horizontalAlign: 'right',
+                          labels: { colors: '#71717a' },
+                          fontFamily: 'Inter',
+                          fontWeight: 700
+                        },
+                        chart: { type: 'line', background: 'transparent', toolbar: { show: false }, zoom: { enabled: false } },
+                        colors: ['#10b981', '#3b82f6', '#f59e0b'],
+                        dataLabels: { enabled: false },
+                        stroke: { curve: 'smooth', width: 3 },
+                        markers: { size: 4 },
+                        xaxis: { categories: sparepartMonthlyChartData.categories, labels: { style: { colors: '#71717a', fontWeight: 700, fontFamily: 'Inter', fontSize: '10px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
+                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700, fontSize: '10px' }, formatter: (val) => formatCurrency(val).replace(',00', '') } },
+                        grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
+                        tooltip: { theme: 'light', x: { show: true }, y: { formatter: (val) => formatCurrency(val) } }
+                      }}
+                      series={sparepartMonthlyChartData.series}
+                      type="line"
+                      height="100%"
+                    />
+                  )}
+                </div>
+              </div>
+
               {/* Container Leaderboard SA & Mekanik */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* Container SA */}
