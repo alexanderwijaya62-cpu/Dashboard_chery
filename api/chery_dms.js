@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { validateSession, sendUnauthorized } from './auth.js';
 
 const nativeRequire = createRequire(import.meta.url);
 const http = nativeRequire('node:http');
@@ -948,6 +949,98 @@ async function fetchInvoiceReportFromDMS(from, to, search, BASE, draw) {
     return { data: invoiceData };
 }
 
+const reminderDoCacheStore = new Map();
+const REMINDER_DO_CACHE_TTL = 1800000; // 30 minutes
+
+function normalizeReminderDoDate(dateStr) {
+    if (!dateStr) return '';
+    const d = String(dateStr).trim();
+    if (d.includes('-')) {
+        const parts = d.split('-');
+        if (parts.length === 3 && parts[0].length === 4) {
+            return `${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
+        return d;
+    }
+    return d;
+}
+
+async function handleReminderDo(req, res) {
+    const BASE = getWarrantyBaseUrl();
+    const draw = req.query.draw || 1;
+
+    // Default: last 30 days (DMS reminder window, same as the sample URL)
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+    const fmt = (d) => {
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        return `${dd}-${mm}-${d.getFullYear()}`;
+    };
+
+    const doFrom = normalizeReminderDoDate(req.query.do_from || fmt(thirtyDaysAgo));
+    const doTo = normalizeReminderDoDate(req.query.do_to || fmt(today));
+
+    const cacheKey = `reminder_do_${doFrom}_${doTo}`;
+    const cached = reminderDoCacheStore.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < REMINDER_DO_CACHE_TTL)) {
+        return res.status(200).json(cached.json);
+    }
+
+    const PAGE_SIZE = 100;
+    const reqHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': BASE + '/aftersales/reminder-do',
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'X-Requested-With': 'XMLHttpRequest',
+    };
+
+    const fetchPage = async (start) => {
+        const targetUrl = `${BASE}/aftersales/reminder-do/data?draw=${draw}&start=${start}&length=${PAGE_SIZE}` +
+            `&do_from=${encodeURIComponent(doFrom)}&do_to=${encodeURIComponent(doTo)}&status_filter=all&grup=&_=${Date.now()}`;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                if (!croCookie || Date.now() > croCookieExpiry) {
+                    croCookie = await croLogin();
+                }
+                const response = await fetchWithHttps(targetUrl, {
+                    headers: { ...reqHeaders, Cookie: croCookie },
+                    timeout: 60000,
+                });
+                const body = await response.text();
+                if (response.status === 302 || response.status === 401 || body.trimStart().startsWith('<')) {
+                    croCookie = null;
+                    continue;
+                }
+                const parsed = JSON.parse(body);
+                return {
+                    data: Array.isArray(parsed.data) ? parsed.data : [],
+                    total: parsed.recordsTotal || parsed.recordsFiltered || 0,
+                };
+            } catch (e) {
+                if (attempt === 1) throw e;
+            }
+        }
+        return { data: [], total: 0 };
+    };
+
+    let allData = [];
+    const first = await fetchPage(0);
+    allData = allData.concat(first.data);
+    const total = first.total || first.data.length;
+    if (total > allData.length) {
+        for (let start = allData.length; start < total; start += PAGE_SIZE) {
+            const page = await fetchPage(start);
+            allData = allData.concat(page.data);
+        }
+    }
+
+    const result = { draw: Number(draw), recordsTotal: total, recordsFiltered: total, data: allData };
+    reminderDoCacheStore.set(cacheKey, { timestamp: Date.now(), json: result });
+    return res.status(200).json(result);
+}
+
 async function getCsrfToken(url, cookie) {
     const BASE = process.env.WARRANTY_BASE_URL;
     const pageResp = await fetchWithHttps(url, {
@@ -1802,9 +1895,15 @@ async function handleWorkItemCategories(req, res) {
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', 'https://cherymedan.web.id');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key, X-Auth-Username, X-Auth-Session-Id');
 
     if (req.method === 'OPTIONS') return res.status(200).end();
+
+    try {
+        await validateSession(req);
+    } catch (authErr) {
+        return sendUnauthorized(req, res, authErr.message);
+    }
 
     if (req.body) {
         let rawBody = req.body;
@@ -1874,6 +1973,10 @@ export default async function handler(req, res) {
 
     if (endpoint === 'warranty-invoice-report') {
         return handleWarrantyInvoiceReport(req, res);
+    }
+
+    if (endpoint === 'reminder-do') {
+        return handleReminderDo(req, res);
     }
 
     // ============================================================
@@ -2206,8 +2309,11 @@ export default async function handler(req, res) {
                     }
                 }
                 if (fileResp) {
-                    const contentType = fileResp.headers.get('content-type') || 'image/jpeg';
+                    const contentType = fileResp.headers.get('content-type') || 'application/pdf';
                     res.setHeader('Content-Type', contentType);
+                    if (req.query.inline === 'true') {
+                        res.setHeader('Content-Disposition', 'inline');
+                    }
                     const buf = await fileResp.buffer();
                     return res.status(200).send(buf);
                 }
@@ -2221,7 +2327,15 @@ export default async function handler(req, res) {
                 return res.status(404).json({ error: "File not found or unauthorized on any DMS endpoint" });
             }
 
-            if (endpoint === 'claims_query') {
+            if (endpoint === 'announcement-bills') {
+                targetUrl = `https://dms.chery.co.id/sales/api/v1/announcementBill/forCurrentUser?pageIndex=${pageIndex}&pageSize=${pageSize}`;
+            } else if (endpoint === 'announcement-detail') {
+                const id = req.query.id || '';
+                const companyType = req.query.companyType || '2';
+                const companyCode = req.query.companyCode || '10007901';
+                const companyName = req.query.companyName || 'ORIENTAL SM RAJA AMPLAS';
+                targetUrl = `https://dms.chery.co.id/sales/api/v1/announcementBill/${id}/detail?companyType=${encodeURIComponent(companyType)}&companyCode=${encodeURIComponent(companyCode)}&companyName=${encodeURIComponent(companyName)}`;
+            } else if (endpoint === 'claims_query') {
                 targetUrl = `https://dms.chery.co.id/afterSales/api/v1/claims/query/forCurrentUser?pageIndex=${pageIndex}&pageSize=${pageSize}`;
             } else if (endpoint === 'claim_detail') {
                 targetUrl = `https://dms.chery.co.id/afterSales/api/v1/claims/${claimId}`;
@@ -2410,7 +2524,10 @@ export default async function handler(req, res) {
             };
 
             if (method === 'POST') {
-                const bodyStr = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
+                let bodyStr = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
+                if (!bodyStr || bodyStr === '""' || bodyStr === 'null' || bodyStr.trim() === '') {
+                    bodyStr = JSON.stringify({});
+                }
                 fetchOptions.body = bodyStr;
                 fetchOptions.headers['Content-Length'] = Buffer.byteLength(bodyStr, 'utf8');
             }
@@ -2487,6 +2604,34 @@ export default async function handler(req, res) {
                     }
                 };
             }
+        }
+
+        // Security filter: prevent wholesale or cost prices leak in client response
+        if (data && typeof data === 'object') {
+            const sanitizeItem = (item) => {
+                if (item && typeof item === 'object') {
+                    delete item.wholeSalePrice;
+                    delete item.wholesalePriceExclusiveOfTax;
+                    delete item.originalWholeSalePrice;
+                    delete item.wholesalePriceExcludingTax;
+                    delete item.wholesalePrice;
+                    delete item.costPrice;
+                    delete item.costPriceExcludingTax;
+                }
+            };
+
+            const sanitizePayload = (payload) => {
+                if (!payload || typeof payload !== 'object') return;
+                if (Array.isArray(payload.content)) {
+                    payload.content.forEach(sanitizeItem);
+                } else if (Array.isArray(payload.dataList)) {
+                    payload.dataList.forEach(sanitizeItem);
+                } else if (Array.isArray(payload)) {
+                    payload.forEach(sanitizeItem);
+                }
+            };
+
+            sanitizePayload(data.payload || data);
         }
 
         return res.status(200).json(data);

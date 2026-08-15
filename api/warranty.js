@@ -1,5 +1,6 @@
 import https from 'https';
 import urllib from 'url';
+import { validateSession, sendUnauthorized } from './auth.js';
 
 const BASE_URL = process.env.WARRANTY_BASE_URL;
 const WARRANTY_USER = process.env.WARRANTY_USER;
@@ -227,9 +228,15 @@ async function getSession() {
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', 'https://cherymedan.web.id');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key, X-Auth-Username, X-Auth-Session-Id');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
+
+  try {
+    await validateSession(req);
+  } catch (authErr) {
+    return sendUnauthorized(req, res, authErr.message);
+  }
 
   const endpoint = req.query.endpoint || 'work-order';
 

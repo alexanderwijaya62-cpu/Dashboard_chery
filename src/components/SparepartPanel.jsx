@@ -326,24 +326,46 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
     // ketika SEMUA shipment sudah di-confirm (status 2 = Sudah Diterima).
     // Kalau masih ada shipment status 1 (Awaiting Confirmation) berarti belum sampai.
     const getOrderStatusInfo = (order) => {
+        const detail = detailCache[order.id];
+        if (detail && Array.isArray(detail.details) && detail.details.length > 0) {
+            let totalOrder = 0;
+            let totalOut = 0;
+            let totalProcess = 0;
+            let totalDelivery = 0;
+            
+            detail.details.forEach(item => {
+                totalOrder += item.orderQuantity || 0;
+                if (Array.isArray(detail.partSaleOrderProcesses)) {
+                    detail.partSaleOrderProcesses.forEach(proc => {
+                        const pd = (proc.processDetails || []).find(d => d.partCode === item.partCode);
+                        if (pd) {
+                            totalOut += pd.outQuantity || 0;
+                            totalProcess += pd.processQuantity || 0;
+                            totalDelivery += pd.deliveryQuantity || 0;
+                        }
+                    });
+                }
+            });
+
+            if (totalOrder > 0) {
+                if (totalOut >= totalOrder) {
+                    return { label: 'Sudah Diterima', color: 'bg-emerald-100 text-emerald-700' };
+                }
+                if (totalOut > 0) {
+                    return { label: 'Sebagian Sampai', color: 'bg-blue-100 text-blue-700' };
+                }
+                if (totalDelivery > 0) {
+                    return { label: 'Dalam Perjalanan', color: 'bg-blue-100 text-blue-700' };
+                }
+                if (totalProcess > 0) {
+                    return { label: 'Partial Processing', color: 'bg-amber-100 text-amber-700' };
+                }
+            }
+        }
+
         const shipments = shipmentCacheRef.current[order.code];
         if (Array.isArray(shipments) && shipments.length > 0) {
             const statuses = shipments.map(s => s.status);
-            if (statuses.every(s => s === 2)) {
-                return { label: 'Sudah Diterima', color: 'bg-emerald-100 text-emerald-700' };
-            }
-            if (statuses.some(s => s === 3)) {
-                return { label: 'Freeze', color: 'bg-red-100 text-red-700' };
-            }
-            if (statuses.some(s => s === 0)) {
-                return { label: 'Void', color: 'bg-zinc-200 text-zinc-500' };
-            }
-            return { label: 'Belum Sampai', color: 'bg-amber-100 text-amber-700' };
-        }
-        const detail = detailCache[order.id];
-        const processes = detail?.partSaleOrderProcesses;
-        if (Array.isArray(processes) && processes.length > 0) {
-            const statuses = processes.map(p => p.status);
             if (statuses.every(s => s === 2)) {
                 return { label: 'Sudah Diterima', color: 'bg-emerald-100 text-emerald-700' };
             }
@@ -599,6 +621,7 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
                                                                          <tbody>
                                                                               {(orderDetail.details || []).map((item, idx) => {
                                                                                   const ds = getItemDeliveryStatus(item.partCode);
+                                                                                  console.log('DEBUG_STATUS:', item.partCode, 'ds:', ds);
                                                                                   let statusBadge = null;
                                                                                   if (ds) {
                                                                                       const ps = ds.processStatus;
@@ -607,20 +630,14 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
                                                                                       } else if (ps === 3) {
                                                                                           statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Freeze</span>;
                                                                                       } else if (ps === 1) {
-                                                                                          statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Dalam Perjalanan {ds.outQuantity}/{ds.orderQuantity}</span>;
-                                                                                      } else if (ps === 2) {
-                                                                                          if (ds.outQuantity >= ds.orderQuantity) {
-                                                                                              statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Sudah Sampai</span>;
-                                                                                          } else if (ds.deliveryQuantity > 0) {
-                                                                                              statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{'In Transit'} {ds.outQuantity}/{ds.orderQuantity}</span>;
-                                                                                          } else {
-                                                                                              statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Sudah Sampai</span>;
-                                                                                          }
+                                                                                          statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Awaiting Confirmation</span>;
                                                                                       } else {
                                                                                           if (ds.outQuantity >= ds.orderQuantity) {
                                                                                               statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Sudah Sampai</span>;
+                                                                                          } else if (ds.outQuantity > 0) {
+                                                                                              statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Sebagian Sampai {ds.outQuantity}/{ds.orderQuantity}</span>;
                                                                                           } else if (ds.deliveryQuantity > 0) {
-                                                                                              statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{'In Transit'} {ds.outQuantity}/{ds.orderQuantity}</span>;
+                                                                                              statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Dalam Perjalanan {ds.deliveryQuantity}/{ds.orderQuantity}</span>;
                                                                                           } else if (ds.processQuantity > 0) {
                                                                                               statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Diproses {ds.processQuantity}/{ds.orderQuantity}</span>;
                                                                                           } else {

@@ -142,6 +142,7 @@ export default function StaffBookingPanel({ user, handleChangePassword, handleLo
             const dateStr = yesterday.toISOString().split('T')[0];
             const { data } = await db.select('booking', {
                 select: 'id,tanggal,jam,noPlat,namaCustomer,tipeMobil,keperluanService,status,bookingVia,noTelp',
+                neq: { status: 'deleted' },
                 gte: { tanggal: dateStr },
                 order: { column: 'tanggal', ascending: false },
                 limit: 200,

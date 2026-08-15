@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import legacy from '@vitejs/plugin-legacy'
 
@@ -23,19 +23,29 @@ function stripLayerImportPlugin() {
 function localCheryDmsPlugin() {
   const dmsModuleUrl = new URL('./api/chery_dms.js', import.meta.url).href;
   const csiModuleUrl = new URL('./api/csi-proxy.js', import.meta.url).href;
+  const epcModuleUrl = new URL('./api/chery_epc.js', import.meta.url).href;
+  const dbModuleUrl = new URL('./api/db.js', import.meta.url).href;
   let cachedDmsHandler = null;
   let cachedCsiHandler = null;
 
   return {
     name: 'local-chery-dms-middleware',
     configureServer(server) {
+      // Muat file .env agar variabel (mis. SUPABASE_SERVICE_ROLE_KEY)
+      // tersedia untuk handler /api/db pada mode development lokal.
+      const env = loadEnv(server.config.mode || 'development', process.cwd(), '');
+      for (const [k, v] of Object.entries(env)) {
+        if (process.env[k] === undefined) process.env[k] = v;
+      }
       server.middlewares.stack.unshift({
         route: '',
         handle: async (req, res, next) => {
           if (req.url && (
             req.url.startsWith('/api/invoice_report') || 
             req.url.startsWith('/api/chery_dms') || 
-            req.url.startsWith('/api/csi-proxy')
+            req.url.startsWith('/api/csi-proxy') ||
+            req.url.startsWith('/api/chery_epc') ||
+            req.url.startsWith('/api/db')
           )) {
             try {
               const urlObj = new URL(req.url, 'http://localhost');
@@ -60,6 +70,8 @@ function localCheryDmsPlugin() {
 
               const isInvoiceReport = req.url.startsWith('/api/invoice_report');
               const isCsiProxy = req.url.startsWith('/api/csi-proxy');
+              const isEpcProxy = req.url.startsWith('/api/chery_epc');
+              const isDbProxy = req.url.startsWith('/api/db');
 
               const mockReq = {
                 url: req.url,
@@ -89,18 +101,24 @@ function localCheryDmsPlugin() {
                 }
               };
 
-              if (isCsiProxy) {
+              if (isDbProxy) {
+                const dbModule = await import(dbModuleUrl + '?t=' + Date.now());
+                const handler = dbModule.default || dbModule;
+                return await handler(mockReq, mockRes);
+              } else if (isCsiProxy) {
                 if (!cachedCsiHandler) {
                   const csiModule = await import(csiModuleUrl);
                   cachedCsiHandler = csiModule.default || csiModule;
                 }
                 return await cachedCsiHandler(mockReq, mockRes);
+              } else if (isEpcProxy) {
+                const epcModule = await import(epcModuleUrl + '?t=' + Date.now());
+                const handler = epcModule.default || epcModule;
+                return await handler(mockReq, mockRes);
               } else {
-                if (!cachedDmsHandler) {
-                  const dmsModule = await import(dmsModuleUrl);
-                  cachedDmsHandler = dmsModule.default || dmsModule;
-                }
-                return await cachedDmsHandler(mockReq, mockRes);
+                const dmsModule = await import(dmsModuleUrl + '?t=' + Date.now());
+                const handler = dmsModule.default || dmsModule;
+                return await handler(mockReq, mockRes);
               }
             } catch (err) {
               console.error('Local Chery DMS Middleware Error:', err);

@@ -177,7 +177,7 @@ export default function CsiCustomers() {
       let json;
       try { json = JSON.parse(text); } catch { json = {}; }
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-      if (json.code === 99991668 || json.code === 99991667) {
+      if (json.code === 99991668 || json.code === 99991667 || (json.code === 5 && json.error?.Code === 4101)) {
         throw new Error('Sesi Feishu expired. Hubungi admin untuk update env FEISHU_COOKIE.');
       }
       if (json.code !== 0) throw new Error(json.msg || `Error Feishu: ${json.code}`);

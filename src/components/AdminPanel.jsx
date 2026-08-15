@@ -176,7 +176,7 @@ const AdminPanel = ({ user, handleLogout, handleChangePassword, queue, rawHistor
             thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
             const dateStr = thirtyDaysAgo.toISOString().split('T')[0];
 
-            const { data, error } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, status, bookingVia, vin, noTelp, noUrut', gte: { tanggal: dateStr } });
+            const { data, error } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, status, bookingVia, vin, noTelp, noUrut', neq: { status: 'deleted' }, gte: { tanggal: dateStr } });
             if (error) throw error;
             if (Array.isArray(data)) setRawBookings(data);
 

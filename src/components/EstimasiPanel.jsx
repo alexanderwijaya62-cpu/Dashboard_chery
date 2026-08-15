@@ -28,6 +28,40 @@ function calculateMarkupPrice(h) {
   return Math.round(calculateLaborPrice(h) * (1 + JASA_MARKUP_PERCENT / 100));
 }
 
+function parseLaborHour(v) {
+  const n = parseFloat(v);
+  return isNaN(n) ? 0 : n;
+}
+
+function resolveLaborHour(svcObj, catCode) {
+  const top = parseLaborHour(svcObj?.laborHour);
+  if (top > 0) return top;
+  const cats = Array.isArray(svcObj?.productCategories) ? svcObj.productCategories : [];
+  if (catCode) {
+    const match = cats.find(c => (c.productCategoryCode === catCode || c.code === catCode) && parseLaborHour(c.laborHour) > 0);
+    if (match) return parseLaborHour(match.laborHour);
+  }
+  const any = cats.find(c => parseLaborHour(c.laborHour) > 0);
+  if (any) return parseLaborHour(any.laborHour);
+  return top;
+}
+
+function buildSvcObject(svcLike, catCode, laborHourOverride, parentId) {
+  const laborHour = (laborHourOverride !== undefined && laborHourOverride !== null)
+    ? parseLaborHour(laborHourOverride)
+    : resolveLaborHour(svcLike, catCode);
+  const svc = {
+    workItemId: svcLike.workItemId || svcLike.id,
+    workItemCode: svcLike.workItemCode || svcLike.code,
+    workItemName: svcLike.workItemName || svcLike.workItemLocalName || svcLike.workItemEnglishName || svcLike.name || '',
+    laborHour,
+    dmsPrice: calculateLaborPrice(laborHour),
+    price: calculateMarkupPrice(laborHour)
+  };
+  if (parentId) svc.parentId = parentId;
+  return svc;
+}
+
 function formatLaborHour(h) {
   if (!h && h !== 0) return '-';
   const num = parseFloat(h);
@@ -179,22 +213,93 @@ const EstimasiPanel = () => {
     items.forEach(item => searchServices(item.code, ''));
   };
 
-  const toggleService = (itemCode, svc) => {
-    setItems(prev => prev.map(p => {
-      if (p.code !== itemCode) return p;
-      const exists = p.services.find(s => s.workItemId === svc.workItemId || s.workItemCode === svc.workItemCode);
-      if (exists) {
-        return { ...p, services: p.services.filter(s => s !== exists) };
+  const toggleService = async (itemCode, svc) => {
+    const item = items.find(p => p.code === itemCode);
+    if (!item) return;
+    const targetId = svc.workItemId || svc.id || svc.workItemCode;
+    const isSelected = item.services.some(s => s.workItemId === targetId || s.workItemCode === svc.workItemCode);
+
+    if (isSelected) {
+      setItems(prev => prev.map(p => {
+        if (p.code !== itemCode) return p;
+        return {
+          ...p,
+          services: p.services.filter(s =>
+            (s.workItemId !== targetId && s.workItemCode !== svc.workItemCode) &&
+            s.parentId !== targetId
+          )
+        };
+      }));
+      return;
+    }
+
+    try {
+      const id = svc.workItemId || svc.id;
+      let assistList = [];
+      if (id) {
+        const resp = await fetch(`/api/chery_dms?endpoint=work-item-detail&id=${id}`);
+        if (resp.ok) {
+          const detailRes = await resp.json();
+          const detail = detailRes.payload || detailRes;
+          if (Array.isArray(detail?.assistItems)) {
+            assistList = detail.assistItems;
+          }
+        }
       }
-      return { ...p, services: [...p.services, {
-        workItemId: svc.workItemId || svc.id || svc.workItemCode,
-        workItemCode: svc.workItemCode,
-        workItemName: svc.workItemName || svc.workItemLocalName || svc.workItemEnglishName || '',
-        laborHour: svc.laborHour,
-        dmsPrice: calculateLaborPrice(svc.laborHour),
-        price: calculateMarkupPrice(svc.laborHour)
-      }] };
-    }));
+
+      const catCode = svc.productCategoryCode || svc.productCategoryName || '';
+      const mainSvc = buildSvcObject(svc, catCode);
+      const mainKey = mainSvc.workItemId || mainSvc.workItemCode;
+
+      const extraSvcs = await Promise.all(assistList.map(async ast => {
+        let laborHour = resolveLaborHour(ast, catCode);
+        if (laborHour <= 0) {
+          const astId = ast.workItemId || ast.id;
+          if (astId) {
+            try {
+              const r = await fetch(`/api/chery_dms?endpoint=work-item-detail&id=${encodeURIComponent(astId)}`);
+              if (r.ok) {
+                const dd = await r.json();
+                const det = dd.payload || dd;
+                laborHour = resolveLaborHour(det, catCode);
+              }
+            } catch (e) {
+              console.warn('Gagal mengambil detail jasa assist:', e);
+            }
+          }
+        }
+        return buildSvcObject(ast, catCode, laborHour, mainKey);
+      }));
+
+      setItems(prev => prev.map(p => {
+        if (p.code !== itemCode) return p;
+        const updatedServices = [...p.services];
+        [mainSvc, ...extraSvcs].forEach(newSvc => {
+          const exists = updatedServices.some(s => {
+            if (newSvc.workItemId && s.workItemId === newSvc.workItemId) return true;
+            if (newSvc.workItemCode && s.workItemCode === newSvc.workItemCode) return true;
+            return false;
+          });
+          if (!exists) {
+            updatedServices.push(newSvc);
+          }
+        });
+        return { ...p, services: updatedServices };
+      }));
+
+      if (assistList.length > 0) {
+        Toastify({
+          text: `⚠️ Jasa ini memiliki ${assistList.length} jasa assist — otomatis ditambahkan (termasuk waktu & harga +${JASA_MARKUP_PERCENT}%)`,
+          style: { background: '#f59e0b' }
+        }).showToast();
+      }
+    } catch (err) {
+      console.error('Gagal mengambil detail jasa pengerjaan:', err);
+      setItems(prev => prev.map(p => {
+        if (p.code !== itemCode) return p;
+        return { ...p, services: [...p.services, buildSvcObject(svc, svc.productCategoryCode || svc.productCategoryName || '')] };
+      }));
+    }
   };
 
   const updateServicePrice = (itemCode, svcIndex, price) => {
@@ -209,7 +314,16 @@ const EstimasiPanel = () => {
   const removeService = (itemCode, svcIndex) => {
     setItems(prev => prev.map(p => {
       if (p.code !== itemCode) return p;
-      return { ...p, services: p.services.filter((_, i) => i !== svcIndex) };
+      const target = p.services[svcIndex];
+      if (!target) return p;
+      const targetId = target.workItemId || target.workItemCode;
+      return {
+        ...p,
+        services: p.services.filter(s => {
+          const sid = s.workItemId || s.workItemCode;
+          return sid !== targetId && s.parentId !== targetId;
+        })
+      };
     }));
   };
 
@@ -497,6 +611,9 @@ const EstimasiPanel = () => {
                                 <p className="text-sm font-bold text-zinc-900 truncate">
                                   {svc.workItemCode ? <span className="font-mono text-emerald-700 mr-1">{svc.workItemCode}</span> : null}
                                   {svc.workItemName || '-'}
+                                  {svc.parentId && (
+                                    <span className="text-[10px] font-black text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded-md ml-1 uppercase align-middle">assist</span>
+                                  )}
                                 </p>
                                 <p className="text-xs text-zinc-900 font-medium">{formatLaborHour(svc.laborHour)}</p>
                               </div>

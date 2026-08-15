@@ -33,6 +33,7 @@ export default function AdminBookingPanel() {
             try {
                 const filters = {
                     select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, keluhanDetail',
+                    neq: { status: 'deleted' },
                     order: { column: 'id', ascending: false },
                     limit: 500,
                 };

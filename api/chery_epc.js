@@ -1,16 +1,105 @@
 import https from 'https';
+import fs from 'fs';
+import nodePath from 'path';
+import { createClient } from '@supabase/supabase-js';
+import { sendUnauthorized } from './auth.js';
+
+// Local session validation to bypass static import caching in development
+async function validateSessionLocal(req) {
+  let authUsername = req.headers['x-auth-username'] || req.query?.['X-Auth-Username'] || req.query?.['x-auth-username'] || '';
+  let authSessionId = req.headers['x-auth-session-id'] || req.query?.['X-Auth-Session-Id'] || req.query?.['x-auth-session-id'] || '';
+
+  if (!authUsername || !authSessionId) {
+    try {
+      const urlObj = new URL(req.url || '', 'http://localhost');
+      authUsername = urlObj.searchParams.get('X-Auth-Username') || urlObj.searchParams.get('x-auth-username') || '';
+      authSessionId = urlObj.searchParams.get('X-Auth-Session-Id') || urlObj.searchParams.get('x-auth-session-id') || '';
+    } catch (e) {}
+  }
+
+  if (!authUsername || !authSessionId) {
+    throw new Error('Unauthorized: Sesi tidak ditemukan. Silakan login kembali.');
+  }
+
+  if (!process.env.VITE_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+     try {
+       const fs = await import('fs');
+       const path = await import('path');
+       const envPath = path.resolve(process.cwd(), '.env');
+       if (fs.existsSync(envPath)) {
+         const content = fs.readFileSync(envPath, 'utf8');
+         for (const line of content.split(/\r?\n/)) {
+           const trimmed = line.trim();
+           if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+             const idx = trimmed.indexOf('=');
+             const key = trimmed.slice(0, idx).trim();
+             let val = trimmed.slice(idx + 1).trim();
+             if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+               val = val.slice(1, -1);
+             }
+             if (key && !process.env[key]) {
+               process.env[key] = val;
+             }
+           }
+         }
+       }
+     } catch (e) {}
+  }
+
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error('Internal Server Error: Server auth configuration is missing.');
+  }
+
+  const supabase = createClient(supabaseUrl, serviceKey);
+
+  const { data: userRecord } = await supabase
+    .from('users')
+    .select('username, role, status')
+    .eq('username', authUsername)
+    .eq('sessionId', authSessionId)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (userRecord) return userRecord;
+
+  const { data: customerRecord } = await supabase
+    .from('customers')
+    .select('no_hp, status')
+    .eq('no_hp', authUsername)
+    .eq('sessionId', authSessionId)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (customerRecord) return { username: customerRecord.no_hp, role: 'customer' };
+
+  const { data: salesRecord } = await supabase
+    .from('sales')
+    .select('username, status')
+    .eq('username', authUsername)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (salesRecord) return { username: salesRecord.username, role: 'sales' };
+
+  throw new Error('Unauthorized: Sesi tidak valid atau telah kedaluwarsa.');
+}
 
 // ============================================================
 // EPC Proxy — handles both proxy requests and EPCM login
 // Use ?action=login (POST) for login, or ?path=... for proxy
 // ============================================================
 
-async function handleLogin(req, res) {
-    if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
+// Global token cache in Node process memory to keep connection alive continuously
+let globalEpcmToken = null;
 
+async function performSilentLogin() {
     const username = process.env.DMS_USER;
     const password = process.env.DMS_PASS;
     const enterpriseCode = process.env.DMS_ENTERPRISE_CODE;
+    if (!username || !password || !enterpriseCode) return null;
 
     try {
         const request = (url, options = {}, body = null) => {
@@ -38,16 +127,10 @@ async function handleLogin(req, res) {
 
         let keyResp = await request('https://qrepcm.mychery.com/api/rest/base/auth/public/key', { method: 'POST', headers });
         let keyData;
-        try { keyData = JSON.parse(keyResp.text); } catch (e) {
-            return res.status(500).json({ success: false, message: "Parse error: " + keyResp.text.substring(0, 30) });
-        }
-
-        if (!keyData.success || !keyData.data || !keyData.data.backgroundImage) {
-            return res.status(500).json({ success: false, message: "Gagal memancing gambar puzzle: " + (keyData.message || "Data null") });
-        }
+        try { keyData = JSON.parse(keyResp.text); } catch (e) { return null; }
 
         const puzzleX = keyData.data.x;
-        const pictureVerifyId = `${username}+Jaecoo`;
+        const pictureVerifyId = keyData.data.verifyId || keyData.data.id || `${username}+Jaecoo`;
         const percentage = (puzzleX / 590).toFixed(4);
 
         const verifyUrl = `https://qrepcm.mychery.com/api/rest/base/auth/public/verify?percentage=${percentage}&verifyId=${encodeURIComponent(pictureVerifyId)}`;
@@ -58,9 +141,24 @@ async function handleLogin(req, res) {
         const result = JSON.parse(loginResult.text);
 
         if (result.success && result.data?.token) {
-            return res.status(200).json({ success: true, token: result.data.token });
+            globalEpcmToken = result.data.token;
+            return result.data.token;
+        }
+    } catch (e) {
+        console.error("Silent login error:", e);
+    }
+    return null;
+}
+
+async function handleLogin(req, res) {
+    if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
+
+    try {
+        const token = await performSilentLogin();
+        if (token) {
+            return res.status(200).json({ success: true, token });
         } else {
-            return res.status(401).json({ success: false, message: result.message || "Gagal Login" });
+            return res.status(401).json({ success: false, message: "Gagal login ke server Chery EPCM" });
         }
     } catch (error) {
         return res.status(500).json({ success: false, message: error.message });
@@ -70,13 +168,25 @@ async function handleLogin(req, res) {
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', 'https://cherymedan.web.id');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, token');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, token, X-Auth-Username, X-Auth-Session-Id');
 
     if (req.method === 'OPTIONS') return res.status(200).end();
 
-    // Route: ?action=login → EPCM login
+    // Route: ?action=login → EPCM login (Publicly accessible)
     if (req.query.action === 'login') {
         return handleLogin(req, res);
+    }
+
+    // Require session validation for all other endpoints
+    try {
+        await validateSessionLocal(req);
+    } catch (authErr) {
+        return sendUnauthorized(req, res, authErr.message);
+    }
+
+    // Route: ?action=get-active-token → return the currently active global token
+    if (req.query.action === 'get-active-token') {
+        return res.status(200).json({ success: true, token: globalEpcmToken });
     }
 
     // Route: ?action=token-bridge → HTML popup for fetching user's EPCM token
@@ -158,12 +268,58 @@ document.getElementById('sendBtn').onclick=function(){
 </html>`);
     }
 
-    // Route: ?path=... → EPC proxy
     const path = req.query.path;
     // Token: prefer header, fallback to query param (backward compat)
     const token = req.headers['token'] || req.headers['authorization']?.replace('Bearer ', '') || req.query.token;
     if (!path) {
         return res.status(400).json({ error: "Missing path parameter" });
+    }
+
+    // Local file cache setup
+    const CACHE_DIR = nodePath.join(process.cwd(), 'epc_cache');
+    if (!fs.existsSync(CACHE_DIR)) {
+        try { fs.mkdirSync(CACHE_DIR, { recursive: true }); } catch (e) {}
+    }
+
+    // Intercept with cache if available
+    let cacheFilePath = null;
+    let mimeFilePath = null;
+    let isPartlistJson = false;
+    let partlistJsonPath = null;
+
+    if (path.startsWith('/api/rest/base/file/view/')) {
+        const fileId = path.split('/').pop().split('?')[0];
+        if (fileId) {
+            cacheFilePath = nodePath.join(CACHE_DIR, `${fileId}.bin`);
+            mimeFilePath = nodePath.join(CACHE_DIR, `${fileId}.mime`);
+            if (fs.existsSync(cacheFilePath) && fs.existsSync(mimeFilePath)) {
+                try {
+                    const cachedData = fs.readFileSync(cacheFilePath);
+                    const cachedMime = fs.readFileSync(mimeFilePath, 'utf8').trim();
+                    res.setHeader('Content-Type', cachedMime);
+                    res.setHeader('Cache-Control', 'public, max-age=31536000');
+                    return res.send(cachedData);
+                } catch (e) {
+                    console.error("Cache read error:", e);
+                }
+            }
+        }
+    } else if (path.includes('/api/rest/model/partlist/')) {
+        const parts = path.split('/');
+        const partlistId = parts[parts.indexOf('partlist') + 1]?.split('?')[0];
+        if (partlistId) {
+            isPartlistJson = true;
+            partlistJsonPath = nodePath.join(CACHE_DIR, `partlist_${partlistId}.json`);
+            if (fs.existsSync(partlistJsonPath)) {
+                try {
+                    const cachedJson = JSON.parse(fs.readFileSync(partlistJsonPath, 'utf8'));
+                    res.setHeader('Content-Type', 'application/json');
+                    return res.status(200).json(cachedJson);
+                } catch (e) {
+                    console.error("Cache read error for JSON:", e);
+                }
+            }
+        }
     }
 
     const targetUrl = `https://qrepcm.mychery.com${path}`;
@@ -176,27 +332,122 @@ document.getElementById('sendBtn').onclick=function(){
             'Accept-Language': 'en-US,en;q=0.9'
         };
 
-        if (token) {
-            headers['token'] = token.startsWith('Bearer') ? token : `Bearer ${token}`;
+        // Resolve active token: backend-cached token has priority to avoid redundant auto-login on expired client tokens
+        let activeToken = globalEpcmToken || token;
+        if (!activeToken) {
+            console.log("No EPCM token available, performing initial silent login...");
+            activeToken = await performSilentLogin();
+        }
+
+        if (activeToken) {
+            headers['token'] = activeToken.startsWith('Bearer') ? activeToken : `Bearer ${activeToken}`;
             headers['Authorization'] = headers['token'];
         }
 
-        const response = await fetch(targetUrl, { headers });
+        const fetchOptions = {
+            method: req.method,
+            headers
+        };
 
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.startsWith('image/')) {
-            const buffer = await response.arrayBuffer();
-            res.setHeader('Content-Type', contentType);
-            res.setHeader('Cache-Control', 'public, max-age=31536000');
-            return res.send(Buffer.from(buffer));
+        if (req.method === 'POST' && req.body) {
+            headers['Content-Type'] = req.headers['content-type'] || 'application/json;charset=UTF-8';
+            fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+        }
+
+        let response = await fetch(targetUrl, fetchOptions);
+
+        // Auto Refresh & Retry on HTTP 401 Unauthorized status
+        if (response.status === 401 && !path.includes('/auth/')) {
+            console.log("Token expired (401 status), attempting background auto-refresh & retry...");
+            const freshToken = await performSilentLogin();
+            if (freshToken) {
+                headers['token'] = `Bearer ${freshToken}`;
+                headers['Authorization'] = headers['token'];
+                fetchOptions.headers = headers;
+                response = await fetch(targetUrl, fetchOptions);
+            }
         }
 
         if (!response.ok) {
             const err = await response.text();
+            // Purge cache if it was an error
+            if (cacheFilePath) {
+                try {
+                    fs.unlinkSync(cacheFilePath);
+                    fs.unlinkSync(mimeFilePath);
+                } catch (e) {}
+            }
             return res.status(response.status).json({ error: err });
         }
 
+        const contentType = response.headers.get('content-type') || '';
+        if (path.includes('/api/rest/base/file/view/') || (contentType && contentType.startsWith('image/'))) {
+            const buffer = await response.arrayBuffer();
+            let nodeBuffer = Buffer.from(buffer);
+            let textHeader = nodeBuffer.slice(0, 200).toString('utf8').trim();
+            
+            // Auto Refresh & Retry if server returns a JSON 401 error payload inside the file view endpoint
+            if (textHeader.startsWith('{') && (textHeader.includes('"success":false') || textHeader.includes('Unauthorized') || textHeader.includes('401'))) {
+                console.log("Token expired (JSON 401 payload), attempting background auto-refresh & retry...");
+                const freshToken = await performSilentLogin();
+                if (freshToken) {
+                    headers['token'] = `Bearer ${freshToken}`;
+                    headers['Authorization'] = headers['token'];
+                    fetchOptions.headers = headers;
+                    const retryResponse = await fetch(targetUrl, fetchOptions);
+                    if (retryResponse.ok) {
+                        const retryBuffer = await retryResponse.arrayBuffer();
+                        nodeBuffer = Buffer.from(retryBuffer);
+                        textHeader = nodeBuffer.slice(0, 200).toString('utf8').trim();
+                    }
+                }
+            }
+
+            // Self-healing check: if still returning error, delete local cache records and return 401
+            if (textHeader.startsWith('{') && (textHeader.includes('"success":false') || textHeader.includes('Unauthorized') || textHeader.includes('401'))) {
+                if (cacheFilePath) {
+                    try {
+                        fs.unlinkSync(cacheFilePath);
+                        fs.unlinkSync(mimeFilePath);
+                    } catch (e) {}
+                }
+                res.setHeader('Content-Type', 'application/json');
+                return res.status(401).send(nodeBuffer);
+            }
+
+            let finalContentType = contentType;
+            if (textHeader.startsWith('<svg') || textHeader.startsWith('<?xml') || textHeader.includes('<svg')) {
+                finalContentType = 'image/svg+xml';
+            } else if (!finalContentType || finalContentType === 'application/octet-stream') {
+                finalContentType = 'image/png';
+            }
+            
+            // Save to cache filesystem
+            if (cacheFilePath && mimeFilePath) {
+                try {
+                    fs.writeFileSync(cacheFilePath, nodeBuffer);
+                    fs.writeFileSync(mimeFilePath, finalContentType);
+                } catch (e) {
+                    console.error("Cache write error:", e);
+                }
+            }
+
+            res.setHeader('Content-Type', finalContentType);
+            res.setHeader('Cache-Control', 'public, max-age=31536000');
+            return res.send(nodeBuffer);
+        }
+
         const data = await response.json();
+        
+        // Save partlist details JSON to cache
+        if (isPartlistJson && partlistJsonPath && data && data.success !== false) {
+            try {
+                fs.writeFileSync(partlistJsonPath, JSON.stringify(data));
+            } catch (e) {
+                console.error("Cache write error for JSON:", e);
+            }
+        }
+
         return res.status(200).json(data);
 
     } catch (error) {

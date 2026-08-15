@@ -117,8 +117,20 @@ export default function QuotationSPA({ onClose }) {
       const partInfo = contents[0]; 
       
       if (partInfo && partInfo.imageIds && partInfo.imageIds.length > 0) {
+        let authUsername = '';
+        let authSessionId = '';
+        try {
+          const savedUser = localStorage.getItem('chery_auth_user');
+          if (savedUser) {
+            const userObj = JSON.parse(savedUser);
+            authUsername = userObj.username || '';
+          }
+          authSessionId = localStorage.getItem('chery_session_id') || '';
+        } catch (e) {}
+        const authQueryParams = `&X-Auth-Username=${encodeURIComponent(authUsername)}&X-Auth-Session-Id=${encodeURIComponent(authSessionId)}`;
+
         const imageUrls = partInfo.imageIds.map(id => 
-          `${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/base/file/view/${id}`)}`
+          `${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/base/file/view/${id}`)}${authQueryParams}`
         );
         setEpcmImages(prev => ({ ...prev, [partCode]: imageUrls }));
       }

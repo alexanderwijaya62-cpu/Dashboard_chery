@@ -151,6 +151,7 @@ export default function PublicBooking({ user, setCurrentPage }) {
             console.log('[PublicBooking] Fetching bookings from date:', dateStr);
             const { data: supabaseData, error } = await db.select('booking', {
                 select: 'id, tanggal, jam, noPlat, namaCustomer, noTelp, tipeMobil, status, bookingVia, noUrut',
+                neq: { status: 'deleted' },
                 gte: { tanggal: dateStr }
             });
             console.log('[PublicBooking] Raw API response:', { supabaseData, error });

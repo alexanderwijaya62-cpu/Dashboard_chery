@@ -2,11 +2,13 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Search, Phone, Calendar, Car, RefreshCw,
   ChevronDown, ChevronUp, ExternalLink, CheckCircle, XCircle, Eye,
-  Download, AlertCircle, ChevronLeft, ChevronRight
+  Download, AlertCircle, ChevronLeft, ChevronRight,
+  CheckCheck, MessageSquare, X, User, Send
  } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
-import { CSI_PROXY_URL } from '../utils/config';
+import { CSI_PROXY_URL, CSI_WA_TEMPLATES } from '../utils/config';
+import { db } from '../utils/dbClient';
 
 const SENT_STATUS_LABEL = {
   optjRRw2sJ: { label: 'Success', color: 'bg-emerald-100 text-emerald-700 border border-emerald-200' },
@@ -108,6 +110,17 @@ const formatPhone = (phone) => {
   return p;
 };
 
+// ── Follow-up notes: disimpan di Supabase (tabel settings, key csifu_<recordId>)
+//    localStorage dipakai sebagai cache offline / fallback. ──
+const NOTES_KEY = 'csi_followup_notes';
+const NOTES_SETTINGS_PREFIX = 'csifu_';
+const loadNotes = () => {
+  try { return JSON.parse(localStorage.getItem(NOTES_KEY)) || {}; } catch { return {}; }
+};
+
+const normalizePlate = (p) => (p || '').toUpperCase().replace(/\s+/g, '');
+const normalizeVin = (v) => (v || '').toUpperCase().trim();
+
 export default function CsiFollowup() {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -117,6 +130,92 @@ export default function CsiFollowup() {
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [stats, setStats] = useState({ total: 0, belum: 0, success: 0, failed: 0, read: 0 });
   const [error, setError] = useState(null);
+
+  // Follow-up notes (sudah follow up + komentar + nama manual), per record Feishu
+  const [notes, setNotes] = useState(loadNotes);
+  // Dictionary nama customer dari tabel laporanwo (DMS WO) — VIN & Plat → Nama
+  const [nameMap, setNameMap] = useState({ vin: {}, plate: {} });
+  // Modal template WA
+  const [waModalCustomer, setWaModalCustomer] = useState(null);
+  const [waTemplateKey, setWaTemplateKey] = useState('pagi');
+  const [waText, setWaText] = useState('');
+
+  // Muat catatan follow-up dari Supabase pada mount & gabung dgn cache lokal
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await db.select('settings', { like: { key: `${NOTES_SETTINGS_PREFIX}%` } });
+        if (cancelled) return;
+        if (!data || !Array.isArray(data)) return;
+        const serverNotes = {};
+        data.forEach(item => {
+          const id = item.key.replace(NOTES_SETTINGS_PREFIX, '');
+          try {
+            serverNotes[id] = JSON.parse(item.value);
+          } catch {
+            serverNotes[id] = { done: item.value === 'true', comment: item.value === 'true' ? '' : item.value };
+          }
+        });
+        setNotes(prev => {
+          const merged = { ...serverNotes, ...prev };
+          try { localStorage.setItem(NOTES_KEY, JSON.stringify(merged)); } catch { /* localStorage may be unavailable */ }
+          return merged;
+        });
+      } catch (e) {
+        console.warn('Gagal memuat catatan follow-up dari Supabase:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const updateNote = useCallback((id, patch) => {
+    setNotes(prev => {
+      const next = { ...prev, [id]: { ...(prev[id] || {}), ...patch } };
+      try { localStorage.setItem(NOTES_KEY, JSON.stringify(next)); } catch { /* localStorage may be unavailable */ }
+      // Simpan juga ke Supabase (tabel settings) dengan key csifu_<recordId>
+      const record = next[id];
+      db.upsert('settings', {
+        key: `${NOTES_SETTINGS_PREFIX}${id}`,
+        value: JSON.stringify({ ...record, updatedAt: new Date().toISOString() })
+      }, { onConflict: 'key' }).then(res => {
+        if (res?.error) console.warn('Gagal simpan catatan follow-up ke Supabase:', res.error);
+      }).catch(err => console.warn('Gagal simpan catatan follow-up ke Supabase:', err));
+      return next;
+    });
+  }, []);
+
+  const resolveName = useCallback((c) => {
+    const note = notes[c.id];
+    if (note?.name) return note.name;
+    const vin = normalizeVin(c.vin);
+    const plate = normalizePlate(c.plate);
+    return nameMap.vin[vin] || nameMap.plate[plate] || '';
+  }, [notes, nameMap]);
+
+  // Muat nama customer dari tabel laporanwo (DMS WO data) untuk enrich kolom nama
+  const fetchCustomerNames = useCallback(async () => {
+    try {
+      const { data } = await db.select('laporanwo', { select: '*', limit: 1000 });
+      if (!data || !Array.isArray(data)) return;
+      const vinMap = {};
+      const plateMap = {};
+      data.forEach(r => {
+        const vin = normalizeVin(r['No. Rangka']);
+        const plate = normalizePlate(r['No. Pol']);
+        const name = (r['Nama Invoice'] || '').trim();
+        if (vin && name && !vinMap[vin]) vinMap[vin] = name;
+        if (plate && name && !plateMap[plate]) plateMap[plate] = name;
+      });
+      setNameMap({ vin: vinMap, plate: plateMap });
+    } catch (e) {
+      console.warn('Gagal memuat nama customer dari laporanwo:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCustomerNames();
+  }, [fetchCustomerNames]);
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -137,7 +236,7 @@ export default function CsiFollowup() {
             setCurrentPage(1);
             return;
           }
-        } catch (_) {}
+        } catch { /* stale cache, refetch */ }
       }
     }
 
@@ -189,7 +288,7 @@ export default function CsiFollowup() {
         let json;
         try { json = JSON.parse(text); } catch { json = {}; }
         if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-        if (json.code === 99991668 || json.code === 99991667) {
+        if (json.code === 99991668 || json.code === 99991667 || (json.code === 5 && json.error?.Code === 4101)) {
           throw new Error('Sesi Feishu expired. Hubungi admin untuk update env FEISHU_COOKIE.');
         }
         if (json.code !== 0) throw new Error(json.msg || `Error Feishu: ${json.code}`);
@@ -265,13 +364,16 @@ export default function CsiFollowup() {
 
   const filtered = useMemo(() => {
     return customers.filter((c) => {
+      if (statusFilter === 'done' && !notes[c.id]?.done) return false;
       if (statusFilter === 'belum' && c.sentStatus) return false;
       if (statusFilter === 'success' && c.sentStatus !== 'optjRRw2sJ') return false;
       if (statusFilter === 'failed' && c.sentStatus !== 'optBIxMgX1') return false;
       if (statusFilter === 'read' && c.sentStatus !== 'optqng9Ywq') return false;
       if (search) {
         const q = search.toLowerCase();
+        const name = resolveName(c).toLowerCase();
         return (
+          name.includes(q) ||
           c.plate.toLowerCase().includes(q) ||
           c.vin.toLowerCase().includes(q) ||
           c.phone.includes(q) ||
@@ -280,7 +382,12 @@ export default function CsiFollowup() {
       }
       return true;
     });
-  }, [customers, search, statusFilter]);
+  }, [customers, search, statusFilter, notes, resolveName]);
+
+  // Jumlah customer yang sudah ditandai follow up
+  const doneCount = useMemo(() => {
+    return customers.filter(c => notes[c.id]?.done).length;
+  }, [customers, notes]);
 
   // Paginated records
   const paginatedCustomers = useMemo(() => {
@@ -299,10 +406,46 @@ export default function CsiFollowup() {
     });
   };
 
-  const handleWAUrl = (phone, plate) => {
+  const handleWAUrl = (phone, text = '') => {
     const formatted = formatPhone(phone).replace(/[^\d]/g, '');
-    const message = `Halo, kami dari Chery. Mengingatkan kembali untuk mengisi survey kepuasan layanan CSI untuk plat kendaraan ${plate}. Terima kasih!`;
-    return `https://wa.me/${formatted}?text=${encodeURIComponent(message)}`;
+    return `https://wa.me/${formatted}?text=${encodeURIComponent(text)}`;
+  };
+
+  const getTemplateText = useCallback((key, c) => {
+    const tpl = CSI_WA_TEMPLATES[key] || CSI_WA_TEMPLATES.pagi;
+    const nama = resolveName(c) || 'Bapak/Ibu';
+    const plat = c.plate || 'kendaraan Anda';
+    return (tpl.text || '').replaceAll('{nama}', nama).replaceAll('{plat}', plat);
+  }, [resolveName]);
+
+  const openWaModal = (c) => {
+    const key = 'pagi';
+    setWaTemplateKey(key);
+    setWaText(getTemplateText(key, c));
+    setWaModalCustomer(c);
+  };
+
+  const closeWaModal = () => {
+    setWaModalCustomer(null);
+    setWaText('');
+  };
+
+  const selectWaTemplate = (key) => {
+    setWaTemplateKey(key);
+    setWaText(getTemplateText(key, waModalCustomer));
+  };
+
+  const openWhatsApp = () => {
+    if (!waModalCustomer) return;
+    window.open(handleWAUrl(waModalCustomer.phone, waText), '_blank', 'noopener,noreferrer');
+    if (waModalCustomer) {
+      updateNote(waModalCustomer.id, { done: true, doneAt: new Date().toISOString(), lastTemplate: waTemplateKey });
+      Toastify({
+        text: '✅ Ditandai sudah follow up!',
+        style: { background: '#10b981', borderRadius: '12px' },
+      }).showToast();
+    }
+    closeWaModal();
   };
 
   return (
@@ -330,11 +473,12 @@ export default function CsiFollowup() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {[
           { label: 'Belum Survey', value: stats.belum, color: 'bg-zinc-900 text-white border-zinc-950' },
           { label: 'Total Data', value: stats.total, color: 'bg-white border-zinc-200 text-zinc-800' },
-          { label: 'Success', value: stats.success, color: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
+          { label: 'Sudah Followup', value: doneCount, color: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
+          { label: 'Success', value: stats.success, color: 'bg-teal-50 border-teal-200 text-teal-800' },
           { label: 'Failed', value: stats.failed, color: 'bg-rose-50 border-rose-200 text-rose-800' },
           { label: 'Read (Dibaca)', value: stats.read, color: 'bg-sky-50 border-sky-200 text-sky-800' },
         ].map((s) => (
@@ -374,6 +518,7 @@ export default function CsiFollowup() {
           >
             <option value="all">Semua Status</option>
             <option value="belum">Belum Followup</option>
+            <option value="done">Sudah Followup</option>
             <option value="success">Success</option>
             <option value="failed">Failed</option>
             <option value="read">Read</option>
@@ -405,19 +550,22 @@ export default function CsiFollowup() {
             <thead>
               <tr className="border-b border-zinc-200 bg-zinc-50/50">
                 <th className="p-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest text-center w-12">No</th>
+                <th className="p-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest min-w-[140px]">Nama Customer</th>
                 <th className="p-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest">Plat Nomor</th>
                 <th className="p-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest">VIN (No. Rangka)</th>
                 <th className="p-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest">No. Handphone</th>
                 <th className="p-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest">Service Date</th>
                 <th className="p-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest text-center w-24">Status</th>
                 <th className="p-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest text-center w-40">Tindakan</th>
+                <th className="p-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest text-center w-28">Follow Up</th>
+                <th className="p-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest min-w-[160px]">Komentar</th>
                 <th className="p-4 w-12"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="p-16 text-center">
+                  <td colSpan={11} className="p-16 text-center">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <RefreshCw size={24} className="animate-spin text-zinc-400" />
                       <span className="text-zinc-500 font-bold text-sm">Menyelaraskan data Feishu Bitable...</span>
@@ -426,7 +574,7 @@ export default function CsiFollowup() {
                 </tr>
               ) : paginatedCustomers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-16 text-center">
+                  <td colSpan={11} className="p-16 text-center">
                     <div className="text-zinc-300 font-black text-xl">Data Kosong</div>
                     <p className="text-zinc-400 text-sm mt-1.5 font-medium">Tidak ada kustomer dengan status tersebut.</p>
                   </td>
@@ -435,10 +583,24 @@ export default function CsiFollowup() {
                 paginatedCustomers.map((c, i) => {
                   const statusInfo = SENT_STATUS_LABEL[c.sentStatus] || SENT_STATUS_LABEL[''];
                   const realIndex = (currentPage - 1) * itemsPerPage + i + 1;
+                  const name = resolveName(c);
+                  const note = notes[c.id] || {};
+                  const done = !!note.done;
                   return (
                     <React.Fragment key={c.id}>
                       <tr className="hover:bg-zinc-50/50 transition-colors">
                         <td className="p-4 text-center text-zinc-400 font-bold text-xs">{realIndex}</td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-1.5">
+                            <User size={14} className="text-zinc-400 shrink-0" />
+                            <input
+                              value={name}
+                              onChange={(e) => updateNote(c.id, { name: e.target.value })}
+                              placeholder="Nama customer"
+                              className="w-full min-w-[110px] bg-transparent text-sm font-semibold text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:ring-1 focus:ring-zinc-300 rounded px-1.5 py-0.5"
+                            />
+                          </div>
+                        </td>
                         <td className="p-4">
                           <div className="flex items-center gap-2">
                             <Car size={16} className="text-zinc-400 shrink-0" />
@@ -463,15 +625,38 @@ export default function CsiFollowup() {
                           </span>
                         </td>
                         <td className="p-4 text-center">
-                          <a
-                            href={handleWAUrl(c.phone, c.plate)}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            onClick={() => openWaModal(c)}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
                           >
                             <ExternalLink size={12} />
                             Kirim WA
-                          </a>
+                          </button>
+                        </td>
+                        <td className="p-4 text-center">
+                          <button
+                            onClick={() => updateNote(c.id, { done: !done, doneAt: !done ? new Date().toISOString() : null })}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
+                              done
+                                ? 'bg-emerald-600 text-white shadow-sm'
+                                : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200'
+                            }`}
+                            title={done ? 'Sudah di-follow-up' : 'Tandai sudah follow up'}
+                          >
+                            <CheckCheck size={14} />
+                            {done ? 'Sudah' : 'Tandai'}
+                          </button>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-1.5">
+                            <MessageSquare size={13} className="text-zinc-400 shrink-0" />
+                            <input
+                              value={note.comment || ''}
+                              onChange={(e) => updateNote(c.id, { comment: e.target.value })}
+                              placeholder="Komentar customer..."
+                              className="w-full min-w-[120px] bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1.5 text-xs text-zinc-700 font-medium focus:outline-none focus:border-emerald-500 focus:bg-white"
+                            />
+                          </div>
                         </td>
                         <td className="p-4 text-center">
                           <button
@@ -484,7 +669,7 @@ export default function CsiFollowup() {
                       </tr>
                       {expandedRows.has(c.id) && (
                         <tr className="bg-zinc-50/50">
-                          <td colSpan={8} className="p-5 border-t border-zinc-100">
+                          <td colSpan={11} className="p-5 border-t border-zinc-100">
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-sm">
                               <div>
                                 <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-1">Record ID</span>
@@ -573,6 +758,102 @@ export default function CsiFollowup() {
       {customers.length > 0 && (
         <div className="text-center text-[10px] font-black text-zinc-350 uppercase tracking-widest">
           Total {filtered.length} dari {customers.length} data kustomer CSI terunduh
+        </div>
+      )}
+
+      {/* WA Template Floating Modal */}
+      {waModalCustomer && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }}
+          onClick={closeWaModal}
+        >
+          <div
+            className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden border border-zinc-200 animate-modal-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="bg-gradient-to-br from-emerald-900 via-emerald-800 to-teal-900 px-6 pt-6 pb-5 relative overflow-hidden">
+              <div
+                className="absolute inset-0 opacity-40"
+                style={{ background: 'radial-gradient(circle at 80% 20%, rgba(255,255,255,0.15), transparent 50%)' }}
+              ></div>
+              <div className="flex items-start justify-between relative z-10">
+                <div>
+                  <h3 className="text-white font-black text-base uppercase tracking-wider flex items-center gap-2">
+                    <Send size={16} /> Kirim WA Follow-up
+                  </h3>
+                  <p className="text-emerald-200 text-xs font-semibold mt-1">
+                    {resolveName(waModalCustomer) || '-'} • {waModalCustomer.plate || '-'} • {formatPhone(waModalCustomer.phone)}
+                  </p>
+                </div>
+                <button onClick={closeWaModal} className="text-white/70 hover:text-white transition-colors">
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Template selector */}
+            <div className="px-6 pt-5">
+              <div className="flex items-center gap-2 mb-3">
+                <MessageSquare size={14} className="text-zinc-400" />
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Pilih Template</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {Object.entries(CSI_WA_TEMPLATES).map(([key, tpl]) => (
+                  <button
+                    key={key}
+                    onClick={() => selectWaTemplate(key)}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide transition-all active:scale-95 border-2 ${
+                      waTemplateKey === key
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                        : 'bg-white text-zinc-600 border-zinc-200 hover:border-emerald-400'
+                    }`}
+                  >
+                    {tpl.label}
+                    <span className={`block text-[9px] font-bold mt-0.5 ${waTemplateKey === key ? 'text-emerald-100' : 'text-zinc-400'}`}>
+                      {tpl.time}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Editable text */}
+            <div className="px-6 pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Isi Pesan (bisa diedit)</span>
+                <button
+                  onClick={() => setWaText(getTemplateText(waTemplateKey, waModalCustomer))}
+                  className="text-[10px] font-black text-emerald-600 hover:text-emerald-800 uppercase tracking-wider flex items-center gap-1"
+                >
+                  <RefreshCw size={11} /> Reset Template
+                </button>
+              </div>
+              <textarea
+                value={waText}
+                onChange={(e) => setWaText(e.target.value)}
+                rows={10}
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl px-4 py-3 text-xs text-zinc-800 font-medium leading-relaxed focus:outline-none focus:border-emerald-500 focus:bg-white resize-y"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="px-6 pb-6 pt-4 flex gap-3">
+              <button
+                onClick={closeWaModal}
+                className="flex-1 py-3 rounded-xl bg-zinc-100 text-zinc-600 font-black text-xs uppercase tracking-widest hover:bg-zinc-200 transition-all active:scale-95"
+              >
+                Batal
+              </button>
+              <button
+                onClick={openWhatsApp}
+                className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-widest transition-all active:scale-95 shadow-lg flex items-center justify-center gap-2"
+              >
+                <Send size={15} /> Buka WhatsApp
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

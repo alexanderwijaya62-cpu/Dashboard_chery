@@ -13,13 +13,13 @@ const MONTHS = [
   "Juli", "Agustus", "September", "Oktober", "November", "Desember"
 ];
 
-const SEGMENTS = ["Penjualan Service", "Penjualan Customer", "Partshop", "Lainnya"];
+const SEGMENTS = ["Service", "Partshop", "Internal", "Retail / Customer"];
 
 const SEGMENT_COLORS = {
-  "Penjualan Service": "#10b981", // Emerald
-  "Penjualan Customer": "#3b82f6", // Blue
+  "Service": "#10b981", // Emerald
   "Partshop": "#f59e0b", // Amber
-  "Lainnya": "#6b7280" // Gray
+  "Internal": "#6366f1", // Indigo
+  "Retail / Customer": "#3b82f6" // Blue
 };
 
 const formatCurrency = (val) => {
@@ -40,7 +40,7 @@ export default function SparepartRevenuePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [page, setPage] = useState(0);
-  const pageSize = 50;
+  const pageSize = 20;
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -88,10 +88,11 @@ export default function SparepartRevenuePage() {
 
   const getSegment = (pelanggan) => {
     const p = String(pelanggan || '').trim().toUpperCase();
-    if (p.startsWith('RS0001C')) return 'Penjualan Customer';
-    if (p.startsWith('RS0001')) return 'Penjualan Service';
+    if (p.startsWith('RS0001C')) return 'Retail / Customer';
+    if (p.startsWith('RS0001')) return 'Service';
     if (p.startsWith('RMS') || p.startsWith('GJ1') || p.startsWith('PAM')) return 'Partshop';
-    return 'Lainnya';
+    if (p.startsWith('IOB') || p.startsWith('INT')) return 'Internal';
+    return 'Retail / Customer';
   };
 
   const years = useMemo(() => {
@@ -137,7 +138,10 @@ export default function SparepartRevenuePage() {
     
     if (timePreset === 'custom') {
       if (!fromDate && !toDate) return true;
-      const itemDateStr = dateObj.toISOString().split('T')[0];
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      const itemDateStr = `${year}-${month}-${day}`;
       if (fromDate && itemDateStr < fromDate) return false;
       if (toDate && itemDateStr > toDate) return false;
       return true;
@@ -152,18 +156,18 @@ export default function SparepartRevenuePage() {
       qty: 0,
       totalSales: 0,
       segments: {
-        "Penjualan Service": { sales: 0, qty: 0 },
-        "Penjualan Customer": { sales: 0, qty: 0 },
+        "Service": { sales: 0, qty: 0 },
         "Partshop": { sales: 0, qty: 0 },
-        "Lainnya": { sales: 0, qty: 0 }
+        "Internal": { sales: 0, qty: 0 },
+        "Retail / Customer": { sales: 0, qty: 0 }
       }
     }));
 
     const segmentSummaries = {
-      "Penjualan Service": { sales: 0, qty: 0, count: 0 },
-      "Penjualan Customer": { sales: 0, qty: 0, count: 0 },
+      "Service": { sales: 0, qty: 0, count: 0 },
       "Partshop": { sales: 0, qty: 0, count: 0 },
-      "Lainnya": { sales: 0, qty: 0, count: 0 }
+      "Internal": { sales: 0, qty: 0, count: 0 },
+      "Retail / Customer": { sales: 0, qty: 0, count: 0 }
     };
 
     let totalQty = 0;
@@ -398,10 +402,10 @@ export default function SparepartRevenuePage() {
               className="text-xs font-bold bg-transparent outline-none text-zinc-900 cursor-pointer"
             >
               <option value="ALL">Semua Segmen Pelanggan</option>
-              <option value="Penjualan Service">Penjualan Service (RS0001)</option>
-              <option value="Penjualan Customer">Penjualan Customer (RS0001C)</option>
+              <option value="Service">Service (RS0001)</option>
               <option value="Partshop">Partshop (RMS/GJ1/PAM)</option>
-              <option value="Lainnya">Lainnya</option>
+              <option value="Internal">Internal (IOB/INT)</option>
+              <option value="Retail / Customer">Retail / Customer (RS0001C/Lainnya)</option>
             </select>
           </div>
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Upload, Search, Filter, RefreshCw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, TrendingUp, Layers, AlertCircle, X, FileSpreadsheet, Package, Download, Trash2, FileDown } from 'lucide-react';
+import { Upload, Search, Filter, RefreshCw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, TrendingUp, Layers, AlertCircle, X, FileSpreadsheet, Package, Download, Trash2, FileDown, RotateCcw } from 'lucide-react';
 import { db } from '../utils/dbClient';
 import * as XLSX from 'xlsx';
 import Toastify from 'toastify-js';
@@ -31,6 +31,35 @@ const parseDate = (dateStr) => {
 const formatRupiah = (num) => {
   if (!num && num !== 0) return '-';
   return 'Rp ' + Number(num).toLocaleString('id-ID');
+};
+
+// Parse angka dengan format Indonesia (titik = ribuan, koma = desimal)
+// dan PERTAHANKAN tanda minus agar nilai retur (mis. -60.000 / -1,0)
+// tetap negatif saat diimport (tidak berubah jadi positif).
+const tryParseNumeric = (val) => {
+  if (val == null) return null;
+  if (typeof val === 'number') return isNaN(val) ? null : val;
+  const raw = String(val).trim();
+  if (!raw) return null;
+  const isNegative = raw.startsWith('-') || (raw.startsWith('(') && raw.endsWith(')'));
+  let s = raw.replace(/[()]/g, '');
+  s = s.replace(/[^\d.,-]/g, '');
+  s = s.replace(/\./g, '');
+  s = s.replace(/,/g, '.');
+  const num = parseFloat(s);
+  if (isNaN(num)) return null;
+  return isNegative ? -Math.abs(num) : num;
+};
+
+const parseNumeric = (val) => tryParseNumeric(val) || 0;
+
+// Deteksi baris retur: qty negatif, total negatif, atau kode transaksi retur (RETUR/RT)
+const isReturRow = (r) => {
+  if (!r) return false;
+  if (parseNumeric(r.Qty) < 0) return true;
+  if (parseNumeric(r.Total) < 0) return true;
+  const no = String(r.NoTransaksi || '').toUpperCase();
+  return no.includes('RETUR') || no.startsWith('RT');
 };
 
 export default function SparepartPredictor() {
@@ -120,8 +149,8 @@ export default function SparepartPredictor() {
       if (record.Qty == null || record.Qty === '') {
         for (const ci of [15, 16, 17]) {
           if (ci < row.length && row[ci] != null && String(row[ci]).trim() !== '') {
-            const v = Number(String(row[ci]).trim());
-            if (!isNaN(v)) {
+            const v = tryParseNumeric(row[ci]);
+            if (v !== null) {
               record.Qty = v;
               break;
             }
@@ -195,11 +224,11 @@ export default function SparepartPredictor() {
           PartNo: String(r.PartNo || '').trim(),
           PartName: String(r.PartName || '').trim(),
           Type: String(r.Type || '').trim(),
-          Qty: parseFloat(r.Qty) || 0,
-          HargaSatuan: parseFloat(String(r.HargaSatuan).replace(/[^0-9.,]/g, '').replace(/,/g, '')) || 0,
-          Discount: parseFloat(String(r.Discount).replace(/[^0-9.,]/g, '').replace(/,/g, '')) || 0,
-          HargaJual: parseFloat(String(r.HargaJual).replace(/[^0-9.,]/g, '').replace(/,/g, '')) || 0,
-          Total: parseFloat(String(r.Total).replace(/[^0-9.,]/g, '').replace(/,/g, '')) || 0,
+          Qty: parseNumeric(r.Qty),
+          HargaSatuan: parseNumeric(r.HargaSatuan),
+          Discount: parseNumeric(r.Discount),
+          HargaJual: parseNumeric(r.HargaJual),
+          Total: parseNumeric(r.Total),
           bulan: month,
           tahun: year,
         });
@@ -307,17 +336,39 @@ export default function SparepartPredictor() {
     return filtered;
   }, [records, search, filterMonthFrom, filterMonthTo, filterYear]);
 
+  // Retur (qty negatif) sering tidak mengisi PartNo tapi PartName sama dengan
+  // transaksi penjualan. Petakan PartName -> PartNo agar retur bisa digabung
+  // ke baris part yang sama, sehingga profit bulan yang diretur berkurang.
+  const partNameMap = useMemo(() => {
+    const map = {};
+    filteredRecords.forEach(r => {
+      const pn = String(r.PartName || '').trim();
+      const pno = String(r.PartNo || '').trim();
+      if (pn && pno && !map[pn]) map[pn] = pno;
+    });
+    return map;
+  }, [filteredRecords]);
+
+  const recordKey = useMemo(() => (r) => {
+    const pno = String(r.PartNo || '').trim();
+    const pn = String(r.PartName || '').trim();
+    if (pno) return pno;
+    if (pn) return partNameMap[pn] || pn;
+    return 'Unknown';
+  }, [partNameMap]);
+
   const pivotData = useMemo(() => {
-    const withDate = filteredRecords.map(r => ({ ...r, _parsed: parseDate(r.Tgl) }));
+    const withDate = filteredRecords.map(r => ({ ...r, _parsed: parseDate(r.Tgl), _qty: parseNumeric(r.Qty) }));
     const monthSet = new Set();
     const grouped = {};
     let minYear = 9999, maxYear = 0, minMonth = 12, maxMonth = 1;
 
     withDate.forEach(r => {
-      const qty = parseFloat(r.Qty) || 0;
-      const key = (r.PartNo || r.PartName || 'Unknown').trim();
+      // Retur (qty < 0) tidak mengurangi kuantitas pemakaian bulanan
+      const qty = r._qty < 0 ? 0 : r._qty;
+      const key = recordKey(r);
       if (!grouped[key]) {
-        grouped[key] = { partName: (r.PartName || '').trim(), partNo: (r.PartNo || '').trim(), total: 0, count: 0, months: {} };
+        grouped[key] = { partName: (r.PartName || '').trim(), partNo: key, total: 0, count: 0, months: {} };
       }
       grouped[key].total += qty;
       grouped[key].count += 1;
@@ -359,15 +410,21 @@ export default function SparepartPredictor() {
     else if (sortBy === 'name_asc') result.sort((a, b) => a.partName.localeCompare(b.partName));
     else if (sortBy === 'name_desc') result.sort((a, b) => b.partName.localeCompare(a.partName));
 
-    result = result.map(item => ({
-      ...item,
-      avg: Math.round(item.total / monthCount),
-      safeStock: Math.round(item.total / monthCount * 1.5),
-      reorderPoint: Math.round(item.total / monthCount * 2),
-    }));
+    // Rata-rata dihitung dari seluruh rentang bulan data (monthCount),
+    // sehingga menghasilkan rata-rata bulanan yang sebenarnya.
+    result = result.map(item => {
+      const denom = Math.max(1, monthCount);
+      const avg = Math.round(item.total / denom);
+      return {
+        ...item,
+        avg,
+        safeStock: Math.max(0, Math.round(item.total / denom * 1.5)),
+        reorderPoint: Math.max(0, Math.round(item.total / denom * 2)),
+      };
+    });
 
     return { pivot: result, months: allMonths, totalRecords: withDate.length, monthCount };
-  }, [filteredRecords, sortBy]);
+  }, [filteredRecords, sortBy, recordKey]);
 
   const totalPages = Math.ceil(pivotData.pivot.length / pageSize);
   const displayPivot = pivotData.pivot.slice(page * pageSize, (page + 1) * pageSize);
@@ -421,7 +478,18 @@ export default function SparepartPredictor() {
                 </div>
                 <div>
                   <h3 className="font-black text-lg uppercase tracking-tight">Preview Data</h3>
-                  <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">{pendingData.length} record ditemukan</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">{pendingData.length} record ditemukan</p>
+                    {(() => {
+                      const returCount = pendingData.filter(isReturRow).length;
+                      if (returCount === 0) return null;
+                      return (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-[10px] font-black uppercase tracking-wider">
+                          <RotateCcw size={10} /> {returCount} retur
+                        </span>
+                      );
+                    })()}
+                  </div>
                 </div>
               </div>
               <button onClick={() => !isImporting && setShowUpload(false)} className="p-2 hover:bg-zinc-100 rounded-xl transition-colors">
@@ -433,6 +501,7 @@ export default function SparepartPredictor() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-zinc-50 border-b border-zinc-200">
+                      <th className="text-left px-3 py-2 font-black text-zinc-500 uppercase tracking-wider whitespace-nowrap">Tipe</th>
                       <th className="text-left px-3 py-2 font-black text-zinc-500 uppercase tracking-wider whitespace-nowrap">NoTransaksi</th>
                       <th className="text-left px-3 py-2 font-black text-zinc-500 uppercase tracking-wider whitespace-nowrap">Tgl</th>
                       <th className="text-left px-3 py-2 font-black text-zinc-500 uppercase tracking-wider whitespace-nowrap">PartNo</th>
@@ -442,16 +511,32 @@ export default function SparepartPredictor() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100">
-                    {pendingData.slice(0, 50).map((r, i) => (
-                      <tr key={i} className="hover:bg-zinc-50">
-                        <td className="px-3 py-2 font-mono font-bold text-zinc-900 whitespace-nowrap">{r.NoTransaksi || '-'}</td>
-                        <td className="px-3 py-2 text-zinc-600 whitespace-nowrap">{r.Tgl || '-'}</td>
-                        <td className="px-3 py-2 font-mono text-zinc-700 whitespace-nowrap">{r.PartNo || '-'}</td>
-                        <td className="px-3 py-2 text-zinc-800 font-semibold truncate max-w-[200px]">{r.PartName || '-'}</td>
-                        <td className="px-3 py-2 text-right font-bold text-zinc-900">{r.Qty || 0}</td>
-                        <td className="px-3 py-2 text-right font-mono text-zinc-700">{formatRupiah(r.Total)}</td>
-                      </tr>
-                    ))}
+                    {pendingData.slice(0, 50).map((r, i) => {
+                      const isRetur = isReturRow(r);
+                      const qty = parseNumeric(r.Qty);
+                      const total = parseNumeric(r.Total);
+                      return (
+                        <tr key={i} className={`hover:bg-zinc-50 ${isRetur ? 'bg-red-50/60' : ''}`}>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {isRetur ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-[9px] font-black uppercase tracking-wider">
+                                <RotateCcw size={9} /> Retur
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-600 text-[9px] font-black uppercase tracking-wider">
+                                Jual
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 font-mono font-bold text-zinc-900 whitespace-nowrap">{r.NoTransaksi || '-'}</td>
+                          <td className="px-3 py-2 text-zinc-600 whitespace-nowrap">{r.Tgl || '-'}</td>
+                          <td className="px-3 py-2 font-mono text-zinc-700 whitespace-nowrap">{r.PartNo || '-'}</td>
+                          <td className="px-3 py-2 text-zinc-800 font-semibold truncate max-w-[200px]">{r.PartName || '-'}</td>
+                          <td className={`px-3 py-2 text-right font-bold ${qty < 0 ? 'text-red-600' : 'text-zinc-900'}`}>{qty || 0}</td>
+                          <td className={`px-3 py-2 text-right font-mono font-bold ${total < 0 ? 'text-red-600' : 'text-zinc-700'}`}>{formatRupiah(total)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -611,11 +696,14 @@ export default function SparepartPredictor() {
                         <tr className="hover:bg-zinc-50 transition-colors cursor-pointer" onClick={() => setExpandedRow(expandedRow === i ? null : i)}>
                           <td className="px-4 py-3 font-bold text-zinc-900 whitespace-nowrap max-w-[250px] truncate">{item.partName}</td>
                           <td className="px-4 py-3 font-mono text-zinc-500 whitespace-nowrap text-[11px]">{item.partNo || '-'}</td>
-                          {pivotData.months.map(m => (
-                            <td key={m} className="px-3 py-3 text-right font-bold text-zinc-800">{item.months[m] || '-'}</td>
-                          ))}
-                          <td className="px-4 py-3 text-right font-black text-zinc-900 border-l-2 border-zinc-200">{item.total}</td>
-                          <td className="px-4 py-3 text-right font-bold text-blue-600">{item.avg}</td>
+                          {pivotData.months.map(m => {
+                            const v = item.months[m] || 0;
+                            return (
+                              <td key={m} className={`px-3 py-3 text-right font-bold ${v < 0 ? 'text-red-600' : 'text-zinc-800'}`}>{v || '-'}</td>
+                            );
+                          })}
+                          <td className={`px-4 py-3 text-right font-black border-l-2 border-zinc-200 ${item.total < 0 ? 'text-red-600' : 'text-zinc-900'}`}>{item.total}</td>
+                          <td className={`px-4 py-3 text-right font-bold ${item.avg < 0 ? 'text-red-600' : 'text-blue-600'}`}>{item.avg}</td>
                           <td className="px-4 py-3 text-right font-black text-emerald-600">{item.safeStock}</td>
                           <td className="px-4 py-3 text-right font-black text-amber-600">{item.reorderPoint}</td>
                         </tr>
@@ -636,15 +724,15 @@ export default function SparepartPredictor() {
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-zinc-100">
-                                    {filteredRecords.filter(r => (r.PartNo || '').trim() === item.partNo).map((r, j) => (
+                                    {filteredRecords.filter(r => recordKey(r) === item.partNo).map((r, j) => (
                                       <tr key={j} className="hover:bg-white">
                                         <td className="px-3 py-1.5 text-zinc-600 whitespace-nowrap">{r.Tgl || '-'}</td>
                                         <td className="px-3 py-1.5 font-mono font-bold text-zinc-800 whitespace-nowrap">{r.NoTransaksi || '-'}</td>
                                         <td className="px-3 py-1.5 text-zinc-700 whitespace-nowrap">{r.Pelanggan || '-'}</td>
-                                        <td className="px-3 py-1.5 text-right font-bold text-zinc-900">{r.Qty || 0}</td>
+                                        <td className={`px-3 py-1.5 text-right font-bold ${Number(r.Qty) < 0 ? 'text-red-600' : 'text-zinc-900'}`}>{Number(r.Qty) || 0}</td>
                                         <td className="px-3 py-1.5 text-right text-zinc-600">{formatRupiah(r.HargaSatuan)}</td>
                                         <td className="px-3 py-1.5 text-right text-red-500">{r.Discount ? formatRupiah(r.Discount) : '-'}</td>
-                                        <td className="px-3 py-1.5 text-right font-bold text-zinc-900">{formatRupiah(r.Total)}</td>
+                                        <td className={`px-3 py-1.5 text-right font-bold ${Number(r.Total) < 0 ? 'text-red-600' : 'text-zinc-900'}`}>{formatRupiah(r.Total)}</td>
                                       </tr>
                                     ))}
                                   </tbody>

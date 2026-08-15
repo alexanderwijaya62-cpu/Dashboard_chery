@@ -18,9 +18,29 @@ import * as XLSX from 'xlsx';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import ReactApexChart from 'react-apexcharts';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { CSI_PROXY_URL } from '../utils/config';
 
 import { db } from '../utils/dbClient';
 
+const PRODUCT_OPTIONS = {
+  optxfimvab: 'Tiggo7 Pro',
+  optfdcDebe: 'Tiggo 8',
+  optxXsi6iC: 'Tiggo 8 Pro',
+  optju8SoUb: 'Tiggo 8 Pro MaX',
+  optscNaaTz: 'OMODA 5',
+  optA4J85zi: 'OMODA 5 GT',
+  opt5Xci0JP: 'OMODA E5',
+  opt2tAqKT4: 'Tiggo 5X',
+  opt9yPXPZ0: 'J6',
+  optNVNnTlI: 'Tiggo Cross',
+  optEwG7YIW: 'Tiggo 8 CSH',
+  opts9CythE: 'Chery C5',
+  opttFUGVro: 'Chery E5',
+  optn1gyvHX: 'Tiggo 9 CSH',
+  optlp3ysj5: 'J6T'
+};
 
 const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], rawHistory = [], breakSettings, setBreakSettings, setIsNavbarVisible, activeTab: activeTabProp }) => {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -44,6 +64,17 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
 
   const [timeFilter, setTimeFilter] = useState('today');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+
+  const limitMonthIdx = useMemo(() => {
+    const now = new Date();
+    return selectedYear === now.getFullYear() ? now.getMonth() : 11;
+  }, [selectedYear]);
+
+  const activeMonths = useMemo(() => {
+    const months = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+    return months.slice(0, limitMonthIdx + 1);
+  }, [limitMonthIdx]);
+
   const [customRange, setCustomRange] = useState({ start: '', end: '' });
   const [woStatusFilter, setWoStatusFilter] = useState('all');
   const [woTrackingPage, setWoTrackingPage] = useState(1);
@@ -54,6 +85,9 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   const [previewImage, setPreviewImage] = useState(null);
   const [financialData, setFinancialData] = useState([]);
   const [sparepartRevenueData, setSparepartRevenueData] = useState([]);
+  const [csiScores, setCsiScores] = useState([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  const [csiMonthlyData, setCsiMonthlyData] = useState([]);
+  const [csiActiveMonthRecords, setCsiActiveMonthRecords] = useState(null);
 
   const fetchSparepartRevenue = React.useCallback(async () => {
     try {
@@ -66,6 +100,36 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
     }
   }, []);
 
+  const fetchCsiData = React.useCallback(async () => {
+    try {
+      const activeMonth = String(limitMonthIdx + 1);
+      const res = await fetch(CSI_PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          view: 'results',
+          action: 'yearly-trend',
+          dealerFilter: 'optef3IAAh',
+          month: activeMonth,
+        }),
+      });
+      const json = await res.json();
+      if (json.code === 0) {
+        if (Array.isArray(json.scores)) {
+          setCsiScores(json.scores);
+        }
+        if (Array.isArray(json.monthly)) {
+          setCsiMonthlyData(json.monthly);
+        }
+        if (json.records) {
+          setCsiActiveMonthRecords(json.records);
+        }
+      }
+    } catch (e) {
+      console.error("Gagal fetch CSI scores:", e);
+    }
+  }, [limitMonthIdx]);
+
   const financialGen = useRef(0);
   const woHistoryGen = useRef(0);
 
@@ -73,27 +137,44 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
 
   function mapFinancial(rawList) {
-    return rawList.map(item => ({
-      no_wo: item.no_wo,
-      wkt_masuk: item.waktu_masuk || item.tgl_invoice || item.created_at,
-      bk: item.no_polisi || item.no_pol,
-      tipe_kendaraan: item.nama_kendaraan || item.tipe_kendaraan || item.kategori,
-      jasa: Number(item.lcVal || item.jasa || 0),
-      s_part: Number(item.partVal || item.spare_part || 0),
-      g_total: Number(item.grandTotalVal || item.total || (item.lcVal || 0) + (item.partVal || 0)),
-      sa: item.id_karyawan || item.nama_sa || item.sa || '---',
-      leader: '',
-      mekanik: '',
-      nohp: ''
-    }));
+    return rawList.map(item => {
+      const kat = (item.kategori || item.no_wo?.split('-')?.[0] || 'LAINNYA').toUpperCase().trim();
+      const dateVal = item.waktu_selesai || item.waktu_masuk || item.tgl_invoice || item.created_at;
+      
+      const parseRpVal = (val) => {
+        if (typeof val === 'number') return val;
+        if (!val) return 0;
+        return parseFloat(String(val).replace(/[^0-9]/g, '')) || 0;
+      };
+
+      const lc = Number(item.lcVal ?? (parseFloat(item.total_jasa || item.jasa || item.biaya_jasa || 0) || 0));
+      const so = parseRpVal(item.sub_order);
+      const part = Number(item.partVal ?? (parseFloat(item.total_part || item.sparepart || item.biaya_part || 0) || 0));
+      
+      return {
+        no_wo: item.no_wo,
+        wkt_masuk: dateVal,
+        bk: item.no_polisi || item.no_pol,
+        tipe_kendaraan: item.nama_kendaraan || item.tipe_kendaraan || kat,
+        kategori: kat,
+        jasa: lc,
+        so: so,
+        s_part: part,
+        g_total: item.grandTotalVal ?? (lc + so + part + Math.round((lc + so + part) * 0.11)),
+        sa: item.id_karyawan || item.nama_sa || item.sa || '---',
+        leader: '',
+        mekanik: '',
+        nohp: ''
+      };
+    });
   }
 
   const fetchFinancialData = React.useCallback(async () => {
-    const cacheKey = 'invoice_report_cache_data_all___';
+    const cacheKey = `invoice_report_cache_data_all___${selectedYear}`;
     const gen = ++financialGen.current;
 
     const doFetch = async () => {
-      const res = await fetch('/api/chery_dms?endpoint=warranty-invoice-report');
+      const res = await fetch(`/api/chery_dms?endpoint=warranty-invoice-report&from=${selectedYear}-01-01&to=${selectedYear}-12-31`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       return Array.isArray(json.data) ? json.data : (json.payload?.content || []);
@@ -111,14 +192,21 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
     if (rawList && gen === financialGen.current) {
       setFinancialData(mapFinancial(rawList));
     }
-  }, []);
+  }, [selectedYear]);
 
   const fetchWoHistory = React.useCallback(async () => {
-    const cacheKey = 'wo_report_cache_data_wo_report_master__';
+    const cacheKey = `wo_report_cache_data_wo_report_master__${selectedYear}`;
     const gen = ++woHistoryGen.current;
 
     const doFetch = async () => {
-      const params = new URLSearchParams({ endpoint: 'warranty-wo', draw: 1, start: 0, length: 1000, fetchAll: 'true', status: '' });
+      const params = new URLSearchParams({
+        endpoint: 'warranty-wo',
+        draw: 1,
+        start: 0,
+        length: 1000,
+        fetchAll: 'true',
+        status: ''
+      });
       const res = await fetch(`/api/chery_dms?${params}`);
       const json = await res.json().catch(() => ({}));
       return json.data || [];
@@ -136,7 +224,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
     if (rawList && gen === woHistoryGen.current) {
       setWoTrackingData(buildTrackingData(rawList));
     }
-  }, []);
+  }, [selectedYear]);
 
   function buildTrackingData(rawList) {
     const dmsMap = new Map();
@@ -188,6 +276,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
       fetchFinancialData();
       fetchWoHistory();
       fetchSparepartRevenue();
+      fetchCsiData();
     } else if (activeTab === 'wo_tracking') {
       fetchWoHistory();
     } else if (activeTab === 'staff') {
@@ -195,7 +284,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
     } else if (activeTab === 'cro_history') {
       fetchCroHistory();
     }
-  }, [activeTab, fetchFinancialData, fetchWoHistory, fetchUsers, fetchCroHistory, fetchSparepartRevenue]);
+  }, [activeTab, fetchFinancialData, fetchWoHistory, fetchUsers, fetchCroHistory, fetchSparepartRevenue, fetchCsiData]);
 
   useEffect(() => {
     setFinancialPage(1);
@@ -421,10 +510,11 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
   const financialSummary = useMemo(() => {
     return filteredFinancialDataRaw.reduce((acc, curr) => {
       acc.jasa += (curr.jasa || 0);
+      acc.so += (curr.so || 0);
       acc.s_part += (curr.s_part || 0);
       acc.grandTotal += (curr.g_total || 0);
       return acc;
-    }, { jasa: 0, s_part: 0, grandTotal: 0 });
+    }, { jasa: 0, so: 0, s_part: 0, grandTotal: 0 });
   }, [filteredFinancialDataRaw]);
 
   const monthlyChartData = useMemo(() => {
@@ -536,10 +626,11 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
 
   const getSegmentHelper = (pelanggan) => {
     const p = String(pelanggan || '').trim().toUpperCase();
-    if (p.startsWith('RS0001C')) return 'Penjualan Customer';
-    if (p.startsWith('RS0001')) return 'Penjualan Service';
+    if (p.startsWith('RS0001C')) return 'Retail / Customer';
+    if (p.startsWith('RS0001')) return 'Service';
     if (p.startsWith('RMS') || p.startsWith('GJ1') || p.startsWith('PAM')) return 'Partshop';
-    return 'Lainnya';
+    if (p.startsWith('IOB') || p.startsWith('INT')) return 'Internal';
+    return 'Retail / Customer';
   };
 
   const sparepartMonthlyChartData = useMemo(() => {
@@ -547,7 +638,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
     const fullYearMap = {};
     for (let m = 0; m < 12; m++) {
       const mKey = `${targetYear}-${String(m + 1).padStart(2, '0')}`;
-      fullYearMap[mKey] = { service: 0, customer: 0, partshop: 0 };
+      fullYearMap[mKey] = { service: 0, partshop: 0, internal: 0, customer: 0 };
     }
 
     sparepartRevenueData.forEach(item => {
@@ -557,9 +648,10 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
       if (fullYearMap[mKey] !== undefined) {
         const seg = getSegmentHelper(item.Pelanggan);
         const amt = parseFloat(item.Total) || 0;
-        if (seg === 'Penjualan Service') fullYearMap[mKey].service += amt;
-        else if (seg === 'Penjualan Customer') fullYearMap[mKey].customer += amt;
+        if (seg === 'Service') fullYearMap[mKey].service += amt;
         else if (seg === 'Partshop') fullYearMap[mKey].partshop += amt;
+        else if (seg === 'Internal') fullYearMap[mKey].internal += amt;
+        else if (seg === 'Retail / Customer') fullYearMap[mKey].customer += amt;
       }
     });
 
@@ -570,9 +662,10 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
     });
 
     const series = [
-      { name: 'Penjualan Service', data: sortedMonths.map(m => fullYearMap[m].service) },
-      { name: 'Penjualan Customer', data: sortedMonths.map(m => fullYearMap[m].customer) },
-      { name: 'Partshop', data: sortedMonths.map(m => fullYearMap[m].partshop) }
+      { name: 'Service', data: sortedMonths.map(m => fullYearMap[m].service) },
+      { name: 'Partshop', data: sortedMonths.map(m => fullYearMap[m].partshop) },
+      { name: 'Internal', data: sortedMonths.map(m => fullYearMap[m].internal) },
+      { name: 'Retail / Customer', data: sortedMonths.map(m => fullYearMap[m].customer) }
     ];
     return { series, categories, year: targetYear };
   }, [sparepartRevenueData, selectedYear]);
@@ -630,6 +723,1276 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
     });
     return Object.values(map).sort((a, b) => b.count - a.count);
   }, [rawHistory]);
+
+
+
+  const execUnitEntryData = useMemo(() => {
+    const monthlyData = Array.from({ length: 12 }, () => ({
+      uniqueIFS: new Set(),
+      uniqueIKC: new Set(),
+      uniqueEUR: new Set(),
+      uniqueIOB: new Set(),
+      uniqueAll: new Set(),
+      woIFS: 0,
+      woIKC: 0,
+      woEUR: 0,
+      woIOB: 0,
+      woTotal: 0
+    }));
+
+    const ytdSets = {
+      IFS: new Set(),
+      IKC: new Set(),
+      EUR: new Set(),
+      IOB: new Set(),
+      All: new Set()
+    };
+
+    woTrackingData.forEach(item => {
+      const dateStr = normalizeDateStr(item.wkt_masuk || item.wktmasuk);
+      if (!dateStr) return;
+      const date = new Date(dateStr);
+      if (date.getFullYear() !== selectedYear) return;
+      const m = date.getMonth();
+      const vehicleId = String(item.no_chassis || item.bk || '').trim().toUpperCase();
+      if (!vehicleId) return;
+
+      const wo = String(item.no_wo || '').toUpperCase();
+      const kat = (item.kategori || item.status || '').toUpperCase();
+
+      if (wo.includes('IFS') || kat.includes('IFS')) {
+        monthlyData[m].uniqueIFS.add(vehicleId);
+        monthlyData[m].woIFS++;
+        ytdSets.IFS.add(vehicleId);
+      }
+      if (wo.includes('IKC') || kat.includes('IKC')) {
+        monthlyData[m].uniqueIKC.add(vehicleId);
+        monthlyData[m].woIKC++;
+        ytdSets.IKC.add(vehicleId);
+      }
+      if (wo.includes('EUR') || kat.includes('EUR')) {
+        monthlyData[m].uniqueEUR.add(vehicleId);
+        monthlyData[m].woEUR++;
+        ytdSets.EUR.add(vehicleId);
+      }
+      if (wo.includes('IOB') || kat.includes('IOB')) {
+        monthlyData[m].uniqueIOB.add(vehicleId);
+        monthlyData[m].woIOB++;
+        ytdSets.IOB.add(vehicleId);
+      }
+      monthlyData[m].uniqueAll.add(vehicleId);
+      monthlyData[m].woTotal++;
+      ytdSets.All.add(vehicleId);
+    });
+
+    const months = monthlyData.map(m => ({
+      uniqueIFS: m.uniqueIFS.size,
+      uniqueIKC: m.uniqueIKC.size,
+      uniqueEUR: m.uniqueEUR.size,
+      uniqueIOB: m.uniqueIOB.size,
+      uniqueTotal: m.uniqueAll.size,
+      woIFS: m.woIFS,
+      woIKC: m.woIKC,
+      woEUR: m.woEUR,
+      woIOB: m.woIOB,
+      woTotal: m.woTotal
+    })).slice(0, limitMonthIdx + 1);
+
+    const ytdTotals = {
+      uniqueIFS: ytdSets.IFS.size,
+      uniqueIKC: ytdSets.IKC.size,
+      uniqueEUR: ytdSets.EUR.size,
+      uniqueIOB: ytdSets.IOB.size,
+      uniqueTotal: ytdSets.All.size,
+      woIFS: months.reduce((acc, m) => acc + m.woIFS, 0),
+      woIKC: months.reduce((acc, m) => acc + m.woIKC, 0),
+      woEUR: months.reduce((acc, m) => acc + m.woEUR, 0),
+      woIOB: months.reduce((acc, m) => acc + m.woIOB, 0),
+      woTotal: months.reduce((acc, m) => acc + m.woTotal, 0)
+    };
+
+    return {
+      months,
+      ytdTotals
+    };
+  }, [woTrackingData, selectedYear, limitMonthIdx]);
+
+  const execLaborChargeData = useMemo(() => {
+    const monthly = Array.from({ length: 12 }, () => ({ IFS: 0, IKC: 0, EUR: 0, IOB: 0, Total: 0 }));
+    financialData.forEach(item => {
+      const dateStr = normalizeDateStr(item.wkt_masuk);
+      if (!dateStr) return;
+      const date = new Date(dateStr);
+      if (date.getFullYear() !== selectedYear) return;
+      const m = date.getMonth();
+      const val = Number(item.jasa || 0);
+      const wo = String(item.no_wo || '').toUpperCase();
+      if (wo.includes('IFS')) monthly[m].IFS += val;
+      else if (wo.includes('IKC')) monthly[m].IKC += val;
+      else if (wo.includes('EUR')) monthly[m].EUR += val;
+      else if (wo.includes('IOB')) monthly[m].IOB += val;
+      monthly[m].Total += val;
+    });
+    return monthly.slice(0, limitMonthIdx + 1);
+  }, [financialData, selectedYear, limitMonthIdx]);
+
+  const execSubOrderData = useMemo(() => {
+    const monthly = Array.from({ length: 12 }, () => ({ IFS: 0, IKC: 0, EUR: 0, IOB: 0, Total: 0 }));
+    financialData.forEach(item => {
+      const dateStr = normalizeDateStr(item.wkt_masuk);
+      if (!dateStr) return;
+      const date = new Date(dateStr);
+      if (date.getFullYear() !== selectedYear) return;
+      const m = date.getMonth();
+      const val = Number(item.so || 0);
+      const wo = String(item.no_wo || '').toUpperCase();
+      if (wo.includes('IFS')) monthly[m].IFS += val;
+      else if (wo.includes('IKC')) monthly[m].IKC += val;
+      else if (wo.includes('EUR')) monthly[m].EUR += val;
+      else if (wo.includes('IOB')) monthly[m].IOB += val;
+      monthly[m].Total += val;
+    });
+    return monthly.slice(0, limitMonthIdx + 1);
+  }, [financialData, selectedYear, limitMonthIdx]);
+
+  const execSparepartWorkshopData = useMemo(() => {
+    const monthly = Array.from({ length: 12 }, () => ({
+      RS0001: 0,
+      '114-I': 0,
+      'INT-112': 0,
+      Total: 0
+    }));
+    sparepartRevenueData.forEach(item => {
+      const dateStr = normalizeDateStr(item.Tgl);
+      if (!dateStr) return;
+      const date = new Date(dateStr);
+      if (date.getFullYear() !== selectedYear) return;
+      const m = date.getMonth();
+      const p = String(item.Pelanggan || '').trim().toUpperCase();
+      const val = Number(item.Total || 0);
+
+      if (p.startsWith('RS0001') && !p.startsWith('RS0001C')) {
+        monthly[m].RS0001 += val;
+        monthly[m].Total += val;
+      } else if (p.startsWith('114-I') || p.startsWith('114I') || p.includes('114-I') || p.includes('114I')) {
+        monthly[m]['114-I'] += val;
+        monthly[m].Total += val;
+      } else if (p.startsWith('INT-112') || p.startsWith('INT112') || p.startsWith('INT-') || p.startsWith('INT') || p.startsWith('IOB') || p.includes('INT-112') || p.includes('INT112')) {
+        monthly[m]['INT-112'] += val;
+        monthly[m].Total += val;
+      }
+    });
+    return monthly.slice(0, limitMonthIdx + 1);
+  }, [sparepartRevenueData, selectedYear, limitMonthIdx]);
+
+  const execSparepartNonWorkshopData = useMemo(() => {
+    const monthly = Array.from({ length: 12 }, () => ({
+      retail: 0,
+      partshop: 0,
+      Total: 0
+    }));
+    sparepartRevenueData.forEach(item => {
+      const dateStr = normalizeDateStr(item.Tgl);
+      if (!dateStr) return;
+      const date = new Date(dateStr);
+      if (date.getFullYear() !== selectedYear) return;
+      const m = date.getMonth();
+      const seg = getSegmentHelper(item.Pelanggan);
+      const val = Number(item.Total || 0);
+
+      if (seg === 'Retail / Customer') {
+        monthly[m].retail += val;
+        monthly[m].Total += val;
+      } else if (seg === 'Partshop') {
+        monthly[m].partshop += val;
+        monthly[m].Total += val;
+      }
+    });
+    return monthly.slice(0, limitMonthIdx + 1);
+  }, [sparepartRevenueData, selectedYear, limitMonthIdx]);
+
+  const execStaffActivityData = useMemo(() => {
+    const saMonthly = {};
+    const mechMonthly = {};
+    woTrackingData.forEach(item => {
+      const dateStr = normalizeDateStr(item.wkt_masuk || item.wktmasuk);
+      if (!dateStr) return;
+      const date = new Date(dateStr);
+      if (date.getFullYear() !== selectedYear) return;
+      const m = date.getMonth();
+      if (m > limitMonthIdx) return;
+      const saName = String(item.sa || '').trim();
+      const mechName = String(item.mekanik || '').trim();
+      if (saName && saName !== '---') {
+        if (!saMonthly[saName]) saMonthly[saName] = Array(limitMonthIdx + 1).fill(0);
+        saMonthly[saName][m]++;
+      }
+      if (mechName && mechName !== '---') {
+        if (!mechMonthly[mechName]) mechMonthly[mechName] = Array(limitMonthIdx + 1).fill(0);
+        mechMonthly[mechName][m]++;
+      }
+    });
+    return { saMonthly, mechMonthly };
+  }, [woTrackingData, selectedYear, limitMonthIdx]);
+
+  const execCsiData = useMemo(() => {
+    return csiScores.slice(0, limitMonthIdx + 1);
+  }, [csiScores, limitMonthIdx]);
+
+  const activeCsiSummary = useMemo(() => {
+    if (csiMonthlyData && csiMonthlyData.length > 0) {
+      const activeMonthData = csiMonthlyData[limitMonthIdx];
+      if (activeMonthData) {
+        return {
+          csiScore: activeMonthData.csiScore || 0,
+          totalSample: activeMonthData.totalSample || 0,
+          dimensions: activeMonthData.dimensions || []
+        };
+      }
+    }
+    return {
+      csiScore: 0,
+      totalSample: 0,
+      dimensions: [
+        { name: 'Service Appointment', value: 0, color: '#3b82f6' },
+        { name: 'Service Advisor', value: 0, color: '#8b5cf6' },
+        { name: 'Dealer Facility & Service Image', value: 0, color: '#06b6d4' },
+        { name: 'Service Quality', value: 0, color: '#f59e0b' },
+        { name: 'Leadtime Service', value: 0, color: '#ef4444' },
+        { name: 'Delivery Process', value: 0, color: '#10b981' },
+        { name: 'Spare Part Availibility', value: 0, color: '#14b8a6' },
+      ]
+    };
+  }, [csiMonthlyData, limitMonthIdx]);
+
+  const gaugeOptions = useMemo(() => ({
+    chart: {
+      type: 'radialBar',
+      background: 'transparent',
+      toolbar: { show: false },
+      fontFamily: 'Inter, sans-serif',
+    },
+    plotOptions: {
+      radialBar: {
+        startAngle: -135,
+        endAngle: 135,
+        max: 1000,
+        hollow: {
+          margin: 0,
+          size: '65%',
+          background: 'transparent',
+        },
+        track: {
+          background: '#e4e4e7',
+          strokeWidth: '97%',
+        },
+        dataLabels: {
+          show: true,
+          name: {
+            show: true,
+            fontSize: '11px',
+            fontWeight: 700,
+            color: '#71717a',
+            offsetY: -15,
+          },
+          value: {
+            show: true,
+            fontSize: '28px',
+            fontWeight: 900,
+            color: '#18181b',
+            offsetY: 10,
+            formatter: (val) => `${Math.round(val)}`,
+          }
+        }
+      }
+    },
+    fill: {
+      type: 'gradient',
+      gradient: {
+        shade: 'dark',
+        type: 'horizontal',
+        gradientToColors: ['#10b981'],
+        stops: [0, 100]
+      }
+    },
+    stroke: { lineCap: 'round' },
+    labels: ['CSI Score'],
+    colors: ['#22c55e'],
+  }), []);
+
+  const gaugeSeries = useMemo(() => [activeCsiSummary.csiScore], [activeCsiSummary]);
+
+  const barChartOptions = useMemo(() => ({
+    chart: {
+      type: 'bar',
+      background: 'transparent',
+      toolbar: { show: false },
+      fontFamily: 'Inter, sans-serif',
+    },
+    colors: activeCsiSummary.dimensions.map(d => d.color || '#3b82f6'),
+    plotOptions: {
+      bar: {
+        borderRadius: 6,
+        horizontal: true,
+        distributed: true,
+        barHeight: '70%',
+      }
+    },
+    dataLabels: {
+      enabled: true,
+      formatter: (val) => val,
+      style: { fontSize: '11px', fontWeight: 700, colors: ['#fff'] },
+      offsetX: -8,
+    },
+    xaxis: {
+      categories: activeCsiSummary.dimensions.map(d => d.name),
+      labels: { show: true, style: { fontSize: '10px', fontWeight: 650, colors: '#18181b' } },
+      max: 1000,
+      tickAmount: 5,
+    },
+    yaxis: {
+      labels: { style: { fontSize: '9px', fontWeight: 700, colors: '#18181b' } },
+    },
+    grid: {
+      borderColor: '#e4e4e7',
+      strokeDashArray: 4,
+    },
+    tooltip: {
+      theme: 'light',
+      y: { formatter: (val) => `${val} pts` }
+    },
+    legend: { show: false },
+  }), [activeCsiSummary]);
+
+  const barSeries = useMemo(() => [{
+    name: 'Score',
+    data: activeCsiSummary.dimensions.map(d => d.value)
+  }], [activeCsiSummary]);
+
+  const captureSvgChart = async (id) => {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    const svg = el.querySelector('svg');
+    if (!svg) return null;
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clone.setAttribute('width', String(rect.width));
+    clone.setAttribute('height', String(rect.height));
+    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bg.setAttribute('x', '0');
+    bg.setAttribute('y', '0');
+    bg.setAttribute('width', '100%');
+    bg.setAttribute('height', '100%');
+    bg.setAttribute('fill', '#ffffff');
+    clone.insertBefore(bg, clone.firstChild);
+
+    const xml = new XMLSerializer().serializeToString(clone);
+    const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = rect.width * scale;
+        canvas.height = rect.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0, rect.width, rect.height);
+        resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.92), ratio: rect.width / rect.height });
+      };
+      img.onerror = () => resolve(null);
+      img.src = dataUrl;
+    });
+  };
+
+  const addImageFitted = (doc, img, maxW, maxH, x, y) => {
+    let w = maxW;
+    let h = w / img.ratio;
+    if (h > maxH) { h = maxH; w = h * img.ratio; }
+    doc.addImage(img.dataUrl, 'JPEG', x + (maxW - w) / 2, y, w, h);
+    return y + h + 4;
+  };
+
+  const handleExportExecutivePdf = async () => {
+    Toastify({
+      text: "⏳ Menyiapkan laporan PDF eksekutif manager (landscape)...",
+      duration: 3000,
+      style: { background: '#6366f1', borderRadius: '12px' },
+    }).showToast();
+
+    try {
+      const doc = new jsPDF('l', 'mm', 'a4');
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const margin = 12;
+      const contentW = pageW - margin * 2;
+
+      // Capture charts
+      const chart1 = await captureSvgChart('exec-chart-unit-entry');
+      const chart2 = await captureSvgChart('exec-chart-labor-charge');
+      const chart2_so = await captureSvgChart('exec-chart-sub-order');
+      const chart3_1 = await captureSvgChart('exec-chart-sparepart-workshop');
+      const chart3_2 = await captureSvgChart('exec-chart-sparepart-non-workshop');
+      const chart4 = await captureSvgChart('exec-chart-csi');
+      const gaugeImg = await captureSvgChart('csi-gauge-chart');
+      const barImg = await captureSvgChart('csi-bar-chart');
+
+      const drawHeader = (title) => {
+        doc.setFillColor(24, 24, 27);
+        doc.rect(0, 0, pageW, 24, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(16);
+        doc.text('LAPORAN EKSEKUTIF MANAGER', margin, 10);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(199, 210, 254);
+        doc.text(`${title}  •  Januari - ${activeMonths[limitMonthIdx]} ${selectedYear}`, margin, 17);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(161, 161, 170);
+        doc.text(`Dibuat: ${new Date().toLocaleString('id-ID')}`, pageW - margin, 17, { align: 'right' });
+      };
+
+      // PAGE 1: Laporan Unit Entry
+      drawHeader('Laporan Unit Entry (Work Order)');
+      
+      const types = ['IFS', 'IKC', 'EUR', 'IOB'];
+      const ueRows = [];
+      types.forEach(t => {
+        const rowWo = [`${t} (Work Order)`];
+        activeMonths.forEach((_, mIdx) => {
+          rowWo.push(String(execUnitEntryData.months[mIdx]?.[`wo${t}`] || 0));
+        });
+        rowWo.push(String(execUnitEntryData.ytdTotals[`wo${t}`] || 0));
+        ueRows.push(rowWo);
+
+        const rowUe = [`${t} (Unit Entry)`];
+        activeMonths.forEach((_, mIdx) => {
+          rowUe.push(String(execUnitEntryData.months[mIdx]?.[`unique${t}`] || 0));
+        });
+        rowUe.push(String(execUnitEntryData.ytdTotals[`unique${t}`] || 0));
+        ueRows.push(rowUe);
+      });
+
+      const totalRowWo = ['Total (Work Order)'];
+      activeMonths.forEach((_, mIdx) => {
+        totalRowWo.push(String(execUnitEntryData.months[mIdx]?.woTotal || 0));
+      });
+      totalRowWo.push(String(execUnitEntryData.ytdTotals.woTotal || 0));
+      ueRows.push(totalRowWo);
+
+      const totalRowUe = ['Total (Unit Entry)'];
+      activeMonths.forEach((_, mIdx) => {
+        totalRowUe.push(String(execUnitEntryData.months[mIdx]?.uniqueTotal || 0));
+      });
+      totalRowUe.push(String(execUnitEntryData.ytdTotals.uniqueTotal || 0));
+      ueRows.push(totalRowUe);
+
+      autoTable(doc, {
+        startY: 28,
+        head: [['Tipe/Segment', ...activeMonths, 'Total']],
+        body: ueRows,
+        theme: 'grid',
+        headStyles: { fillColor: [24, 24, 27], fontSize: 8, halign: 'center' },
+        bodyStyles: { fontSize: 8, halign: 'center' },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+        columnStyles: { 0: { fontStyle: 'bold' } },
+        margin: { left: margin, right: margin },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.row.index >= data.table.body.length - 2) {
+            data.cell.styles.fillColor = [224, 231, 255];
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.textColor = [30, 27, 75];
+          }
+        }
+      });
+
+      if (chart1) {
+        addImageFitted(doc, chart1, contentW, 105, margin, doc.lastAutoTable.finalY + 8);
+      }
+
+      // PAGE 2: Labor Charge
+      doc.addPage();
+      drawHeader('Laporan Keuntungan Labor Charge (Jasa)');
+
+      const lcRows = types.map(t => {
+        const row = [t];
+        let total = 0;
+        activeMonths.forEach((_, mIdx) => {
+          const val = execLaborChargeData[mIdx]?.[t] || 0;
+          row.push(formatCurrency(val).replace(',00', ''));
+          total += val;
+        });
+        row.push(formatCurrency(total).replace(',00', ''));
+        return row;
+      });
+      // Add Total Row
+      const lcTotalRow = ['Total'];
+      let lcGrandTotal = 0;
+      activeMonths.forEach((_, mIdx) => {
+        const sum = types.reduce((acc, t) => acc + (execLaborChargeData[mIdx]?.[t] || 0), 0);
+        lcTotalRow.push(formatCurrency(sum).replace(',00', ''));
+        lcGrandTotal += sum;
+      });
+      lcTotalRow.push(formatCurrency(lcGrandTotal).replace(',00', ''));
+      lcRows.push(lcTotalRow);
+
+      autoTable(doc, {
+        startY: 28,
+        head: [['Tipe/Segment', ...activeMonths, 'Total']],
+        body: lcRows,
+        theme: 'grid',
+        headStyles: { fillColor: [24, 24, 27], fontSize: 8, halign: 'center' },
+        bodyStyles: { fontSize: 8, halign: 'center' },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+        columnStyles: { 0: { fontStyle: 'bold' } },
+        margin: { left: margin, right: margin },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.row.index === data.table.body.length - 1) {
+            data.cell.styles.fillColor = [224, 231, 255];
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.textColor = [30, 27, 75];
+          }
+        }
+      });
+
+      if (chart2) {
+        addImageFitted(doc, chart2, contentW, 105, margin, doc.lastAutoTable.finalY + 8);
+      }
+
+      // PAGE 2b: Sub Order (SO)
+      doc.addPage();
+      drawHeader('Laporan Keuntungan Sub Order (SO)');
+
+      const soRows = types.map(t => {
+        const row = [t];
+        let total = 0;
+        activeMonths.forEach((_, mIdx) => {
+          const val = execSubOrderData[mIdx]?.[t] || 0;
+          row.push(formatCurrency(val).replace(',00', ''));
+          total += val;
+        });
+        row.push(formatCurrency(total).replace(',00', ''));
+        return row;
+      });
+      // Add Total Row
+      const soTotalRow = ['Total'];
+      let soGrandTotal = 0;
+      activeMonths.forEach((_, mIdx) => {
+        const sum = types.reduce((acc, t) => acc + (execSubOrderData[mIdx]?.[t] || 0), 0);
+        soTotalRow.push(formatCurrency(sum).replace(',00', ''));
+        soGrandTotal += sum;
+      });
+      soTotalRow.push(formatCurrency(soGrandTotal).replace(',00', ''));
+      soRows.push(soTotalRow);
+
+      autoTable(doc, {
+        startY: 28,
+        head: [['Tipe/Segment', ...activeMonths, 'Total']],
+        body: soRows,
+        theme: 'grid',
+        headStyles: { fillColor: [24, 24, 27], fontSize: 8, halign: 'center' },
+        bodyStyles: { fontSize: 8, halign: 'center' },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+        columnStyles: { 0: { fontStyle: 'bold' } },
+        margin: { left: margin, right: margin },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.row.index === data.table.body.length - 1) {
+            data.cell.styles.fillColor = [224, 231, 255];
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.textColor = [30, 27, 75];
+          }
+        }
+      });
+
+      if (chart2_so) {
+        addImageFitted(doc, chart2_so, contentW, 105, margin, doc.lastAutoTable.finalY + 8);
+      }
+
+      // PAGE 3: Sparepart Workshop
+      doc.addPage();
+      drawHeader('Laporan Penjualan Sparepart Workshop');
+
+      const spWorkSegs = [
+        { label: 'RS0001 (Service)', key: 'RS0001' },
+        { label: '114-I (Asuransi)', key: '114-I' },
+        { label: 'INT-112 (Internal)', key: 'INT-112' }
+      ];
+
+      const spWorkRows = spWorkSegs.map(s => {
+        const row = [s.label];
+        let total = 0;
+        activeMonths.forEach((_, mIdx) => {
+          const val = execSparepartWorkshopData[mIdx]?.[s.key] || 0;
+          row.push(formatCurrency(val).replace(',00', ''));
+          total += val;
+        });
+        row.push(formatCurrency(total).replace(',00', ''));
+        return row;
+      });
+      // Add Total Row
+      const spWorkTotalRow = ['Total'];
+      let spWorkGrandTotal = 0;
+      activeMonths.forEach((_, mIdx) => {
+        const sum = spWorkSegs.reduce((acc, s) => acc + (execSparepartWorkshopData[mIdx]?.[s.key] || 0), 0);
+        spWorkTotalRow.push(formatCurrency(sum).replace(',00', ''));
+        spWorkGrandTotal += sum;
+      });
+      spWorkTotalRow.push(formatCurrency(spWorkGrandTotal).replace(',00', ''));
+      spWorkRows.push(spWorkTotalRow);
+
+      autoTable(doc, {
+        startY: 28,
+        head: [['Segmen Workshop', ...activeMonths, 'Total']],
+        body: spWorkRows,
+        theme: 'grid',
+        headStyles: { fillColor: [24, 24, 27], fontSize: 8, halign: 'center' },
+        bodyStyles: { fontSize: 8, halign: 'center' },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+        columnStyles: { 0: { fontStyle: 'bold' } },
+        margin: { left: margin, right: margin },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.row.index === data.table.body.length - 1) {
+            data.cell.styles.fillColor = [224, 231, 255];
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.textColor = [30, 27, 75];
+          }
+        }
+      });
+
+      if (chart3_1) {
+        addImageFitted(doc, chart3_1, contentW, 105, margin, doc.lastAutoTable.finalY + 8);
+      }
+
+      // PAGE 4: Sparepart Non-Workshop
+      doc.addPage();
+      drawHeader('Laporan Penjualan Sparepart Non Workshop');
+
+      const spNonWorkSegs = [
+        { label: 'Retail', key: 'retail' },
+        { label: 'Partshop', key: 'partshop' }
+      ];
+
+      const spNonWorkRows = spNonWorkSegs.map(s => {
+        const row = [s.label];
+        let total = 0;
+        activeMonths.forEach((_, mIdx) => {
+          const val = execSparepartNonWorkshopData[mIdx]?.[s.key] || 0;
+          row.push(formatCurrency(val).replace(',00', ''));
+          total += val;
+        });
+        row.push(formatCurrency(total).replace(',00', ''));
+        return row;
+      });
+      // Add Total Row
+      const spNonWorkTotalRow = ['Total'];
+      let spNonWorkGrandTotal = 0;
+      activeMonths.forEach((_, mIdx) => {
+        const sum = spNonWorkSegs.reduce((acc, s) => acc + (execSparepartNonWorkshopData[mIdx]?.[s.key] || 0), 0);
+        spNonWorkTotalRow.push(formatCurrency(sum).replace(',00', ''));
+        spNonWorkGrandTotal += sum;
+      });
+      spNonWorkTotalRow.push(formatCurrency(spNonWorkGrandTotal).replace(',00', ''));
+      spNonWorkRows.push(spNonWorkTotalRow);
+
+      autoTable(doc, {
+        startY: 28,
+        head: [['Segmen Non-Workshop', ...activeMonths, 'Total']],
+        body: spNonWorkRows,
+        theme: 'grid',
+        headStyles: { fillColor: [24, 24, 27], fontSize: 8, halign: 'center' },
+        bodyStyles: { fontSize: 8, halign: 'center' },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+        columnStyles: { 0: { fontStyle: 'bold' } },
+        margin: { left: margin, right: margin },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.row.index === data.table.body.length - 1) {
+            data.cell.styles.fillColor = [224, 231, 255];
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.textColor = [30, 27, 75];
+          }
+        }
+      });
+
+      if (chart3_2) {
+        addImageFitted(doc, chart3_2, contentW, 105, margin, doc.lastAutoTable.finalY + 8);
+      }
+
+      // PAGE 4: Staff Activity SA
+      doc.addPage();
+      drawHeader('Laporan Kinerja Keaktifan Staff (Service Advisor)');
+
+      const saRows = Object.entries(execStaffActivityData.saMonthly).map(([name, counts]) => {
+        const row = [name];
+        let total = 0;
+        activeMonths.forEach((_, mIdx) => {
+          const val = counts[mIdx] || 0;
+          row.push(String(val));
+          total += val;
+        });
+        row.push(String(total));
+        return row;
+      }).sort((a, b) => Number(b[b.length - 1]) - Number(a[a.length - 1]));
+
+      autoTable(doc, {
+        startY: 28,
+        head: [['Nama Service Advisor', ...activeMonths, 'Total WO']],
+        body: saRows,
+        theme: 'striped',
+        headStyles: { fillColor: [24, 24, 27], fontSize: 7.5, halign: 'center' },
+        bodyStyles: { fontSize: 7.5, halign: 'center' },
+        margin: { left: margin, right: margin }
+      });
+
+      // PAGE 5: Mechanic Activity
+      doc.addPage();
+      drawHeader('Laporan Kinerja Keaktifan Staff (Mekanik)');
+
+      const mechRows = Object.entries(execStaffActivityData.mechMonthly).map(([name, counts]) => {
+        const row = [name];
+        let total = 0;
+        activeMonths.forEach((_, mIdx) => {
+          const val = counts[mIdx] || 0;
+          row.push(String(val));
+          total += val;
+        });
+        row.push(String(total));
+        return row;
+      }).sort((a, b) => Number(b[b.length - 1]) - Number(a[a.length - 1]));
+
+      autoTable(doc, {
+        startY: 28,
+        head: [['Nama Mekanik', ...activeMonths, 'Total WO']],
+        body: mechRows,
+        theme: 'striped',
+        headStyles: { fillColor: [24, 24, 27], fontSize: 7.5, halign: 'center' },
+        bodyStyles: { fontSize: 7.5, halign: 'center' },
+        margin: { left: margin, right: margin }
+      });
+
+      // PAGE 6: CSI Result Dashboard
+      doc.addPage();
+      const drawCsiHeader = () => {
+        doc.setFillColor(24, 24, 27);
+        doc.rect(0, 0, pageW, 26, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(18);
+        doc.text('CSI RESULT & ANALITIK', margin, 11);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(199, 210, 254);
+        doc.text(`ORIENTAL SM RAJA AMPLAS  •  ${activeMonths[limitMonthIdx]} ${selectedYear}`, margin, 18);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(255, 255, 255);
+        doc.text(`${activeCsiSummary.csiScore} pts`, pageW - margin, 11, { align: 'right' });
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(161, 161, 170);
+        doc.text('CSI Score • Skala 0 - 1000', pageW - margin, 17, { align: 'right' });
+        doc.text(`Dibuat: ${new Date().toLocaleString('id-ID')}`, pageW - margin, 22, { align: 'right' });
+      };
+      drawCsiHeader();
+
+      const drawCard = (cx, cy, cw, ch) => {
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(228, 228, 231);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(cx, cy, cw, ch, 2.5, 2.5, 'FD');
+      };
+
+      const avgDim = activeCsiSummary.dimensions.length > 0
+        ? Math.round(activeCsiSummary.dimensions.reduce((a, d) => a + d.value, 0) / activeCsiSummary.dimensions.length)
+        : 0;
+
+      // 3 stat cards
+      const stripY = 34;
+      const stripH = 22;
+      const boxGap = 5;
+      const boxW = (contentW - boxGap * 2) / 3;
+      const statBoxes = [
+        { label: 'CSI Score', value: activeCsiSummary.csiScore, suffix: 'pts', sub: 'Target 1000 pts', fill: [238, 242, 255], border: [199, 210, 254], text: [67, 56, 202] },
+        { label: 'Total Responden', value: activeCsiSummary.totalSample, suffix: '', sub: `Ulasan ${activeMonths[limitMonthIdx]}`, fill: [240, 253, 244], border: [187, 247, 208], text: [21, 128, 61] },
+        { label: 'Rata-rata Dimensi', value: avgDim, suffix: 'pts', sub: '7 dimensi penilaian', fill: [255, 251, 235], border: [253, 230, 138], text: [180, 83, 9] },
+      ];
+      statBoxes.forEach((b, i) => {
+        const bx = margin + i * (boxW + boxGap);
+        doc.setFillColor(b.fill[0], b.fill[1], b.fill[2]);
+        doc.setDrawColor(b.border[0], b.border[1], b.border[2]);
+        doc.setLineWidth(0.4);
+        doc.roundedRect(bx, stripY, boxW, stripH, 2.5, 2.5, 'FD');
+        doc.setTextColor(113, 113, 122);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.text(b.label.toUpperCase(), bx + 7, stripY + 8);
+        doc.setTextColor(b.text[0], b.text[1], b.text[2]);
+        doc.setFontSize(18);
+        doc.text(`${b.value}${b.suffix ? ' ' + b.suffix : ''}`, bx + 7, stripY + 18);
+        doc.setTextColor(113, 113, 122);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.text(b.sub, bx + 7, stripY + stripH - 2.5);
+      });
+
+      // 2 column layout
+      const colGap = 10;
+      const leftX = margin;
+      const leftW = 112;
+      const rightX = leftX + leftW + colGap;
+      const rightW = contentW - leftW - colGap;
+      let y = stripY + stripH + 8;
+
+      // Kiri atas: Gauge
+      const heroH = 50;
+      drawCard(leftX, y, leftW, heroH);
+      doc.setTextColor(113, 113, 122);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.text('CSI SCORE BULANAN', leftX + 8, y + 9);
+      if (gaugeImg) {
+        addImageFitted(doc, gaugeImg, leftW - 20, 39, leftX + 10, y + 10);
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(161, 161, 170);
+        doc.text('Tidak ada data bulan ini', leftX + 8, y + 25);
+      }
+      y += heroH + 6;
+
+      // Kiri bawah: Dimensions Table
+      const dimH = 196 - y;
+      drawCard(leftX, y, leftW, dimH);
+      doc.setTextColor(113, 113, 122);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.text('PENCAPAIAN DIMENSI (POIN)', leftX + 8, y + 8);
+      autoTable(doc, {
+        startY: y + 12,
+        head: [['No', 'Dimensi', 'Poin', '%']],
+        body: activeCsiSummary.dimensions.map((d, i) => [
+          String(i + 1),
+          d.name,
+          String(d.value),
+          `${Math.round((d.value / 1000) * 100)}%`,
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [24, 24, 27], fontSize: 6.5, halign: 'center' },
+        bodyStyles: { fontSize: 6.4, cellPadding: 1.1 },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+        margin: { left: leftX + 8, right: pageW - (leftX + leftW - 8) },
+        columnStyles: {
+          0: { cellWidth: 8, halign: 'center' },
+          1: { cellWidth: 60, fontStyle: 'bold' },
+          2: { cellWidth: 14, halign: 'center' },
+          3: { cellWidth: 14, halign: 'center' },
+        },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.column.index === 2) {
+            const v = Number(data.cell.raw);
+            data.cell.styles.textColor = v >= 800 ? [22, 101, 52] : v >= 700 ? [133, 77, 14] : [185, 28, 28];
+          }
+        },
+      });
+
+      // Kanan atas: Trend Line Chart
+      const trendH = 50;
+      drawCard(rightX, 64, rightW, trendH);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text('GRAFIK TREN CSI TAHUNAN', rightX + 8, 72);
+      if (chart4) {
+        addImageFitted(doc, chart4, rightW - 16, trendH - 12, rightX + 8, 74);
+      }
+
+      // Kanan bawah: Bar Chart
+      const barTop = 64 + trendH + 6;
+      const barH = 196 - barTop;
+      drawCard(rightX, barTop, rightW, barH);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text('GRAFIK DIMENSI BULANAN', rightX + 8, barTop + 9);
+      if (barImg) {
+        addImageFitted(doc, barImg, rightW - 16, barH - 14, rightX + 8, barTop + 11);
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(161, 161, 170);
+        doc.text('Tidak ada data bulan ini', rightX + 8, barTop + 35);
+      }
+
+      // PAGE 7: Skor Responden Table
+      if (csiActiveMonthRecords && csiActiveMonthRecords.recordIDs && csiActiveMonthRecords.recordIDs.length > 0) {
+        const recordMap = csiActiveMonthRecords.recordMap || {};
+        const recordIDs = csiActiveMonthRecords.recordIDs || [];
+
+        const activeRespondents = recordIDs.map(id => {
+          const r = recordMap[id];
+          if (!r) return null;
+          return {
+            name: r.fldLOfP6ht?.value?.[0]?.text || '-',
+            product: PRODUCT_OPTIONS[r.flduCHkcFO?.value] || r.flduCHkcFO?.value || '-',
+            q1: r.fld77RDhPZ?.value || 0,
+            q2: r.fldGneeuoD?.value || 0,
+            q3: r.fldpOMkOr5?.value || 0,
+            q4: r.fldqBAJgeU?.value || 0,
+            q5: r.fldvf2MIJv?.value || 0,
+            q6: r.fldA6l5y5x?.value || 0,
+            q7: r.fldlvE1YfV?.value || 0,
+            overall: r.fldKw5T576?.value?.val || r.fldKw5T576?.value || 0,
+            recommend: r.fldYktqdva?.value || 0,
+            comments: r.fldIfJu5jY?.value?.map(c => c.text).join('\n') || r.fldIfJu5jY?.value || '',
+            commentsQ8: r.fld4gEPGVF?.value?.map(c => c.text).join('\n') || r.fld4gEPGVF?.value || '',
+          };
+        }).filter(Boolean);
+
+        doc.addPage();
+        doc.setFillColor(24, 24, 27);
+        doc.rect(0, 0, pageW, 18, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.text(`Skor Komputasi Responden (${activeMonths[limitMonthIdx]} ${selectedYear})`, margin, 11);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(199, 210, 254);
+        doc.text('ORIENTAL SM RAJA AMPLAS', margin, 16);
+
+        autoTable(doc, {
+          startY: 22,
+          head: [['No', 'Nama', 'Produk', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Overall', 'Rekom']],
+          body: activeRespondents.map((r, i) => [
+            String(i + 1), r.name, r.product, r.q1, r.q2, r.q3, r.q4, r.q5, r.q6, r.q7, r.overall, r.recommend
+          ]),
+          theme: 'striped',
+          headStyles: { fillColor: [24, 24, 27], fontSize: 7.5 },
+          bodyStyles: { fontSize: 7.5, halign: 'center' },
+          columnStyles: {
+            0: { cellWidth: 10 },
+            1: { halign: 'left', cellWidth: 50 },
+            2: { halign: 'left' },
+            10: { fontStyle: 'bold', fillColor: [236, 253, 245] },
+            11: { fontStyle: 'bold' },
+          },
+          margin: { left: margin, right: margin },
+          didParseCell: (data) => {
+            if (data.section === 'body' && data.column.index === 11) {
+              const v = Number(data.cell.raw);
+              data.cell.styles.textColor = v >= 8 ? [22, 101, 52] : v >= 6 ? [133, 77, 14] : [185, 28, 28];
+            }
+          },
+        });
+
+        // PAGE 8: Ulasan / Comments
+        const commentRows = activeRespondents
+          .filter(r => r.comments || r.commentsQ8)
+          .map(r => [r.name, r.comments || '-', r.commentsQ8 || '-']);
+        if (commentRows.length > 0) {
+          doc.addPage();
+          doc.setFillColor(24, 24, 27);
+          doc.rect(0, 0, pageW, 18, 'F');
+          doc.setTextColor(255, 255, 255);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(12);
+          doc.text(`Ulasan & Komentar Responden (${activeMonths[limitMonthIdx]} ${selectedYear})`, margin, 11);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(199, 210, 254);
+          doc.text('ORIENTAL SM RAJA AMPLAS', margin, 16);
+
+          autoTable(doc, {
+            startY: 22,
+            head: [['Nama', 'Aspek Ragu Rekomendasi (Q7)', 'Masukan & Komentar Akhir (Q8)']],
+            body: commentRows,
+            theme: 'grid',
+            headStyles: { fillColor: [99, 102, 241], fontSize: 7.5 },
+            bodyStyles: { fontSize: 7.5 },
+            margin: { left: margin, right: margin },
+            columnStyles: {
+              0: { cellWidth: 45, fontStyle: 'bold' },
+              1: { cellWidth: 110 },
+              2: { cellWidth: 110 },
+            },
+          });
+        }
+      }
+
+      doc.save(`Laporan_Eksekutif_Manager_${selectedYear}.pdf`);
+      Toastify({ text: '✅ Berhasil mengekspor Laporan Eksekutif PDF!', style: { background: '#10b981' } }).showToast();
+    } catch (e) {
+      console.error(e);
+      Toastify({ text: `❌ Gagal Ekspor PDF: ${e.message}`, style: { background: 'red' } }).showToast();
+    }
+  };
+
+  const handleExportExecutiveExcel = () => {
+    if (!XLSX) {
+      Toastify({ text: '⚠️ Excel library is loading...', style: { background: '#f59e0b' } }).showToast();
+      return;
+    }
+    Toastify({
+      text: "⏳ Menyiapkan laporan Excel eksekutif...",
+      duration: 3000,
+      style: { background: '#10b981', borderRadius: '12px' },
+    }).showToast();
+
+    try {
+      const workbook = XLSX.utils.book_new();
+
+      // Sheet 1: Unit Entry
+      const ueRows = [];
+      const types = ['IFS', 'IKC', 'EUR', 'IOB'];
+      types.forEach(t => {
+        const rWo = { 'Tipe / Segment': `${t} (Work Order)` };
+        activeMonths.forEach((m, mIdx) => {
+          rWo[m] = execUnitEntryData.months[mIdx]?.[`wo${t}`] || 0;
+        });
+        rWo['Total YTD'] = execUnitEntryData.ytdTotals[`wo${t}`] || 0;
+        ueRows.push(rWo);
+
+        const rUe = { 'Tipe / Segment': `${t} (Unit Entry)` };
+        activeMonths.forEach((m, mIdx) => {
+          rUe[m] = execUnitEntryData.months[mIdx]?.[`unique${t}`] || 0;
+        });
+        rUe['Total YTD'] = execUnitEntryData.ytdTotals[`unique${t}`] || 0;
+        ueRows.push(rUe);
+      });
+
+      const totalWo = { 'Tipe / Segment': 'Total (Work Order)' };
+      activeMonths.forEach((m, mIdx) => {
+        totalWo[m] = execUnitEntryData.months[mIdx]?.woTotal || 0;
+      });
+      totalWo['Total YTD'] = execUnitEntryData.ytdTotals.woTotal || 0;
+      ueRows.push(totalWo);
+
+      const totalUe = { 'Tipe / Segment': 'Total (Unit Entry)' };
+      activeMonths.forEach((m, mIdx) => {
+        totalUe[m] = execUnitEntryData.months[mIdx]?.uniqueTotal || 0;
+      });
+      totalUe['Total YTD'] = execUnitEntryData.ytdTotals.uniqueTotal || 0;
+      ueRows.push(totalUe);
+
+      const ws1 = XLSX.utils.json_to_sheet(ueRows);
+      XLSX.utils.book_append_sheet(workbook, ws1, "Unit Entry");
+
+      // Sheet 2: Labor Charge
+      const lcRows = [];
+      types.forEach(t => {
+        const r = { 'Tipe / Segment': t };
+        let total = 0;
+        activeMonths.forEach((m, mIdx) => {
+          const val = execLaborChargeData[mIdx]?.[t] || 0;
+          r[m] = val;
+          total += val;
+        });
+        r['Total YTD'] = total;
+        lcRows.push(r);
+      });
+      const lcTotal = { 'Tipe / Segment': 'Total' };
+      let lcGrand = 0;
+      activeMonths.forEach((m, mIdx) => {
+        const sum = types.reduce((acc, t) => acc + (execLaborChargeData[mIdx]?.[t] || 0), 0);
+        lcTotal[m] = sum;
+        lcGrand += sum;
+      });
+      lcTotal['Total YTD'] = lcGrand;
+      lcRows.push(lcTotal);
+      const ws2 = XLSX.utils.json_to_sheet(lcRows);
+      XLSX.utils.book_append_sheet(workbook, ws2, "Keuntungan Jasa");
+
+      // Sheet 2b: Sub Order (SO)
+      const soRows = [];
+      types.forEach(t => {
+        const r = { 'Tipe / Segment': t };
+        let total = 0;
+        activeMonths.forEach((m, mIdx) => {
+          const val = execSubOrderData[mIdx]?.[t] || 0;
+          r[m] = val;
+          total += val;
+        });
+        r['Total YTD'] = total;
+        soRows.push(r);
+      });
+      const soTotal = { 'Tipe / Segment': 'Total' };
+      let soGrand = 0;
+      activeMonths.forEach((m, mIdx) => {
+        const sum = types.reduce((acc, t) => acc + (execSubOrderData[mIdx]?.[t] || 0), 0);
+        soTotal[m] = sum;
+        soGrand += sum;
+      });
+      soTotal['Total YTD'] = soGrand;
+      soRows.push(soTotal);
+      const ws2b = XLSX.utils.json_to_sheet(soRows);
+      XLSX.utils.book_append_sheet(workbook, ws2b, "Keuntungan Sub Order (SO)");
+
+      // Sheet 3a: Sparepart Workshop
+      const spWorkRows = [];
+      const spWorkSegs = [
+        { label: 'RS0001 (Service)', key: 'RS0001' },
+        { label: '114-I (Asuransi)', key: '114-I' },
+        { label: 'INT-112 (Internal)', key: 'INT-112' }
+      ];
+      spWorkSegs.forEach(s => {
+        const r = { 'Segmen Sparepart Workshop': s.label };
+        let total = 0;
+        activeMonths.forEach((m, mIdx) => {
+          const val = execSparepartWorkshopData[mIdx]?.[s.key] || 0;
+          r[m] = val;
+          total += val;
+        });
+        r['Total YTD'] = total;
+        spWorkRows.push(r);
+      });
+      const spWorkTotal = { 'Segmen Sparepart Workshop': 'Total' };
+      let spWorkGrand = 0;
+      activeMonths.forEach((m, mIdx) => {
+        const sum = spWorkSegs.reduce((acc, s) => acc + (execSparepartWorkshopData[mIdx]?.[s.key] || 0), 0);
+        spWorkTotal[m] = sum;
+        spWorkGrand += sum;
+      });
+      spWorkTotal['Total YTD'] = spWorkGrand;
+      spWorkRows.push(spWorkTotal);
+      const ws3_1 = XLSX.utils.json_to_sheet(spWorkRows);
+      XLSX.utils.book_append_sheet(workbook, ws3_1, "Sparepart Workshop");
+
+      // Sheet 3b: Sparepart Non-Workshop
+      const spNonWorkRows = [];
+      const spNonWorkSegs = [
+        { label: 'Retail', key: 'retail' },
+        { label: 'Partshop', key: 'partshop' }
+      ];
+      spNonWorkSegs.forEach(s => {
+        const r = { 'Segmen Sparepart Non Workshop': s.label };
+        let total = 0;
+        activeMonths.forEach((m, mIdx) => {
+          const val = execSparepartNonWorkshopData[mIdx]?.[s.key] || 0;
+          r[m] = val;
+          total += val;
+        });
+        r['Total YTD'] = total;
+        spNonWorkRows.push(r);
+      });
+      const spNonWorkTotal = { 'Segmen Sparepart Non Workshop': 'Total' };
+      let spNonWorkGrand = 0;
+      activeMonths.forEach((m, mIdx) => {
+        const sum = spNonWorkSegs.reduce((acc, s) => acc + (execSparepartNonWorkshopData[mIdx]?.[s.key] || 0), 0);
+        spNonWorkTotal[m] = sum;
+        spNonWorkGrand += sum;
+      });
+      spNonWorkTotal['Total YTD'] = spNonWorkGrand;
+      spNonWorkRows.push(spNonWorkTotal);
+      const ws3_2 = XLSX.utils.json_to_sheet(spNonWorkRows);
+      XLSX.utils.book_append_sheet(workbook, ws3_2, "Sparepart Non Workshop");
+
+      // Sheet 4: Staff Activity
+      const staffRows = [];
+      staffRows.push({ 'Jabatan': '--- SERVICE ADVISOR ---' });
+      Object.entries(execStaffActivityData.saMonthly).forEach(([name, counts]) => {
+        const r = { 'Nama Karyawan': name, 'Jabatan': 'Service Advisor' };
+        let total = 0;
+        activeMonths.forEach((m, mIdx) => {
+          const val = counts[mIdx] || 0;
+          r[m] = val;
+          total += val;
+        });
+        r['Total WO YTD'] = total;
+        staffRows.push(r);
+      });
+      staffRows.push({ 'Jabatan': '--- MEKANIK ---' });
+      Object.entries(execStaffActivityData.mechMonthly).forEach(([name, counts]) => {
+        const r = { 'Nama Karyawan': name, 'Jabatan': 'Mekanik' };
+        let total = 0;
+        activeMonths.forEach((m, mIdx) => {
+          const val = counts[mIdx] || 0;
+          r[m] = val;
+          total += val;
+        });
+        r['Total WO YTD'] = total;
+        staffRows.push(r);
+      });
+      const ws4 = XLSX.utils.json_to_sheet(staffRows);
+      XLSX.utils.book_append_sheet(workbook, ws4, "Keaktifan Staff");
+
+      // Sheet 5: CSI Result
+      const csiRows = [];
+      const csiRow = { 'Indikator': 'CSI Score' };
+      activeMonths.forEach((m, mIdx) => {
+        csiRow[m] = execCsiData[mIdx] || 0;
+      });
+      const activeScores = execCsiData.filter(v => v > 0);
+      csiRow['Average YTD'] = activeScores.length > 0 ? Math.round(activeScores.reduce((a, b) => a + b, 0) / activeScores.length) : 0;
+      csiRows.push(csiRow);
+
+      // Append dimension breakdown if available
+      if (csiMonthlyData && csiMonthlyData.length > 0) {
+        const activeMonthData = csiMonthlyData[limitMonthIdx];
+        if (activeMonthData && activeMonthData.dimensions) {
+          activeMonthData.dimensions.forEach(d => {
+            const dimRow = { 'Indikator': `Dimensi: ${d.name}` };
+            activeMonths.forEach((m, mIdx) => {
+              dimRow[m] = mIdx === limitMonthIdx ? d.value : '';
+            });
+            dimRow['Average YTD'] = d.value;
+            csiRows.push(dimRow);
+          });
+        }
+      }
+
+      const ws5 = XLSX.utils.json_to_sheet(csiRows);
+      XLSX.utils.book_append_sheet(workbook, ws5, "CSI Result");
+
+      // Sheet 6: CSI Responden Detail (jika ada data)
+      if (csiActiveMonthRecords && csiActiveMonthRecords.recordIDs && csiActiveMonthRecords.recordIDs.length > 0) {
+        const recordMap = csiActiveMonthRecords.recordMap || {};
+        const recordIDs = csiActiveMonthRecords.recordIDs || [];
+
+        const respRows = recordIDs.map((id, i) => {
+          const r = recordMap[id];
+          if (!r) return null;
+          return {
+            'No': i + 1,
+            'Nama': r.fldLOfP6ht?.value?.[0]?.text || '-',
+            'Produk': PRODUCT_OPTIONS[r.flduCHkcFO?.value] || r.flduCHkcFO?.value || '-',
+            'VIN': r.fldBbJb9CA?.value?.val?.[0]?.text || r.fldBbJb9CA?.value?.[0]?.text || '-',
+            'Q1 (Appointment)': r.fld77RDhPZ?.value || 0,
+            'Q2 (Advisor)': r.fldGneeuoD?.value || 0,
+            'Q3 (Facility)': r.fldpOMkOr5?.value || 0,
+            'Q4 (Quality)': r.fldqBAJgeU?.value || 0,
+            'Q5 (Maintenance)': r.fldvf2MIJv?.value || 0,
+            'Q6 (Delivery)': r.fldA6l5y5x?.value || 0,
+            'Q7 (Parts)': r.fldlvE1YfV?.value || 0,
+            'Overall Score': r.fldKw5T576?.value?.val || r.fldKw5T576?.value || 0,
+            'Rekomendasi (0-10)': r.fldYktqdva?.value || 0,
+            'Komentar Masukan': r.fldIfJu5jY?.value?.map(c => c.text).join('\n') || r.fldIfJu5jY?.value || '',
+            'Komentar Akhir': r.fld4gEPGVF?.value?.map(c => c.text).join('\n') || r.fld4gEPGVF?.value || '',
+          };
+        }).filter(Boolean);
+
+        if (respRows.length > 0) {
+          const ws6 = XLSX.utils.json_to_sheet(respRows);
+          ws6['!cols'] = [
+            { wch: 5 }, { wch: 28 }, { wch: 24 }, { wch: 22 },
+            { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
+            { wch: 15 }, { wch: 18 }, { wch: 40 }, { wch: 40 }
+          ];
+          XLSX.utils.book_append_sheet(workbook, ws6, "CSI Detail Responden");
+        }
+      }
+
+      XLSX.writeFile(workbook, `Laporan_Eksekutif_Manager_${selectedYear}.xlsx`);
+      Toastify({ text: '✅ Berhasil mengekspor Laporan Eksekutif Excel!', style: { background: '#10b981' } }).showToast();
+    } catch (e) {
+      console.error(e);
+      Toastify({ text: `❌ Gagal Ekspor Excel: ${e.message}`, style: { background: 'red' } }).showToast();
+    }
+  };
 
     const handleExportSummary = async () => {
         setIsSyncing(true);
@@ -1198,171 +2561,826 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
 
           {activeTab === 'performance' && (
             <div className="space-y-6">
-              {/* Chart 1: Revenue Bulanan (Jan - Des) */}
-              <div className="bg-white p-5 md:p-8 border border-zinc-200 rounded-lg">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+              {/* Executive Reports Section */}
+              <div className="bg-white p-6 border border-zinc-200 rounded-xl shadow-sm space-y-6">
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-6 border-b border-zinc-100">
                   <div>
-                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">Tren Keuntungan Bulanan ({monthlyChartData.year})</h3>
-                    <p className="text-zinc-400 text-[10px] font-medium mt-1">Perbandingan Pendapatan Jasa & Sparepart berdasarkan Laporan Invoice ({monthlyChartData.year})</p>
+                    <h2 className="text-xl font-black text-zinc-950 uppercase tracking-tight">📈 Laporan Eksekutif Manager ({selectedYear})</h2>
+                    <p className="text-zinc-400 text-xs font-medium mt-1">Analisis YTD pergerakan Januari - {activeMonths[limitMonthIdx]} {selectedYear}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                    <div className="flex items-center gap-2 bg-zinc-50 border border-zinc-200 px-3 py-2 rounded-xl">
+                      <Calendar size={14} className="text-zinc-400" />
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                        className="text-xs font-black outline-none bg-transparent cursor-pointer min-h-[28px]"
+                      >
+                        {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y} M/Y</option>)}
+                      </select>
+                    </div>
+                    <button
+                      onClick={handleExportExecutivePdf}
+                      className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm"
+                    >
+                      <Download size={14} /> PDF Landscape
+                    </button>
+                    <button
+                      onClick={handleExportExecutiveExcel}
+                      className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm"
+                    >
+                      <FileSpreadsheet size={14} /> Excel
+                    </button>
                   </div>
                 </div>
-                <div className="w-full h-[300px] md:h-[380px]">
-                  {financialData.length === 0 ? (
-                    <div className="w-full h-full flex items-center justify-center border border-dashed border-zinc-200 rounded-lg text-zinc-400 text-xs font-medium uppercase tracking-wider">Memuat data Laporan Invoice...</div>
-                  ) : (
-                    <ReactApexChart
-                      options={{
-                        legend: {
-                          show: true,
-                          position: 'top',
-                          horizontalAlign: 'right',
-                          labels: { colors: '#71717a' },
-                          fontFamily: 'Inter',
-                          fontWeight: 700,
-                          itemMargin: { horizontal: 16 }
-                        },
-                        chart: { type: 'area', background: 'transparent', toolbar: { show: false }, zoom: { enabled: false } },
-                        colors: ['#10b981', '#000000', '#6366f1'],
-                        fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.05, stops: [0, 90, 100] } },
-                        dataLabels: { enabled: false },
-                        stroke: { curve: 'smooth', width: 2.5 },
-                        xaxis: { categories: monthlyChartData.categories, labels: { style: { colors: '#71717a', fontWeight: 700, fontFamily: 'Inter', fontSize: '10px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
-                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700, fontSize: '10px' }, formatter: (val) => formatCurrency(val) } },
-                        grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
-                        tooltip: { theme: 'light', x: { show: true } }
-                      }}
-                      series={monthlyChartData.series}
-                      type="area"
-                      height="100%"
-                    />
-                  )}
-                </div>
-              </div>
 
-              {/* Chart 2: Volume Work Order Bulanan (Jan - Des) */}
-              <div className="bg-white p-5 md:p-8 border border-zinc-200 rounded-lg">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-                  <div>
-                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">Tren Work Order Bulanan ({woMonthlyChartData.year})</h3>
-                    <p className="text-zinc-400 text-[10px] font-medium mt-1">Grafik Pergerakan Naik Turun Jumlah Unit Work Order (Januari - Desember {woMonthlyChartData.year})</p>
+                {/* 1. Laporan Unit Entry */}
+                <div className="space-y-4 pt-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">1. Laporan Unit Entry (Work Order)</h3>
+                    <span className="text-[10px] bg-zinc-100 px-2 py-0.5 rounded text-zinc-500 font-bold uppercase">Source: Work Order</span>
                   </div>
-                </div>
-                <div className="w-full h-[260px] md:h-[320px]">
-                  {woTrackingData.length === 0 ? (
-                    <div className="w-full h-full flex items-center justify-center border border-dashed border-zinc-200 rounded-lg text-zinc-400 text-xs font-medium uppercase tracking-wider">Belum ada data Work Order</div>
-                  ) : (
-                    <ReactApexChart
-                      options={{
-                        legend: {
-                          show: true,
-                          position: 'top',
-                          horizontalAlign: 'right',
-                          labels: { colors: '#71717a' },
-                          fontFamily: 'Inter',
-                          fontWeight: 700
-                        },
-                        chart: { type: 'line', background: 'transparent', toolbar: { show: false }, zoom: { enabled: false } },
-                        colors: ['#000000'],
-                        dataLabels: { enabled: true, style: { fontSize: '11px', fontWeight: 'bold' } },
-                        stroke: { curve: 'smooth', width: 3 },
-                        markers: { size: 5, colors: ['#000000'], strokeColors: '#fff', strokeWidth: 2 },
-                        xaxis: { categories: woMonthlyChartData.categories, labels: { style: { colors: '#71717a', fontWeight: 700, fontFamily: 'Inter', fontSize: '10px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
-                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700, fontSize: '10px' }, formatter: (val) => `${Math.round(val)} WO` } },
-                        grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
-                        tooltip: { theme: 'light', x: { show: true } }
-                      }}
-                      series={woMonthlyChartData.series}
-                      type="line"
-                      height="100%"
-                    />
-                  )}
-                </div>
-              </div>
+                  
+                  {/* UE KPI Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+                    <div className="bg-sky-50 border border-sky-200 p-3 rounded-lg text-center">
+                      <p className="text-[9px] font-bold text-sky-600 uppercase tracking-wider">IFS (Unit Entry)</p>
+                      <p className="text-lg font-black text-sky-950 mt-1">{execUnitEntryData.ytdTotals.uniqueIFS} Unit</p>
+                    </div>
+                    <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-lg text-center">
+                      <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider">IKC (Unit Entry)</p>
+                      <p className="text-lg font-black text-emerald-950 mt-1">{execUnitEntryData.ytdTotals.uniqueIKC} Unit</p>
+                    </div>
+                    <div className="bg-rose-50 border border-rose-200 p-3 rounded-lg text-center">
+                      <p className="text-[9px] font-bold text-rose-600 uppercase tracking-wider">EUR (Unit Entry)</p>
+                      <p className="text-lg font-black text-rose-950 mt-1">{execUnitEntryData.ytdTotals.uniqueEUR} Unit</p>
+                    </div>
+                    <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-center">
+                      <p className="text-[9px] font-bold text-amber-600 uppercase tracking-wider">IOB (Unit Entry)</p>
+                      <p className="text-lg font-black text-amber-950 mt-1">{execUnitEntryData.ytdTotals.uniqueIOB} Unit</p>
+                    </div>
+                    <div className="bg-zinc-900 p-3 rounded-lg text-center">
+                      <p className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider">TOTAL UNIT YTD</p>
+                      <p className="text-lg font-black text-white mt-1">
+                        {execUnitEntryData.ytdTotals.uniqueTotal} Unit
+                      </p>
+                    </div>
+                    <div className="bg-zinc-800 p-3 rounded-lg text-center">
+                      <p className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider">TOTAL WO YTD</p>
+                      <p className="text-lg font-black text-white mt-1">
+                        {execUnitEntryData.ytdTotals.woTotal} WO
+                      </p>
+                    </div>
+                  </div>
 
-              {/* Chart 3: Tren Unit Entry Bulanan */}
-              <div className="bg-white p-5 md:p-8 border border-zinc-200 rounded-lg">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-                  <div>
-                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">Tren Unit Entry Bulanan ({unitEntryMonthlyChartData.year})</h3>
-                    <p className="text-zinc-400 text-[10px] font-medium mt-1">Grafik Unit Masuk Unik / VIN (Januari - Desember {unitEntryMonthlyChartData.year})</p>
-                  </div>
-                  <div className="bg-zinc-50 border border-zinc-200 px-3 py-1.5 rounded-lg text-right">
-                    <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block">Total Unit Masuk (Tahun)</span>
-                    <span className="text-sm font-black text-zinc-900">{unitEntryMonthlyChartData.total} Unit</span>
-                  </div>
-                </div>
-                <div className="w-full h-[260px] md:h-[320px]">
-                  {woTrackingData.length === 0 ? (
-                    <div className="w-full h-full flex items-center justify-center border border-dashed border-zinc-200 rounded-lg text-zinc-400 text-xs font-medium uppercase tracking-wider">Belum ada data Unit Entry</div>
-                  ) : (
+                  {/* UE Chart */}
+                  <div className="w-full h-[240px] border border-zinc-100 rounded-lg p-3 bg-white" id="exec-chart-unit-entry">
                     <ReactApexChart
                       options={{
-                        legend: {
-                          show: true,
-                          position: 'top',
-                          horizontalAlign: 'right',
-                          labels: { colors: '#71717a' },
-                          fontFamily: 'Inter',
-                          fontWeight: 700
-                        },
-                        chart: { type: 'area', background: 'transparent', toolbar: { show: false }, zoom: { enabled: false } },
-                        colors: ['#000000'],
-                        fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.05, stops: [0, 90, 100] } },
-                        dataLabels: { enabled: true, style: { fontSize: '11px', fontWeight: 'bold', colors: ['#000000'] } },
-                        stroke: { curve: 'smooth', width: 3 },
-                        markers: { size: 5, colors: ['#000000'], strokeColors: '#fff', strokeWidth: 2 },
-                        xaxis: { categories: unitEntryMonthlyChartData.categories, labels: { style: { colors: '#71717a', fontWeight: 700, fontFamily: 'Inter', fontSize: '10px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
-                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700, fontSize: '10px' }, formatter: (val) => `${Math.round(val)} Unit` } },
-                        grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
-                        tooltip: { theme: 'light', x: { show: true } }
-                      }}
-                      series={unitEntryMonthlyChartData.series}
-                      type="area"
-                      height="100%"
-                    />
-                  )}
-                </div>
-              </div>
-
-              {/* Chart 4: Tren Penjualan Sparepart per Kategori */}
-              <div className="bg-white p-5 md:p-8 border border-zinc-200 rounded-lg">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-                  <div>
-                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">Tren Penjualan Sparepart per Kategori ({sparepartMonthlyChartData.year})</h3>
-                    <p className="text-zinc-400 text-[10px] font-medium mt-1">Grafik Nilai Penjualan Sparepart Bulanan per Kategori Pelanggan ({sparepartMonthlyChartData.year})</p>
-                  </div>
-                </div>
-                <div className="w-full h-[260px] md:h-[320px]">
-                  {sparepartRevenueData.length === 0 ? (
-                    <div className="w-full h-full flex items-center justify-center border border-dashed border-zinc-200 rounded-lg text-zinc-400 text-xs font-medium uppercase tracking-wider">Belum ada data Penjualan Sparepart</div>
-                  ) : (
-                    <ReactApexChart
-                      options={{
-                        legend: {
-                          show: true,
-                          position: 'top',
-                          horizontalAlign: 'right',
-                          labels: { colors: '#71717a' },
-                          fontFamily: 'Inter',
-                          fontWeight: 700
-                        },
-                        chart: { type: 'line', background: 'transparent', toolbar: { show: false }, zoom: { enabled: false } },
-                        colors: ['#10b981', '#3b82f6', '#f59e0b'],
-                        dataLabels: { enabled: false },
+                        chart: { type: 'line', toolbar: { show: false }, zoom: { enabled: false } },
+                        colors: ['#4f46e5', '#10b981', '#f43f5e', '#f59e0b'],
                         stroke: { curve: 'smooth', width: 3 },
                         markers: { size: 4 },
-                        xaxis: { categories: sparepartMonthlyChartData.categories, labels: { style: { colors: '#71717a', fontWeight: 700, fontFamily: 'Inter', fontSize: '10px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
-                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700, fontSize: '10px' }, formatter: (val) => formatCurrency(val).replace(',00', '') } },
+                        dataLabels: {
+                          enabled: true,
+                          formatter: (val) => val || '',
+                          style: { fontSize: '9px', fontWeight: 'bold' }
+                        },
+                        xaxis: { categories: activeMonths, labels: { style: { colors: '#71717a', fontWeight: 650, fontSize: '10px' } } },
+                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700 } } },
                         grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
-                        tooltip: { theme: 'light', x: { show: true }, y: { formatter: (val) => formatCurrency(val) } }
+                        legend: { show: true, position: 'top', labels: { colors: '#71717a' }, fontWeight: 700 },
+                        tooltip: { theme: 'light' }
                       }}
-                      series={sparepartMonthlyChartData.series}
+                      series={[
+                        { name: 'IFS', data: execUnitEntryData.months.map(d => d.uniqueIFS) },
+                        { name: 'IKC', data: execUnitEntryData.months.map(d => d.uniqueIKC) },
+                        { name: 'EUR', data: execUnitEntryData.months.map(d => d.uniqueEUR) },
+                        { name: 'IOB', data: execUnitEntryData.months.map(d => d.uniqueIOB) }
+                      ]}
                       type="line"
                       height="100%"
                     />
-                  )}
+                  </div>
+
+                  {/* UE Table */}
+                  <div className="overflow-x-auto border border-zinc-200 rounded-lg">
+                    <table className="w-full text-xs text-left min-w-[700px]">
+                      <thead>
+                        <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-bold uppercase text-[9px]">
+                          <th className="px-4 py-2">Metrik / Tipe</th>
+                          {activeMonths.map(m => <th key={m} className="px-2 py-2 text-center">{m.substring(0,3)}</th>)}
+                          <th className="px-4 py-2 text-center font-bold">Total YTD</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100 font-medium">
+                        {(() => {
+                          const typeColorConfig = {
+                            IFS: {
+                              woBg: 'bg-sky-50/40 hover:bg-sky-100/30',
+                              woText: 'text-sky-700 font-semibold',
+                              woValText: 'text-sky-600',
+                              woTotalBg: 'bg-sky-100/40 font-bold text-sky-800',
+                              ueBg: 'bg-sky-100/60 hover:bg-sky-200/40',
+                              ueText: 'text-sky-900 font-bold pl-6',
+                              ueValText: 'text-sky-900 font-bold',
+                              ueTotalBg: 'bg-sky-200/70 font-black text-sky-950',
+                            },
+                            IKC: {
+                              woBg: 'bg-emerald-50/40 hover:bg-emerald-100/30',
+                              woText: 'text-emerald-700 font-semibold',
+                              woValText: 'text-emerald-600',
+                              woTotalBg: 'bg-emerald-100/40 font-bold text-emerald-800',
+                              ueBg: 'bg-emerald-100/60 hover:bg-emerald-200/40',
+                              ueText: 'text-emerald-900 font-bold pl-6',
+                              ueValText: 'text-emerald-900 font-bold',
+                              ueTotalBg: 'bg-emerald-200/70 font-black text-emerald-950',
+                            },
+                            EUR: {
+                              woBg: 'bg-rose-50/40 hover:bg-rose-100/30',
+                              woText: 'text-rose-700 font-semibold',
+                              woValText: 'text-rose-600',
+                              woTotalBg: 'bg-rose-100/40 font-bold text-rose-800',
+                              ueBg: 'bg-rose-100/60 hover:bg-rose-200/40',
+                              ueText: 'text-rose-900 font-bold pl-6',
+                              ueValText: 'text-rose-900 font-bold',
+                              ueTotalBg: 'bg-rose-200/70 font-black text-rose-950',
+                            },
+                            IOB: {
+                              woBg: 'bg-amber-50/40 hover:bg-amber-100/30',
+                              woText: 'text-amber-700 font-semibold',
+                              woValText: 'text-amber-600',
+                              woTotalBg: 'bg-amber-100/40 font-bold text-amber-800',
+                              ueBg: 'bg-amber-100/60 hover:bg-amber-200/40',
+                              ueText: 'text-amber-900 font-bold pl-6',
+                              ueValText: 'text-amber-900 font-bold',
+                              ueTotalBg: 'bg-amber-200/70 font-black text-amber-950',
+                            }
+                          };
+                          return ['IFS', 'IKC', 'EUR', 'IOB'].map(t => {
+                            const conf = typeColorConfig[t];
+                            return (
+                              <React.Fragment key={t}>
+                                <tr className={conf.woBg}>
+                                  <td className={`px-4 py-1.5 ${conf.woText}`}>{t} (Work Order)</td>
+                                  {activeMonths.map((_, mIdx) => (
+                                    <td key={mIdx} className={`px-2 py-1.5 text-center tabular-nums ${conf.woValText}`}>{execUnitEntryData.months[mIdx]?.[`wo${t}`] || 0}</td>
+                                  ))}
+                                  <td className={`px-4 py-1.5 text-center font-bold tabular-nums ${conf.woTotalBg}`}>{execUnitEntryData.ytdTotals[`wo${t}`] || 0}</td>
+                                </tr>
+                                <tr className={conf.ueBg}>
+                                  <td className={`px-4 py-1.5 ${conf.ueText}`}>{t} (Unit Entry)</td>
+                                  {activeMonths.map((_, mIdx) => (
+                                    <td key={mIdx} className={`px-2 py-1.5 text-center tabular-nums ${conf.ueValText}`}>{execUnitEntryData.months[mIdx]?.[`unique${t}`] || 0}</td>
+                                  ))}
+                                  <td className={`px-4 py-1.5 text-center tabular-nums ${conf.ueTotalBg}`}>{execUnitEntryData.ytdTotals[`unique${t}`] || 0}</td>
+                                </tr>
+                              </React.Fragment>
+                            );
+                          });
+                        })()}
+                         <tr className="bg-indigo-50/70 font-bold border-t border-indigo-100 text-indigo-950">
+                          <td className="px-4 py-2">Total (Work Order)</td>
+                          {activeMonths.map((_, mIdx) => (
+                            <td key={mIdx} className="px-2 py-2 text-center tabular-nums">{execUnitEntryData.months[mIdx]?.woTotal || 0}</td>
+                          ))}
+                          <td className="px-4 py-2 text-center font-black tabular-nums bg-indigo-100/60">{execUnitEntryData.ytdTotals.woTotal || 0}</td>
+                        </tr>
+                        <tr className="bg-indigo-100/80 font-black border-t border-indigo-200 text-indigo-950">
+                          <td className="px-4 py-2">Total (Unit Entry)</td>
+                          {activeMonths.map((_, mIdx) => (
+                            <td key={mIdx} className="px-2 py-2 text-center tabular-nums">{execUnitEntryData.months[mIdx]?.uniqueTotal || 0}</td>
+                          ))}
+                          <td className="px-4 py-2 text-center tabular-nums bg-indigo-200/90">{execUnitEntryData.ytdTotals.uniqueTotal || 0}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <hr className="border-zinc-100" />
+
+                {/* 2. Laporan Keuntungan Labor Charge */}
+                <div className="space-y-4 pt-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">2. Laporan Keuntungan Labor Charge (Jasa)</h3>
+                    <span className="text-[10px] bg-zinc-100 px-2 py-0.5 rounded text-zinc-500 font-bold uppercase">Source: Invoice, IOB</span>
+                  </div>
+
+                  {/* LC KPI Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    {['IFS', 'IKC', 'EUR', 'IOB'].map(t => {
+                      const total = execLaborChargeData.reduce((acc, d) => acc + (d[t] || 0), 0);
+                      return (
+                        <div key={t} className="bg-zinc-50 border border-zinc-200/80 p-3 rounded-lg">
+                          <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider text-center">{t}</p>
+                          <p className="text-xs font-black text-zinc-950 mt-1 text-center truncate">{formatCurrency(total)}</p>
+                        </div>
+                      );
+                    })}
+                    <div className="bg-zinc-900 p-3 rounded-lg col-span-2 sm:col-span-1">
+                      <p className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider text-center">TOTAL JASA YTD</p>
+                      <p className="text-xs font-black text-white mt-1 text-center truncate">
+                        {formatCurrency(execLaborChargeData.reduce((acc, d) => acc + (d.Total || 0), 0))}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* LC Chart */}
+                  <div className="w-full h-[240px] border border-zinc-100 rounded-lg p-3 bg-white" id="exec-chart-labor-charge">
+                    <ReactApexChart
+                      options={{
+                        chart: { type: 'area', toolbar: { show: false }, zoom: { enabled: false } },
+                        colors: ['#4f46e5', '#10b981', '#f43f5e', '#f59e0b'],
+                        stroke: { curve: 'smooth', width: 2 },
+                        markers: { size: 3 },
+                        fill: { type: 'gradient', gradient: { opacityFrom: 0.3, opacityTo: 0.05 } },
+                        dataLabels: {
+                          enabled: true,
+                          formatter: (val) => {
+                            if (!val) return '';
+                            return 'Rp ' + new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(val);
+                          },
+                          style: { fontSize: '8px', fontWeight: 'bold' }
+                        },
+                        xaxis: { categories: activeMonths, labels: { style: { colors: '#71717a', fontWeight: 650, fontSize: '10px' } } },
+                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700 }, formatter: (v) => formatCurrency(v).replace(',00', '') } },
+                        grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
+                        legend: { show: true, position: 'top', labels: { colors: '#71717a' }, fontWeight: 700 },
+                        tooltip: { theme: 'light', y: { formatter: (v) => formatCurrency(v) } }
+                      }}
+                      series={[
+                        { name: 'IFS', data: execLaborChargeData.map(d => d.IFS) },
+                        { name: 'IKC', data: execLaborChargeData.map(d => d.IKC) },
+                        { name: 'EUR', data: execLaborChargeData.map(d => d.EUR) },
+                        { name: 'IOB', data: execLaborChargeData.map(d => d.IOB) }
+                      ]}
+                      type="area"
+                      height="100%"
+                    />
+                  </div>
+
+                  {/* LC Table */}
+                  <div className="overflow-x-auto border border-zinc-200 rounded-lg">
+                    <table className="w-full text-xs text-left min-w-[700px]">
+                      <thead>
+                        <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-bold uppercase text-[9px]">
+                          <th className="px-4 py-2">Tipe/Segment</th>
+                          {activeMonths.map(m => <th key={m} className="px-2 py-2 text-center">{m.substring(0,3)}</th>)}
+                          <th className="px-4 py-2 text-right">Total YTD</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100 font-medium">
+                        {['IFS', 'IKC', 'EUR', 'IOB'].map(t => {
+                          const ytdTotal = execLaborChargeData.reduce((acc, d) => acc + (d[t] || 0), 0);
+                          return (
+                            <tr key={t} className="hover:bg-zinc-50/50">
+                              <td className="px-4 py-2 font-bold text-zinc-900">{t}</td>
+                              {activeMonths.map((_, mIdx) => (
+                                <td key={mIdx} className="px-2 py-2 text-center tabular-nums">{formatCurrency(execLaborChargeData[mIdx]?.[t] || 0).replace(',00', '')}</td>
+                              ))}
+                              <td className="px-4 py-2 text-right font-bold text-zinc-950 tabular-nums bg-zinc-50/30">{formatCurrency(ytdTotal)}</td>
+                            </tr>
+                          );
+                        })}
+                         <tr className="bg-indigo-50/70 font-black border-t border-indigo-100 text-indigo-950">
+                          <td className="px-4 py-2">Total</td>
+                          {activeMonths.map((_, mIdx) => {
+                            const sum = ['IFS', 'IKC', 'EUR', 'IOB'].reduce((acc, t) => acc + (execLaborChargeData[mIdx]?.[t] || 0), 0);
+                            return <td key={mIdx} className="px-2 py-2 text-center tabular-nums">{formatCurrency(sum).replace(',00', '')}</td>;
+                          })}
+                          <td className="px-4 py-2 text-right tabular-nums bg-indigo-100/60 font-black">
+                            {formatCurrency(execLaborChargeData.reduce((acc, d) => acc + (d.Total || 0), 0))}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <hr className="border-zinc-100" />
+
+                {/* 2b. Laporan Keuntungan Sub Order (SO) */}
+                <div className="space-y-4 pt-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">2b. Laporan Keuntungan Sub Order (SO)</h3>
+                    <span className="text-[10px] bg-zinc-100 px-2 py-0.5 rounded text-zinc-500 font-bold uppercase">Source: Invoice, IOB</span>
+                  </div>
+
+                  {/* SO KPI Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    {['IFS', 'IKC', 'EUR', 'IOB'].map(t => {
+                      const total = execSubOrderData.reduce((acc, d) => acc + (d[t] || 0), 0);
+                      return (
+                        <div key={t} className="bg-zinc-50 border border-zinc-200/80 p-3 rounded-lg">
+                          <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider text-center">{t}</p>
+                          <p className="text-xs font-black text-zinc-950 mt-1 text-center truncate">{formatCurrency(total)}</p>
+                        </div>
+                      );
+                    })}
+                    <div className="bg-zinc-900 p-3 rounded-lg col-span-2 sm:col-span-1">
+                      <p className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider text-center">TOTAL SO YTD</p>
+                      <p className="text-xs font-black text-white mt-1 text-center truncate">
+                        {formatCurrency(execSubOrderData.reduce((acc, d) => acc + (d.Total || 0), 0))}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* SO Chart */}
+                  <div className="w-full h-[240px] border border-zinc-100 rounded-lg p-3 bg-white" id="exec-chart-sub-order">
+                    <ReactApexChart
+                      options={{
+                        chart: { type: 'area', toolbar: { show: false }, zoom: { enabled: false } },
+                        colors: ['#4f46e5', '#10b981', '#f43f5e', '#f59e0b'],
+                        stroke: { curve: 'smooth', width: 2 },
+                        markers: { size: 3 },
+                        fill: { type: 'gradient', gradient: { opacityFrom: 0.3, opacityTo: 0.05 } },
+                        dataLabels: {
+                          enabled: true,
+                          formatter: (val) => {
+                            if (!val) return '';
+                            return 'Rp ' + new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(val);
+                          },
+                          style: { fontSize: '8px', fontWeight: 'bold' }
+                        },
+                        xaxis: { categories: activeMonths, labels: { style: { colors: '#71717a', fontWeight: 650, fontSize: '10px' } } },
+                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700 }, formatter: (v) => formatCurrency(v).replace(',00', '') } },
+                        grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
+                        legend: { show: true, position: 'top', labels: { colors: '#71717a' }, fontWeight: 700 },
+                        tooltip: { theme: 'light', y: { formatter: (v) => formatCurrency(v) } }
+                      }}
+                      series={[
+                        { name: 'IFS', data: execSubOrderData.map(d => d.IFS) },
+                        { name: 'IKC', data: execSubOrderData.map(d => d.IKC) },
+                        { name: 'EUR', data: execSubOrderData.map(d => d.EUR) },
+                        { name: 'IOB', data: execSubOrderData.map(d => d.IOB) }
+                      ]}
+                      type="area"
+                      height="100%"
+                    />
+                  </div>
+
+                  {/* SO Table */}
+                  <div className="overflow-x-auto border border-zinc-200 rounded-lg">
+                    <table className="w-full text-xs text-left min-w-[700px]">
+                      <thead>
+                        <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-bold uppercase text-[9px]">
+                          <th className="px-4 py-2">Tipe/Segment</th>
+                          {activeMonths.map(m => <th key={m} className="px-2 py-2 text-center">{m.substring(0,3)}</th>)}
+                          <th className="px-4 py-2 text-right">Total YTD</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100 font-medium">
+                        {['IFS', 'IKC', 'EUR', 'IOB'].map(t => {
+                          const ytdTotal = execSubOrderData.reduce((acc, d) => acc + (d[t] || 0), 0);
+                          return (
+                            <tr key={t} className="hover:bg-zinc-50/50">
+                              <td className="px-4 py-2 font-bold text-zinc-900">{t}</td>
+                              {activeMonths.map((_, mIdx) => (
+                                <td key={mIdx} className="px-2 py-2 text-center tabular-nums">{formatCurrency(execSubOrderData[mIdx]?.[t] || 0).replace(',00', '')}</td>
+                              ))}
+                              <td className="px-4 py-2 text-right font-bold text-zinc-950 tabular-nums bg-zinc-50/30">{formatCurrency(ytdTotal)}</td>
+                            </tr>
+                          );
+                        })}
+                         <tr className="bg-indigo-50/70 font-black border-t border-indigo-100 text-indigo-950">
+                          <td className="px-4 py-2">Total</td>
+                          {activeMonths.map((_, mIdx) => {
+                            const sum = ['IFS', 'IKC', 'EUR', 'IOB'].reduce((acc, t) => acc + (execSubOrderData[mIdx]?.[t] || 0), 0);
+                            return <td key={mIdx} className="px-2 py-2 text-center tabular-nums">{formatCurrency(sum).replace(',00', '')}</td>;
+                          })}
+                          <td className="px-4 py-2 text-right tabular-nums bg-indigo-100/60 font-black">
+                            {formatCurrency(execSubOrderData.reduce((acc, d) => acc + (d.Total || 0), 0))}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <hr className="border-zinc-100" />
+
+                {/* 3a. Laporan Sparepart Workshop */}
+                <div className="space-y-4 pt-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">3a. Laporan Sparepart Workshop</h3>
+                    <span className="text-[10px] bg-zinc-100 px-2 py-0.5 rounded text-zinc-500 font-bold uppercase">Source: Sparepart Revenue</span>
+                  </div>
+
+                  {/* SP Workshop KPI Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {[
+                      { l: 'RS0001 (Service)', val: execSparepartWorkshopData.reduce((acc, d) => acc + (d.RS0001 || 0), 0) },
+                      { l: '114-I (Asuransi)', val: execSparepartWorkshopData.reduce((acc, d) => acc + (d['114-I'] || 0), 0) },
+                      { l: 'INT-112 (Internal)', val: execSparepartWorkshopData.reduce((acc, d) => acc + (d['INT-112'] || 0), 0) }
+                    ].map((s, idx) => (
+                      <div key={idx} className="bg-zinc-50 border border-zinc-200/80 p-3 rounded-lg">
+                        <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider text-center">{s.l}</p>
+                        <p className="text-xs font-black text-zinc-950 mt-1 text-center truncate">{formatCurrency(s.val)}</p>
+                      </div>
+                    ))}
+                    <div className="bg-zinc-900 p-3 rounded-lg">
+                      <p className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider text-center">TOTAL WORKSHOP YTD</p>
+                      <p className="text-xs font-black text-white mt-1 text-center truncate">
+                        {formatCurrency(execSparepartWorkshopData.reduce((acc, d) => acc + (d.Total || 0), 0))}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* SP Workshop Chart */}
+                  <div className="w-full h-[240px] border border-zinc-100 rounded-lg p-3 bg-white" id="exec-chart-sparepart-workshop">
+                    <ReactApexChart
+                      options={{
+                        chart: { type: 'line', toolbar: { show: false }, zoom: { enabled: false } },
+                        colors: ['#10b981', '#3b82f6', '#f59e0b'],
+                        stroke: { curve: 'smooth', width: 3 },
+                        markers: { size: 4 },
+                        dataLabels: {
+                          enabled: true,
+                          formatter: (val) => {
+                            if (!val) return '';
+                            return 'Rp ' + new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(val);
+                          },
+                          style: { fontSize: '8px', fontWeight: 'bold' }
+                        },
+                        xaxis: { categories: activeMonths, labels: { style: { colors: '#71717a', fontWeight: 650, fontSize: '10px' } } },
+                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700 }, formatter: (v) => formatCurrency(v).replace(',00', '') } },
+                        grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
+                        legend: { show: true, position: 'top', labels: { colors: '#71717a' }, fontWeight: 700 },
+                        tooltip: { theme: 'light', y: { formatter: (v) => formatCurrency(v) } }
+                      }}
+                      series={[
+                        { name: 'RS0001 (Service)', data: execSparepartWorkshopData.map(d => d.RS0001) },
+                        { name: '114-I (Asuransi)', data: execSparepartWorkshopData.map(d => d['114-I']) },
+                        { name: 'INT-112 (Internal)', data: execSparepartWorkshopData.map(d => d['INT-112']) }
+                      ]}
+                      type="line"
+                      height="100%"
+                    />
+                  </div>
+
+                  {/* SP Workshop Table */}
+                  <div className="overflow-x-auto border border-zinc-200 rounded-lg">
+                    <table className="w-full text-xs text-left min-w-[700px]">
+                      <thead>
+                        <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-bold uppercase text-[9px]">
+                          <th className="px-4 py-2">Segmen Sparepart Workshop</th>
+                          {activeMonths.map(m => <th key={m} className="px-2 py-2 text-center">{m.substring(0,3)}</th>)}
+                          <th className="px-4 py-2 text-right font-bold">Total YTD</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100 font-medium">
+                        {[
+                          { l: 'RS0001 (Service)', k: 'RS0001' },
+                          { l: '114-I (Asuransi)', k: '114-I' },
+                          { l: 'INT-112 (Internal)', k: 'INT-112' }
+                        ].map(s => {
+                          const ytdTotal = execSparepartWorkshopData.reduce((acc, d) => acc + (d[s.k] || 0), 0);
+                          return (
+                            <tr key={s.l} className="hover:bg-zinc-50/50">
+                              <td className="px-4 py-2 font-bold text-zinc-900">{s.l}</td>
+                              {activeMonths.map((_, mIdx) => (
+                                <td key={mIdx} className="px-2 py-2 text-center tabular-nums">{formatCurrency(execSparepartWorkshopData[mIdx]?.[s.k] || 0).replace(',00', '')}</td>
+                              ))}
+                              <td className="px-4 py-2 text-right font-bold text-zinc-950 tabular-nums bg-zinc-50/30">{formatCurrency(ytdTotal)}</td>
+                            </tr>
+                          );
+                        })}
+                         <tr className="bg-indigo-50/70 font-black border-t border-indigo-100 text-indigo-950">
+                          <td className="px-4 py-2">Total</td>
+                          {activeMonths.map((_, mIdx) => {
+                            const sum = ['RS0001', '114-I', 'INT-112'].reduce((acc, k) => acc + (execSparepartWorkshopData[mIdx]?.[k] || 0), 0);
+                            return <td key={mIdx} className="px-2 py-2 text-center tabular-nums">{formatCurrency(sum).replace(',00', '')}</td>;
+                          })}
+                          <td className="px-4 py-2 text-right tabular-nums bg-indigo-100/60 font-black">
+                            {formatCurrency(execSparepartWorkshopData.reduce((acc, d) => acc + (d.Total || 0), 0))}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <hr className="border-zinc-100" />
+
+                {/* 3b. Laporan Sparepart Non Workshop */}
+                <div className="space-y-4 pt-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">3b. Laporan Sparepart Non Workshop</h3>
+                    <span className="text-[10px] bg-zinc-100 px-2 py-0.5 rounded text-zinc-500 font-bold uppercase">Source: Sparepart Revenue</span>
+                  </div>
+
+                  {/* SP Non Workshop KPI Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {[
+                      { l: 'Retail', val: execSparepartNonWorkshopData.reduce((acc, d) => acc + (d.retail || 0), 0) },
+                      { l: 'Partshop', val: execSparepartNonWorkshopData.reduce((acc, d) => acc + (d.partshop || 0), 0) }
+                    ].map((s, idx) => (
+                      <div key={idx} className="bg-zinc-50 border border-zinc-200/80 p-3 rounded-lg">
+                        <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider text-center">{s.l}</p>
+                        <p className="text-xs font-black text-zinc-950 mt-1 text-center truncate">{formatCurrency(s.val)}</p>
+                      </div>
+                    ))}
+                    <div className="bg-zinc-900 p-3 rounded-lg col-span-2 sm:col-span-1">
+                      <p className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider text-center">TOTAL NON WORKSHOP YTD</p>
+                      <p className="text-xs font-black text-white mt-1 text-center truncate">
+                        {formatCurrency(execSparepartNonWorkshopData.reduce((acc, d) => acc + (d.Total || 0), 0))}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* SP Non Workshop Chart */}
+                  <div className="w-full h-[240px] border border-zinc-100 rounded-lg p-3 bg-white" id="exec-chart-sparepart-non-workshop">
+                    <ReactApexChart
+                      options={{
+                        chart: { type: 'line', toolbar: { show: false }, zoom: { enabled: false } },
+                        colors: ['#3b82f6', '#f59e0b'],
+                        stroke: { curve: 'smooth', width: 3 },
+                        markers: { size: 4 },
+                        dataLabels: {
+                          enabled: true,
+                          formatter: (val) => {
+                            if (!val) return '';
+                            return 'Rp ' + new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(val);
+                          },
+                          style: { fontSize: '8px', fontWeight: 'bold' }
+                        },
+                        xaxis: { categories: activeMonths, labels: { style: { colors: '#71717a', fontWeight: 650, fontSize: '10px' } } },
+                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700 }, formatter: (v) => formatCurrency(v).replace(',00', '') } },
+                        grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
+                        legend: { show: true, position: 'top', labels: { colors: '#71717a' }, fontWeight: 700 },
+                        tooltip: { theme: 'light', y: { formatter: (v) => formatCurrency(v) } }
+                      }}
+                      series={[
+                        { name: 'Retail', data: execSparepartNonWorkshopData.map(d => d.retail) },
+                        { name: 'Partshop', data: execSparepartNonWorkshopData.map(d => d.partshop) }
+                      ]}
+                      type="line"
+                      height="100%"
+                    />
+                  </div>
+
+                  {/* SP Non Workshop Table */}
+                  <div className="overflow-x-auto border border-zinc-200 rounded-lg">
+                    <table className="w-full text-xs text-left min-w-[700px]">
+                      <thead>
+                        <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-bold uppercase text-[9px]">
+                          <th className="px-4 py-2">Segmen Sparepart Non Workshop</th>
+                          {activeMonths.map(m => <th key={m} className="px-2 py-2 text-center">{m.substring(0,3)}</th>)}
+                          <th className="px-4 py-2 text-right font-bold">Total YTD</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100 font-medium">
+                        {[
+                          { l: 'Retail', k: 'retail' },
+                          { l: 'Partshop', k: 'partshop' }
+                        ].map(s => {
+                          const ytdTotal = execSparepartNonWorkshopData.reduce((acc, d) => acc + (d[s.k] || 0), 0);
+                          return (
+                            <tr key={s.l} className="hover:bg-zinc-50/50">
+                              <td className="px-4 py-2 font-bold text-zinc-900">{s.l}</td>
+                              {activeMonths.map((_, mIdx) => (
+                                <td key={mIdx} className="px-2 py-2 text-center tabular-nums">{formatCurrency(execSparepartNonWorkshopData[mIdx]?.[s.k] || 0).replace(',00', '')}</td>
+                              ))}
+                              <td className="px-4 py-2 text-right font-bold text-zinc-950 tabular-nums bg-zinc-50/30">{formatCurrency(ytdTotal)}</td>
+                            </tr>
+                          );
+                        })}
+                         <tr className="bg-indigo-50/70 font-black border-t border-indigo-100 text-indigo-950">
+                          <td className="px-4 py-2">Total</td>
+                          {activeMonths.map((_, mIdx) => {
+                            const sum = ['retail', 'partshop'].reduce((acc, k) => acc + (execSparepartNonWorkshopData[mIdx]?.[k] || 0), 0);
+                            return <td key={mIdx} className="px-2 py-2 text-center tabular-nums">{formatCurrency(sum).replace(',00', '')}</td>;
+                          })}
+                          <td className="px-4 py-2 text-right tabular-nums bg-indigo-100/60 font-black">
+                            {formatCurrency(execSparepartNonWorkshopData.reduce((acc, d) => acc + (d.Total || 0), 0))}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <hr className="border-zinc-100" />
+
+                {/* 4. Laporan Keaktifan Staff */}
+                <div className="space-y-4 pt-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">4. Laporan Keaktifan & Kinerja Staff</h3>
+                    <span className="text-[10px] bg-zinc-100 px-2 py-0.5 rounded text-zinc-500 font-bold uppercase">Source: Kinerja Staff (Work Order)</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* SA Table */}
+                    <div className="border border-zinc-200 rounded-lg overflow-hidden">
+                      <div className="bg-zinc-50 px-4 py-2 border-b border-zinc-200 font-black text-[10px] uppercase text-zinc-700">Service Advisor Activity</div>
+                      <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
+                        <table className="w-full text-xs text-left">
+                          <thead>
+                            <tr className="border-b border-zinc-100 text-zinc-400 font-bold text-[9px] uppercase">
+                              <th className="px-3 py-1.5">Nama</th>
+                              {activeMonths.map(m => <th key={m} className="px-1 py-1.5 text-center">{m.substring(0,3)}</th>)}
+                              <th className="px-3 py-1.5 text-center">Total YTD</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-100 font-medium">
+                            {(() => {
+                              const saEntries = Object.entries(execStaffActivityData.saMonthly);
+                              if (saEntries.length === 0) {
+                                return <tr><td colSpan={activeMonths.length + 2} className="p-4 text-center text-zinc-400">Tidak ada data</td></tr>;
+                              }
+                              
+                              const maxSaByMonth = activeMonths.map((_, mIdx) => {
+                                const values = saEntries.map(([_, counts]) => counts[mIdx] || 0);
+                                return values.length > 0 ? Math.max(...values) : 0;
+                              });
+
+                              return saEntries
+                                .map(([name, counts]) => {
+                                  const total = counts.reduce((a, b) => a + b, 0);
+                                  const avg = activeMonths.length > 0 ? total / activeMonths.length : 0;
+                                  return { name, counts, total, avg };
+                                })
+                                .sort((a, b) => b.avg - a.avg)
+                                .map(({ name, counts, total }) => (
+                                  <tr key={name} className="hover:bg-zinc-50/50">
+                                    <td className="px-3 py-1.5 font-bold text-zinc-800 uppercase">{name}</td>
+                                    {activeMonths.map((_, mIdx) => {
+                                      const val = counts[mIdx] || 0;
+                                      const isMax = val > 0 && val === maxSaByMonth[mIdx];
+                                      return (
+                                        <td key={mIdx} className="px-1 py-1.5 text-center tabular-nums">
+                                          <span className={isMax ? "bg-emerald-100 text-emerald-800 font-black px-1.5 py-0.5 rounded border border-emerald-200" : ""}>
+                                            {val}
+                                          </span>
+                                        </td>
+                                      );
+                                    })}
+                                    <td className="px-3 py-1.5 text-center font-bold text-zinc-950 bg-zinc-50/20">{total}</td>
+                                  </tr>
+                                ));
+                            })()}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Mechanic Table */}
+                    <div className="border border-zinc-200 rounded-lg overflow-hidden">
+                      <div className="bg-zinc-50 px-4 py-2 border-b border-zinc-200 font-black text-[10px] uppercase text-zinc-700">Mekanik Activity</div>
+                      <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
+                        <table className="w-full text-xs text-left">
+                          <thead>
+                            <tr className="border-b border-zinc-100 text-zinc-400 font-bold text-[9px] uppercase">
+                              <th className="px-3 py-1.5">Nama</th>
+                              {activeMonths.map(m => <th key={m} className="px-1 py-1.5 text-center">{m.substring(0,3)}</th>)}
+                              <th className="px-3 py-1.5 text-center">Total YTD</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-100 font-medium">
+                            {(() => {
+                              const mechEntries = Object.entries(execStaffActivityData.mechMonthly);
+                              if (mechEntries.length === 0) {
+                                return <tr><td colSpan={activeMonths.length + 2} className="p-4 text-center text-zinc-400">Tidak ada data</td></tr>;
+                              }
+                              
+                              const maxMechByMonth = activeMonths.map((_, mIdx) => {
+                                const values = mechEntries.map(([_, counts]) => counts[mIdx] || 0);
+                                return values.length > 0 ? Math.max(...values) : 0;
+                              });
+
+                              return mechEntries
+                                .map(([name, counts]) => {
+                                  const total = counts.reduce((a, b) => a + b, 0);
+                                  const avg = activeMonths.length > 0 ? total / activeMonths.length : 0;
+                                  return { name, counts, total, avg };
+                                })
+                                .sort((a, b) => b.avg - a.avg)
+                                .map(({ name, counts, total }) => (
+                                  <tr key={name} className="hover:bg-zinc-50/50">
+                                    <td className="px-3 py-1.5 font-bold text-zinc-800 uppercase">{name}</td>
+                                    {activeMonths.map((_, mIdx) => {
+                                      const val = counts[mIdx] || 0;
+                                      const isMax = val > 0 && val === maxMechByMonth[mIdx];
+                                      return (
+                                        <td key={mIdx} className="px-1 py-1.5 text-center tabular-nums">
+                                          <span className={isMax ? "bg-emerald-100 text-emerald-800 font-black px-1.5 py-0.5 rounded border border-emerald-200" : ""}>
+                                            {val}
+                                          </span>
+                                        </td>
+                                      );
+                                    })}
+                                    <td className="px-3 py-1.5 text-center font-bold text-zinc-950 bg-zinc-50/20">{total}</td>
+                                  </tr>
+                                ));
+                            })()}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <hr className="border-zinc-100" />
+
+                {/* 5. Laporan CSI Result */}
+                <div className="space-y-4 pt-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">5. Laporan CSI Result</h3>
+                    <span className="text-[10px] bg-zinc-100 px-2 py-0.5 rounded text-zinc-500 font-bold uppercase">Source: Feishu Integration</span>
+                  </div>
+
+                  {/* CSI KPI Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="bg-zinc-950 p-4 rounded-xl text-center border border-zinc-800">
+                      <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">CSI Average YTD</p>
+                      <p className="text-2xl font-black text-emerald-400 mt-1">
+                        {(() => {
+                          const scs = execCsiData.filter(v => v > 0);
+                          return scs.length > 0 ? Math.round(scs.reduce((a, b) => a + b, 0) / scs.length) : 0;
+                        })()} pts
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* CSI Charts Grid */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    {/* Gauge Chart Card */}
+                    <div className="bg-white p-4 border border-zinc-200 rounded-lg flex flex-col justify-between" id="csi-gauge-chart">
+                      <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Skor CSI Bulan Ini</h4>
+                      <div className="h-[200px]">
+                        <ReactApexChart
+                          options={gaugeOptions}
+                          series={gaugeSeries}
+                          type="radialBar"
+                          height="100%"
+                        />
+                      </div>
+                      <p className="text-[9px] text-zinc-400 text-center font-bold">Total Responden: {activeCsiSummary.totalSample} Ulasan</p>
+                    </div>
+
+                    {/* Bar Chart Card */}
+                    <div className="bg-white p-4 border border-zinc-200 rounded-lg lg:col-span-2" id="csi-bar-chart">
+                      <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Pencapaian Dimensi (Bulan Ini)</h4>
+                      <div className="h-[200px]">
+                        <ReactApexChart
+                          options={barChartOptions}
+                          series={barSeries}
+                          type="bar"
+                          height="100%"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* CSI Chart */}
+                  <div className="w-full h-[240px] border border-zinc-100 rounded-lg p-3 bg-white" id="exec-chart-csi">
+                    <ReactApexChart
+                      options={{
+                        chart: { type: 'line', toolbar: { show: false }, zoom: { enabled: false } },
+                        colors: ['#8b5cf6'],
+                        stroke: { curve: 'smooth', width: 3 },
+                        markers: { size: 4 },
+                        xaxis: { categories: activeMonths, labels: { style: { colors: '#71717a', fontWeight: 650, fontSize: '10px' } } },
+                        yaxis: { min: 0, max: 1000, labels: { style: { colors: '#71717a', fontWeight: 700 } } },
+                        grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
+                        tooltip: { theme: 'light', y: { formatter: (v) => `${v} pts` } }
+                      }}
+                      series={[{ name: 'CSI Score', data: execCsiData }]}
+                      type="line"
+                      height="100%"
+                    />
+                  </div>
+
+                  {/* CSI Table */}
+                  <div className="overflow-x-auto border border-zinc-200 rounded-lg">
+                    <table className="w-full text-xs text-left min-w-[600px]">
+                      <thead>
+                        <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-bold uppercase text-[9px]">
+                          <th className="px-4 py-2">Indikator</th>
+                          {activeMonths.map(m => <th key={m} className="px-2 py-2 text-center">{m.substring(0,3)}</th>)}
+                          <th className="px-4 py-2 text-center">Avg YTD</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100 font-medium">
+                        <tr className="hover:bg-zinc-50/50">
+                          <td className="px-4 py-2 font-bold text-zinc-900">CSI Score</td>
+                          {activeMonths.map((_, mIdx) => (
+                            <td key={mIdx} className="px-2 py-2 text-center tabular-nums font-bold text-violet-600">{execCsiData[mIdx] || 0}</td>
+                          ))}
+                          <td className="px-4 py-2 text-center font-bold text-zinc-950 tabular-nums bg-zinc-50/30">
+                            {(() => {
+                              const scs = execCsiData.filter(v => v > 0);
+                              return scs.length > 0 ? Math.round(scs.reduce((a, b) => a + b, 0) / scs.length) : 0;
+                            })()} pts
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
+
 
               {/* Container Leaderboard SA & Mekanik */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

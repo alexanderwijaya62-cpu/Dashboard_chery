@@ -1,3 +1,24 @@
+import fs from 'fs';
+import { validateSession, sendUnauthorized } from './auth.js';
+
+// Load .env locally for `npm run dev` (Vite doesn't inject non-VITE_ vars into process.env).
+// No-op on Vercel production where .env doesn't exist and env comes from the dashboard.
+if (!process.env.FEISHU_COOKIE && fs.existsSync('.env')) {
+  const envContent = fs.readFileSync('.env', 'utf8');
+  for (const line of envContent.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const idx = line.indexOf('=');
+    if (idx < 0) continue;
+    const key = line.slice(0, idx).trim();
+    let val = line.slice(idx + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    if (process.env[key] === undefined) process.env[key] = val;
+  }
+}
+
 const trendCache = new Map();
 
 const DEFAULT_DIMENSIONS = [
@@ -30,12 +51,35 @@ function extractSwpCsrf(cookieStr) {
   return match ? match[1] : '';
 }
 
+function isFeishuSessionExpired(json) {
+  if (!json || typeof json !== 'object') return false;
+  if (json.code === 99991668 || json.code === 99991667) return true;
+  if (json.code === 5 && json.error?.Code === 4101) return true;
+  return false;
+}
+
+function sessionExpiredError(json) {
+  return {
+    code: 5,
+    msg: 'Sesi Feishu expired. Hubungi admin untuk update env FEISHU_COOKIE.',
+    data: {},
+    error: json?.error || { Code: 4101, LogoutReason: 40 },
+  };
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Auth-Username, X-Auth-Session-Id');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
+
+  try {
+    await validateSession(req);
+  } catch (authErr) {
+    return sendUnauthorized(req, res, authErr.message);
+  }
+
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const { view, filter, offset, shareToken: bodyShareToken, action, dealerFilter } = req.body || {};
@@ -83,6 +127,7 @@ export default async function handler(req, res) {
       dimensions: DEFAULT_DIMENSIONS.map(d => ({ id: d.id, name: d.name, value: 0 })),
     }));
     const recordsByMonth = {};
+    let sessionError = null;
 
     const headers = {
       'Content-Type': 'application/json',
@@ -127,7 +172,12 @@ export default async function handler(req, res) {
               const text = await response.text();
               if (!text) return;
               const json = JSON.parse(text);
-              if (json.code !== 0) return;
+              if (json.code !== 0) {
+                if (!sessionError && isFeishuSessionExpired(json)) {
+                  sessionError = sessionExpiredError(json);
+                }
+                return;
+              }
               const records = json.data?.recordMap || {};
               const recordIds = json.data?.recordIDs || [];
 
@@ -171,6 +221,11 @@ export default async function handler(req, res) {
             }
           })
         );
+      }
+
+      if (sessionError) {
+        trendCache.delete(cacheKey);
+        return res.status(200).json(sessionError);
       }
 
       // Save to backend cache
@@ -236,6 +291,10 @@ export default async function handler(req, res) {
     }
     let data;
     try { data = JSON.parse(text); } catch { data = { error: text }; }
+
+    if (isFeishuSessionExpired(data)) {
+      return res.status(200).json(sessionExpiredError(data));
+    }
 
     return res.status(response.status).json(data);
   } catch (error) {

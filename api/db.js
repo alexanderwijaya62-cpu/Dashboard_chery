@@ -1,10 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
-const ALLOWED_TABLES = ['users','settings','antrian','history','booking','cro','libur','notifications','revenue','laporanwo','sparepart','customers','push_subscriptions','sparepart_master','sparepart_revenue','sales'];
+const ALLOWED_TABLES = ['users','settings','antrian','history','booking','cro','libur','notifications','revenue','laporanwo','sparepart','customers','push_subscriptions','sparepart_master','sparepart_revenue','sales','free_maintenance'];
 
 // Default columns per table — cegah over-fetching saat client kirim select: '*'
 const DEFAULT_COLUMNS = {
-  booking: 'id,tanggal,jam,status,noPlat,namaCustomer,tipeMobil,keperluanService,noTelp,bookingVia,vin,noUrut,ip_address,keluhanDetail',
+  booking: 'id,tanggal,jam,status,noPlat,namaCustomer,tipeMobil,keperluanService,noTelp,bookingVia,vin,noUrut,ip_address,keluhanDetail,deleted_by,deleted_by_role,deleted_at',
   antrian: '*',
   history: 'id,bk,tipe,status,waktuMasuk,waktuSelesai,category,mechanicName,nama_sa',
   customers: 'id,no_hp,nama,no_bk,vin,status',
@@ -19,6 +19,7 @@ const DEFAULT_COLUMNS = {
   sparepart_revenue: '*',
   libur: '*',
   push_subscriptions: '*',
+  free_maintenance: '*',
 };
 
 export default async function handler(req, res) {
@@ -29,8 +30,12 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const supabaseUrl = process.env.VITE_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const DEFAULT_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5uc2N5c3NoYXl0a3h2ZXplamFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3ODc1MTgsImV4cCI6MjA5MDM2MzUxOH0.CAOJg-k8le5wYi4b8xyGnZQQ31yaBTbDSncGOCVB93k';
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://nnscysshaytkxvezejae.supabase.co';
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON || DEFAULT_ANON_KEY;
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn('DB: SUPABASE_SERVICE_ROLE_KEY tidak ditemukan di .env — fallback ke anon key. Operasi yang terproteksi RLS (mis. import sparepart revenue) akan gagal.');
+  }
   if (!supabaseUrl || !serviceKey) {
     return res.status(500).json({ error: 'Server auth not configured' });
   }
@@ -118,8 +123,9 @@ export default async function handler(req, res) {
   const isPublicRegister = table === 'customers' && (action === 'insert' || action === 'select' || action === 'update');
   const isPublicNotification = table === 'notifications' && action === 'insert';
   const isPublicPush = table === 'push_subscriptions';
+  const isPublicFreeMaintenance = table === 'free_maintenance';
 
-  const isPublic = isPublicLibur || isPublicRegister || isPublicNotification || isPublicPush;
+  const isPublic = isPublicLibur || isPublicRegister || isPublicNotification || isPublicPush || isPublicFreeMaintenance;
 
   // Booking requires login — no public bypass
   const requiresAuth = !isPublic;
@@ -169,7 +175,12 @@ export default async function handler(req, res) {
         case 'eq': q = q.eq(f.column, f.value); break;
         case 'neq': q = q.neq(f.column, f.value); break;
         case 'in': q = q.in(f.column, f.values); break;
-        case 'order': q = q.order(f.column, { ascending: f.ascending ?? true, nullsFirst: f.nullsFirst ?? false }); break;
+        case 'order': {
+          // Kolom dengan spasi/titik (mis. 'Wkt.Masuk') wajib di-quote agar PostgREST bisa parse
+          const orderCol = /[\s.]/.test(f.column) ? `"${f.column}"` : f.column;
+          q = q.order(orderCol, { ascending: f.ascending ?? true, nullsFirst: f.nullsFirst ?? false });
+          break;
+        }
         case 'limit': q = q.limit(f.value); break;
         case 'range': q = q.range(f.from, f.to); break;
         case 'gte': q = q.gte(f.column, f.value); break;
@@ -310,7 +321,7 @@ export default async function handler(req, res) {
         }
         // Whitelist kolom untuk booking update (reschedule only)
         if (table === 'booking') {
-          const allowed = ['jam', 'tanggal', 'status', 'bookingVia', 'keluhanDetail', 'noPlat', 'namaCustomer', 'noTelp', 'tipeMobil', 'keperluanService'];
+          const allowed = ['jam', 'tanggal', 'status', 'bookingVia', 'keluhanDetail', 'noPlat', 'namaCustomer', 'noTelp', 'tipeMobil', 'keperluanService', 'deleted_by', 'deleted_by_role', 'deleted_at'];
           const safe = {};
           for (const k of allowed) { if (updateValues[k] !== undefined) safe[k] = updateValues[k]; }
           updateValues = safe;
@@ -322,6 +333,32 @@ export default async function handler(req, res) {
         break;
       }
       case 'delete': {
+        // Booking: soft delete + audit siapa yang menghapus (Riwayat Hapus Booking)
+        if (table === 'booking') {
+          const { data: auditor } = await supabase
+            .from('users')
+            .select('name, role')
+            .eq('username', authUsername)
+            .maybeSingle();
+          const who = auditor?.name || authUsername || 'System';
+          const nowWib = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Jakarta' });
+          q = supabase
+            .from('booking')
+            .update({
+              status: 'deleted',
+              deleted_by: who,
+              deleted_by_role: auditor?.role || '',
+              deleted_at: nowWib,
+            });
+          if (filters && filters.length > 0) {
+            q = applyFilters(q, filters);
+          } else {
+            q = q.not('id', 'is', null);
+          }
+          q = q.select();
+          result = await q;
+          break;
+        }
         q = q.delete();
         if (filters && filters.length > 0) {
           q = applyFilters(q, filters);
@@ -360,7 +397,11 @@ export default async function handler(req, res) {
     return res.json({ data: result?.data ?? null, count: result?.count ?? null });
   } catch (error) {
     console.error(`DB Error [${table}/${action}]:`, error.message);
-    return res.status(500).json({ error: error.message, code: error.code || null, details: error.details || null });
+    let message = error.message || 'Internal server error';
+    if (error.code === '42501' || /row-level security|violates row-level security/i.test(message)) {
+      message = 'Akses ditolak oleh row-level security (RLS). SUPABASE_SERVICE_ROLE_KEY belum terisi di .env (lokal) atau Environment Variables (deployment). Ambil dari Supabase Dashboard > Settings > API > service_role key, isi lalu restart server.';
+    }
+    return res.status(500).json({ error: message, code: error.code || null, details: error.details || null });
   }
 }
 
@@ -373,10 +414,12 @@ async function cleanPastBookings(supabase) {
     const currentDateStr = `${y}-${m}-${d}`;
 
     // Delete bookings with date strictly in the past (1 day after the booking day passed)
+    // Kecuali status 'deleted' — dipertahankan untuk Riwayat Hapus Booking
     await supabase
       .from('booking')
       .delete()
-      .lt('tanggal', currentDateStr);
+      .lt('tanggal', currentDateStr)
+      .neq('status', 'deleted');
   } catch (e) {
     console.error('Failed to clean past bookings:', e);
   }

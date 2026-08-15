@@ -34,7 +34,6 @@ async function run() {
     },
     body: JSON.stringify({
       shareToken,
-      page_size: 100,
       filter: JSON.stringify({
         conditions: [
           { fieldId: 'fldA9Oa6IA', fieldType: 19, operator: 'contains', value: ['optef3IAAh'], conditionId: 'con2GlKFnL' },
@@ -47,8 +46,19 @@ async function run() {
 
   const text = await response.text();
   console.log("Status:", response.status);
-  console.log("Body preview:");
-  console.log(text.slice(0, 1500));
+  try {
+    const json = JSON.parse(text);
+    console.log("Code:", json.code);
+    const records = json.data?.recordMap || {};
+    const recordIds = json.data?.recordIDs || [];
+    console.log("Total records returned:", recordIds.length);
+    recordIds.forEach(id => {
+      const r = records[id];
+      console.log(`ID: ${id} | Name: ${r.fldLOfP6ht?.value?.[0]?.text} | fldXU4Zx8g (Month): ${JSON.stringify(r.fldXU4Zx8g?.value)} | fldc3urooF: ${JSON.stringify(r.fldc3urooF?.value)}`);
+    });
+  } catch (e) {
+    console.log("Error parsing response:", e.message);
+  }
 }
 
 run();

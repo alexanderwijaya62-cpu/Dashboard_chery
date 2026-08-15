@@ -96,7 +96,7 @@ export default function SABookingPanel({ user, handleLogout, handleChangePasswor
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const dateStr = yesterday.toISOString().split('T')[0];
-    const { data } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, bookingVia', gte: { tanggal: dateStr } });
+    const { data } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, bookingVia', neq: { status: 'deleted' }, gte: { tanggal: dateStr } });
     let merged = Array.isArray(data) ? [...data] : [];
 
     // === Fetch DMS internal bookings ===

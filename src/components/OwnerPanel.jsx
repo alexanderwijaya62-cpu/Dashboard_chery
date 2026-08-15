@@ -10,6 +10,7 @@ import Toastify from 'toastify-js';
 import ChangePasswordModal from './ChangePasswordModal';
 import WorkOrderReportPage from './WorkOrderReportPage';
 import InvoiceReportPage from './InvoiceReportPage';
+import EpcExplorer from './EpcExplorer';
 import { supabase } from '../utils/supabaseClient';
 import { db } from '../utils/dbClient';
 import { CHERY_DMS_URL, CHERY_EPC_URL, CHERY_EPC_LOGIN_URL } from '../utils/config';
@@ -437,22 +438,30 @@ export default function OwnerPanel({
 
   const handleFetchEpcmToken = async () => {
     setIsFetchingEpcmToken(true);
-    // Coba direct CORS fetch dulu (cepat kalo EPCM ngizinin)
     try {
-      const corsResp = await fetch('https://qrepcm.mychery.com/api/rest/base/auth/current', {
-        credentials: 'include',
-        headers: { 'Accept': 'application/json' }
+      const resp = await fetch('/api/chery_epc?action=get-active-token', {
+        headers: {
+          'X-Auth-Username': user?.username || '',
+          'X-Auth-Session-Id': localStorage.getItem('chery_session_id') || ''
+        }
       });
-      const corsResult = await corsResp.json();
-      if (corsResult.success && corsResult.data?.token) {
-        setEpcmToken(corsResult.data.token);
+      const data = await resp.json();
+      if (data.success && data.token) {
+        setEpcmToken(data.token);
         Toastify({ text: "✅ Token EPCM Berhasil Diambil!", style: { background: '#10b981' } }).showToast();
         setIsFetchingEpcmToken(false);
         return;
       }
     } catch (_) {}
+
     setIsFetchingEpcmToken(false);
-    setShowBookmarkletModal(true);
+    // Fallback: Open EPCM session endpoint directly in a new tab so user can copy token without CORS limitations
+    window.open('https://qrepcm.mychery.com/api/rest/base/auth/current', '_blank');
+    Toastify({ 
+      text: "🔑 Salin token dari tab baru yang terbuka, lalu tempel di kolom EPCM Token!", 
+      style: { background: "linear-gradient(135deg, #3b82f6, #1d4ed8)", borderRadius: "12px" },
+      duration: 8000
+    }).showToast();
   };
 
   const BOOKMARKLET_CODE = `javascript:(async function(){try{let r=await fetch('/api/rest/base/auth/current');let d=await r.json();if(d.success&&d.data?.token){window.open('${window.location.origin}/?epcmToken='+encodeURIComponent(d.data.token),'_blank')}else{alert('Gagal ambil token: '+d.message)}}catch(e){alert('Error: '+e.message)}})();`;
@@ -902,11 +911,23 @@ export default function OwnerPanel({
 
         // Try to find ANY image in the items for this model
         let foundImages = [];
+        let authUsername = '';
+        let authSessionId = '';
+        try {
+          const savedUser = localStorage.getItem('chery_auth_user');
+          if (savedUser) {
+            const userObj = JSON.parse(savedUser);
+            authUsername = userObj.username || '';
+          }
+          authSessionId = localStorage.getItem('chery_session_id') || '';
+        } catch (e) {}
+        const authQueryParams = `&X-Auth-Username=${encodeURIComponent(authUsername)}&X-Auth-Session-Id=${encodeURIComponent(authSessionId)}`;
+
         for (const item of grouped[firstModel]) {
           const ids = item.imageIds || item.fileIds || (item.imageId ? [item.imageId] : []);
           if (ids && ids.length > 0) {
             foundImages = ids.map(id =>
-              `${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/base/file/view/${id}`)}`
+              `${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/base/file/view/${id}`)}${authQueryParams}`
             );
             break; 
           }
@@ -950,21 +971,80 @@ export default function OwnerPanel({
     }
   };
 
-  const handleAddToDocument = (item, manualImage = null, manualDetails = null) => {
+  const handleAddToDocument = async (item, manualImage = null, manualDetails = null) => {
+    let finalItem = { ...item };
+    
+    // Fetch price from DMS if not provided
+    if (!finalItem.retailGuidePrice || finalItem.retailGuidePrice === 0) {
+      try {
+        const resp = await fetch(`${CHERY_DMS_URL}?pageSize=5&status=1&pageIndex=0&code=${encodeURIComponent(item.code.trim())}`);
+        const result = await resp.json();
+        const dmsData = result.payload?.content || result.data || result.items || (Array.isArray(result) ? result : []);
+        if (dmsData && dmsData.length > 0) {
+          finalItem.retailGuidePrice = dmsData[0].retailGuidePrice;
+          finalItem.retailGuidePriceExcludingTax = dmsData[0].retailGuidePriceExcludingTax;
+        }
+      } catch (e) {
+        console.error("Gagal mengambil harga dari DMS:", e);
+      }
+    }
+    
+    // Dynamically retrieve image from EPCM if none is passed
+    let imgUrl = item.image || manualImage || (epcmImages[item.code]?.[0] || null);
+    if (!imgUrl && epcmToken) {
+      try {
+        const epcResult = await fetchEpcImages(item.code);
+        if (epcResult && epcResult.images && epcResult.images.length > 0) {
+          imgUrl = epcResult.images[0];
+        }
+      } catch (e) {
+        console.error("Gagal fetch gambar EPCM secara dinamis:", e);
+      }
+    }
+    
+    const sanitizePartName = (name) => {
+      if (!name) return '-';
+      let cleaned = name;
+      cleaned = cleaned.replace(/＆/g, ' & ');
+      cleaned = cleaned.replace(/\bNUTy\b/gi, 'NUT &');
+      cleaned = cleaned.replace(/\bBOLTy\b/gi, 'BOLT &');
+      cleaned = cleaned.replace(/\bSCREWy\b/gi, 'SCREW &');
+      cleaned = cleaned.replace(/\bWASHERy\b/gi, 'WASHER &');
+      cleaned = cleaned.replace(/\s+y\s+/gi, ' & ');
+      cleaned = cleaned.replace(/\s*&\s*/g, ' & ');
+      cleaned = cleaned.replace(/\s+/g, ' ').trim();
+      return cleaned;
+    };
+
     const details = manualDetails || epcmDetails[item.code];
     const newItem = {
-      name: item.name || '-',
-      code: item.code || '-',
-      price: item.retailGuidePrice ? Math.round(item.retailGuidePrice) : 0,
-      priceExc: item.retailGuidePriceExcludingTax ? Math.round(item.retailGuidePriceExcludingTax) : (item.retailGuidePrice ? Math.round(item.retailGuidePrice / 1.11) : 0),
+      name: sanitizePartName(finalItem.name),
+      code: finalItem.code || '-',
+      price: finalItem.retailGuidePrice ? Math.round(finalItem.retailGuidePrice) : 0,
+      priceExc: finalItem.retailGuidePriceExcludingTax ? Math.round(finalItem.retailGuidePriceExcludingTax) : (finalItem.retailGuidePrice ? Math.round(finalItem.retailGuidePrice / 1.11) : 0),
       jasa: 0,
-      models: getCombinedModels(details),
-      image: manualImage || (epcmImages[item.code]?.[0] || null),
-      status: item.name?.includes('TIDAK DITEMUKAN') ? 'not_found' : (item.name?.includes('ERROR') ? 'error' : 'success')
+      qty: 1, // default qty to 1
+      models: finalItem.models || getCombinedModels(details),
+      image: imgUrl,
+      status: finalItem.name?.includes('TIDAK DITEMUKAN') ? 'not_found' : (finalItem.name?.includes('ERROR') ? 'error' : 'success')
     };
-    setSelectedParts(prev => [...prev, newItem]);
+    
+    setSelectedParts(prev => {
+      const existingIdx = prev.findIndex(p => p.code.trim().toUpperCase() === newItem.code.trim().toUpperCase());
+      if (existingIdx !== -1) {
+        const updated = [...prev];
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          qty: (updated[existingIdx].qty || 1) + 1,
+          image: updated[existingIdx].image || newItem.image // preserve or update image
+        };
+        return updated;
+      }
+      return [...prev, newItem];
+    });
+
     Toastify({
-      text: `➕ ${newItem.code} ditambahkan ke dokumen`,
+      text: `➕ ${newItem.code} ditambahkan ke keranjang`,
       style: { background: '#6366f1' },
       duration: 2000
     }).showToast();
@@ -975,7 +1055,7 @@ export default function OwnerPanel({
     // Remove setEditingPartIdx(null) from here to allow editing multiple fields
   };
 
-  const generatePdf = async () => {
+  const generatePdf = async (vin = '') => {
     if (selectedParts.length === 0) {
       Toastify({ text: "⚠️ Dokumen masih kosong!", style: { background: "#f59e0b" } }).showToast();
       return;
@@ -1004,7 +1084,11 @@ export default function OwnerPanel({
       });
     };
 
-    const formatRp = (val) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val || 0);
+    const formatRp = (val) => {
+      if (val === 0) return 'Masih belum ada harga';
+      return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+    };
+    const formatTotalRp = (val) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val || 0);
 
     for (let i = 0; i < selectedParts.length; i++) {
       const part = selectedParts[i];
@@ -1015,15 +1099,19 @@ export default function OwnerPanel({
         } catch (e) { console.error("PDF Base64 Error:", e); }
       }
       
-      const ppnVal = (part.price || 0) - (part.priceExc || 0);
+      const qty = part.qty || 1;
+      const priceExc = part.priceExc || 0;
+      const ppnVal = (part.price || 0) - priceExc;
       const jasaVal = part.jasa || 0;
-      const totalWithJasa = (part.price || 0) + jasaVal;
+      const totalWithJasa = (part.price * qty) + jasaVal;
+
       tableData.push([
         i + 1,
         part.code,
         part.name,
         part.models,
-        formatRp(part.priceExc),
+        qty,
+        formatRp(priceExc),
         formatRp(ppnVal),
         formatRp(jasaVal),
         formatRp(totalWithJasa),
@@ -1032,52 +1120,56 @@ export default function OwnerPanel({
     }
 
     // Calculate totals for PDF summary row
-    const totalExc = selectedParts.reduce((acc, curr) => acc + (curr.priceExc || 0), 0);
-    const totalPpn = selectedParts.reduce((acc, curr) => acc + ((curr.price || 0) - (curr.priceExc || 0)), 0);
+    const totalExc = selectedParts.reduce((acc, curr) => acc + ((curr.priceExc || 0) * (curr.qty || 1)), 0);
+    const totalPpn = selectedParts.reduce((acc, curr) => acc + (((curr.price || 0) - (curr.priceExc || 0)) * (curr.qty || 1)), 0);
     const totalJasa = selectedParts.reduce((acc, curr) => acc + (curr.jasa || 0), 0);
-    const totalAll = selectedParts.reduce((acc, curr) => acc + (curr.price || 0) + (curr.jasa || 0), 0);
+    const totalAll = selectedParts.reduce((acc, curr) => acc + ((curr.price || 0) * (curr.qty || 1)) + (curr.jasa || 0), 0);
 
     // Summary row
     tableData.push([
-      { content: 'TOTAL', colSpan: 4, styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
-      { content: formatRp(totalExc), styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
-      { content: formatRp(totalPpn), styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
-      { content: formatRp(totalJasa), styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
-      { content: formatRp(totalAll), styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
-      { content: '', fillColor: [240, 240, 240] }
+      { content: 'TOTAL', colSpan: 5, styles: { fontStyle: 'bold', halign: 'right', fillColor: [239, 246, 255] } },
+      { content: formatTotalRp(totalExc), styles: { fontStyle: 'bold', halign: 'right', fillColor: [239, 246, 255] } },
+      { content: formatTotalRp(totalPpn), styles: { fontStyle: 'bold', halign: 'right', fillColor: [239, 246, 255] } },
+      { content: formatTotalRp(totalJasa), styles: { fontStyle: 'bold', halign: 'right', fillColor: [239, 246, 255] } },
+      { content: formatTotalRp(totalAll), styles: { fontStyle: 'bold', halign: 'right', fillColor: [239, 246, 255] } },
+      { content: '', fillColor: [239, 246, 255] }
     ]);
 
-    doc.setFontSize(22);
-    doc.setTextColor(30, 30, 30);
-    doc.text("CHERY SPAREPART QUOTATION", 14, 20);
-    doc.setFontSize(9);
-    doc.setTextColor(120, 120, 120);
-    doc.text(`Tanggal: ${new Date().toLocaleString('id-ID')}`, 14, 28);
-    doc.text(`Item: ${selectedParts.length} part(s)`, 14, 33);
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 58, 138); // Dark blue
+    doc.text("ESTIMASI SPAREPART CHERY", 14, 20);
+
+    doc.setFontSize(10);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Estimasi : (Nomor VIN yang dicari: ${vin || '-'})`, 14, 28);
+    doc.text(`Nama Pengestimasi : ${user?.name || user?.username || 'Owner'}`, 14, 34);
+    doc.text(`Waktu Estimasi : ${new Date().toLocaleString('id-ID')}`, 14, 40);
 
     autoTable(doc, {
-      startY: 38,
-      head: [['No', 'Part Number', 'Part Name', 'Model Tipe', 'Harga Non PPN', 'PPN (11%)', 'Jasa', 'Total', 'Preview']],
+      startY: 46,
+      head: [['No', 'Part Number', 'Part Name', 'Model Tipe', 'Qty', 'Harga Non PPN', 'PPN (11%)', 'Jasa', 'Total', 'Preview']],
       body: tableData,
       theme: 'grid',
-      headStyles: { fillColor: [30, 30, 30], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
-      bodyStyles: { fontSize: 7 },
-      alternateRowStyles: { fillColor: [248, 248, 248] },
+      headStyles: { fillColor: [219, 234, 254], textColor: [30, 58, 138], fontStyle: 'bold', fontSize: 8 },
+      bodyStyles: { fontSize: 7, textColor: [30, 41, 59] },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
       didDrawCell: (data) => {
-        if (data.section === 'body' && data.column.index === 8 && data.cell.raw && data.cell.raw.image) {
-          doc.addImage(data.cell.raw.image, 'JPEG', data.cell.x + 2, data.cell.y + 2, 40, 30);
+        if (data.section === 'body' && data.column.index === 9 && data.cell.raw && data.cell.raw.image) {
+          doc.addImage(data.cell.raw.image, 'JPEG', data.cell.x + 2, data.cell.y + 2, 36, 26);
         }
       },
       columnStyles: {
         0: { cellWidth: 10, halign: 'center' },
         1: { cellWidth: 28, fontStyle: 'bold' },
-        2: { cellWidth: 50 },
-        3: { cellWidth: 30 },
-        4: { cellWidth: 28, halign: 'right' },
-        5: { cellWidth: 28, halign: 'right' },
-        6: { cellWidth: 28, halign: 'right' },
-        7: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
-        8: { cellWidth: 40, minCellHeight: 35 }
+        2: { cellWidth: 40 },
+        3: { cellWidth: 25 },
+        4: { cellWidth: 12, halign: 'center' },
+        5: { cellWidth: 24, halign: 'right' },
+        6: { cellWidth: 24, halign: 'right' },
+        7: { cellWidth: 24, halign: 'right' },
+        8: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
+        9: { cellWidth: 40, minCellHeight: 30 }
       },
       margin: { left: 14, right: 14 },
       tableWidth: 'auto'
@@ -1088,7 +1180,7 @@ export default function OwnerPanel({
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
       doc.setFontSize(7);
-      doc.setTextColor(160, 160, 160);
+      doc.setTextColor(148, 163, 184);
       doc.text(`Page ${i} of ${pageCount}`, doc.internal.pageSize.width - 14, doc.internal.pageSize.height - 10, { align: 'right' });
       doc.text('Chery Sparepart Quotation System', 14, doc.internal.pageSize.height - 10);
     }
@@ -1328,9 +1420,17 @@ export default function OwnerPanel({
 
   const fetchDeletedBookings = useCallback(async () => {
     try {
-      const { data, error } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, bookingVia, noTelp, keperluanService', eq: { status: 'deleted' }, order: { column: 'tanggal', ascending: false } });
+      const { data, error } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, bookingVia, noTelp, keperluanService, deleted_by, deleted_by_role, deleted_at', eq: { status: 'deleted' }, order: { column: 'deleted_at', ascending: false } });
       if (error) throw error;
-      setDeletedBookings(data || []);
+      setDeletedBookings((data || []).map(b => {
+        const legacy = /^Dihapus_Oleh:\s*([^-]+)-\s*([\s\S]*)$/.exec(b.bookingVia || '');
+        return {
+          ...b,
+          _deletedBy: b.deleted_by || (legacy ? legacy[1].trim() : ''),
+          _deletedAt: b.deleted_at || '',
+          _bookingViaClean: legacy ? legacy[2].trim() : b.bookingVia,
+        };
+      }));
     } catch (e) {
       console.error(e);
     }
@@ -1645,68 +1745,73 @@ export default function OwnerPanel({
       {/* Main Content - no internal sidebar */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Topbar */}
-        <header className="bg-white border-b border-zinc-200 px-4 md:px-8 h-20 flex items-center justify-between shrink-0 box-border">
-          <div className="flex items-center gap-3">
-            <div>
-              <h2 className="text-zinc-900 font-black text-base md:text-lg">
-                 {activeTab === 'monitoring' ? '🔴 Live Session Monitoring' : 
-                  activeTab === 'workshop' ? '🚗 Antrian Workshop Realtime' : 
-                  activeTab === 'users' ? '👥 Manajemen User' : 
-                  activeTab === 'notification_sound' ? '⚙️ Settings' : 
-                  activeTab === 'dms_search' ? '🔍 DMS & EPCM Search' :
-                  activeTab === 'sparepart_cost' ? '💰 Sparepart Cost Calculator' :
-                  activeTab === 'warranty_search' ? '🛡️ Warranty Claim Search' :
-                  activeTab === 'part_orders' ? '📦 Tracking Pemesanan Part' :
-                  activeTab === 'unit_entry' ? '📊 Unit Entry Statistics' :
-                  activeTab === 'laporan_wo' ? '📄 Laporan Work Order' :
-                  '🗑️ Riwayat Penghapusan Data'}
-              </h2>
-              <p className="text-zinc-500 text-xs font-medium">
-                {activeTab === 'monitoring'
-                  ? `${onlineUsers.length} pengguna aktif saat ini`
-                  : activeTab === 'workshop'
-                    ? `${processedQueue.length} unit kendaraan dalam sistem`
-                    : activeTab === 'users'
-                      ? `${users.length} total user terdaftar`
-                      : activeTab === 'notification_sound'
-                        ? 'Atur suara notifikasi, auto menginap, cooldown, dan pengaturan sistem lainnya'
-                        : activeTab === 'dms_search'
-                          ? 'Integrasi Katalog Sparepart'
-                          : activeTab === 'sparepart_cost'
-                            ? `Markup minimal 25% — ${costList.length} item dalam daftar`
-                            : activeTab === 'warranty_search'
-                            ? 'Monitoring Klaim Warranty Realtime'
-                            : activeTab === 'part_orders'
-                              ? 'Status Pesanan & Pengiriman SAP Split'
-                              : activeTab === 'unit_entry'
-                                ? 'Analisis Trend Unit Entry Bulanan & Deduplikasi VIN'
-                                : activeTab === 'laporan_wo'
-                                  ? 'Rincian transaksi pekerjaan & spare part Work Order'
-                                  : `${deletedBookings.length} data yang terhapus`}
-              </p>
+        {activeTab !== 'e_katalog_epcm' && (
+          <header className="bg-white border-b border-zinc-200 px-4 md:px-8 h-20 flex items-center justify-between shrink-0 box-border">
+            <div className="flex items-center gap-3">
+              <div>
+                <h2 className="text-zinc-900 font-black text-base md:text-lg">
+                   {activeTab === 'monitoring' ? '🔴 Live Session Monitoring' : 
+                    activeTab === 'workshop' ? '🚗 Antrian Workshop Realtime' : 
+                    activeTab === 'users' ? '👥 Manajemen User' : 
+                    activeTab === 'notification_sound' ? '⚙️ Settings' : 
+                    activeTab === 'dms_search' ? '🔍 DMS & EPCM Search' :
+                    activeTab === 'e_katalog_epcm' ? '📖 E-Katalog EPCM' :
+                    activeTab === 'sparepart_cost' ? '💰 Sparepart Cost Calculator' :
+                    activeTab === 'warranty_search' ? '🛡️ Warranty Claim Search' :
+                    activeTab === 'part_orders' ? '📦 Tracking Pemesanan Part' :
+                    activeTab === 'unit_entry' ? '📊 Unit Entry Statistics' :
+                    activeTab === 'laporan_wo' ? '📄 Laporan Work Order' :
+                    '🗑️ Riwayat Penghapusan Data'}
+                </h2>
+                <p className="text-zinc-500 text-xs font-medium">
+                  {activeTab === 'monitoring'
+                    ? `${onlineUsers.length} pengguna aktif saat ini`
+                    : activeTab === 'workshop'
+                      ? `${processedQueue.length} unit kendaraan dalam sistem`
+                      : activeTab === 'users'
+                        ? `${users.length} total user terdaftar`
+                        : activeTab === 'notification_sound'
+                          ? 'Atur suara notifikasi, auto menginap, cooldown, dan pengaturan sistem lainnya'
+                          : activeTab === 'dms_search'
+                            ? 'Integrasi Katalog Sparepart'
+                            : activeTab === 'e_katalog_epcm'
+                              ? 'E-Katalog Suku Cadang Asli Chery Berdasarkan Nomor Rangka (VIN)'
+                            : activeTab === 'sparepart_cost'
+                              ? `Markup minimal 25% — ${costList.length} item dalam daftar`
+                              : activeTab === 'warranty_search'
+                              ? 'Monitoring Klaim Warranty Realtime'
+                              : activeTab === 'part_orders'
+                                ? 'Status Pesanan & Pengiriman SAP Split'
+                                : activeTab === 'unit_entry'
+                                  ? 'Analisis Trend Unit Entry Bulanan & Deduplikasi VIN'
+                                  : activeTab === 'laporan_wo'
+                                    ? 'Rincian transaksi pekerjaan & spare part Work Order'
+                                    : `${deletedBookings.length} data yang terhapus`}
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {activeTab === 'monitoring' && (
-              <>
-                <button 
-                  onClick={handleRemoteRefresh}
-                  className="flex items-center gap-2 px-3 md:px-4 py-2 bg-white hover:bg-zinc-50 text-zinc-900 font-bold border border-zinc-300 shadow-sm rounded-md transition-all font-black text-[9px] md:text-[10px] uppercase tracking-widest shadow-lg shadow-white/10 border border-zinc-2000 scale-90 md:scale-100">
-                  <RefreshCw size={14} /> Global Restart
-                </button>
-                <button 
-                  onClick={() => setModal({ type: 'resetAll', user: null })}
-                  className="hidden md:flex items-center gap-2 px-4 py-2 bg-black hover:bg-zinc-800 text-white rounded-md transition-all font-black text-[10px] uppercase tracking-widest shadow-lg border border-black">
-                  <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Reset Semua Login
-                </button>
-              </>
-            )}
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-md">
-              <div className="w-2 h-2 bg-black rounded-full animate-pulse"></div>
-              <span className="text-[10px] font-black text-black uppercase tracking-widest">Realtime Active</span>
+            <div className="flex items-center gap-3">
+              {activeTab === 'monitoring' && (
+                <>
+                  <button 
+                    onClick={handleRemoteRefresh}
+                    className="flex items-center gap-2 px-3 md:px-4 py-2 bg-white hover:bg-zinc-50 text-zinc-900 font-bold border border-zinc-300 shadow-sm rounded-md transition-all font-black text-[9px] md:text-[10px] uppercase tracking-widest shadow-lg shadow-white/10 border border-zinc-2000 scale-90 md:scale-100">
+                    <RefreshCw size={14} /> Global Restart
+                  </button>
+                  <button 
+                    onClick={() => setModal({ type: 'resetAll', user: null })}
+                    className="hidden md:flex items-center gap-2 px-4 py-2 bg-black hover:bg-zinc-800 text-white rounded-md transition-all font-black text-[10px] uppercase tracking-widest shadow-lg border border-black">
+                    <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Reset Semua Login
+                  </button>
+                </>
+              )}
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-md">
+                <div className="w-2 h-2 bg-black rounded-full animate-pulse"></div>
+                <span className="text-[10px] font-black text-black uppercase tracking-widest">Realtime Active</span>
+              </div>
             </div>
-          </div>
-        </header>
+          </header>
+        )}
 
         {/* Content Area */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar pb-[72px] md:pb-8">
@@ -1918,6 +2023,28 @@ export default function OwnerPanel({
                    onDelete={(id) => { if(window.confirm('Hapus unit dari riwayat?')) deleteItem(id); }}
                 />
               </div>
+            </div>
+          )}
+
+          {/* ====== TAB: E-KATALOG EPCM ====== */}
+          {activeTab === 'e_katalog_epcm' && (
+            <div className="w-full animate-in fade-in duration-500">
+              <EpcExplorer 
+                user={user}
+                epcmToken={epcmToken}
+                setEpcmToken={setEpcmToken}
+                onAddPart={(item) => handleAddToDocument(item)} 
+                cheryModels={CHERY_MODELS} 
+                handleTestEpcConnection={handleTestEpcConnection}
+                isEpcTesting={isEpcTesting}
+                handleEpcAutoLogin={handleEpcAutoLogin}
+                isEpcLoggingIn={isEpcLoggingIn}
+                handleFetchEpcmToken={handleFetchEpcmToken}
+                isFetchingEpcmToken={isFetchingEpcmToken}
+                generatePdf={generatePdf}
+                selectedParts={selectedParts}
+                setSelectedParts={setSelectedParts}
+              />
             </div>
           )}
 
@@ -4037,7 +4164,12 @@ export default function OwnerPanel({
                             DELETED
                           </span>
                         </div>
-                        <p className="text-zinc-600 text-xs font-bold leading-tight">{b.bookingVia}</p>
+                        <p className="text-zinc-600 text-xs font-bold leading-tight">{b._bookingViaClean}</p>
+                        {(b._deletedBy || b._deletedAt) && (
+                          <p className="mt-1.5 w-fit text-[10px] font-black text-red-600 bg-red-50 border border-red-100 rounded-md px-2 py-1 flex items-center gap-1">
+                            🗑️ Dihapus oleh {b._deletedBy}{b.deleted_by_role ? ` (${b.deleted_by_role})` : ''}{b._deletedAt ? ` • ${b._deletedAt}` : ''}
+                          </p>
+                        )}
                         <p className="text-zinc-500 text-[10px] mt-1 line-clamp-1">
                           🚗 <span className="font-bold">{b.tipeMobil}</span> • ⏳ {b.tanggal} Jam {b.jam} • 🛠️ {b.keperluanService}
                         </p>
@@ -4045,7 +4177,7 @@ export default function OwnerPanel({
                       <div className="flex shrink-0">
                         <button onClick={async () => {
                           if(!window.confirm('Kembalikan data ini ke Antrian Booking CRO?')) return;
-                          await db.update('booking', { status: 'waiting confirm', bookingVia: b.bookingVia.replace(/Dihapus_Oleh: .*? - /, '') }, { eq: { id: b.id } });
+                          await db.update('booking', { status: 'waiting confirm', bookingVia: b.bookingVia.replace(/Dihapus_Oleh:.*?-\s*/, ''), deleted_by: '', deleted_by_role: '', deleted_at: '' }, { eq: { id: b.id } });
                           fetchDeletedBookings();
                           Toastify({ text: "✅ Data berhasil di-Restore!", style: { background: "#18181b" } }).showToast();
                         }}

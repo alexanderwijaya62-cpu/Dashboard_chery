@@ -3,11 +3,14 @@ import {
   BarChart3, ExternalLink, Users, Target, Star,
   TrendingUp, Clock, Wrench, Building2, HeartHandshake,
   Package, Truck, ChevronDown, ChevronUp, Download, Filter,
-  RefreshCw, AlertCircle, X, Bug, Calendar
+  RefreshCw, AlertCircle, X, Bug, Calendar, FileDown, FileSpreadsheet
 } from 'lucide-react';
 import ReactApexChart from 'react-apexcharts';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 import { CSI_PROXY_URL } from '../utils/config';
 
 const MONTHS = [
@@ -163,6 +166,7 @@ export default function CsiResult() {
   const [sortDir, setSortDir] = useState('asc');
   const [showDebug, setShowDebug] = useState(false);
   const [rawRecords, setRawRecords] = useState(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   // Fetch yearly trend (month 1-12) + active month records in a single query
   const fetchCSIData = useCallback(async (isRefresh = false) => {
@@ -199,6 +203,7 @@ export default function CsiResult() {
               action: 'yearly-trend',
               dealerFilter: dealerFilter,
               month: String(selectedMonth),
+              forceFresh: isRefresh,
             }),
           });
 
@@ -207,7 +212,7 @@ export default function CsiResult() {
           let json;
           try { json = JSON.parse(text); } catch { json = {}; }
           if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-          if (json.code === 99991668 || json.code === 99991667) {
+          if (json.code === 99991668 || json.code === 99991667 || (json.code === 5 && json.error?.Code === 4101)) {
             throw new Error('Sesi Feishu expired. Hubungi admin untuk update env FEISHU_COOKIE.');
           }
           if (json.code !== 0) throw new Error(json.msg || `Error Feishu: ${json.code}`);
@@ -531,6 +536,397 @@ export default function CsiResult() {
     return 'bg-red-50 border-red-200';
   };
 
+  const scoreLabel = (val) => {
+    if (val >= 800) return 'Baik';
+    if (val >= 700) return 'Cukup';
+    return 'Perlu Perbaikan';
+  };
+
+  const captureSvgChart = async (id) => {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    const svg = el.querySelector('svg');
+    if (!svg) return null;
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clone.setAttribute('width', String(rect.width));
+    clone.setAttribute('height', String(rect.height));
+    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bg.setAttribute('x', '0');
+    bg.setAttribute('y', '0');
+    bg.setAttribute('width', '100%');
+    bg.setAttribute('height', '100%');
+    bg.setAttribute('fill', '#ffffff');
+    clone.insertBefore(bg, clone.firstChild);
+
+    const xml = new XMLSerializer().serializeToString(clone);
+    const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = rect.width * scale;
+        canvas.height = rect.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0, rect.width, rect.height);
+        resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.92), ratio: rect.width / rect.height });
+      };
+      img.onerror = () => resolve(null);
+      img.src = dataUrl;
+    });
+  };
+
+  const addImageFitted = (doc, img, maxW, maxH, x, y) => {
+    let w = maxW;
+    let h = w / img.ratio;
+    if (h > maxH) { h = maxH; w = h * img.ratio; }
+    doc.addImage(img.dataUrl, 'JPEG', x + (maxW - w) / 2, y, w, h);
+    return y + h + 4;
+  };
+
+  const exportPdf = async () => {
+    if (loading || loadingTrend) {
+      Toastify({
+        text: "⚠️ Tunggu data selesai dimuat dulu sebelum export.",
+        style: { background: '#f59e0b', borderRadius: '12px' },
+      }).showToast();
+      return;
+    }
+    setShowExportMenu(false);
+    Toastify({
+      text: "⏳ Menyiapkan laporan PDF CSI (dengan grafik)...",
+      duration: 2500,
+      style: { background: '#6366f1', borderRadius: '12px' },
+    }).showToast();
+
+    try {
+      const doc = new jsPDF('l', 'mm', 'a4');
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const margin = 12;
+      const contentW = pageW - margin * 2;
+
+      const dealerName = DEALER_OPTIONS.find(d => d.id === dealerFilter)?.name || dealerFilter;
+      const monthName = MONTHS[Number(selectedMonth) - 1];
+      const avgDim = activeSummary.dimensions.length > 0
+        ? Math.round(activeSummary.dimensions.reduce((a, d) => a + d.value, 0) / activeSummary.dimensions.length)
+        : 0;
+
+      // ---- Header band ----
+      doc.setFillColor(24, 24, 27);
+      doc.rect(0, 0, pageW, 26, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.text('CSI RESULT & ANALITIK', margin, 11);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(199, 210, 254);
+      doc.text(`${dealerName}  •  ${monthName} ${selectedYear}`, margin, 18);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(255, 255, 255);
+      doc.text(`${activeSummary.csiScore} pts`, pageW - margin, 11, { align: 'right' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(161, 161, 170);
+      doc.text('CSI Score • Skala 0 - 1000', pageW - margin, 17, { align: 'right' });
+      doc.text(`Dibuat: ${new Date().toLocaleString('id-ID')}`, pageW - margin, 22, { align: 'right' });
+
+      // Capture grafik lebih dulu
+      const gaugeImg = await captureSvgChart('csi-gauge-chart');
+      const trendImg = await captureSvgChart('csi-trend-chart');
+      const barImg = await captureSvgChart('csi-bar-chart');
+
+      const drawCard = (x, y, w, h) => {
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(228, 228, 231);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(x, y, w, h, 2.5, 2.5, 'FD');
+      };
+
+      // ---- Ringkasan strip (3 box nilai besar) ----
+      const stripY = 34;
+      const stripH = 22;
+      const boxGap = 5;
+      const boxW = (contentW - boxGap * 2) / 3;
+      const statBoxes = [
+        { label: 'CSI Score', value: activeSummary.csiScore, suffix: 'pts', sub: 'Target 1000 pts', fill: [238, 242, 255], border: [199, 210, 254], text: [67, 56, 202] },
+        { label: 'Total Responden', value: activeSummary.totalSample, suffix: '', sub: `Ulasan ${monthName}`, fill: [240, 253, 244], border: [187, 247, 208], text: [21, 128, 61] },
+        { label: 'Rata-rata Dimensi', value: avgDim, suffix: 'pts', sub: '7 dimensi penilaian', fill: [255, 251, 235], border: [253, 230, 138], text: [180, 83, 9] },
+      ];
+      statBoxes.forEach((b, i) => {
+        const bx = margin + i * (boxW + boxGap);
+        doc.setFillColor(b.fill[0], b.fill[1], b.fill[2]);
+        doc.setDrawColor(b.border[0], b.border[1], b.border[2]);
+        doc.setLineWidth(0.4);
+        doc.roundedRect(bx, stripY, boxW, stripH, 2.5, 2.5, 'FD');
+        doc.setTextColor(113, 113, 122);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.text(b.label.toUpperCase(), bx + 7, stripY + 8);
+        doc.setTextColor(b.text[0], b.text[1], b.text[2]);
+        doc.setFontSize(18);
+        doc.text(`${b.value}${b.suffix ? ' ' + b.suffix : ''}`, bx + 7, stripY + 18);
+        doc.setTextColor(113, 113, 122);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.text(b.sub, bx + 7, stripY + stripH - 2.5);
+      });
+
+      // ---- Layout 2 kolom ----
+      const colGap = 10;
+      const leftX = margin;
+      const leftW = 112;
+      const rightX = leftX + leftW + colGap;
+      const rightW = contentW - leftW - colGap;
+      let y = stripY + stripH + 8;
+
+      // ---- Kiri atas: Gauge hero ----
+      const heroH = 70;
+      drawCard(leftX, y, leftW, heroH);
+      doc.setTextColor(113, 113, 122);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.text('CSI SCORE BULANAN', leftX + 8, y + 9);
+      if (gaugeImg) {
+        addImageFitted(doc, gaugeImg, leftW - 20, 49, leftX + 10, y + 13);
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(161, 161, 170);
+        doc.text('Tidak ada data bulan ini', leftX + 8, y + 35);
+      }
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(161, 161, 170);
+      doc.text(`Skala 0 - 1000 pts  •  Target 1000 pts`, leftX + 8, y + heroH - 3);
+      y += heroH + 8;
+
+      // ---- Kiri bawah: Tabel dimensi ----
+      const dimH = 196 - y;
+      drawCard(leftX, y, leftW, dimH);
+      doc.setTextColor(113, 113, 122);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.text('PENCAPAIAN DIMENSI (POIN)', leftX + 8, y + 8);
+      autoTable(doc, {
+        startY: y + 12,
+        head: [['No', 'Dimensi', 'Poin', '%']],
+        body: activeSummary.dimensions.map((d, i) => [
+          String(i + 1),
+          d.name,
+          String(d.value),
+          `${Math.round((d.value / 1000) * 100)}%`,
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [24, 24, 27], fontSize: 6.5, halign: 'center' },
+        bodyStyles: { fontSize: 6.4, cellPadding: 1.1 },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+        margin: { left: leftX + 8, right: pageW - (leftX + leftW - 8) },
+        columnStyles: {
+          0: { cellWidth: 8, halign: 'center' },
+          1: { cellWidth: 60, fontStyle: 'bold' },
+          2: { cellWidth: 14, halign: 'center' },
+          3: { cellWidth: 14, halign: 'center' },
+        },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.column.index === 2) {
+            const v = Number(data.cell.raw);
+            data.cell.styles.textColor = v >= 800 ? [22, 101, 52] : v >= 700 ? [133, 77, 14] : [185, 28, 28];
+          }
+        },
+      });
+
+      // ---- Kanan atas: Tren tahunan ----
+      const trendH = 58;
+      drawCard(rightX, 64, rightW, trendH);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text('GRAFIK TREN CSI TAHUNAN', rightX + 8, 73);
+      if (trendImg) {
+        addImageFitted(doc, trendImg, rightW - 16, trendH - 18, rightX + 8, 76);
+      }
+
+      // ---- Kanan bawah: Bar dimensi ----
+      const barTop = 64 + trendH + 8;
+      const barH = 196 - barTop;
+      drawCard(rightX, barTop, rightW, barH);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text('GRAFIK DIMENSI BULANAN', rightX + 8, barTop + 9);
+      if (barImg) {
+        addImageFitted(doc, barImg, rightW - 16, barH - 16, rightX + 8, barTop + 12);
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(161, 161, 170);
+        doc.text('Tidak ada data bulan ini', rightX + 8, barTop + 35);
+      }
+
+      // ===== Halaman berikutnya: Skor & komentar responden =====
+      doc.addPage();
+      doc.setFillColor(24, 24, 27);
+      doc.rect(0, 0, pageW, 18, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text(`Skor Komputasi Responden (${monthName} ${selectedYear})`, margin, 11);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(199, 210, 254);
+      doc.text(dealerName, margin, 16);
+      if (activeRespondents.length > 0) {
+        autoTable(doc, {
+          startY: 22,
+          head: [['No', 'Nama', 'Produk', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Overall', 'Rekom']],
+          body: activeRespondents.map((r, i) => [
+            String(i + 1), r.name, r.product, r.q1, r.q2, r.q3, r.q4, r.q5, r.q6, r.q7, r.overall, r.recommend
+          ]),
+          theme: 'striped',
+          headStyles: { fillColor: [24, 24, 27], fontSize: 7.5 },
+          bodyStyles: { fontSize: 7.5, halign: 'center' },
+          columnStyles: {
+            0: { cellWidth: 10 },
+            1: { halign: 'left', cellWidth: 50 },
+            2: { halign: 'left' },
+            10: { fontStyle: 'bold', fillColor: [236, 253, 245] },
+            11: { fontStyle: 'bold' },
+          },
+          margin: { left: margin, right: margin },
+          didParseCell: (data) => {
+            if (data.section === 'body' && data.column.index === 11) {
+              const v = Number(data.cell.raw);
+              data.cell.styles.textColor = v >= 8 ? [22, 101, 52] : v >= 6 ? [133, 77, 14] : [185, 28, 28];
+            }
+          },
+        });
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(161, 161, 170);
+        doc.text('Belum ada responden pada bulan ini.', margin, 30);
+      }
+
+      // Komentar responden
+      const commentRows = activeRespondents
+        .filter(r => r.comments || r.commentsQ8)
+        .map(r => [r.name, r.comments || '-', r.commentsQ8 || '-']);
+      if (commentRows.length > 0) {
+        autoTable(doc, {
+          startY: (doc.lastAutoTable ? doc.lastAutoTable.finalY : 22) + 10,
+          head: [['Nama', 'Aspek Ragu Rekomendasi (Q7)', 'Masukan & Komentar Akhir (Q8)']],
+          body: commentRows,
+          theme: 'grid',
+          headStyles: { fillColor: [99, 102, 241], fontSize: 7.5 },
+          bodyStyles: { fontSize: 7.5 },
+          margin: { left: margin, right: margin },
+          columnStyles: {
+            0: { cellWidth: 45, fontStyle: 'bold' },
+            1: { cellWidth: 66 },
+            2: { cellWidth: 66 },
+          },
+        });
+      }
+
+      // Footer nomor halaman
+      const pageCount = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7.5);
+        doc.setTextColor(161, 161, 170);
+        doc.text(`Halaman ${i} dari ${pageCount}  •  CSI Result ${dealerName}`, pageW / 2, pageH - 8, { align: 'center' });
+      }
+
+      const fileName = `CSI_Result_${dealerName.replace(/[^A-Za-z0-9]+/g, '_')}_${selectedYear}-${String(selectedMonth).padStart(2, '0')}.pdf`;
+      doc.save(fileName);
+
+      Toastify({
+        text: "✅ Laporan PDF CSI berhasil diunduh (dengan grafik).",
+        style: { background: '#10b981', borderRadius: '12px' },
+      }).showToast();
+    } catch (err) {
+      console.error('Export PDF gagal:', err);
+      Toastify({
+        text: `⚠️ Gagal membuat PDF: ${err.message}`,
+        style: { background: '#ef4444', borderRadius: '12px' },
+      }).showToast();
+    }
+  };
+
+  const exportExcel = () => {
+    if (loading || loadingTrend) {
+      Toastify({
+        text: "⚠️ Tunggu data selesai dimuat dulu sebelum export.",
+        style: { background: '#f59e0b', borderRadius: '12px' },
+      }).showToast();
+      return;
+    }
+    setShowExportMenu(false);
+    try {
+      const dealerName = DEALER_OPTIONS.find(d => d.id === dealerFilter)?.name || dealerFilter;
+      const wb = XLSX.utils.book_new();
+
+      const summaryRows = activeSummary.dimensions.map(d => ({
+        'Dimensi': d.name,
+        'Poin': d.value,
+        'Pencapaian (%)': Math.round((d.value / 1000) * 100),
+        'Predikat': scoreLabel(d.value),
+      }));
+      const wsSummary = XLSX.utils.json_to_sheet([
+        { 'Metrik': 'Dealer', 'Nilai': dealerName },
+        { 'Metrik': 'Bulan', 'Nilai': `${MONTHS[Number(selectedMonth) - 1]} ${selectedYear}` },
+        { 'Metrik': 'CSI Score (Overall)', 'Nilai': activeSummary.csiScore },
+        { 'Metrik': 'Total Responden', 'Nilai': activeSummary.totalSample },
+      ]);
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Ringkasan');
+
+      const wsDims = XLSX.utils.json_to_sheet(summaryRows);
+      XLSX.utils.book_append_sheet(wb, wsDims, 'Dimensi');
+
+      const respRows = activeRespondents.map((r, i) => ({
+        'No': i + 1,
+        'Nama': r.name,
+        'Produk': r.product,
+        'VIN': r.vin,
+        'Q1': r.q1, 'Q2': r.q2, 'Q3': r.q3, 'Q4': r.q4, 'Q5': r.q5, 'Q6': r.q6, 'Q7': r.q7,
+        'Overall': r.overall,
+        'Rekomendasi (0-10)': r.recommend,
+        'Aspek Ragu Rekomendasi (Q7)': r.comments || '',
+        'Masukan & Komentar Akhir (Q8)': r.commentsQ8 || '',
+      }));
+      const wsResp = XLSX.utils.json_to_sheet(respRows);
+      wsResp['!cols'] = [
+        { wch: 5 }, { wch: 28 }, { wch: 24 }, { wch: 22 },
+        { wch: 5 }, { wch: 5 }, { wch: 5 }, { wch: 5 }, { wch: 5 }, { wch: 5 }, { wch: 5 },
+        { wch: 9 }, { wch: 16 }, { wch: 40 }, { wch: 40 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsResp, 'Responden');
+
+      const fileName = `CSI_Data_Responden_${dealerName.replace(/[^A-Za-z0-9]+/g, '_')}_${selectedYear}-${String(selectedMonth).padStart(2, '0')}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+
+      Toastify({
+        text: "✅ Data responden CSI berhasil diexport ke Excel.",
+        style: { background: '#10b981', borderRadius: '12px' },
+      }).showToast();
+    } catch (err) {
+      console.error('Export Excel gagal:', err);
+      Toastify({
+        text: `⚠️ Gagal membuat Excel: ${err.message}`,
+        style: { background: '#ef4444', borderRadius: '12px' },
+      }).showToast();
+    }
+  };
+
   const activeMonthName = MONTHS[Number(selectedMonth) - 1];
 
   return (
@@ -573,6 +969,39 @@ export default function CsiResult() {
             <RefreshCw size={16} className={(loading || loadingTrend) ? 'animate-spin' : ''} />
             Refresh
           </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border-2 border-zinc-200 text-zinc-900 rounded-xl text-sm font-bold hover:bg-zinc-50 transition-all"
+            >
+              <Download size={16} />
+              Export
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 top-full mt-2 z-50 bg-white border border-zinc-200 rounded-xl shadow-xl p-1 w-72">
+                <button
+                  onClick={exportPdf}
+                  className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-zinc-50 flex items-start gap-2.5 transition-colors"
+                >
+                  <FileDown size={16} className="text-red-500 mt-0.5 shrink-0" />
+                  <span>
+                    <span className="block text-xs font-black text-zinc-900">PDF Lengkap (dengan Grafik)</span>
+                    <span className="block text-[10px] font-semibold text-zinc-400 mt-0.5">Laporan lengkap: ringkasan, dimensi, grafik, skor & komentar</span>
+                  </span>
+                </button>
+                <button
+                  onClick={exportExcel}
+                  className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-zinc-50 flex items-start gap-2.5 transition-colors"
+                >
+                  <FileSpreadsheet size={16} className="text-emerald-500 mt-0.5 shrink-0" />
+                  <span>
+                    <span className="block text-xs font-black text-zinc-900">Excel (Data Responden)</span>
+                    <span className="block text-[10px] font-semibold text-zinc-400 mt-0.5">Data mentah per responden: Q1-Q7, overall, rekomendasi & komentar</span>
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={() => setShowDebug(!showDebug)}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border-2 border-zinc-200 text-zinc-900 rounded-xl text-sm font-bold hover:bg-zinc-50 transition-all"
@@ -595,7 +1024,7 @@ export default function CsiResult() {
           </div>
           {loadingTrend && <span className="text-xs text-zinc-400 font-bold animate-pulse">Menghitung tren...</span>}
         </div>
-        <div className="h-[280px]">
+        <div className="h-[280px]" id="csi-trend-chart">
           <ReactApexChart
             options={trendChartOptions}
             series={trendSeries}
@@ -660,7 +1089,7 @@ export default function CsiResult() {
           {/* CSI Score Gauge + Dimensions Cards */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white rounded-2xl border border-zinc-200 p-6 lg:col-span-1 shadow-sm flex flex-col justify-between">
-              <div className="h-[260px]">
+              <div className="h-[260px]" id="csi-gauge-chart">
                 <ReactApexChart
                   options={gaugeOptions}
                   series={gaugeSeries}
@@ -715,7 +1144,7 @@ export default function CsiResult() {
               <BarChart3 size={16} />
               Grafik Dimensi Bulan {activeMonthName}
             </h2>
-            <div className="h-[360px]">
+            <div className="h-[360px]" id="csi-bar-chart">
               <ReactApexChart
                 options={barChartOptions}
                 series={barSeries}

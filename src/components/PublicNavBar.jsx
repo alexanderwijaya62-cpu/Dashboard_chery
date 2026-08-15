@@ -35,7 +35,7 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout, handleChangePas
       manager: 'manager',
       cro: 'cro',
       sparepart: 'sparepart',
-      owner: 'owner',
+      owner: 'owner-dms',
       mekanik: 'mechanic',
       customer: 'customer',
       display: 'display',

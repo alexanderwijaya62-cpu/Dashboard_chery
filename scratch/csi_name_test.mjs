@@ -1,0 +1,10 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const env = fs.readFileSync(path.join(__dirname, '../.env'), 'utf8');
+const get = (k) => { const m = env.match(new RegExp('^' + k + '=(.*)$', 'm')); return m ? m[1].trim() : undefined; };
+const { createClient } = await import('@supabase/supabase-js');
+const supabase = createClient(get('VITE_SUPABASE_URL'), get('VITE_SUPABASE_ANON'));
+const { data } = await supabase.from('laporanwo').select('"No. Rangka", "Nama Invoice", "No. Pol"').limit(5);
+console.log(JSON.stringify(data, null, 2));

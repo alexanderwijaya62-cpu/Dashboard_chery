@@ -6,6 +6,7 @@ import {
   ChevronDown, ChevronUp, Key
 } from 'lucide-react';
 import ChangePasswordModal from './ChangePasswordModal';
+import FreeMaintenancePage from './FreeMaintenancePage';
 import {
   getStatusStyle, getKategoriStyle, STATUS_COLORS,
   formatDate, formatKm, fetchWarrantyAPI
@@ -588,6 +589,7 @@ export default function WarrantyHub({ activeTab, handleChangePassword }) {
       <div className="flex-1 overflow-hidden">
         {activeTab === 'wo' && <WarrantyWorkOrderPage />}
         {activeTab === 'search' && <WarrantySearchPage />}
+        {activeTab === 'free-maintenance' && <FreeMaintenancePage />}
         {!activeTab && <WarrantyDashboardPage />}
       </div>
       <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} onChangePassword={handleChangePassword} />

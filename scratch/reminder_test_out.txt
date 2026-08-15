@@ -1,0 +1,26 @@
+﻿
+===== Login Warranty =====
+cookie length: 526
+status: 302
+first 150 chars: <!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8" />
+        <meta http-equiv="refresh" content="0;url='http://103.160.12.43/aftersales/
+=> Redirected/HTML (session tidak valid untuk akun ini)
+
+===== Login CRO =====
+cookie length: 522
+status: 200
+first 150 chars: {"draw":0,"recordsTotal":201,"recordsFiltered":201,"data":[{"nama":"DR DHARMA LINDARTO","no_rangka":"MF7CD27B8SJ002887","no_polisi":"BK 1158 IDH","tip
+recordsTotal: 201 recordsFiltered: 201 returned rows: 201
+keys: nama, no_rangka, no_polisi, tipe, no_hp, tgl_do, no_do, wo, service_terakhir, reminder, status_reminder, alasan_reminder, total_reminder, expected_service
+sample: nama= DR DHARMA LINDARTO | no_rangka= MF7CD27B8SJ002887 | no_polisi= BK 1158 IDH | tipe= TIGGO 8 CSH COMFORT (4X2) A/T | no_hp= 082258143338 | tgl_do= 2026-01-02 00:00:00 | expected_service= 2026-02-02 | service_terakhir= 2026-03-13 14:01:10
+wo count: 1
+wo[0]: no_wo= IFS-2600088 | kategori= IFS | waktu_masuk= 2026-01-27 09:16:45 | waktu_selesai= 2026-03-13 14:01:10 | perintah= SERVICE 1.000KM / PERTAMA | status= Closed
+
+record WITH wo: nama= DR DHARMA LINDARTO | no_polisi= BK 1158 IDH | service_terakhir= 2026-03-13 14:01:10
+  - no_wo= IFS-2600088 | kategori= IFS | waktu_masuk= 2026-01-27 09:16:45 | waktu_selesai= 2026-03-13 14:01:10 | perintah= SERVICE 1.000KM / PERTAMA | status= Closed
+start=0 len=100 => recordsTotal=21 returned=21
+start=0 len=10 => recordsTotal=21 returned=10
+start=10 len=10 => recordsTotal=21 returned=10

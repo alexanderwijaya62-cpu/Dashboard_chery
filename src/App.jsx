@@ -31,8 +31,10 @@ import SABookingPanel from './components/SABookingPanel';
 import StaffBookingPanel from './components/StaffBookingPanel';
 import BookingSettings from './components/BookingSettings';
 import OwnerPanel from './components/OwnerPanel';
+import EpcExplorer from './components/EpcExplorer';
 import StockComparison from './components/StockComparison';
 import RegisterPage from './components/RegisterPage';
+import BulletinViewer from './components/BulletinViewer';
 import CsiResult from './components/CsiResult';
 import CsiCustomers from './components/CsiCustomers';
 import CsiFollowup from './components/CsiFollowup';
@@ -352,9 +354,9 @@ const App = () => {
             admin: ['admin', 'admin-booking', 'admin-wo', 'admin-estimasi', 'promo', 'display', 'booking-public', 'sa-booking', 'sparepart-dms-order', 'manager-jasa-pengerjaan'],
             manager: ['manager', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'manager-laporan-invoice', 'manager-laporan-wo', 'manager-keuntungan-sparepart', 'manager-jasa-pengerjaan', 'display', 'booking-public'],
             cro: ['cro', 'cro-sudah', 'cro-freeservice', 'cro-laporan', 'cro-booking', 'cro-holidays', 'cro-csi', 'cro-customers', 'display', 'booking-public', 'sa-booking', 'booking-settings'],
-            sparepart: ['sparepart-dms-order', 'sparepart-dms', 'sparepart-cost', 'sparepart-profit', 'display', 'booking-public', 'stock-comparison'],
-            owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-sparepart-cost', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'owner-unit-entry', 'display', 'booking-public', 'stock-comparison'],
-            warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-proforma'],
+            sparepart: ['sparepart-dms-order', 'sparepart-dms', 'sparepart-epc', 'sparepart-cost', 'sparepart-profit', 'display', 'booking-public', 'stock-comparison'],
+            owner: ['owner', 'owner-workshop', 'owner-dms', 'owner-epc', 'owner-sparepart-cost', 'owner-warranty', 'owner-parts', 'owner-users', 'owner-sound', 'owner-deleted', 'owner-unit-entry', 'display', 'booking-public', 'stock-comparison'],
+            warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-free-maintenance', 'warranty-proforma', 'warranty-epc', 'warranty-bulletin'],
             foreman: ['foreman', 'booking-public', 'display'],
             security: ['security', 'display', 'booking-public'],
           sales: ['sales-booking', 'display'],
@@ -376,14 +378,23 @@ const App = () => {
           }
         } else {
           window.history.replaceState({}, '', '/karyawan');
-          setCurrentPage('mechanic');
+          if (savedPage && (savedPage === 'mechanic' || savedPage.startsWith('mechanic-'))) {
+            setCurrentPage(savedPage);
+          } else {
+            setCurrentPage('mechanic');
+          }
         }
     } else if (path === '/karyawan') {
       if (role === 'display') {
         window.history.replaceState({}, '', '/display');
         setCurrentPage('display');
       } else if (role === 'mekanik') {
-        setCurrentPage('mechanic');
+        const savedPage = localStorage.getItem('chery_current_page');
+        if (savedPage && (savedPage === 'mechanic' || savedPage.startsWith('mechanic-'))) {
+          setCurrentPage(savedPage);
+        } else {
+          setCurrentPage('mechanic');
+        }
       } else {
         window.history.replaceState({}, '', '/staff');
         setCurrentPage(role === 'cro' ? 'cro' : role === 'sales' ? 'sales-booking' : role === 'spv' ? 'spv-booking' : role);
@@ -959,6 +970,7 @@ const App = () => {
 
   const isAutoUpdating = useRef(false);
   const noShowCheckedRef = useRef(false);
+  const autoCuciCompleteRef = useRef({});
 
   useEffect(() => {
     const checkAutoStatus = async () => {
@@ -1215,6 +1227,8 @@ const App = () => {
         const today = new Date().toDateString();
 
         localStorage.setItem('chery_last_login_date', today);
+        localStorage.setItem('chery_auth_user', JSON.stringify(userData));
+        localStorage.setItem('chery_session_id', json.sessionId);
         setLastLoginDate(today);
         setSessionId(json.sessionId);
         setUser(userData);
@@ -1232,6 +1246,8 @@ const App = () => {
                     json.role?.toLowerCase() === 'security' ? 'security' :
                     json.role?.toLowerCase() === 'sales' ? 'sales-booking' :
                     json.role?.toLowerCase() === 'spv' ? 'spv-booking' : 'admin';
+
+        localStorage.setItem('chery_current_page', targetPage);
 
         const targetUrl = ['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty', 'foreman', 'security', 'sales', 'spv'].includes(json.role?.toLowerCase()) ? '/staff' : 
                           (json.role?.toLowerCase() === 'customer' ? '/customer' : 
@@ -1960,6 +1976,9 @@ const App = () => {
     return finalItem;
   };
 
+  const finalizeItemRef = useRef(null);
+  finalizeItemRef.current = finalizeItem;
+
   const handleComplete = async (item, force = false) => {
     if (isLoadingProcess) return;
 
@@ -2212,6 +2231,48 @@ const App = () => {
     }
   };
 
+  // Auto-selesai cuci: ketika timer 30 menit habis, unit otomatis dianggap selesai (tanpa klik / konfirmasi admin)
+  useEffect(() => {
+    if (!queue || queue.length === 0) return;
+
+    queue
+      .filter(q => q.status === 'sedang_dicuci')
+      .forEach(item => {
+        const tTime = parseInt(item.targetTime || item.target_time) || 0;
+        if (tTime <= 0 || Date.now() < tTime) return;
+        if (autoCuciCompleteRef.current[item.id]) return;
+
+        autoCuciCompleteRef.current[item.id] = true;
+
+        (async () => {
+          try {
+            // Guard DB: pastikan status masih 'sedang_dicuci' agar tidak dieksekusi ganda antar tab
+            const { data, error } = await db.update('antrian', {
+              status: 'menunggu_konfirmasi',
+              waktuSelesai: new Date().toISOString()
+            }, { eq: { id: item.id, status: 'sedang_dicuci' } });
+
+            if (error) throw error;
+            if (!data || data.length === 0) return;
+
+            await finalizeItemRef.current(item);
+
+            Toastify({
+              text: `⏱️ ${item.bk} waktu cuci habis — otomatis selesai`,
+              duration: 5000,
+              style: { background: "linear-gradient(135deg, #10b981, #059669)", borderRadius: "12px", fontWeight: "900" }
+            }).showToast();
+
+            fetchQueueRef.current();
+          } catch (err) {
+            console.error("Auto-complete cuci error:", err);
+          } finally {
+            delete autoCuciCompleteRef.current[item.id];
+          }
+        })();
+      });
+  }, [now, queue]);
+
   const handleCallQueue = async (item, counterNum) => {
     if (isLoadingProcess) return;
 
@@ -2457,6 +2518,9 @@ const App = () => {
       {currentPage === 'sparepart-dms' && user?.role === 'sparepart' && (
         <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="dms_search" />
       )}
+      {currentPage === 'sparepart-epc' && user?.role === 'sparepart' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="e_katalog_epcm" />
+      )}
       {currentPage === 'sparepart-cost' && user?.role === 'sparepart' && (
         <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="sparepart_cost" />
       )}
@@ -2521,6 +2585,9 @@ const App = () => {
       {currentPage === 'owner-dms' && user?.role === 'owner' && (
         <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="dms_search" />
       )}
+      {currentPage === 'owner-epc' && user?.role === 'owner' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="e_katalog_epcm" />
+      )}
       {currentPage === 'owner-warranty' && user?.role === 'owner' && (
         <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="warranty_search" />
       )}
@@ -2548,6 +2615,7 @@ const App = () => {
       {currentPage === 'warranty' && <WarrantyHub activeTab="dashboard" user={user} handleChangePassword={handleChangePassword} />}
       {currentPage === 'warranty-wo' && <WarrantyHub activeTab="wo" user={user} handleChangePassword={handleChangePassword} />}
       {currentPage === 'warranty-search' && <WarrantyHub activeTab="search" user={user} handleChangePassword={handleChangePassword} />}
+      {currentPage === 'warranty-free-maintenance' && <WarrantyHub activeTab="free-maintenance" user={user} handleChangePassword={handleChangePassword} />}
       {currentPage === 'warranty-proforma' && <ProformaInvoice />}
       {currentPage === 'security' && (
         <SecurityPanel
@@ -2572,6 +2640,21 @@ const App = () => {
       )}
       {currentPage === 'customer-complaint' && user?.role === 'customer' && user?.plat_bk && (
         <CustomerComplaint user={user} onBack={goBack} />
+      )}
+      {['admin-bulletin', 'owner-bulletin', 'mechanic-bulletin'].includes(currentPage) && (
+        <BulletinViewer user={user} />
+      )}
+      {['mechanic-epc', 'warranty-epc'].includes(currentPage) && (
+        <EpcExplorer 
+          user={user} 
+          onAddPart={(part) => {
+            Toastify({ 
+              text: `📋 Kode Part ${part.code} disalin ke clipboard!`, 
+              style: { background: "#10b981" } 
+            }).showToast();
+            navigator.clipboard.writeText(part.code);
+          }} 
+        />
       )}
 
       </div>

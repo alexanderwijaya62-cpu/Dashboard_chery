@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Calendar, ChevronLeft, ChevronRight, Info, Search, Send, Plus, ShieldCheck, Truck, X, Edit3, Upload, AlertTriangle, Check as CheckIcon, Database, RefreshCcw, Clock, User, Car, FileText, Activity, Zap, PlusCircle } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Info, Search, Send, Plus, ShieldCheck, Truck, X, Edit3, Upload, AlertTriangle, Check as CheckIcon, Database, RefreshCcw, Clock, User, Car, FileText, Activity, Zap, PlusCircle, Download, File } from 'lucide-react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
 import DmsBookingListView from './DmsBookingListView';
@@ -11,6 +11,7 @@ import { normalizeDmsBooking } from '../utils/dateHelpers';
 import { supabase } from '../utils/supabaseClient';
 import { normalizePlate, getTodayStr, getMinBookingDateStr } from '../utils/bookingHelpers';
 import BookingCalendar from './BookingCalendar';
+import * as XLSX from 'xlsx';
 
 const TIPE_MOBIL = [
     "Tiggo 5x", "Tiggo Cross", "Tiggo Cross Csh", "Tiggo 7", "Tiggo 8 Pro",
@@ -39,24 +40,26 @@ export default function CroBookingPanel({ user, holidays: propsHolidays }) {
             } catch (_) {}
         })();
     }, []);
-
     const fetchBookings = useCallback(async () => {
         try {
             const yesterday = new Date();
-            yesterday.setDate(yesterday.getDate() - 1);
+            yesterday.setMonth(yesterday.getMonth() - 2);
             const dateStr = yesterday.toISOString().split('T')[0];
             const { data } = await db.select('booking', {
                 select: 'id, tanggal, jam, noPlat, status',
+                neq: { status: 'deleted' },
                 gte: { tanggal: dateStr }
             });
             let merged = Array.isArray(data) ? [...data] : [];
 
             // === Fetch DMS internal bookings ===
             try {
-                const now = new Date();
-                const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-                const nextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
-                const to = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-${String(nextMonth.getDate()).padStart(2, '0')}`;
+                const twoMonthsAgo = new Date();
+                twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+                const from = `${twoMonthsAgo.getFullYear()}-${String(twoMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
+                const nextMonth = new Date();
+                nextMonth.setMonth(nextMonth.getMonth() + 2);
+                const to = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-${String(new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
                 const dmsRes = await fetch(`/api/chery_dms?endpoint=booking-data&datefrom=${from}&dateto=${to}&length=500`);
                 if (dmsRes.ok) {
                     const dmsJson = await dmsRes.json();
@@ -647,11 +650,11 @@ export default function CroBookingPanel({ user, holidays: propsHolidays }) {
 
             {/* Content */}
             {bookingListTab === 'dms' ? (
-                <div className="flex-1 min-h-0 overflow-hidden">
+                <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
                     <DmsBookingListView user={user} refreshTrigger={refreshTrigger} />
                 </div>
             ) : (
-                <div className="flex-1 min-h-0 overflow-hidden">
+                <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
                     <SupabaseBookingList refreshTrigger={refreshTrigger} slotConfig={slotConfig} allBookings={bookings} />
                 </div>
             )}            {/* Import Modal */}
@@ -1035,7 +1038,11 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
     const [bookings, setBookings] = useState([]);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
-    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+    const [startDate, setStartDate] = useState(() => {
+        const d = new Date();
+        d.setMonth(d.getMonth() - 2);
+        return d.toISOString().split('T')[0];
+    });
     const [endDate, setEndDate] = useState(() => {
         const d = new Date();
         d.setDate(d.getDate() + 30);
@@ -1044,6 +1051,17 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
     const [editItem, setEditItem] = useState(null);
     const [editForm, setEditForm] = useState({});
     const [resyncingId, setResyncingId] = useState(null);
+
+    const handleMarkArrival = async (id, status) => {
+        try {
+            const { error } = await db.update('booking', { status }, { eq: { id } });
+            if (error) throw error;
+            Toastify({ text: `Status Booking: ${status} ✅`, background: 'green' }).showToast();
+            setBookings(prev => prev.map(b => b.id === id ? { ...b, status } : b));
+        } catch (e) {
+            Toastify({ text: `Gagal mengubah status: ${e.message}`, background: 'red' }).showToast();
+        }
+    };
 
     const handleResync = async (b) => {
         setResyncingId(b.id);
@@ -1114,6 +1132,7 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
             try {
                 const filters = {
                     select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, keluhanDetail',
+                    neq: { status: 'deleted' },
                     order: { column: 'id', ascending: false },
                     limit: 500,
                 };
@@ -1142,8 +1161,140 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
                 normalizePlate(b.noTelp).includes(q)
             );
         }
-        return list;
+        return [...list].sort((a, b) => {
+            if (a.tanggal !== b.tanggal) {
+                return (a.tanggal || '').localeCompare(b.tanggal || '');
+            }
+            const timeA = parseFloat(String(a.jam || '0').replace(':', '.'));
+            const timeB = parseFloat(String(b.jam || '0').replace(':', '.'));
+            return timeA - timeB;
+        });
     }, [bookings, search, startDate, endDate]);
+
+    const handleExportExcel = () => {
+        try {
+            const dataToExport = filtered.map((b, idx) => ({
+                'No': idx + 1,
+                'Tanggal': b.tanggal || '',
+                'Jam': (b.jam || '').replace('.', ':'),
+                'No Plat': (b.noPlat || '').toUpperCase(),
+                'Nama Customer': b.namaCustomer || '',
+                'Tipe Mobil': b.tipeMobil || '',
+                'No Telp': b.noTelp || '',
+                'Keluhan / Keperluan': b.keperluanService || b.keluhanDetail || '',
+                'Booking Via': b.bookingVia || '',
+                'Status': b.status || ''
+            }));
+            if (dataToExport.length === 0) {
+                Toastify({ text: '⚠️ Tidak ada booking pada rentang tanggal terpilih', background: '#f59e0b' }).showToast();
+                return;
+            }
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Bookings");
+            XLSX.writeFile(workbook, `Laporan_Booking_${startDate}_to_${endDate}.xlsx`);
+            Toastify({ text: '✅ Berhasil Ekspor Excel!', background: '#10b981' }).showToast();
+        } catch (e) {
+            Toastify({ text: `❌ Gagal Ekspor: ${e.message}`, background: 'red' }).showToast();
+        }
+    };
+
+    const handleExportPDF = () => {
+        const exportData = [...filtered];
+
+        if (exportData.length === 0) {
+            Toastify({ text: '⚠️ Tidak ada booking pada rentang tanggal terpilih', background: '#f59e0b' }).showToast();
+            return;
+        }
+
+        const fmt = (d) => d ? new Date(d).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'Semua tanggal';
+        const rangeLabel = startDate === endDate
+            ? fmt(startDate)
+            : `${fmt(startDate)} — ${fmt(endDate)}`;
+
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) {
+            Toastify({ text: '⚠️ Pop-up diblokir browser. Izinkan pop-up untuk halaman ini.', background: '#f59e0b' }).showToast();
+            return;
+        }
+
+        printWindow.document.write(`
+            <html>
+            <head>
+                <title>Laporan Booking - ${startDate}_to_${endDate}</title>
+                <style>
+                    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1f2937; padding: 16px; margin: 0; }
+                    .header { display: flex; justify-content: space-between; align-items: center; border-b: 4px solid #000; padding-bottom: 8px; margin-bottom: 12px; }
+                    .logo { font-size: 18px; font-weight: 900; letter-spacing: -1px; text-transform: uppercase; }
+                    .title { text-align: right; }
+                    .title h1 { margin: 0; font-size: 15px; text-transform: uppercase; font-weight: 900; }
+                    .title p { margin: 2px 0 0 0; font-size: 10px; font-weight: 700; color: #6b7280; }
+                    .meta-info { margin-bottom: 8px; font-size: 11px; font-weight: 700; color: #4b5563; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 10px; }
+                    th { background-color: #000; color: #fff; padding: 6px 6px; font-weight: 900; text-transform: uppercase; text-align: left; }
+                    td { padding: 6px 6px; border-bottom: 1px solid #e5e7eb; font-weight: bold; }
+                    tr:nth-child(even) td { background-color: #f9fafb; }
+                    .status-badge { display: inline-block; padding: 2px 6px; border-radius: 6px; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+                    .status-datang { background-color: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+                    .status-tidak { background-color: #fdf2f2; color: #9b1c1c; border: 1px solid #fde8e8; }
+                    .status-normal { background-color: #f3f4f6; color: #374151; }
+                    @media print {
+                        body { padding: 8px; }
+                        .no-print { display: none; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <div class="logo">CHERY MEDAN</div>
+                    <div class="title">
+                        <h1>Laporan Booking</h1>
+                        <p>${rangeLabel}</p>
+                    </div>
+                </div>
+                <div class="meta-info">
+                    Total Unit Booking: ${exportData.length} Kendaraan
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 5%;">No</th>
+                            <th style="width: 10%;">Jam</th>
+                            <th style="width: 15%;">No Plat</th>
+                            <th style="width: 20%;">Nama Pelanggan</th>
+                            <th style="width: 15%;">Tipe Unit</th>
+                            <th style="width: 23%;">Keluhan / Perintah</th>
+                            <th style="width: 12%;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${exportData.map((b, idx) => {
+                            const stClass = b.status === 'Datang' ? 'status-datang' : b.status === 'Tidak Datang' ? 'status-tidak' : 'status-normal';
+                            return `
+                                <tr>
+                                    <td style="color: #9ca3af;">${idx + 1}</td>
+                                    <td style="font-size: 10px; color: #000;">${(b.jam || '').replace('.', ':')}</td>
+                                    <td style="font-size: 10px; color: #000;">${(b.noPlat || '').toUpperCase()}</td>
+                                    <td>${b.namaCustomer || '-'}</td>
+                                    <td>${b.tipeMobil || '-'}</td>
+                                    <td style="font-style: italic; color: #4b5563;">${b.keperluanService || b.keluhanDetail || '-'}</td>
+                                    <td><span class="status-badge ${stClass}">${b.status || 'Accepted'}</span></td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+                <script>
+                    window.onload = function() {
+                        window.print();
+                        window.onafterprint = function() { window.close(); };
+                    };
+                </script>
+            </body>
+            </html>
+        `);
+        printWindow.document.close();
+    };
 
     const openEdit = (b) => {
         setEditItem(b);
@@ -1221,6 +1372,7 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
             // Refresh with current date range
             const filters = {
                 select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, keperluanService, noTelp, bookingVia, status, keluhanDetail',
+                neq: { status: 'deleted' },
                 order: { column: 'id', ascending: false },
                 limit: 500,
             };
@@ -1303,14 +1455,26 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
                     <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
                         className="px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold focus:border-black focus:bg-white outline-none transition-all" />
                 </div>
+                <div className="flex items-center gap-2 ml-auto">
+                    <button onClick={handleExportExcel}
+                        className="min-h-[38px] bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl font-black text-[9px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-sm"
+                        title="Ekspor daftar booking terfilter ke file Excel">
+                        <Download size={13} /> Excel
+                    </button>
+                    <button onClick={handleExportPDF}
+                        className="min-h-[38px] bg-red-600 hover:bg-red-750 text-white px-3.5 py-2 rounded-xl font-black text-[9px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-sm"
+                        title="Ekspor booking harian terfilter ke PDF">
+                        <File size={13} /> PDF Harian
+                    </button>
+                </div>
                 <span className="text-[9px] font-bold text-zinc-400">{filtered.length} booking</span>
             </div>
 
             {/* Table */}
-            <div className="flex-1 overflow-y-auto border border-zinc-200 rounded-2xl">
-                <table className="w-full text-sm">
-                    <thead className="bg-zinc-100 sticky top-0">
-                        <tr className="text-zinc-500 font-black uppercase tracking-wider text-xs border-b border-zinc-200">
+            <div className="flex-1 overflow-y-auto border border-zinc-200 rounded-2xl shadow-sm">
+                <table className="w-full text-xs">
+                    <thead className="bg-zinc-900 text-zinc-100 sticky top-0 z-10">
+                        <tr className="font-black uppercase tracking-wider text-[10px] border-b border-zinc-800">
                             <th className="px-4 py-3 text-left">Tanggal</th>
                             <th className="px-4 py-3 text-left">Jam</th>
                             <th className="px-4 py-3 text-left">No Plat</th>
@@ -1319,7 +1483,7 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
                             <th className="px-4 py-3 text-left max-w-[200px]">Keluhan</th>
                             <th className="px-4 py-3 text-left">Via</th>
                             <th className="px-4 py-3 text-left">Status</th>
-                            <th className="px-4 py-3 text-center w-[100px]">Aksi</th>
+                            <th className="px-4 py-3 text-center w-[220px]">Aksi</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1341,25 +1505,47 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
                                     </span>
                                 </td>
                                 <td className="px-4 py-3">
-                                    <span className={`text-[10px] font-black px-2 py-1 rounded ${b.status === 'synced' || (b.bookingVia || '').includes('DMS') ? 'bg-blue-50 text-blue-700' : b.status === 'accepted' ? 'bg-green-50 text-green-700' : b.status === 'declined' ? 'bg-red-50 text-red-700' : 'bg-zinc-50 text-zinc-500'}`}>
+                                    <span className={`text-[10px] font-black px-2 py-1 rounded ${
+                                        b.status === 'Datang' ? 'bg-emerald-50 text-emerald-700 border border-emerald-250' :
+                                        b.status === 'Tidak Datang' ? 'bg-rose-50 text-rose-700 border border-rose-250' :
+                                        b.status === 'synced' || (b.bookingVia || '').includes('DMS') ? 'bg-blue-50 text-blue-700' :
+                                        b.status === 'accepted' ? 'bg-green-50 text-green-700' :
+                                        b.status === 'declined' ? 'bg-red-50 text-red-700' : 'bg-zinc-50 text-zinc-500'
+                                    }`}>
                                         {b.status === 'synced' || (b.bookingVia || '').includes('DMS') ? 'Synced (DMS)' : b.status || '-'}
                                     </span>
                                 </td>
                                 <td className="px-4 py-3">
-                                    <div className="flex items-center justify-center gap-1.5">
-                                         <button onClick={() => handleResync(b)}
-                                             disabled={resyncingId === b.id}
-                                             className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase flex items-center gap-1.5 transition-all ${resyncingId === b.id ? 'bg-blue-100 text-blue-400 animate-pulse' : (b.bookingVia || '').includes('DMS Synced') ? 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'}`}
-                                             title="Re-sync ke DMS Internal">
-                                             <RefreshCcw size={12} className={resyncingId === b.id ? 'animate-spin' : ''} />
-                                             <span>{(b.bookingVia || '').includes('DMS Synced') ? 'Sync Ulang' : 'Sync DMS'}</span>
-                                         </button>
-                                        <button onClick={() => openEdit(b)}
-                                            className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-800 hover:text-white transition-all text-zinc-500"
-                                            title="Edit"><Edit3 size={14} /></button>
-                                        <button onClick={() => handleDelete(b.id)}
-                                            className="p-1.5 rounded-lg bg-red-50 hover:bg-red-600 hover:text-white transition-all text-red-500"
-                                            title="Hapus"><X size={14} /></button>
+                                    <div className="flex flex-col items-center justify-center gap-2">
+                                         {b.status !== 'Datang' && b.status !== 'Tidak Datang' && (
+                                             <div className="flex gap-1.5 justify-center w-full">
+                                                 <button onClick={() => handleMarkArrival(b.id, 'Datang')}
+                                                     className="flex-1 py-1 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-black text-[9px] uppercase tracking-wider transition-all active:scale-95 text-center shadow-sm"
+                                                     title="Security: Mobil Datang">
+                                                     ✓ Datang
+                                                 </button>
+                                                 <button onClick={() => handleMarkArrival(b.id, 'Tidak Datang')}
+                                                     className="flex-1 py-1 px-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-black text-[9px] uppercase tracking-wider transition-all active:scale-95 text-center shadow-sm"
+                                                     title="Tidak Datang / Batal">
+                                                     ✗ Gak Datang
+                                                 </button>
+                                             </div>
+                                         )}
+                                         <div className="flex items-center justify-center gap-1.5">
+                                             <button onClick={() => handleResync(b)}
+                                                 disabled={resyncingId === b.id}
+                                                 className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase flex items-center gap-1 transition-all ${resyncingId === b.id ? 'bg-blue-100 text-blue-400 animate-pulse' : (b.bookingVia || '').includes('DMS Synced') ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-zinc-100 text-zinc-700 border border-zinc-200 hover:bg-zinc-200'}`}
+                                                 title="Re-sync ke DMS Internal">
+                                                 <RefreshCcw size={10} className={resyncingId === b.id ? 'animate-spin' : ''} />
+                                                 <span>{(b.bookingVia || '').includes('DMS Synced') ? 'Sync Ulang' : 'Sync DMS'}</span>
+                                             </button>
+                                             <button onClick={() => openEdit(b)}
+                                                 className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-800 hover:text-white transition-all text-zinc-500"
+                                                 title="Edit"><Edit3 size={12} /></button>
+                                             <button onClick={() => handleDelete(b.id)}
+                                                 className="p-1.5 rounded-lg bg-red-50 hover:bg-red-600 hover:text-white transition-all text-red-500"
+                                                 title="Hapus"><X size={12} /></button>
+                                         </div>
                                     </div>
                                 </td>
                             </tr>
@@ -1397,6 +1583,8 @@ function SupabaseBookingList({ refreshTrigger, slotConfig, allBookings }) {
                                             <option value="synced">Synced (DMS)</option>
                                             <option value="declined">Declined</option>
                                             <option value="waiting confirm">Waiting Confirm</option>
+                                            <option value="Datang">Datang</option>
+                                            <option value="Tidak Datang">Tidak Datang</option>
                                         </select>
                                     </div>
                                     <div className="space-y-3">

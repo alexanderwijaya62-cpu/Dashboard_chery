@@ -96,6 +96,7 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
         (async () => {
           const { data } = await db.select('booking', {
             select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, noTelp, keperluanService',
+            neq: { status: 'deleted' },
           });
           return ((data || []).filter(b => b.tanggal === date)).map(b => ({ ...b, _source: 'supabase' }));
         })(),
@@ -369,6 +370,9 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
           queue_number: qNum,
         });
         if (!error) {
+          if (b._source !== 'dms' && b.id && !String(b.id).startsWith('dms_')) {
+            await db.update('booking', { status: 'Datang' }, { eq: { id: b.id } }).catch(e => console.error('Gagal set status Datang:', e));
+          }
           success++;
           const code = formatQueueCode(cat, qNum);
           const msgExtra = telat ? ' (Telat -> Masuk Reguler)' : '';
@@ -384,6 +388,27 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
       Toastify({ text: 'Gagal konfirmasi booking', background: '#ef4444' }).showToast();
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleMarkTidakDatang = async (b) => {
+    if (!b.id || String(b.id).startsWith('dms_')) {
+      Toastify({ text: '⚠️ Booking DMS tidak bisa diubah statusnya', background: '#f59e0b' }).showToast();
+      return;
+    }
+    try {
+      const { error } = await db.update('booking', { status: 'Tidak Datang' }, { eq: { id: b.id } });
+      if (error) throw error;
+      Toastify({ text: `✅ ${(b.noPlat || '').toUpperCase()} ditandai Tidak Datang`, background: '#10b981' }).showToast();
+      setSelectedBookingIds(prev => {
+        const n = new Set(prev);
+        n.delete(b.id);
+        return n;
+      });
+      await fetchData();
+    } catch (e) {
+      console.error(e);
+      Toastify({ text: '❌ Gagal update status', background: '#ef4444' }).showToast();
     }
   };
 
@@ -554,20 +579,24 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
                     const plat = (b.noPlat || '').replace(/\s+/g, '').toUpperCase();
                     const queueCode = confirmedPlates.get(plat);
                     const sudahAntri = !!queueCode;
+                    const sudahDiTandai = b.status === 'Datang' || b.status === 'Tidak Datang';
                     const telat = isLate(b.jam);
                     const isSelected = selectedBookingIds.has(b.id);
                     const fromDms = b._source === 'dms';
                     return (
-                      <button key={b.id} onClick={() => { if (!sudahAntri) toggleBooking(b.id); }}
-                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl border-2 transition-all active:scale-[0.98] text-left ${sudahAntri ? 'bg-zinc-100 border-zinc-200 opacity-60 cursor-default' : isSelected ? 'bg-black text-white border-black' : 'bg-zinc-50 text-zinc-700 border-zinc-100 hover:border-zinc-300'}`}>
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${sudahAntri ? 'bg-zinc-300' : isSelected ? 'bg-white/20' : 'bg-zinc-200'}`}>
-                          {sudahAntri ? <Check size={14} className="text-zinc-500" /> : isSelected ? <Check size={14} className="text-white" /> : <Clock size={14} className="text-zinc-500" />}
+                      <div key={b.id} role="button" tabIndex={0}
+                        onClick={() => { if (!sudahAntri && !sudahDiTandai) toggleBooking(b.id); }}
+                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl border-2 transition-all active:scale-[0.98] text-left ${sudahAntri ? 'bg-zinc-100 border-zinc-200 opacity-60 cursor-default' : b.status === 'Tidak Datang' ? 'bg-rose-50 border-rose-200 opacity-70 cursor-default' : isSelected ? 'bg-black text-white border-black' : 'bg-zinc-50 text-zinc-700 border-zinc-100 hover:border-zinc-300 cursor-pointer'}`}>
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${sudahAntri ? 'bg-zinc-300' : b.status === 'Tidak Datang' ? 'bg-rose-100' : isSelected ? 'bg-white/20' : 'bg-zinc-200'}`}>
+                          {sudahAntri ? <Check size={14} className="text-zinc-500" /> : b.status === 'Tidak Datang' ? <Ban size={14} className="text-rose-500" /> : isSelected ? <Check size={14} className="text-white" /> : <Clock size={14} className="text-zinc-500" />}
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className={`font-black text-sm leading-tight ${sudahAntri ? 'text-zinc-400' : isSelected ? 'text-white' : 'text-black'}`}>{b.noPlat || '-'}</span>
                             {b.jam ? <span className={`text-[11px] font-bold ${sudahAntri ? 'text-zinc-300' : isSelected ? 'text-white/60' : 'text-zinc-400'}`}>{b.jam}</span> : null}
                             {fromDms && <Database size={10} className={sudahAntri ? 'text-zinc-300' : isSelected ? 'text-white/60' : 'text-zinc-400'} />}
+                            {b.status === 'Datang' && <span className="text-sm font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded tracking-widest uppercase">Datang</span>}
+                            {b.status === 'Tidak Datang' && <span className="text-sm font-black text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded tracking-widest uppercase">Tidak Datang</span>}
                             {telat && !sudahAntri && <span className="text-sm font-black text-red-500 bg-red-50 px-1.5 py-0.5 rounded tracking-widest uppercase">Telat</span>}
                             {telat && sudahAntri && <span className="text-sm font-black text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded tracking-widest uppercase">Telat</span>}
                           </div>
@@ -575,12 +604,25 @@ export default function SecurityPanel({ user, handleLogout, handleChangePassword
                         </div>
                         {sudahAntri ? (
                           <span className="text-sm font-black text-zinc-400 uppercase tracking-widest shrink-0">{queueCode}</span>
+                        ) : b.status === 'Tidak Datang' ? (
+                          <span className="text-sm font-black text-rose-500 uppercase tracking-widest shrink-0">Batal</span>
+                        ) : b.status === 'Datang' ? (
+                          <span className="text-sm font-black text-emerald-600 uppercase tracking-widest shrink-0">Datang</span>
                         ) : (
-                          <div className={`shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center ${isSelected ? 'bg-white border-white' : 'border-zinc-300'}`}>
-                            {isSelected && <Check size={12} className="text-black" />}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {!fromDms && (
+                              <button onClick={(e) => { e.stopPropagation(); handleMarkTidakDatang(b); }}
+                                className="px-2 py-1.5 bg-rose-50 border-2 border-rose-200 text-rose-600 rounded-lg text-sm font-black uppercase tracking-wider active:scale-95 transition-all"
+                                title="Tidak Datang / Batal">
+                                ✗
+                              </button>
+                            )}
+                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center ${isSelected ? 'bg-white border-white' : 'border-zinc-300'}`}>
+                              {isSelected && <Check size={12} className="text-black" />}
+                            </div>
                           </div>
                         )}
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
