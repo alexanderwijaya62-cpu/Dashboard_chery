@@ -4,11 +4,12 @@ import ChangePasswordModal from './ChangePasswordModal';
 import SparepartPredictor from './SparepartPredictor';
 import Toastify from 'toastify-js';
 import { CHERY_DMS_URL } from '../utils/config';
+import { fetchWithCache } from '../utils/dataCache';
 
 const SHIPMENT_STATUS_MAP = {
     0: { label: 'Void', color: 'bg-zinc-200 text-zinc-500' },
-    1: { label: 'Awaiting Confirmation', color: 'bg-amber-100 text-amber-700' },
-    2: { label: 'Received Confirmation', color: 'bg-emerald-100 text-emerald-700' },
+    1: { label: 'Belum Sampai', color: 'bg-amber-100 text-amber-700' },
+    2: { label: 'Sudah Diterima', color: 'bg-emerald-100 text-emerald-700' },
     3: { label: 'Freeze', color: 'bg-red-100 text-red-700' },
 };
 
@@ -53,6 +54,7 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
     const [detailCache, setDetailCache] = useState({});
     const [detailLoading, setDetailLoading] = useState(false);
     const [searchCode, setSearchCode] = useState('');
+    const [fetchedSearchQuery, setFetchedSearchQuery] = useState('');
     const [filterDateStart, setFilterDateStart] = useState('');
     const [filterDateEnd, setFilterDateEnd] = useState('');
     const [isDeepSearching, setIsDeepSearching] = useState(false);
@@ -65,26 +67,51 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
         setShipmentVersion(v => v + 1);
     };
 
-    const fetchDmsOrders = async (page = 0, code = '') => {
-        setIsLoading(true);
-        try {
+    const fetchDmsOrders = async (page = 0, code = '', forceFresh = false) => {
+        const cacheKey = `dms_orders_page_${page}_code_${code || 'all'}`;
+
+        const doFetch = async () => {
             let url = `${CHERY_DMS_URL}?endpoint=part_orders&pageIndex=${page}&pageSize=10&isBuyer=true`;
             if (code) url += `&orderCode=${encodeURIComponent(code)}`;
             const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const result = await resp.json();
-            const payload = result?.payload || result;
-            const content = payload?.content || [];
-            const total = payload?.totalPages || 1;
-            const totalElements = payload?.totalElements || content.length;
-            setDmsOrders(content);
-            setDmsTotalPages(total);
-            setDmsTotalElements(totalElements);
-            setDmsPage(page);
+            return result?.payload || result;
+        };
+
+        try {
+            const payload = await fetchWithCache(cacheKey, doFetch, {
+                ttl: 120000, // 2 minutes cache
+                forceFresh,
+                onLoading: (l) => setIsLoading(l),
+                onFreshData: (freshPayload) => {
+                    const content = freshPayload?.content || [];
+                    const total = freshPayload?.totalPages || 1;
+                    const totalElements = freshPayload?.totalElements || content.length;
+                    setDmsOrders(content);
+                    setDmsTotalPages(total);
+                    setDmsTotalElements(totalElements);
+                    setDmsPage(page);
+                    setFetchedSearchQuery(code);
+                },
+                onError: (e) => {
+                    console.error('Failed to fetch DMS orders:', e);
+                    Toastify({ text: 'Gagal mengambil data DMS Order', background: 'red' }).showToast();
+                }
+            });
+
+            if (payload) {
+                const content = payload?.content || [];
+                const total = payload?.totalPages || 1;
+                const totalElements = payload?.totalElements || content.length;
+                setDmsOrders(content);
+                setDmsTotalPages(total);
+                setDmsTotalElements(totalElements);
+                setDmsPage(page);
+                setFetchedSearchQuery(code);
+            }
         } catch (e) {
-            console.error('Failed to fetch DMS orders:', e);
-            Toastify({ text: 'Gagal mengambil data DMS Order', background: 'red' }).showToast();
-        } finally {
-            setIsLoading(false);
+            console.error(e);
         }
     };
 
@@ -118,7 +145,7 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
 
         const results = await Promise.allSettled(
             stillMissing.map(o =>
-                fetch(`${CHERY_DMS_URL}?endpoint=part_shipments&processCode=${encodeURIComponent(o.code)}&pageIndex=0&pageSize=10`)
+                fetch(`${CHERY_DMS_URL}?endpoint=part_shipments&orderCode=${encodeURIComponent(o.code)}&pageIndex=0&pageSize=10`)
                     .then(r => r.json())
                     .then(r => ({ code: o.code, payload: r?.payload || r }))
             )
@@ -221,6 +248,7 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
                 setDmsPage(0);
                 setDmsTotalPages(1);
                 setDmsTotalElements(orders.length);
+                setFetchedSearchQuery(term);
                 Toastify({ text: `Ditemukan ${orders.length} order`, background: '#18181b', duration: 3000 }).showToast();
             } else {
                 Toastify({ text: 'Tidak ditemukan order yang cocok', background: '#71717a', duration: 3000 }).showToast();
@@ -241,7 +269,7 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
 
     const handleSearch = async () => {
         const q = searchCode.trim();
-        if (!q) { fetchDmsOrders(0); return; }
+        if (!q) { fetchDmsOrders(0); setFetchedSearchQuery(''); return; }
         try {
             let url = `${CHERY_DMS_URL}?endpoint=part_orders&pageIndex=0&pageSize=10&isBuyer=true`;
             url += `&orderCode=${encodeURIComponent(q)}`;
@@ -270,11 +298,28 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
         }
     }, [dmsOrders, activeTab, shipmentVersion]); // eslint-disable-line
 
+    // Preload order details in the background to get accurate "Sebagian Sampai" status on the list
+    useEffect(() => {
+        if (activeTab === 'dms_order' && dmsOrders.length > 0) {
+            dmsOrders.forEach(order => {
+                if (!detailCache[order.id]) {
+                    fetch(`${CHERY_DMS_URL}?endpoint=part_order_detail&orderId=${order.id}`)
+                        .then(r => r.json())
+                        .then(async r => {
+                            const detail = await enrichOrderDetail(r?.payload || r);
+                            setDetailCache(prev => ({ ...prev, [order.id]: detail }));
+                        })
+                        .catch(err => console.warn('Background fetch detail failed:', err));
+                }
+            });
+        }
+    }, [dmsOrders, activeTab]); // eslint-disable-line
+
     const filteredOrders = useMemo(() => {
         const q = (searchCode || '').toLowerCase().trim();
         let result = dmsOrders;
 
-        if (q) {
+        if (q && q !== (fetchedSearchQuery || '').toLowerCase().trim()) {
             result = result.filter(order => {
                 if ((order.code || '').toLowerCase().includes(q)) return true;
                 if ((order.remark || '').toLowerCase().includes(q)) return true;
@@ -308,17 +353,53 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
         }
 
         return result;
-    }, [dmsOrders, searchCode, detailCache, filterDateStart, filterDateEnd]);
+    }, [dmsOrders, searchCode, detailCache, filterDateStart, filterDateEnd, fetchedSearchQuery]);
 
     const getShipmentStatusInfo = (status) => SHIPMENT_STATUS_MAP[status] || { label: 'Unknown', color: 'bg-zinc-100 text-zinc-500' };
 
     const getItemDeliveryStatus = (itemPartCode) => {
         if (!orderDetail?.partSaleOrderProcesses) return null;
-        for (const proc of orderDetail.partSaleOrderProcesses) {
+        
+        let orderQuantity = 0;
+        let processQuantity = 0;
+        let deliveryQuantity = 0;
+        let outQuantity = 0;
+        
+        let hasVoid = false;
+        let hasFreeze = false;
+        let hasAwaiting = false;
+        let hasReceived = false;
+        
+        orderDetail.partSaleOrderProcesses.forEach(proc => {
             const pd = (proc.processDetails || []).find(d => d.partCode === itemPartCode);
-            if (pd) return { ...pd, processStatus: proc.status };
-        }
-        return null;
+            if (pd) {
+                orderQuantity = pd.orderQuantity || orderQuantity;
+                processQuantity += (pd.processQuantity || 0);
+                deliveryQuantity += (pd.deliveryQuantity || 0);
+                
+                if (proc.status === 2) {
+                    outQuantity += (pd.outQuantity || 0);
+                    hasReceived = true;
+                } else if (proc.status === 1) {
+                    hasAwaiting = true;
+                } else if (proc.status === 0) {
+                    hasVoid = true;
+                } else if (proc.status === 3) {
+                    hasFreeze = true;
+                }
+            }
+        });
+        
+        return {
+            orderQuantity,
+            processQuantity,
+            deliveryQuantity,
+            outQuantity,
+            hasVoid,
+            hasFreeze,
+            hasAwaiting,
+            hasReceived
+        };
     };
 
     // Order status diturunkan dari status konfirmasi pengiriman (partShipments),
@@ -326,49 +407,70 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
     // ketika SEMUA shipment sudah di-confirm (status 2 = Sudah Diterima).
     // Kalau masih ada shipment status 1 (Awaiting Confirmation) berarti belum sampai.
     const getOrderStatusInfo = (order) => {
-        const detail = detailCache[order.id];
-        if (detail && Array.isArray(detail.details) && detail.details.length > 0) {
-            let totalOrder = 0;
-            let totalOut = 0;
-            let totalProcess = 0;
-            let totalDelivery = 0;
+        const detail = (orderDetail && orderDetail.id === order.id) ? orderDetail : detailCache[order.id];
+        
+        if (detail && Array.isArray(detail.partSaleOrderProcesses) && detail.partSaleOrderProcesses.length > 0) {
+            const items = detail.details || [];
             
-            detail.details.forEach(item => {
-                totalOrder += item.orderQuantity || 0;
-                if (Array.isArray(detail.partSaleOrderProcesses)) {
-                    detail.partSaleOrderProcesses.forEach(proc => {
-                        const pd = (proc.processDetails || []).find(d => d.partCode === item.partCode);
-                        if (pd) {
-                            totalOut += pd.outQuantity || 0;
-                            totalProcess += pd.processQuantity || 0;
-                            totalDelivery += pd.deliveryQuantity || 0;
+            let totalItemsCount = items.length;
+            let fullyReceivedItemsCount = 0;
+            let partiallyReceivedItemsCount = 0;
+            let anyReceived = false;
+            
+            items.forEach(item => {
+                let itemReceivedQty = 0;
+                let itemOrderedQty = item.orderQuantity || 0;
+                
+                detail.partSaleOrderProcesses.forEach(proc => {
+                    const pd = (proc.processDetails || []).find(d => d.partCode === item.partCode);
+                    if (pd) {
+                        if (proc.status === 2) {
+                            itemReceivedQty += (pd.outQuantity || 0);
                         }
-                    });
+                    }
+                });
+                
+                if (itemReceivedQty > 0) {
+                    anyReceived = true;
+                    if (itemReceivedQty >= itemOrderedQty) {
+                        fullyReceivedItemsCount++;
+                    } else {
+                        partiallyReceivedItemsCount++;
+                    }
                 }
             });
-
-            if (totalOrder > 0) {
-                if (totalOut >= totalOrder) {
-                    return { label: 'Sudah Diterima', color: 'bg-emerald-100 text-emerald-700' };
+            
+            const statuses = detail.partSaleOrderProcesses.map(p => p.status);
+            if (!anyReceived) {
+                if (statuses.some(s => s === 3)) {
+                    return { label: 'Freeze', color: 'bg-red-100 text-red-700' };
                 }
-                if (totalOut > 0) {
-                    return { label: 'Sebagian Sampai', color: 'bg-blue-100 text-blue-700' };
+                if (statuses.some(s => s === 0)) {
+                    return { label: 'Void', color: 'bg-zinc-200 text-zinc-500' };
                 }
-                if (totalDelivery > 0) {
-                    return { label: 'Dalam Perjalanan', color: 'bg-blue-100 text-blue-700' };
-                }
-                if (totalProcess > 0) {
-                    return { label: 'Partial Processing', color: 'bg-amber-100 text-amber-700' };
-                }
+                return { label: 'Belum Sampai', color: 'bg-amber-100 text-amber-700' };
             }
+            
+            if (fullyReceivedItemsCount === totalItemsCount && totalItemsCount > 0) {
+                return { label: 'Sudah Diterima', color: 'bg-emerald-100 text-emerald-700' };
+            }
+            
+            return { label: 'Sebagian Sampai', color: 'bg-blue-100 text-blue-700' };
         }
 
         const shipments = shipmentCacheRef.current[order.code];
         if (Array.isArray(shipments) && shipments.length > 0) {
             const statuses = shipments.map(s => s.status);
-            if (statuses.every(s => s === 2)) {
-                return { label: 'Sudah Diterima', color: 'bg-emerald-100 text-emerald-700' };
+            const hasReceived = statuses.some(s => s === 2);
+            const hasPending = statuses.some(s => s === 1 || s === 3 || s === 0);
+            
+            if (hasReceived) {
+                if (statuses.every(s => s === 2) && order.status === 5) {
+                    return { label: 'Sudah Diterima', color: 'bg-emerald-100 text-emerald-700' };
+                }
+                return { label: 'Sebagian Sampai', color: 'bg-blue-100 text-blue-700' };
             }
+            
             if (statuses.some(s => s === 3)) {
                 return { label: 'Freeze', color: 'bg-red-100 text-red-700' };
             }
@@ -377,6 +479,7 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
             }
             return { label: 'Belum Sampai', color: 'bg-amber-100 text-amber-700' };
         }
+
         const fallback = STATUS_MAP[order.status];
         if (!fallback) return { label: 'Unknown', color: 'bg-zinc-100 text-zinc-500' };
         if (order.status === 3 || order.status === 4 || order.status === 2) {
@@ -470,10 +573,10 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
                                     </button>
                                 )}
                                 <button
-                                    onClick={() => fetchDmsOrders(dmsPage)}
-                                    className="flex items-center gap-2 px-3 py-2 bg-white hover:bg-zinc-50 text-zinc-900 font-bold border border-zinc-300 shadow-sm rounded-md transition-all font-black text-[10px] uppercase tracking-widest"
+                                    onClick={() => fetchDmsOrders(dmsPage, fetchedSearchQuery, true)}
+                                    className="flex items-center gap-2 px-3 py-2 bg-white hover:bg-zinc-50 text-zinc-900 font-bold border border-zinc-300 shadow-sm rounded-md transition-all font-black text-[10px] uppercase tracking-widest cursor-pointer"
                                 >
-                                    <RefreshCw size={14} /> Refresh
+                                    <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Refresh
                                 </button>
                             </>
                         )}
@@ -553,7 +656,14 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
                                                         <ChevronRight size={18} className="text-zinc-400" />
                                                     </div>
                                                     <div className="min-w-0">
-                                                        <p className="text-zinc-900 font-black font-mono text-sm truncate">{order.code}</p>
+                                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                                            <p className="text-zinc-900 font-black font-mono text-sm truncate">{order.code}</p>
+                                                            {order.wmsOutTime && (
+                                                                <span className="text-[10px] font-bold text-zinc-500 bg-zinc-100 border border-zinc-200 px-2 py-0.5 rounded">
+                                                                    Tanggal Kirim PO: {formatDate(order.wmsOutTime)}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider mt-0.5">{order.submitterName || order.creatorName}</p>
                                                         {order.remark && (
                                                             <p className="text-zinc-400 text-[9px] font-medium truncate max-w-md mt-0.5">{order.remark}</p>
@@ -587,6 +697,9 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
                                                         <div className="p-5 space-y-6">
                                                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                                                 <InfoPill icon={<Hash size={12} />} label="PO Code" value={orderDetail.code} mono />
+                                                                {orderDetail.wmsOutTime && (
+                                                                    <InfoPill icon={<Calendar size={12} />} label="Tanggal Kirim PO" value={formatDate(orderDetail.wmsOutTime)} />
+                                                                )}
                                                                 <InfoPill icon={<User size={12} />} label="Submitter" value={orderDetail.submitterName} />
                                                                 <InfoPill icon={<Clock size={12} />} label="Submit Time" value={formatDate(orderDetail.submitTime)} />
                                                                 <InfoPill icon={<Clock size={12} />} label="Process Time" value={formatDate(orderDetail.processTime)} />
@@ -623,28 +736,26 @@ export default function SparepartPanel({ activeTab: activeTabProp, handleChangeP
                                                                                   const ds = getItemDeliveryStatus(item.partCode);
                                                                                   console.log('DEBUG_STATUS:', item.partCode, 'ds:', ds);
                                                                                   let statusBadge = null;
-                                                                                  if (ds) {
-                                                                                      const ps = ds.processStatus;
-                                                                                      if (ps === 0) {
-                                                                                          statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-zinc-200 text-zinc-500 px-1.5 py-0.5 rounded-full">Void</span>;
-                                                                                      } else if (ps === 3) {
-                                                                                          statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Freeze</span>;
-                                                                                      } else if (ps === 1) {
-                                                                                          statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Awaiting Confirmation</span>;
-                                                                                      } else {
-                                                                                          if (ds.outQuantity >= ds.orderQuantity) {
-                                                                                              statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Sudah Sampai</span>;
-                                                                                          } else if (ds.outQuantity > 0) {
-                                                                                              statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Sebagian Sampai {ds.outQuantity}/{ds.orderQuantity}</span>;
-                                                                                          } else if (ds.deliveryQuantity > 0) {
-                                                                                              statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Dalam Perjalanan {ds.deliveryQuantity}/{ds.orderQuantity}</span>;
-                                                                                          } else if (ds.processQuantity > 0) {
-                                                                                              statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Diproses {ds.processQuantity}/{ds.orderQuantity}</span>;
-                                                                                          } else {
-                                                                                              statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-zinc-200 text-zinc-500 px-1.5 py-0.5 rounded-full">Pending</span>;
-                                                                                          }
-                                                                                      }
-                                                                                  }
+                                                                                   if (ds) {
+                                                                                       if (ds.hasFreeze && ds.outQuantity === 0) {
+                                                                                           statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Freeze</span>;
+                                                                                       } else if (ds.hasVoid && ds.outQuantity === 0) {
+                                                                                           statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-zinc-200 text-zinc-500 px-1.5 py-0.5 rounded-full">Void</span>;
+                                                                                       } else {
+                                                                                           const targetQty = item.orderQuantity || ds.orderQuantity || 0;
+                                                                                           if (ds.outQuantity >= targetQty && targetQty > 0) {
+                                                                                               statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Sudah Sampai</span>;
+                                                                                           } else if (ds.outQuantity > 0) {
+                                                                                               statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Sebagian Sampai {ds.outQuantity}/{targetQty}</span>;
+                                                                                           } else if (ds.deliveryQuantity > 0 || ds.hasAwaiting) {
+                                                                                               statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Belum Sampai</span>;
+                                                                                           } else if (ds.processQuantity > 0 && !ds.hasReceived) {
+                                                                                               statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Diproses {ds.processQuantity}/{targetQty}</span>;
+                                                                                           } else {
+                                                                                               statusBadge = <span className="text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Belum Sampai</span>;
+                                                                                           }
+                                                                                       }
+                                                                                   }
                                                                                  return (
                                                                                  <tr key={idx} className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50/50 transition-all">
                                                                                      <td className="p-3">

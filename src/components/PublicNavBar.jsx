@@ -101,10 +101,12 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout, handleChangePas
       ? [
           { id: 'home', icon: Home, label: 'Home', page: 'display', ariaLabel: 'Home Display' },
         ]
-      : [
-          { id: 'home', icon: Home, label: 'Home', page: 'display', ariaLabel: 'Home Display' },
-          { id: 'booking', icon: Calendar, label: 'Booking', page: 'booking-public', ariaLabel: 'Booking Service' },
-        ];
+      : user?.role?.toLowerCase() === 'partshop'
+        ? []
+        : [
+            { id: 'home', icon: Home, label: 'Home', page: 'display', ariaLabel: 'Home Display' },
+            { id: 'booking', icon: Calendar, label: 'Booking', page: 'booking-public', ariaLabel: 'Booking Service' },
+          ];
 
   // Bottom nav items (mobile) — includes Dashboard/Login as 4th item
   const bottomNavItems = [
@@ -192,31 +194,33 @@ const PublicNavBar = ({ user, currentPage, onNavigate, onLogout, handleChangePas
           )}
 
           {/* Public pages */}
-          <div>
-            <p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Publik</p>
-            <div className="space-y-1">
-              {publicNavItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = currentPage === item.page;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => handleNavigate(item.page)}
-                    aria-label={item.ariaLabel}
-                    aria-current={isActive ? 'page' : undefined}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                      isActive
-                        ? 'bg-white text-zinc-900 shadow-md'
-                        : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
-                    }`}
-                  >
-                    <Icon size={18} />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
+          {publicNavItems.length > 0 && (
+            <div>
+              <p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Publik</p>
+              <div className="space-y-1">
+                {publicNavItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = currentPage === item.page;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => handleNavigate(item.page)}
+                      aria-label={item.ariaLabel}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                        isActive
+                          ? 'bg-white text-zinc-900 shadow-md'
+                          : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                      }`}
+                    >
+                      <Icon size={18} />
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Footer: Login/Logout & Ganti Password */}

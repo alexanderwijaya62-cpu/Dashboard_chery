@@ -316,6 +316,34 @@ const CompletedCarousel = ({ data, formatTime, setSelectedUnit }) => {
    const [displayCount, setDisplayCount] = useState(1);
    const timerRef = useRef(null);
 
+   const getCompletedTime = (item) => {
+      try {
+         const val = item.waktuSelesai || item.waktu_selesai;
+         if (val) {
+            if (typeof val === 'string' && (val.includes('T') || val.includes('-') || val.includes(':')) && isNaN(Number(val))) {
+               const date = new Date(val);
+               return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+            }
+            const n = parseInt(val);
+            if (!isNaN(n) && n > 0) {
+               const date = (n < 2000000000) ? new Date(n * 1000) : new Date(n);
+               return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+            }
+         }
+         const fallback = item.targetTime || item.target_time || item.id;
+         if (fallback) {
+            const n = parseInt(fallback);
+            if (!isNaN(n) && n > 0) {
+               const date = (n < 2000000000) ? new Date(n * 1000) : new Date(n);
+               return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+            }
+         }
+         return '--:--';
+      } catch {
+         return '--:--';
+      }
+   };
+
    const totalStops = Math.ceil(data.length / displayCount) || 1;
    const hasMultiple = data.length > displayCount;
    useEffect(() => { setIdx(i => Math.min(i, totalStops - 1)); }, [totalStops]);
@@ -361,7 +389,7 @@ const CompletedCarousel = ({ data, formatTime, setSelectedUnit }) => {
                   <div className="flex items-center gap-1.5 md:gap-2 mt-1 bg-emerald-500/10 px-2 md:px-3 py-0.5 rounded-full border border-emerald-500/20">
                      <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-emerald-500 animate-pulse" />
                      <span className="text-[9px] md:text-xs font-black text-emerald-600 uppercase tracking-widest whitespace-nowrap leading-none">
-                        Selesai {new Date(parseInt(item.targetTime || item.target_time || item.id)).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                        Selesai {getCompletedTime(item)}
                      </span>
                   </div>
                </div>

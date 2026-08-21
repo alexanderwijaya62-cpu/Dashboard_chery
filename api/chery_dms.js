@@ -31,8 +31,24 @@ function ensureEnvLoaded() {
 }
 ensureEnvLoaded();
 
-let cachedCookie = null;
-let currentLoginPromise = null;
+// Gunakan getter/setter pada global untuk cachedCookie & currentLoginPromise
+// agar bertahan saat modul di-import ulang oleh middleware Vite (?t=Timestamp)
+if (!Object.getOwnPropertyDescriptor(global, 'cachedCookie')) {
+    Object.defineProperty(global, 'cachedCookie', {
+        get() { return global._cheryDmsCookie || null; },
+        set(val) { global._cheryDmsCookie = val; },
+        configurable: true,
+        enumerable: true
+    });
+}
+if (!Object.getOwnPropertyDescriptor(global, 'currentLoginPromise')) {
+    Object.defineProperty(global, 'currentLoginPromise', {
+        get() { return global._cheryDmsLoginPromise || null; },
+        set(val) { global._cheryDmsLoginPromise = val; },
+        configurable: true,
+        enumerable: true
+    });
+}
 
 const httpsAgent = new https.Agent({
     keepAlive: true,
@@ -1153,6 +1169,39 @@ async function handleInternalPartStocks(req, res) {
     return res.status(500).json({ error: 'CRO login failed after 2 attempts' });
 }
 
+async function handlePartUpdateSparepart(req, res) {
+    const BASE = process.env.WARRANTY_BASE_URL;
+    const targetUrl = `${BASE}/aftersales/part/update-sparepart`;
+    let attempts = 0;
+    while (attempts < 2) {
+        if (!croCookie || Date.now() > croCookieExpiry) {
+            croCookie = await croLogin();
+        }
+        const response = await fetchWithHttps(targetUrl, {
+            headers: {
+                'Cookie': croCookie,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': `${BASE}/aftersales/part`,
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        });
+        const body = await response.text();
+        const isHtml = body.trimStart().startsWith('<');
+        if (response.status === 302 || response.status === 401 || isHtml) {
+            croCookie = null;
+            attempts++;
+            continue;
+        }
+        try {
+            return res.status(200).json(JSON.parse(body));
+        } catch {
+            return res.status(200).json({ success: true, message: 'Spareparts update triggered successfully', response: body.slice(0, 300) });
+        }
+    }
+    return res.status(500).json({ error: 'CRO login failed after 2 attempts' });
+}
+
 async function handleBookingCreate(req, res) {
     const BASE = process.env.WARRANTY_BASE_URL;
     let attempts = 0;
@@ -2053,10 +2102,11 @@ export default async function handler(req, res) {
         return res.status(200).json({ data: allData });
     }
 
-    if (endpoint === 'vehicle-select' || endpoint === 'internal-part-stocks' || endpoint.startsWith('booking-')) {
+    if (endpoint === 'vehicle-select' || endpoint === 'internal-part-stocks' || endpoint === 'part-update-sparepart' || endpoint.startsWith('booking-')) {
         try {
             if (endpoint === 'vehicle-select') return await handleVehicleSelect(req, res);
             if (endpoint === 'internal-part-stocks') return await handleInternalPartStocks(req, res);
+            if (endpoint === 'part-update-sparepart') return await handlePartUpdateSparepart(req, res);
             if (endpoint === 'booking-create') return await handleBookingCreate(req, res);
             if (endpoint === 'booking-reschedule') return await handleBookingReschedule(req, res);
             if (endpoint === 'booking-edit') return await handleBookingEdit(req, res);
@@ -2284,6 +2334,23 @@ export default async function handler(req, res) {
             
             if (endpoint === 'download_file') {
                 const fileId = req.query.id || '';
+                
+                // Check local cache
+                const DMS_CACHE_DIR = path.join(process.cwd(), 'dms_cache');
+                if (!fs.existsSync(DMS_CACHE_DIR)) {
+                    try { fs.mkdirSync(DMS_CACHE_DIR, { recursive: true }); } catch (e) {}
+                }
+                const cacheFilePath = path.join(DMS_CACHE_DIR, `${fileId}.pdf`);
+                if (fs.existsSync(cacheFilePath)) {
+                    console.log(`[DMS Proxy] Serving file from cache: ${fileId}`);
+                    const cachedBuf = fs.readFileSync(cacheFilePath);
+                    res.setHeader('Content-Type', 'application/pdf');
+                    if (req.query.inline === 'true') {
+                        res.setHeader('Content-Disposition', 'inline');
+                    }
+                    return res.status(200).send(cachedBuf);
+                }
+
                 const urls = [
                     `https://dms.chery.co.id/api/v1/files/download/${fileId}`,
                     `https://dms.chery.co.id/afterSales/api/v1/files/download/${fileId}`,
@@ -2315,6 +2382,15 @@ export default async function handler(req, res) {
                         res.setHeader('Content-Disposition', 'inline');
                     }
                     const buf = await fileResp.buffer();
+                    
+                    // Write to cache
+                    try {
+                        fs.writeFileSync(cacheFilePath, buf);
+                        console.log(`[DMS Proxy] Cached file locally: ${fileId}`);
+                    } catch (e) {
+                        console.error("DMS write cache error:", e);
+                    }
+                    
                     return res.status(200).send(buf);
                 }
                 const firstTry = await fetchWithHttps(urls[0], fetchOptions);
@@ -2482,6 +2558,9 @@ export default async function handler(req, res) {
 
                 data = { payload: { content: withDetails, totalPages: 1, totalElements: withDetails.length } };
                 break;
+            } else if (endpoint === 'jakarta-part-stock') {
+                const partCode = req.query.partCode || '';
+                targetUrl = `https://dms.chery.co.id/parts/api/v1/partStocks/forSaleOrder?partCode=${encodeURIComponent(partCode)}&isDealer=false`;
             } else if (endpoint === 'dms-part-stocks') {
                 targetUrl = `https://dms.chery.co.id/dms/parts/api/v1/partStocks/forRetail?pageIndex=${pageIndex}&pageSize=${pageSize}`;
                 if (code) targetUrl += `&partCode=${encodeURIComponent(code)}`;
@@ -2495,8 +2574,10 @@ export default async function handler(req, res) {
                 targetUrl = `https://dms.chery.co.id/parts/api/v1/partSaleOrders/${orderId}`;
             } else if (endpoint === 'part_shipments') {
                 const processCode = req.query.processCode || '';
+                const orderCode = req.query.orderCode || '';
                 targetUrl = `https://dms.chery.co.id/parts/api/v1/partShipments/forCurrentUser?pageIndex=${pageIndex}&pageSize=${pageSize}&isDesc=true&sortField=createTime`;
                 if (processCode) targetUrl += `&partSaleOrderProcessCode=${encodeURIComponent(processCode)}`;
+                if (orderCode) targetUrl += `&partSaleOrderCode=${encodeURIComponent(orderCode)}`;
             } else {
                 targetUrl = `https://dms.chery.co.id/parts/api/v1/partSalesProperties/forCurrentUser?pageSize=${pageSize}&status=${status}&pageIndex=${pageIndex}`;
                 if (code) targetUrl += `&code=${encodeURIComponent(code)}`;

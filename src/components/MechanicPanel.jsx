@@ -268,28 +268,12 @@ const MechanicPanel = ({ user, handleLogout, handleChangePassword, rawHistory = 
                                                         >
                                                             <FileText size={16} className="text-black" /> Task
                                                         </button>
-                                                        {item.estimasi === 0 ? (
-                                                            <>
-                                                                <button onClick={async () => { setIsLoadingProcess(true); try { await onComplete(item); } catch(e) {} setIsLoadingProcess(false); }}
-                                                                    disabled={isLoadingProcess}
-                                                                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-4 min-h-[44px] rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 border-2 border-emerald-700 shadow-lg"
-                                                                >
-                                                                    <CheckCircle2 size={16} /> Selesai
-                                                                </button>
-                                                                <button onClick={() => { setExtendingUnit(item); setExtraMinutes(30); setExtraReason(''); setShowExtensionModal(true); }}
-                                                                    className="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-4 min-h-[44px] rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 border-2 border-amber-700 shadow-lg"
-                                                                >
-                                                                    <Clock size={16} /> Tambah Waktu
-                                                                </button>
-                                                            </>
-                                                        ) : (
-                                                            <button onClick={async () => { setIsLoadingProcess(true); try { await onComplete(item); } catch(e) {} setIsLoadingProcess(false); }}
-                                                                disabled={isLoadingProcess}
-                                                                className={`flex-1 py-4 min-h-[44px] rounded-xl font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 border-2 ${isLoadingProcess ? 'bg-zinc-200 border-zinc-300 text-zinc-300 cursor-not-allowed' : 'bg-black hover:bg-zinc-800 text-white shadow-lg border-black'}`}
-                                                            >
-                                                                {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><CheckCircle2 size={16} /> Selesai</>}
-                                                            </button>
-                                                        )}
+                                                        <button onClick={async () => { setIsLoadingProcess(true); try { await onComplete(item); } catch(e) {} setIsLoadingProcess(false); }}
+                                                            disabled={isLoadingProcess}
+                                                            className={`flex-1 py-4 min-h-[44px] rounded-xl font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 border-2 ${isLoadingProcess ? 'bg-zinc-200 border-zinc-300 text-zinc-300 cursor-not-allowed' : 'bg-black hover:bg-zinc-800 text-white shadow-lg border-black'}`}
+                                                        >
+                                                            {isLoadingProcess ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><CheckCircle2 size={16} /> Selesai</>}
+                                                        </button>
                                                     </div>
                                                     {isAfter5PM && (
                                                         <div className="flex gap-2 mt-2">

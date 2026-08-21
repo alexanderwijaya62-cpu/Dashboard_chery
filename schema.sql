@@ -301,3 +301,37 @@ ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
 -- Allow anon to insert/delete for their own subscriptions (authenticated by no secret data)
 CREATE POLICY "anon_insert_push_sub" ON public.push_subscriptions FOR INSERT TO anon WITH CHECK (true);
 CREATE POLICY "anon_delete_push_sub" ON public.push_subscriptions FOR DELETE TO anon USING (true);
+
+-- ============================================================
+-- 17. FREE MAINTENANCE WARRANTY TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.free_maintenance (
+    id TEXT PRIMARY KEY, -- e.g. vm-1738734912903
+    kode_tipe TEXT NOT NULL,
+    nama_mobil TEXT NOT NULL,
+    drivetrain TEXT DEFAULT '4x2',
+    drive_layout TEXT DEFAULT 'FWD',
+    intervals JSONB DEFAULT '[]'::jsonb NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+ALTER TABLE public.free_maintenance ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "deny_all_anon" ON public.free_maintenance FOR ALL USING (false) WITH CHECK (false);
+
+-- ============================================================
+-- 18. STOCK OPNAME TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.stock_opname (
+    id BIGSERIAL PRIMARY KEY,
+    opname_no TEXT UNIQUE NOT NULL,
+    checker TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft', -- draft, confirmed
+    items JSONB DEFAULT '[]'::jsonb NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    confirmed_at TIMESTAMP WITH TIME ZONE
+);
+ALTER TABLE public.stock_opname ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "allow_all_authenticated" ON public.stock_opname FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "allow_anon_access_simplification" ON public.stock_opname FOR ALL TO anon USING (true) WITH CHECK (true);
+
+

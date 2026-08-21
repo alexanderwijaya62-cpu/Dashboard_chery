@@ -92,8 +92,130 @@ async function validateSessionLocal(req) {
 // Use ?action=login (POST) for login, or ?path=... for proxy
 // ============================================================
 
-// Global token cache in Node process memory to keep connection alive continuously
+// Global token cache in Node process memory & filesystem to keep connection alive continuously
 let globalEpcmToken = null;
+const TOKEN_FILE_PATH = nodePath.join(process.cwd(), 'epc_cache', 'epcm_token.txt');
+
+let currentLoginPromise = null;
+let lastLoginAttemptTime = 0;
+let tokenLastChecked = 0;
+let tokenIsActive = false;
+
+function clearSavedToken() {
+    globalEpcmToken = null;
+    try {
+        if (fs.existsSync(TOKEN_FILE_PATH)) {
+            fs.unlinkSync(TOKEN_FILE_PATH);
+        }
+    } catch (e) {}
+}
+
+function getSavedToken() {
+    if (globalEpcmToken) return globalEpcmToken;
+    try {
+        if (fs.existsSync(TOKEN_FILE_PATH)) {
+            globalEpcmToken = fs.readFileSync(TOKEN_FILE_PATH, 'utf8').trim();
+            return globalEpcmToken;
+        }
+    } catch (e) {
+        console.error("Error reading saved token file:", e);
+    }
+    return null;
+}
+
+function saveToken(tokenStr) {
+    let cleanToken = tokenStr.trim();
+    if (cleanToken.startsWith('Bearer ')) {
+        cleanToken = cleanToken.substring(7);
+    }
+    globalEpcmToken = cleanToken;
+    try {
+        const dir = nodePath.dirname(TOKEN_FILE_PATH);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(TOKEN_FILE_PATH, cleanToken, 'utf8');
+        return true;
+    } catch (e) {
+        console.error("Error writing token file:", e);
+        return false;
+    }
+}
+
+async function checkTokenStatus(tokenStr) {
+    if (!tokenStr) return { active: false };
+    const targetUrl = 'https://qrepcm.mychery.com/api/rest/base/auth/current';
+    const headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://qrepcm.mychery.com/',
+        'Accept': 'application/json',
+        'token': tokenStr.startsWith('Bearer') ? tokenStr : `Bearer ${tokenStr}`,
+        'Authorization': tokenStr.startsWith('Bearer') ? tokenStr : `Bearer ${tokenStr}`
+    };
+    try {
+        const response = await fetch(targetUrl, { method: 'GET', headers });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.data) {
+                return {
+                    active: true,
+                    username: data.data.username || '',
+                    name: data.data.name || ''
+                };
+            }
+        }
+    } catch (e) {
+        console.error("Error checking token status:", e);
+    }
+    return { active: false };
+}
+
+async function getOrRefreshToken() {
+    const cached = getSavedToken();
+    const now = Date.now();
+    
+    if (cached && tokenIsActive && (now - tokenLastChecked < 300000)) {
+        return cached;
+    }
+    
+    if (cached) {
+        const check = await checkTokenStatus(cached);
+        if (check.active) {
+            tokenIsActive = true;
+            tokenLastChecked = now;
+            return cached;
+        } else {
+            console.log("Cached EPCM token is inactive/expired. Clearing...");
+            clearSavedToken();
+            tokenIsActive = false;
+        }
+    }
+    
+    if (now - lastLoginAttemptTime < 60000) {
+        console.log("Silent login throttled (last attempt was too recent).");
+        return null;
+    }
+    
+    if (currentLoginPromise) {
+        return currentLoginPromise;
+    }
+    
+    lastLoginAttemptTime = now;
+    currentLoginPromise = performSilentLogin().then(token => {
+        currentLoginPromise = null;
+        if (token) {
+            tokenIsActive = true;
+            tokenLastChecked = Date.now();
+        } else {
+            tokenIsActive = false;
+        }
+        return token;
+    }).catch(err => {
+        currentLoginPromise = null;
+        tokenIsActive = false;
+        throw err;
+    });
+    
+    return currentLoginPromise;
+}
 
 async function performSilentLogin() {
     const username = process.env.DMS_USER;
@@ -141,7 +263,7 @@ async function performSilentLogin() {
         const result = JSON.parse(loginResult.text);
 
         if (result.success && result.data?.token) {
-            globalEpcmToken = result.data.token;
+            saveToken(result.data.token);
             return result.data.token;
         }
     } catch (e) {
@@ -184,9 +306,24 @@ export default async function handler(req, res) {
         return sendUnauthorized(req, res, authErr.message);
     }
 
+    // Route: ?action=save-token
+    if (req.query.action === 'save-token') {
+        const inputToken = req.query.token || req.body?.token || '';
+        if (!inputToken) return res.status(400).json({ success: false, message: "Token is required" });
+        const success = saveToken(inputToken);
+        return res.status(200).json({ success });
+    }
+
+    // Route: ?action=check-status
+    if (req.query.action === 'check-status') {
+        const currentToken = getSavedToken();
+        const status = await checkTokenStatus(currentToken);
+        return res.status(200).json({ success: true, ...status });
+    }
+
     // Route: ?action=get-active-token → return the currently active global token
     if (req.query.action === 'get-active-token') {
-        return res.status(200).json({ success: true, token: globalEpcmToken });
+        return res.status(200).json({ success: true, token: getSavedToken() });
     }
 
     // Route: ?action=token-bridge → HTML popup for fetching user's EPCM token
@@ -333,11 +470,7 @@ document.getElementById('sendBtn').onclick=function(){
         };
 
         // Resolve active token: backend-cached token has priority to avoid redundant auto-login on expired client tokens
-        let activeToken = globalEpcmToken || token;
-        if (!activeToken) {
-            console.log("No EPCM token available, performing initial silent login...");
-            activeToken = await performSilentLogin();
-        }
+        let activeToken = await getOrRefreshToken() || token;
 
         if (activeToken) {
             headers['token'] = activeToken.startsWith('Bearer') ? activeToken : `Bearer ${activeToken}`;
@@ -359,7 +492,9 @@ document.getElementById('sendBtn').onclick=function(){
         // Auto Refresh & Retry on HTTP 401 Unauthorized status
         if (response.status === 401 && !path.includes('/auth/')) {
             console.log("Token expired (401 status), attempting background auto-refresh & retry...");
-            const freshToken = await performSilentLogin();
+            tokenIsActive = false;
+            clearSavedToken();
+            const freshToken = await getOrRefreshToken();
             if (freshToken) {
                 headers['token'] = `Bearer ${freshToken}`;
                 headers['Authorization'] = headers['token'];

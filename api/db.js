@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
-const ALLOWED_TABLES = ['users','settings','antrian','history','booking','cro','libur','notifications','revenue','laporanwo','sparepart','customers','push_subscriptions','sparepart_master','sparepart_revenue','sales','free_maintenance'];
+const ALLOWED_TABLES = ['users','settings','antrian','history','booking','cro','libur','notifications','revenue','laporanwo','sparepart','customers','push_subscriptions','sparepart_master','sparepart_revenue','sales','free_maintenance','stock_opname','partshop_estimations'];
 
 // Default columns per table — cegah over-fetching saat client kirim select: '*'
 const DEFAULT_COLUMNS = {
@@ -20,6 +20,8 @@ const DEFAULT_COLUMNS = {
   libur: '*',
   push_subscriptions: '*',
   free_maintenance: '*',
+  stock_opname: '*',
+  partshop_estimations: '*',
 };
 
 export default async function handler(req, res) {
@@ -335,19 +337,48 @@ export default async function handler(req, res) {
       case 'delete': {
         // Booking: soft delete + audit siapa yang menghapus (Riwayat Hapus Booking)
         if (table === 'booking') {
+          let who = 'System';
+          let role = '';
           const { data: auditor } = await supabase
             .from('users')
             .select('name, role')
             .eq('username', authUsername)
             .maybeSingle();
-          const who = auditor?.name || authUsername || 'System';
+          if (auditor) {
+            who = auditor.name;
+            role = auditor.role;
+          } else {
+            // Check sales table
+            const { data: salesAuditor } = await supabase
+              .from('sales')
+              .select('name, role')
+              .eq('username', authUsername)
+              .maybeSingle();
+            if (salesAuditor) {
+              who = salesAuditor.name;
+              role = salesAuditor.role || 'sales';
+            } else {
+              // Check customers table
+              const { data: custAuditor } = await supabase
+                .from('customers')
+                .select('nama')
+                .eq('no_hp', authUsername)
+                .maybeSingle();
+              if (custAuditor) {
+                who = custAuditor.nama;
+                role = 'customer';
+              } else {
+                who = authUsername || 'System';
+              }
+            }
+          }
           const nowWib = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Jakarta' });
           q = supabase
             .from('booking')
             .update({
               status: 'deleted',
               deleted_by: who,
-              deleted_by_role: auditor?.role || '',
+              deleted_by_role: role,
               deleted_at: nowWib,
             });
           if (filters && filters.length > 0) {

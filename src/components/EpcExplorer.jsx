@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { 
-  Search, Car, Layers, Folder, Plus, Loader2, ChevronRight, ChevronDown, 
+  Search, Car, Layers, Folder, Plus, Loader2, ChevronRight, ChevronDown, ChevronUp,
   Image as ImageIcon, Info, Eye, Key, RefreshCw, LogIn, Printer, ChevronLeft, 
   ImageOff, Trash2, Minus, ShoppingCart
 } from 'lucide-react';
@@ -28,9 +28,101 @@ export default function EpcExplorer({
   // Part detail selection & tabs
   const [selectedPartRow, setSelectedPartRow] = useState(null);
   const [activeDetailTab, setActiveDetailTab] = useState('info');
+  const [isCartExpanded, setIsCartExpanded] = useState(false);
 
   // Frontend cache for partlist details JSON to prevent double loading
   const [partlistCache, setPartlistCache] = useState({});
+
+  // EPCM Global Status
+  const [epcmStatus, setEpcmStatus] = useState({ active: false, name: '' });
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+
+  const checkStatus = async () => {
+    setIsCheckingStatus(true);
+    try {
+      let authUsername = '';
+      try {
+        const u = JSON.parse(localStorage.getItem('chery_auth_user') || '{}');
+        authUsername = u.username || '';
+      } catch (e) {}
+      const authSessionId = localStorage.getItem('chery_session_id') || '';
+      
+      const resp = await fetch('/api/chery_epc?action=check-status', {
+        headers: {
+          'X-Auth-Username': authUsername,
+          'X-Auth-Session-Id': authSessionId
+        }
+      });
+      const data = await resp.json();
+      if (data.success) {
+        setEpcmStatus({ active: data.active, name: data.name || '' });
+        if (data.active && !epcmToken) {
+          const tResp = await fetch('/api/chery_epc?action=get-active-token', {
+            headers: {
+              'X-Auth-Username': authUsername,
+              'X-Auth-Session-Id': authSessionId
+            }
+          });
+          const tData = await tResp.json();
+          if (tData.success && tData.token) {
+            setEpcmToken(tData.token);
+            localStorage.setItem('chery_epcm_token', tData.token);
+          }
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsCheckingStatus(false);
+    }
+  };
+
+  React.useEffect(() => {
+    checkStatus();
+  }, [epcmToken]);
+
+  const handleTokenChange = async (rawToken) => {
+    let cleanToken = rawToken.trim();
+    if (cleanToken.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(cleanToken);
+        if (parsed.data?.token) {
+          cleanToken = parsed.data.token;
+        } else if (parsed.token) {
+          cleanToken = parsed.token;
+        }
+      } catch (e) {}
+    }
+    if (cleanToken.startsWith('Bearer ')) {
+      cleanToken = cleanToken.substring(7);
+    }
+    
+    setEpcmToken(cleanToken);
+    localStorage.setItem('chery_epcm_token', cleanToken);
+    
+    let authUsername = '';
+    try {
+      const u = JSON.parse(localStorage.getItem('chery_auth_user') || '{}');
+      authUsername = u.username || '';
+    } catch (e) {}
+    const authSessionId = localStorage.getItem('chery_session_id') || '';
+    
+    try {
+      const resp = await fetch(`/api/chery_epc?action=save-token&token=${encodeURIComponent(cleanToken)}`, {
+        headers: {
+          'X-Auth-Username': authUsername,
+          'X-Auth-Session-Id': authSessionId
+        }
+      });
+      const data = await resp.json();
+      if (data.success) {
+        Toastify({ text: "✅ Token EPCM disimpan secara global!", style: { background: "#10b981" } }).showToast();
+        checkStatus();
+      }
+    } catch (e) {
+      console.error("Save global token error:", e);
+    }
+  };
 
   // Global part search states
   const [searchPartNo, setSearchPartNo] = useState('');
@@ -237,7 +329,7 @@ export default function EpcExplorer({
 
   // Search VIN
   const handleVinSearch = async () => {
-    if (!epcmToken) {
+    if (!epcmToken && !epcmStatus.active) {
       Toastify({ text: "❌ Token EPCM belum diatur!", style: { background: "#ef4444" } }).showToast();
       return;
     }
@@ -395,7 +487,7 @@ export default function EpcExplorer({
   };
 
   // Load Partlist Details (Exploded View Image & Parts Table)
-  const handleSelectPartlist = async (node, highlightCode = null) => {
+  const handleSelectPartlist = async (node, highlightCode = null, customRootId = null) => {
     setSelectedPartlist(node);
     setSelectedPartRow(null);
     setZoomScale(1);
@@ -420,6 +512,7 @@ export default function EpcExplorer({
       if (selectedRow) {
         setSelectedPartRow(selectedRow);
       }
+      setIsLoadingDetails(false);
       return;
     }
 
@@ -430,7 +523,7 @@ export default function EpcExplorer({
       const modelCode = modelInfo?.applic 
         ? modelInfo.applic.replace(/[()]/g, '').split('modelCode=')[1] || modelInfo.code 
         : '';
-      const rootId = modelInfo?.id || (treeData && treeData[0]?.id) || 1121216;
+      const rootId = customRootId || modelInfo?.id || (treeData && treeData[0]?.id) || 1121216;
 
       const resp = await fetch(`${CHERY_EPC_URL}?path=${encodeURIComponent(`/api/rest/model/partlist/${node.id}?rootId=${rootId}`)}`, {
         method: 'POST',
@@ -491,7 +584,7 @@ export default function EpcExplorer({
 
   // Global EPCM Part Search across the entire model
   const handleGlobalPartSearch = async () => {
-    if (!epcmToken) {
+    if (!epcmToken && !epcmStatus.active) {
       Toastify({ text: "❌ Token EPCM belum diatur!", style: { background: "#ef4444" } }).showToast();
       return;
     }
@@ -645,6 +738,20 @@ export default function EpcExplorer({
         throw new Error("ID lokasi partlist tidak ditemukan.");
       }
 
+      let pathRootId = null;
+      const pathData = pathResult.data || pathResult;
+      if (Array.isArray(pathData)) {
+        for (const pItem of pathData) {
+          if (Array.isArray(pItem.paths)) {
+            const rootNode = pItem.paths.find(x => x.ref === 'ModelRoot');
+            if (rootNode && rootNode.id) {
+              pathRootId = rootNode.id;
+              break;
+            }
+          }
+        }
+      }
+
       const partCode = item.code || item.childCode || item.partCode || item.partNumber || '';
       setTargetHighlightCode(partCode);
 
@@ -652,7 +759,7 @@ export default function EpcExplorer({
         id: targetPartlistId,
         name: targetNodeName,
         objectType: 'Partlist'
-      }, partCode);
+      }, partCode, pathRootId);
     } catch (e) {
       console.error(e);
       Toastify({ text: "❌ Gagal mengarahkan lokasi: " + e.message, style: { background: "#ef4444" }, duration: 6000 }).showToast();
@@ -713,7 +820,7 @@ export default function EpcExplorer({
   };
 
   return (
-    <div className="w-full space-y-4">
+    <div className={`w-full ${user?.role?.toLowerCase() === 'partshop' ? 'px-6 py-2 max-w-none' : ''} space-y-4`}>
       {/* Unified Toolbar Bar */}
       <div className="bg-white border border-zinc-200 rounded-lg p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
         {/* Left: VIN Search input */}
@@ -738,18 +845,26 @@ export default function EpcExplorer({
           </button>
         </div>
 
-        {/* Right: Token management only for Owner */}
+        {/* Right: Token management only for Owner & Sparepart */}
         <div className="flex items-center gap-3">
-          {user?.role === 'owner' && (
+          {/* EPCM Status Badge always visible to show status */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 rounded-md border border-zinc-200">
+            <span className={`w-2 h-2 rounded-full ${epcmStatus.active ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
+            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-650">
+              EPCM: {epcmStatus.active ? (epcmStatus.name ? `Active (${epcmStatus.name})` : 'Active') : 'Inactive'}
+            </span>
+          </div>
+
+          {['owner', 'sparepart'].includes(user?.role?.toLowerCase()) && (
              <div className="flex items-center gap-2 bg-zinc-50 border border-zinc-200 rounded-md p-1 pr-4 focus-within:border-zinc-900 transition-all h-[36px]">
                 <div className="flex items-center gap-2 pl-3">
                   <Key size={14} className={epcmToken ? "text-zinc-900" : "text-zinc-400"} />
                   <input 
                     type={showToken ? "text" : "password"}
                     value={epcmToken}
-                    onChange={(e) => setEpcmToken(e.target.value)}
-                    placeholder="EPCM Token..."
-                    className="bg-transparent border-none text-xs text-zinc-900 placeholder:text-zinc-350 focus:ring-0 w-32 py-1"
+                    onChange={(e) => handleTokenChange(e.target.value)}
+                    placeholder="Paste EPCM Token / JSON..."
+                    className="bg-transparent border-none text-xs text-zinc-900 placeholder:text-zinc-350 focus:ring-0 w-36 py-1"
                   />
                   <button
                     type="button"
@@ -841,12 +956,92 @@ export default function EpcExplorer({
                       return (
                         <div 
                           key={idx}
-                          onClick={() => handleSelectSearchResult(item)}
-                          className="py-1.5 cursor-pointer hover:bg-zinc-200 rounded px-1 transition-all text-[9.5px] space-y-0.5"
+                          className="py-2 hover:bg-zinc-150 rounded px-1.5 transition-all text-[9.5px] space-y-1.5 border-b border-zinc-100 relative group/searchitem"
                         >
-                          <div className="font-bold text-zinc-950 truncate font-mono">{pNo}</div>
-                          <div className="text-zinc-600 truncate uppercase font-semibold">{pName}</div>
-                          <div className="text-zinc-400 text-[8.5px] truncate">📍 {chName} (Pos: {posNum})</div>
+                          <div className="cursor-pointer" onClick={() => handleSelectSearchResult(item)}>
+                            <div className="font-bold text-zinc-950 truncate font-mono">{pNo}</div>
+                            <div className="text-zinc-600 truncate uppercase font-semibold">{pName}</div>
+                            <div className="text-zinc-400 text-[8.5px] truncate">📍 {chName} (Pos: {posNum})</div>
+                          </div>
+                          <div className="flex justify-end pt-0.5">
+                            <button
+                              onClick={async () => {
+                                let imageUrl = null;
+                                
+                                // 1. Try to find in current active parts list
+                                const activeParts = getPartsArray();
+                                const matchingPart = activeParts.find(p => ((p.childCode || p.code) === pNo));
+                                if (matchingPart) {
+                                  const firstImgId = matchingPart.imageIds?.[0] || matchingPart.digifaxImageIds?.[0] || matchingPart.fileIds?.[0] || matchingPart.imageId || null;
+                                  if (firstImgId) {
+                                    imageUrl = `${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/base/file/view/${firstImgId}`)}${getAuthQueryParams()}`;
+                                  }
+                                }
+                                
+                                // 2. Fallback: Fetch partlist details from EPCM API (POST request with catalog model body)
+                                if (!imageUrl && item.partlistId) {
+                                  try {
+                                    const rootId = modelInfo?.id || (treeData && treeData[0]?.id) || 1501945;
+                                    const modelCode = modelInfo?.applic 
+                                      ? modelInfo.applic.replace(/[()]/g, '').split('modelCode=')[1] || modelInfo.code 
+                                      : '';
+                                    const bodyObj = {
+                                      applic: modelInfo?.applic || '',
+                                      rootId: rootId,
+                                      partlistId: item.partlistId,
+                                      code0: modelInfo?.code0 || "CHERY",
+                                      code1: modelCode,
+                                      code2: modelInfo?.code2 || "",
+                                      code3: modelCode,
+                                      config: selectedVin,
+                                      config1: modelInfo?.config1 || "",
+                                      kd: modelInfo?.kd !== undefined ? modelInfo.kd : true,
+                                      lang: "en_US",
+                                      name1: modelInfo?.name1 || "",
+                                      plant: modelInfo?.plant || "",
+                                      vinSearch: false
+                                    };
+                                    
+                                    const resp = await fetch(`${CHERY_EPC_URL}?path=${encodeURIComponent(`/api/rest/model/partlist/${item.partlistId}?rootId=${rootId}`)}`, {
+                                      method: 'POST',
+                                      headers: {
+                                        'Content-Type': 'application/json',
+                                        'token': epcmToken
+                                      },
+                                      body: JSON.stringify(bodyObj)
+                                    });
+                                    const result = await resp.json();
+                                    const actualDetails = result.data?.data || result.data || {};
+                                    const partsList = actualDetails.items || actualDetails.content || [];
+                                    const found = partsList.find(p => ((p.childCode || p.code) === pNo));
+                                    if (found) {
+                                      const firstImgId = found.imageIds?.[0] || found.digifaxImageIds?.[0] || found.fileIds?.[0] || found.imageId || null;
+                                      if (firstImgId) {
+                                        imageUrl = `${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/base/file/view/${firstImgId}`)}${getAuthQueryParams()}`;
+                                      }
+                                    }
+                                  } catch (e) {
+                                    console.error("Gagal mengambil detail partlist untuk gambar search:", e);
+                                  }
+                                }
+
+                                const modelName = modelInfo?.jsonProperties?.iba_model || 
+                                                  modelInfo?.applic?.replace(/[()]/g, '').split('modelCode=')[1] || 
+                                                  modelInfo?.code || 
+                                                  'OTHER';
+                                onAddPart({
+                                  code: pNo,
+                                  name: pName,
+                                  retailGuidePrice: 0,
+                                  image: imageUrl,
+                                  models: modelName
+                                });
+                              }}
+                              className="px-2 py-0.5 bg-black hover:bg-zinc-800 text-white rounded text-[8.5px] font-black uppercase tracking-wider transition-all flex items-center gap-1 active:scale-95 shadow-sm"
+                            >
+                              <Plus size={9} /> Tambah Part
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
@@ -870,8 +1065,8 @@ export default function EpcExplorer({
           )}
         </div>
 
-        {/* Column 2: Exploded View Drawing & Parts Table (lg:col-span-7) */}
-        <div className="lg:col-span-7 bg-zinc-50/30 p-4 flex flex-col space-y-4 max-h-[85vh] overflow-y-auto border-r border-zinc-200">
+        {/* Column 2: Exploded View Drawing (lg:col-span-6) */}
+        <div className="lg:col-span-6 bg-zinc-50/30 p-4 flex flex-col space-y-4 max-h-[85vh] overflow-y-auto border-r border-zinc-200">
           {!selectedPartlist ? (
             <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 gap-3 h-96">
               <ImageIcon size={48} className="opacity-10 text-zinc-900" />
@@ -883,418 +1078,359 @@ export default function EpcExplorer({
               <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">Memuat detail partlist...</p>
             </div>
           ) : (
-            <>
-              {/* Exploded View Image Container */}
-              <div 
-                className="bg-white border border-zinc-200 rounded-lg p-3 flex flex-col items-center justify-center h-[350px] shadow-sm relative overflow-hidden group/img select-none cursor-grab active:cursor-grabbing"
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUpOrLeave}
-                onMouseLeave={handleMouseUpOrLeave}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-              >
-                {/* Floating Zoom Controls */}
-                {getDrawingImageId() && (
-                  <div className="absolute bottom-2 right-2 flex gap-1 bg-zinc-950/90 text-white rounded-md p-1 shadow-lg z-20">
-                    <button 
-                      type="button" 
-                      onClick={handleZoomIn} 
-                      className="w-6 h-6 flex items-center justify-center hover:bg-zinc-800 rounded font-black text-xs transition-all"
-                      title="Zoom In"
-                    >
-                      +
-                    </button>
-                    <button 
-                      type="button" 
-                      onClick={handleZoomOut} 
-                      className="w-6 h-6 flex items-center justify-center hover:bg-zinc-800 rounded font-black text-xs transition-all"
-                      title="Zoom Out"
-                    >
-                      -
-                    </button>
-                    <button 
-                      type="button" 
-                      onClick={handleResetZoom} 
-                      className="px-2 h-6 flex items-center justify-center hover:bg-zinc-800 rounded font-black text-[8px] uppercase tracking-wider transition-all"
-                      title="Reset 1:1"
-                    >
-                      1:1
-                    </button>
-                  </div>
-                )}
-
-                {getDrawingImageId() ? (
-                  <div 
-                    className="w-full h-full relative flex items-center justify-center transition-transform duration-100 ease-out"
-                    style={{
-                      transform: `scale(${zoomScale}) translate(${panOffset.x / zoomScale}px, ${panOffset.y / zoomScale}px)`,
-                      transformOrigin: 'center center',
-                    }}
+            <div 
+              className="bg-white border border-zinc-200 rounded-lg p-3 flex flex-col items-center justify-center h-[620px] shadow-sm relative overflow-hidden group/img select-none cursor-grab active:cursor-grabbing"
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUpOrLeave}
+              onMouseLeave={handleMouseUpOrLeave}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
+              {/* Floating Zoom Controls */}
+              {getDrawingImageId() && (
+                <div className="absolute bottom-2 right-2 flex gap-1 bg-zinc-950/90 text-white rounded-md p-1 shadow-lg z-20">
+                  <button 
+                    type="button" 
+                    onClick={handleZoomIn} 
+                    className="w-6 h-6 flex items-center justify-center hover:bg-zinc-800 rounded font-black text-xs transition-all"
+                    title="Zoom In"
                   >
-                    <img 
-                      ref={imgRef}
-                      src={`${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/base/file/view/${getDrawingImageId()}`)}${getAuthQueryParams()}`}
-                      className="w-full h-full object-contain p-1 pointer-events-none" 
-                      alt="Exploded View Drawing" 
-                    />
-                    
-                    {/* Highlight Box Overlay */}
-                    {getCoordinates()?.map((coord, idx) => {
-                      const rendered = getRenderedCoords(coord);
-                      if (!rendered) return null;
-                      return (
-                        <div 
-                          key={idx}
-                          className="absolute border-2 border-red-500 bg-red-500/20 rounded pointer-events-none animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)] z-10"
-                          style={{
-                            left: `${rendered.left}px`,
-                            top: `${rendered.top}px`,
-                            width: `${rendered.width}px`,
-                            height: `${rendered.height}px`,
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-center space-y-2 text-zinc-400">
-                    <ImageOff size={32} className="mx-auto text-zinc-350" />
-                    <p className="text-[10px] font-black text-zinc-800 uppercase tracking-widest">Mohon maaf, image tidak ada</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Table of Parts (Stacked below image) */}
-              <div className="flex flex-col h-[300px] justify-between">
-                <div className="space-y-2 flex-1 flex flex-col min-h-0">
-                  <div className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Parts List ({getPartsArray().length} items)</div>
-                  
-                  <div 
-                    className="border border-zinc-200 rounded-lg bg-white shadow-sm flex-1 overflow-y-auto overflow-x-auto custom-scrollbar p-2"
-                    style={{ maxHeight: '250px', WebkitOverflowScrolling: 'touch' }}
+                    +
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={handleZoomOut} 
+                    className="w-6 h-6 flex items-center justify-center hover:bg-zinc-800 rounded font-black text-xs transition-all"
+                    title="Zoom Out"
                   >
-                    {/* Desktop View (Table layout) - hidden on mobile */}
-                    <table className="w-full text-left border-collapse min-w-[500px] hidden md:table">
-                      <thead>
-                        <tr className="bg-zinc-50 border-b border-zinc-200 text-[10px] font-black text-zinc-500 uppercase tracking-wider sticky top-0 z-10">
-                          <th className="py-2 px-3 w-10 text-center">Pos</th>
-                          <th className="py-2 px-3">Part Code</th>
-                          <th className="py-2 px-3">Part Name</th>
-                          <th className="py-2 px-3 w-10 text-center">Qty</th>
-                          <th className="py-2 px-3 w-12 text-center">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-200 text-xs font-semibold text-zinc-700">
-                        {getPartsArray().length === 0 ? (
-                          <tr>
-                            <td colSpan="5" className="py-8 text-center text-zinc-400 italic">Tidak ada part item di daftar ini</td>
-                          </tr>
-                        ) : (
-                          getPartsArray().map((part, idx) => {
-                            const partNum = part.childCode || part.code || part.partCode || part.partNumber || '-';
-                            const partName = part.partNameEn || part.childName || part.name || part.partName || part.chineseName || '-';
-                            const position = (part.ballNumber || part.bomLineId || part.lineNumber || part.pos || '').toString().trim() || (idx + 1);
-                            const qty = part.jsonProperties?.iba_quantity || part.dosage || part.qty || part.quantity || 1;
-                            const isRowSelected = selectedPartRow?.id === part.id;
-                            
-                            return (
-                              <tr 
-                                key={idx} 
-                                onClick={() => setSelectedPartRow(part)}
-                                className={`cursor-pointer transition-colors ${isRowSelected ? 'bg-zinc-900 text-white' : 'hover:bg-zinc-50'}`}
-                              >
-                                <td className={`py-2 px-3 text-center font-black ${isRowSelected ? 'text-white' : 'text-emerald-600'}`}>{position}</td>
-                                <td className={`py-2 px-3 font-mono font-bold ${isRowSelected ? 'text-white' : 'text-zinc-950'}`}>{partNum}</td>
-                                <td className={`py-2 px-3 uppercase truncate max-w-[200px] ${isRowSelected ? 'text-white' : ''}`}>{partName}</td>
-                                <td className="py-2 px-3 text-center">{qty}</td>
-                                <td className="py-2 px-3 text-center" onClick={(e) => e.stopPropagation()}>
-                                  <button
-                                    onClick={() => {
-                                      const firstImgId = (part.imageIds?.[0] || part.digifaxImageIds?.[0] || part.fileIds?.[0] || part.imageId);
-                                      const imageUrl = firstImgId ? `${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/base/file/view/${firstImgId}`)}${getAuthQueryParams()}` : null;
-                                      const modelName = modelInfo?.jsonProperties?.iba_model || 
-                                                        modelInfo?.applic?.replace(/[()]/g, '').split('modelCode=')[1] || 
-                                                        modelInfo?.code || 
-                                                        'OTHER';
-                                      onAddPart({
-                                        code: partNum,
-                                        name: partName,
-                                        retailGuidePrice: 0,
-                                        image: imageUrl,
-                                        models: modelName
-                                      });
-                                    }}
-                                    className={`p-1 rounded-md border transition-all active:scale-90
-                                      ${isRowSelected 
-                                        ? 'bg-zinc-800 border-zinc-700 text-white hover:bg-white hover:text-zinc-950' 
-                                        : 'bg-zinc-50 hover:bg-zinc-900 border-zinc-200 text-zinc-600 hover:text-white'}`}
-                                    title="Add to Quotation Document"
-                                  >
-                                    <Plus size={11} />
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-
-                    {/* Mobile View (Card List layout) - shown only on mobile */}
-                    <div className="block md:hidden space-y-2">
-                      {getPartsArray().length === 0 ? (
-                        <div className="py-8 text-center text-zinc-400 italic text-xs">Tidak ada part item di daftar ini</div>
-                      ) : (
-                        getPartsArray().map((part, idx) => {
-                          const partNum = part.childCode || part.code || part.partCode || part.partNumber || '-';
-                          const partName = part.partNameEn || part.childName || part.name || part.partName || part.chineseName || '-';
-                          const position = (part.ballNumber || part.bomLineId || part.lineNumber || part.pos || '').toString().trim() || (idx + 1);
-                          const qty = part.jsonProperties?.iba_quantity || part.dosage || part.qty || part.quantity || 1;
-                          const isRowSelected = selectedPartRow?.id === part.id;
-                          
-                          return (
-                            <div 
-                              key={idx}
-                              onClick={() => setSelectedPartRow(part)}
-                              className={`p-3 rounded-lg border transition-all cursor-pointer flex justify-between items-center gap-2
-                                ${isRowSelected ? 'bg-zinc-900 border-zinc-900 text-white shadow-sm' : 'bg-white border-zinc-200 hover:border-zinc-300'}`}
-                            >
-                              <div className="min-w-0 space-y-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${isRowSelected ? 'bg-zinc-800 text-white' : 'bg-zinc-150 text-zinc-650'}`}>
-                                    Pos {position}
-                                  </span>
-                                  <span className={`font-mono font-bold text-xs ${isRowSelected ? 'text-white' : 'text-zinc-900'}`}>
-                                    {partNum}
-                                  </span>
-                                </div>
-                                <div className={`text-[10px] uppercase font-bold truncate max-w-[210px] ${isRowSelected ? 'text-zinc-350' : 'text-zinc-750'}`} title={partName}>
-                                  {partName}
-                                </div>
-                                <div className={`text-[9px] font-medium ${isRowSelected ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                                  Quantity: <span className="font-bold">{qty}</span>
-                                </div>
-                              </div>
-                              
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const firstImgId = (part.imageIds?.[0] || part.digifaxImageIds?.[0] || part.fileIds?.[0] || part.imageId);
-                                  const imageUrl = firstImgId ? `${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/base/file/view/${firstImgId}`)}${getAuthQueryParams()}` : null;
-                                  const modelName = modelInfo?.jsonProperties?.iba_model || 
-                                                    modelInfo?.applic?.replace(/[()]/g, '').split('modelCode=')[1] || 
-                                                    modelInfo?.code || 
-                                                    'OTHER';
-                                  onAddPart({
-                                    code: partNum,
-                                    name: partName,
-                                    retailGuidePrice: 0,
-                                    image: imageUrl,
-                                    models: modelName
-                                  });
-                                }}
-                                className={`p-2 rounded-lg border transition-all active:scale-90 shrink-0
-                                  ${isRowSelected 
-                                    ? 'bg-zinc-800 border-zinc-700 text-white hover:bg-white hover:text-zinc-900' 
-                                    : 'bg-zinc-50 border-zinc-200 text-zinc-700 hover:bg-zinc-950 hover:text-white'}`}
-                              >
-                                <Plus size={12} />
-                              </button>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Selected Part Specifications & Tabs */}
-              {selectedPartRow && (
-                <div className="bg-white border border-zinc-200 rounded-lg p-4 shadow-sm space-y-3">
-                  <div className="flex border-b border-zinc-200 gap-4">
-                    <button
-                      onClick={() => setActiveDetailTab('info')}
-                      className={`pb-2 font-black text-[10px] uppercase tracking-wider border-b-2 transition-all flex items-center gap-1
-                        ${activeDetailTab === 'info' 
-                          ? 'border-zinc-950 text-zinc-950' 
-                          : 'border-transparent text-zinc-400 hover:text-zinc-600'}`}
-                    >
-                      <Info size={12} />
-                      Info
-                    </button>
-                    <button
-                      onClick={() => setActiveDetailTab('photos')}
-                      className={`pb-2 font-black text-[10px] uppercase tracking-wider border-b-2 transition-all flex items-center gap-1
-                        ${activeDetailTab === 'photos' 
-                          ? 'border-zinc-950 text-zinc-950' 
-                          : 'border-transparent text-zinc-400 hover:text-zinc-600'}`}
-                    >
-                      <Eye size={12} />
-                      Real Photos ({(selectedPartRow.imageIds?.length || 0) + (selectedPartRow.digifaxImageIds?.length || 0)})
-                    </button>
-                  </div>
-
-                  {activeDetailTab === 'info' && (
-                    <div className="grid grid-cols-3 gap-4 text-[11px] text-zinc-700">
-                      <div>
-                        <span className="font-bold text-zinc-400 uppercase text-[8.5px] block">Part Number</span>
-                        <span className="font-black text-zinc-900 font-mono">{selectedPartRow.childCode || selectedPartRow.code || '-'}</span>
-                      </div>
-                      <div>
-                        <span className="font-bold text-zinc-400 uppercase text-[8.5px] block">Part Name</span>
-                        <span className="font-black text-zinc-900 uppercase truncate block">{selectedPartRow.partNameEn || selectedPartRow.childName || selectedPartRow.name || '-'}</span>
-                      </div>
-                      <div>
-                        <span className="font-bold text-zinc-400 uppercase text-[8.5px] block">Quantity</span>
-                        <span className="font-bold text-zinc-800">{selectedPartRow.jsonProperties?.iba_quantity || selectedPartRow.dosage || 1}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {activeDetailTab === 'photos' && (
-                    <div className="space-y-2">
-                      {getProductImageIds().length === 0 ? (
-                        <div className="py-4 text-center text-zinc-400 italic text-[11px]">
-                          Belum ada foto produk asli untuk part ini.
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap gap-2">
-                          {getProductImageIds().map((imgId, idx) => (
-                             <div 
-                               key={idx}
-                               onClick={() => handleOpenLightbox(idx)}
-                               className="w-12 h-12 bg-zinc-50 border border-zinc-200 rounded p-1 flex items-center justify-center hover:border-zinc-900 transition-all overflow-hidden relative shadow-sm cursor-pointer"
-                             >
-                               <img 
-                                 src={`https://qrepcm.mychery.com/api/rest/base/file/view/${imgId}?token=${encodeURIComponent(epcmToken.startsWith('Bearer') ? epcmToken : `Bearer ${epcmToken}`)}`}
-                                 className="w-full h-full object-contain"
-                                 alt=""
-                               />
-                             </div>
-                           ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                    -
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={handleResetZoom} 
+                    className="px-2 h-6 flex items-center justify-center hover:bg-zinc-800 rounded font-black text-[8px] uppercase tracking-wider transition-all"
+                    title="Reset 1:1"
+                  >
+                    1:1
+                  </button>
                 </div>
               )}
-            </>
+
+              {getDrawingImageId() ? (
+                <div 
+                  className="w-full h-full relative flex items-center justify-center transition-transform duration-100 ease-out"
+                  style={{
+                    transform: `scale(${zoomScale}) translate(${panOffset.x / zoomScale}px, ${panOffset.y / zoomScale}px)`,
+                    transformOrigin: 'center center',
+                  }}
+                >
+                  <img 
+                    ref={imgRef}
+                    src={`${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/base/file/view/${getDrawingImageId()}`)}${getAuthQueryParams()}`}
+                    className="w-full h-full object-contain p-1 pointer-events-none" 
+                    alt="Exploded View Drawing" 
+                  />
+                  
+                  {/* Highlight Box Overlay */}
+                  {getCoordinates()?.map((coord, idx) => {
+                    const rendered = getRenderedCoords(coord);
+                    if (!rendered) return null;
+                    return (
+                      <div 
+                        key={idx}
+                        className="absolute border-2 border-red-500 bg-red-500/20 rounded pointer-events-none animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)] z-10"
+                        style={{
+                          left: `${rendered.left}px`,
+                          top: `${rendered.top}px`,
+                          width: `${rendered.width}px`,
+                          height: `${rendered.height}px`,
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center space-y-2 text-zinc-400">
+                  <ImageOff size={32} className="mx-auto text-zinc-350" />
+                  <p className="text-[10px] font-black text-zinc-800 uppercase tracking-widest">Mohon maaf, image tidak ada</p>
+                </div>
+              )}
+            </div>
           )}
         </div>
 
-        {/* Column 3: Cart Estimasi Panel (lg:col-span-3) */}
-        <div className="lg:col-span-3 bg-white p-4 flex flex-col justify-between max-h-[85vh] overflow-y-auto">
-          <div className="flex flex-col flex-1 min-h-0">
-            {/* Cart Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 mb-3 shrink-0">
-              <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-1.5 text-zinc-900">
-                <ShoppingCart size={14} className="text-zinc-650" />
-                Cart Estimasi ({selectedParts.length})
-              </h3>
-              {selectedParts.length > 0 && (
-                <button 
-                  onClick={() => setSelectedParts([])}
-                  className="text-[10px] font-black uppercase text-red-650 hover:text-red-750 transition-colors"
+        {/* Column 3: Parts List & Specs (lg:col-span-4) */}
+        <div className="lg:col-span-4 bg-white p-4 flex flex-col space-y-4 max-h-[85vh] overflow-y-auto border-l border-zinc-200 custom-scrollbar">
+          {/* Parts List Section */}
+          <div className="space-y-2 flex-grow flex flex-col min-h-[300px]">
+            <div className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Parts List ({getPartsArray().length} items)</div>
+            
+            <div 
+              className="border border-zinc-200 rounded-lg bg-white shadow-sm flex-1 overflow-y-auto overflow-x-auto custom-scrollbar p-2"
+              style={{ maxHeight: '420px', WebkitOverflowScrolling: 'touch' }}
+            >
+              {/* Desktop View (Table layout) - hidden on mobile */}
+              <table className="w-full text-left border-collapse min-w-[300px] hidden md:table">
+                <thead>
+                  <tr className="bg-zinc-50 border-b border-zinc-200 text-[10px] font-black text-zinc-500 uppercase tracking-wider sticky top-0 z-10">
+                    <th className="py-2 px-2 w-8 text-center">Pos</th>
+                    <th className="py-2 px-2">Code</th>
+                    <th className="py-2 px-2">Name</th>
+                    <th className="py-2 px-2 w-8 text-center">Qty</th>
+                    <th className="py-2 px-2 w-8 text-center"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {getPartsArray().length === 0 ? (
+                    <tr>
+                      <td colSpan="5" className="py-4 text-center text-zinc-400 italic text-xs">
+                        Tidak ada part untuk drawing ini
+                      </td>
+                    </tr>
+                  ) : (
+                    getPartsArray().map((row, index) => {
+                      const partNum = row.childCode || row.code || '';
+                      const partName = row.partNameEn || row.childName || row.name || '';
+                      const isRowSelected = selectedPartRow && (selectedPartRow.childCode === partNum || selectedPartRow.code === partNum);
+                      return (
+                        <tr 
+                          key={index} 
+                          onClick={() => setSelectedPartRow(row)}
+                          className={`border-b border-zinc-100 text-xs font-semibold cursor-pointer transition-colors
+                            ${isRowSelected 
+                              ? 'bg-zinc-900 text-white hover:bg-zinc-800' 
+                              : 'text-zinc-700 hover:bg-zinc-50'}`}
+                        >
+                          <td className="py-2.5 px-2 text-center font-bold text-zinc-400">{row.pos || row.dosage || (index + 1)}</td>
+                          <td className="py-2.5 px-2 font-mono font-bold text-[11px] truncate max-w-[90px]" title={partNum}>{partNum}</td>
+                          <td className="py-2.5 px-2 font-medium uppercase max-w-[120px] truncate" title={partName}>{partName}</td>
+                          <td className="py-2.5 px-2 text-center">{row.jsonProperties?.iba_quantity || row.dosage || 1}</td>
+                          <td className="py-2.5 px-2 text-center" onClick={(e) => e.stopPropagation()}>
+                            <button 
+                              onClick={() => {
+                                const firstImgId = row.imageIds?.[0] || row.digifaxImageIds?.[0] || row.fileIds?.[0] || row.imageId || null;
+                                const imageUrl = firstImgId ? `${CHERY_EPC_URL}?token=${encodeURIComponent(epcmToken)}&path=${encodeURIComponent(`/api/rest/base/file/view/${firstImgId}`)}${getAuthQueryParams()}` : null;
+                                const modelName = modelInfo?.jsonProperties?.iba_model || 
+                                                  modelInfo?.applic?.replace(/[()]/g, '').split('modelCode=')[1] || 
+                                                  modelInfo?.code || 
+                                                  'OTHER';
+                                onAddPart({
+                                  code: partNum,
+                                  name: partName,
+                                  retailGuidePrice: 0,
+                                  image: imageUrl,
+                                  models: modelName
+                                });
+                              }}
+                              className={`p-1 rounded border transition-all active:scale-90
+                                ${isRowSelected 
+                                  ? 'bg-zinc-800 border-zinc-700 text-white hover:bg-white hover:text-zinc-900' 
+                                  : 'bg-zinc-50 border-zinc-200 text-zinc-700 hover:bg-zinc-950 hover:text-white'}`}
+                            >
+                              <Plus size={10} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Selected Part Specifications & Tabs (Only visible when a row is clicked) */}
+          {selectedPartRow ? (
+            <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3 shadow-sm space-y-3 shrink-0">
+              <div className="flex border-b border-zinc-200 gap-4">
+                <button
+                  onClick={() => setActiveDetailTab('info')}
+                  className={`pb-2 font-black text-[10px] uppercase tracking-wider border-b-2 transition-all flex items-center gap-1
+                    ${activeDetailTab === 'info' 
+                      ? 'border-zinc-950 text-zinc-950' 
+                      : 'border-transparent text-zinc-400 hover:text-zinc-650'}`}
                 >
-                  Clear
+                  <Info size={12} />
+                  Info
                 </button>
+                <button
+                  onClick={() => setActiveDetailTab('photos')}
+                  className={`pb-2 font-black text-[10px] uppercase tracking-wider border-b-2 transition-all flex items-center gap-1
+                    ${activeDetailTab === 'photos' 
+                      ? 'border-zinc-950 text-zinc-950' 
+                      : 'border-transparent text-zinc-400 hover:text-zinc-650'}`}
+                >
+                  <Eye size={12} />
+                  Foto Asli ({(selectedPartRow.imageIds?.length || 0) + (selectedPartRow.digifaxImageIds?.length || 0)})
+                </button>
+              </div>
+
+              {activeDetailTab === 'info' && (
+                <div className="space-y-2 text-[11px] text-zinc-700">
+                  <div>
+                    <span className="font-bold text-zinc-400 uppercase text-[8.5px] block">Part Number</span>
+                    <span className="font-black text-zinc-900 font-mono">{selectedPartRow.childCode || selectedPartRow.code || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="font-bold text-zinc-400 uppercase text-[8.5px] block">Part Name</span>
+                    <span className="font-black text-zinc-900 uppercase block truncate" title={selectedPartRow.partNameEn || selectedPartRow.childName || selectedPartRow.name || '-'}>
+                      {selectedPartRow.partNameEn || selectedPartRow.childName || selectedPartRow.name || '-'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-bold text-zinc-400 uppercase text-[8.5px] block">Quantity</span>
+                    <span className="font-bold text-zinc-800">{selectedPartRow.jsonProperties?.iba_quantity || selectedPartRow.dosage || 1}</span>
+                  </div>
+                </div>
+              )}
+
+              {activeDetailTab === 'photos' && (
+                <div className="space-y-2">
+                  {getProductImageIds().length === 0 ? (
+                    <div className="py-4 text-center text-zinc-400 italic text-[11px]">
+                      Belum ada foto produk asli untuk part ini.
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {getProductImageIds().map((imgId, idx) => (
+                         <div 
+                           key={idx}
+                           onClick={() => handleOpenLightbox(idx)}
+                           className="w-12 h-12 bg-white border border-zinc-200 rounded p-1 flex items-center justify-center hover:border-zinc-900 transition-all overflow-hidden relative shadow-sm cursor-pointer"
+                         >
+                           <img 
+                             src={`https://qrepcm.mychery.com/api/rest/base/file/view/${imgId}?token=${encodeURIComponent(epcmToken.startsWith('Bearer') ? epcmToken : `Bearer ${epcmToken}`)}`}
+                             className="w-full h-full object-contain"
+                             alt=""
+                           />
+                         </div>
+                       ))}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
+          ) : (
+            <div className="bg-zinc-50 border border-zinc-200 border-dashed rounded-lg p-4 text-center text-zinc-400 text-[10px] font-bold uppercase tracking-wider py-8">
+              Pilih part pada list untuk melihat detail spesifikasi & foto asli
+            </div>
+          )}
+        </div>
+      </div>
 
-            {/* Cart Items List */}
-            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 custom-scrollbar min-h-[300px]">
-              {selectedParts.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-zinc-400 italic text-xs py-12 text-center gap-2">
-                  <ShoppingCart size={28} className="opacity-10" />
-                  <span>Cart masih kosong.<br/>Klik tombol "+" pada tabel parts list untuk menambahkan.</span>
-                </div>
-              ) : (
-                selectedParts.map((item, idx) => (
-                  <div key={idx} className="bg-zinc-50 border border-zinc-200 p-2 rounded-lg flex gap-2 relative group hover:border-zinc-300 transition-all">
+      {/* Sliding Cart Bottom Bar */}
+      {selectedParts.length > 0 && (
+        <div className={`sticky bottom-0 z-50 bg-white text-zinc-900 border-t border-zinc-200 rounded-t-2xl shadow-[0_-8px_30px_rgba(0,0,0,0.15)] transition-all duration-300 ${isCartExpanded ? 'h-[360px]' : 'h-16'}`}>
+          {/* Bar Header (Always visible) */}
+          <div className="h-16 px-6 flex items-center justify-between border-b border-zinc-150 cursor-pointer" onClick={() => setIsCartExpanded(!isCartExpanded)}>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center">
+                <ShoppingCart size={16} className="text-zinc-700" />
+              </div>
+              <div>
+                <span className="font-black text-sm block text-zinc-900">KERANJANG ESTIMASI ({selectedParts.length} Item)</span>
+                <span className="text-[10px] text-zinc-500">Total: <span className="font-mono text-emerald-650 font-bold">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(selectedParts.reduce((acc, curr) => acc + ((curr.priceExc || 0) * (curr.qty || 1)), 0))}</span></span>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={(e) => { e.stopPropagation(); setIsCartExpanded(!isCartExpanded); }}
+                className="text-xs font-bold text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1"
+              >
+                {isCartExpanded ? 'Sembunyikan Rincian' : 'Tampilkan Rincian'}
+                <ChevronUp size={16} className={`transition-transform duration-300 ${isCartExpanded ? 'rotate-180' : ''}`} />
+              </button>
+              
+              <button
+                onClick={(e) => { e.stopPropagation(); generatePdf(vinCode); }}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg font-black text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-md active:scale-95 animate-pulse"
+              >
+                <Printer size={14} />
+                Export PDF Estimasi
+              </button>
+            </div>
+          </div>
+
+          {/* Bar Content (Visible when expanded) */}
+          {isCartExpanded && (
+            <div className="p-5 h-[296px] overflow-y-auto flex flex-col justify-between bg-white rounded-b-2xl">
+              <div className="space-y-3 flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4">
+                {selectedParts.map((item, index) => (
+                  <div key={index} className="flex items-center justify-between bg-zinc-50 p-3 rounded-xl border border-zinc-200 transition-all hover:border-zinc-300 gap-3">
                     {/* Thumbnail */}
                     <div className="w-10 h-10 bg-white border border-zinc-200 rounded p-0.5 shrink-0 flex items-center justify-center overflow-hidden">
                       {item.image ? (
                         <img src={item.image} className="w-full h-full object-contain" alt="" />
                       ) : (
-                        <ImageOff size={14} className="text-zinc-350" />
+                        <ImageOff size={14} className="text-zinc-300" />
                       )}
                     </div>
-                    {/* Details */}
-                    <div className="flex-1 min-w-0 space-y-0.5">
-                      <div className="font-mono font-bold text-[10px] text-zinc-900 truncate">{item.code}</div>
-                      <div className="text-[9.5px] text-zinc-500 uppercase truncate font-medium">{item.name}</div>
-                      <div className="flex items-center justify-between mt-1">
-                        <span className="text-[10px] font-bold text-zinc-800">
-                          {item.priceExc === 0 ? (
-                            <span className="text-[9px] text-zinc-400 font-semibold italic">Masih belum ada harga</span>
-                          ) : (
-                            new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(item.priceExc)
-                          )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-xs text-zinc-900 truncate block">{item.code}</span>
+                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0
+                          ${item.stockStatus === 'READY' 
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                            : 'bg-red-50 text-red-700 border border-red-200'}`}
+                        >
+                          {item.stockStatus || 'NOT READY'}
                         </span>
-                        
-                        {/* Qty Controls */}
-                        <div className="flex items-center gap-1 bg-white border border-zinc-200 rounded px-1 py-0.5 scale-90 origin-right">
-                          <button
-                            onClick={() => setSelectedParts(prev => prev.map((p, i) => i === idx ? { ...p, qty: Math.max(1, (p.qty || 1) - 1) } : p))}
-                            className="p-0.5 hover:bg-zinc-100 rounded text-zinc-550 transition-colors"
-                          >
-                            <Minus size={9} />
-                          </button>
-                          <span className="text-[9.5px] font-black text-zinc-900 w-4 text-center font-mono">
-                            {item.qty || 1}
-                          </span>
-                          <button
-                            onClick={() => setSelectedParts(prev => prev.map((p, i) => i === idx ? { ...p, qty: (p.qty || 1) + 1 } : p))}
-                            className="p-0.5 hover:bg-zinc-100 rounded text-zinc-550 transition-colors"
-                          >
-                            <Plus size={9} />
-                          </button>
-                        </div>
                       </div>
+                      <span className="text-[11px] text-zinc-500 truncate block uppercase">{item.name}</span>
                     </div>
-                    {/* Delete absolute button */}
-                    <button
-                      onClick={() => setSelectedParts(prev => prev.filter((_, i) => i !== idx))}
-                      className="absolute -top-1.5 -right-1.5 bg-white hover:bg-red-50 text-zinc-400 hover:text-red-600 border border-zinc-200 hover:border-red-200 rounded-full w-5 h-5 flex items-center justify-center shadow-sm opacity-0 group-hover:opacity-100 transition-all z-10"
-                    >
-                      <Trash2 size={9} />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+                    
+                    <div className="flex items-center gap-4 shrink-0 pl-4">
+                      {/* Qty adjustments */}
+                      <div className="flex items-center bg-zinc-100 border border-zinc-200 rounded-lg p-0.5">
+                        <button 
+                          onClick={() => setSelectedParts(prev => prev.map((p, i) => i === index ? { ...p, qty: Math.max(1, (p.qty || 1) - 1) } : p))}
+                          className="w-6 h-6 flex items-center justify-center hover:bg-zinc-200 rounded font-black text-xs text-zinc-700 transition-colors"
+                        >
+                          -
+                        </button>
+                        <span className="w-8 text-center text-xs font-bold font-mono text-zinc-900">{item.qty || 1}</span>
+                        <button 
+                          onClick={() => setSelectedParts(prev => prev.map((p, i) => i === index ? { ...p, qty: (p.qty || 1) + 1 } : p))}
+                          className="w-6 h-6 flex items-center justify-center hover:bg-zinc-200 rounded font-black text-xs text-zinc-700 transition-colors"
+                        >
+                          +
+                        </button>
+                      </div>
 
-          {/* Cart Footer Calculations & Print */}
-          <div className="border-t border-zinc-200 pt-3 mt-3 space-y-3 shrink-0">
-            <div className="flex justify-between text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
-              <span>Total Qty:</span>
-              <span className="text-zinc-900 font-black">
-                {selectedParts.reduce((acc, curr) => acc + (curr.qty || 1), 0)}
-              </span>
+                      <div className="text-right w-24">
+                        <span className="text-xs font-mono font-bold block text-zinc-950">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format((item.priceExc || 0) * (item.qty || 1))}</span>
+                      </div>
+
+                      <button 
+                        onClick={() => setSelectedParts(prev => prev.filter((_, i) => i !== index))}
+                        className="text-red-650 hover:text-red-800 p-1.5 transition-colors"
+                        title="Hapus"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="pt-3 border-t border-zinc-200 flex justify-between items-center bg-white shrink-0">
+                <button 
+                  onClick={() => { if(window.confirm('Kosongkan semua keranjang?')) setSelectedParts([]); }}
+                  className="text-[10px] font-black uppercase tracking-wider text-red-650 hover:text-red-800 transition-colors"
+                >
+                  Kosongkan Keranjang
+                </button>
+                <div className="text-xs text-zinc-500 font-semibold">
+                  * Harga suku cadang disinkronkan otomatis dengan e-DMS retail guide price.
+                </div>
+              </div>
             </div>
-            <div className="flex justify-between text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
-              <span>Total Exc PPN:</span>
-              <span className="text-zinc-950 font-black">
-                {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(
-                  selectedParts.reduce((acc, curr) => acc + ((curr.priceExc || 0) * (curr.qty || 1)), 0)
-                )}
-              </span>
-            </div>
-            <button
-              onClick={() => generatePdf(selectedVin || vinCode)}
-              disabled={selectedParts.length === 0}
-              className="w-full bg-zinc-950 hover:bg-zinc-900 text-white font-black text-[11px] py-2 rounded-lg tracking-wider uppercase transition-all shadow-md active:scale-95 disabled:bg-zinc-200 disabled:text-zinc-400 disabled:shadow-none flex items-center justify-center gap-1.5 h-9"
-            >
-              <Printer size={12} />
-              Export PDF Estimasi
-            </button>
-          </div>
+          )}
         </div>
-      </div>
+      )}
 
       {/* Lightbox Modal */}
       {isLightboxOpen && getProductImageIds().length > 0 && (

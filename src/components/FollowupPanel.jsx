@@ -13,6 +13,9 @@ import HolidaySettings from './HolidaySettings';
 
 const CHERY_CORPORATE_NAME = 'PT. CHERY SALES INDONESIA';
 
+let ifsGlobalCache = null;
+let ifsGlobalCacheTime = 0;
+
 const DEALER_OPTIONS = [
   { id: 'optef3IAAh', name: 'ORIENTAL SM RAJA AMPLAS' },
   { id: 'optGxr0Wc6', name: 'ARTA PLUIT' },
@@ -172,6 +175,10 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
     const [ifsSearchInput, setIfsSearchInput] = useState('');
     const [ifsOnlyPriority, setIfsOnlyPriority] = useState(false);
     const [ifsMilestoneFilter, setIfsMilestoneFilter] = useState('Semua');
+    const [ifsLastEntryFilter, setIfsLastEntryFilter] = useState('Semua');
+    const [ifsLastEntryStart, setIfsLastEntryStart] = useState('');
+    const [ifsLastEntryEnd, setIfsLastEntryEnd] = useState('');
+    const [ifsTypeFilter, setIfsTypeFilter] = useState('first_service');
     const [ifsRowsPerPage, setIfsRowsPerPage] = useState(20);
     const [ifsActivePage, setIfsActivePage] = useState(1);
     const [ifsFollowupMap, setIfsFollowupMap] = useState({});
@@ -300,7 +307,7 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
         return null;
     }, []);
 
-    const fetchIfsReport = useCallback(async () => {
+    const fetchIfsReport = useCallback(async (forceRefresh = false) => {
         setIfsLoading(true);
         try {
             // 1. Fetch settings keys starting with ifs_fo_
@@ -320,8 +327,16 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
             }
             setIfsFollowupMap(followupMap);
 
-            // 2. Fetch reminder data from DMS (reminder-do) — CRO scope, last 30 days DO window
-            const reminderRes = await fetch(`${CHERY_DMS_URL}?endpoint=reminder-do`);
+            // 1b. Check cache
+            if (!forceRefresh && ifsGlobalCache && (Date.now() - ifsGlobalCacheTime < 600000)) {
+                setIfsData(ifsGlobalCache);
+                setIfsLoading(false);
+                return;
+            }
+
+            // 2. Fetch reminder data from DMS (reminder-do) — CRO scope, from 01-01-2023 to today
+            const todayStr = toLocalIso(new Date());
+            const reminderRes = await fetch(`${CHERY_DMS_URL}?endpoint=reminder-do&do_from=2023-01-01&do_to=${todayStr}`);
             const reminderJson = await reminderRes.json().catch(() => ({ data: [] }));
             const reminderRows = Array.isArray(reminderJson.data) ? reminderJson.data : [];
 
@@ -349,32 +364,24 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
                 return parsed[0].wo;
             };
 
-            // Milestone base date = last WO's waktu_masuk (tanggal masuk, not selesai),
-            // fallback expected_service, then tgl_do, then service_terakhir.
-            const getBaseDate = (row, lastWo) => {
-                if (lastWo) {
-                    const masuk = parseIndonesianDate(lastWo.waktu_masuk);
-                    if (masuk.getTime() !== 0) return masuk;
-                }
-                const expected = parseIndonesianDate(row.expected_service);
-                if (expected.getTime() !== 0) return expected;
-                const doDate = parseIndonesianDate(row.tgl_do);
-                if (doDate.getTime() !== 0) return doDate;
-                return parseIndonesianDate(row.service_terakhir);
-            };
-
-            // Group by VIN and keep the row with the latest base date
+            // Group by VIN and keep the row with the latest maxDate
             const vinGroups = {};
             reminderRows.forEach(row => {
                 const vin = String(row.no_rangka || '').trim().toUpperCase();
                 if (!vin || vin === '-') return;
 
                 const lastWo = findLastWo(row);
-                const baseDate = getBaseDate(row, lastWo);
+                const baseDateWO = lastWo ? parseIndonesianDate(lastWo.waktu_masuk) : parseIndonesianDate(row.service_terakhir);
+                const baseDateDO = parseIndonesianDate(row.tgl_do);
+                
+                // Compare and group by latest entry date
+                const maxDate = baseDateWO > baseDateDO ? baseDateWO : baseDateDO;
 
-                if (!vinGroups[vin] || baseDate > vinGroups[vin].latestDate) {
+                if (!vinGroups[vin] || maxDate > vinGroups[vin].maxDate) {
                     vinGroups[vin] = {
-                        latestDate: baseDate,
+                        maxDate,
+                        baseDateWO,
+                        baseDateDO,
                         woNo: lastWo ? String(lastWo.no_wo || '-') : '-',
                         plat: row.no_polisi || '-',
                         wktMasuk: lastWo ? String(lastWo.waktu_masuk || '-') : '-',
@@ -403,23 +410,57 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
                     phone = String(phone).trim();
                 }
 
-                // Calculate timeline milestones (6m, 1y, 2y, 3y)
-                const baseDate = item.latestDate;
-                const formatMilestone = (months) => {
-                    if (baseDate.getTime() === 0) return '-';
-                    const mDate = new Date(baseDate);
+                // Calculate milestones dynamically
+                const formatMilestone = (base, months) => {
+                    if (!base || base.getTime() === 0) return '-';
+                    const mDate = new Date(base);
                     mDate.setMonth(mDate.getMonth() + months);
                     const day = String(mDate.getDate()).padStart(2, '0');
                     const monthsIndo = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
                     return `${day} ${monthsIndo[mDate.getMonth()]} ${mDate.getFullYear()}`;
                 };
 
-                const milestone6m = formatMilestone(6);
-                const milestone1y = formatMilestone(12);
-                const milestone2y = formatMilestone(24);
-                const milestone3y = formatMilestone(36);
+                const milestone1m = formatMilestone(item.baseDateDO, 1);
+                const milestone3m = formatMilestone(item.baseDateDO, 3);
+                const milestone6m_DO = formatMilestone(item.baseDateDO, 6);
 
-                const priorityMilestone = getPriorityMilestone(baseDate);
+                const milestone1y = formatMilestone(item.baseDateWO, 12);
+                const milestone2y = formatMilestone(item.baseDateWO, 24);
+                const milestone3y = formatMilestone(item.baseDateWO, 36);
+
+                // Priority check helper
+                const checkPriority = (base, monthsList) => {
+                    if (!base || base.getTime() === 0) return { label: null, date: null };
+                    const now = new Date();
+                    const currentMonth = now.getMonth();
+                    const currentYear = now.getFullYear();
+                    for (const m of monthsList) {
+                        const mDate = new Date(base);
+                        mDate.setMonth(mDate.getMonth() + m.months);
+                        if (mDate.getMonth() === currentMonth && mDate.getFullYear() === currentYear) {
+                            return { label: m.label, date: mDate };
+                        }
+                    }
+                    return { label: null, date: null };
+                };
+
+                const prioDO = checkPriority(item.baseDateDO, [
+                    { label: '1 Bulan', months: 1 },
+                    { label: '3 Bulan', months: 3 },
+                    { label: '6 Bulan', months: 6 }
+                ]);
+
+                const prioWO = checkPriority(item.baseDateWO, [
+                    { label: '1 Tahun', months: 12 },
+                    { label: '2 Tahun', months: 24 },
+                    { label: '3 Tahun', months: 36 }
+                ]);
+
+                const priorityDO = prioDO.label;
+                const priorityTargetDateDO = prioDO.date;
+                const priorityWO = prioWO.label;
+                const priorityTargetDateWO = prioWO.date;
+
                 const keluhan = item.keluhan || matchedHistory?.keluhan || matchedCro?.deskripsi || '-';
 
                 return {
@@ -432,16 +473,25 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
                     noDo: item.noDo,
                     tglDo: item.tglDo,
                     expectedService: item.expectedService,
-                    milestone6m,
+                    milestone1m,
+                    milestone3m,
+                    milestone6m_DO,
                     milestone1y,
                     milestone2y,
                     milestone3y,
-                    priorityMilestone,
+                    priorityDO,
+                    priorityWO,
+                    priorityTargetDateDO,
+                    priorityTargetDateWO,
                     keluhan,
-                    phone
+                    phone,
+                    baseDateDO: item.baseDateDO,
+                    baseDateWO: item.baseDateWO
                 };
             });
 
+            ifsGlobalCache = mapped;
+            ifsGlobalCacheTime = Date.now();
             setIfsData(mapped);
         } catch (e) {
             console.error(e);
@@ -453,13 +503,59 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
 
 
     const filteredIfsData = useMemo(() => {
-        return ifsData.filter(item => {
-            // Milestone period filter
-            if (ifsMilestoneFilter !== 'Semua') {
-                if (item.priorityMilestone !== ifsMilestoneFilter) {
+        const now = new Date();
+        now.setHours(23, 59, 59, 999);
+
+        let result = ifsData.filter(item => {
+            const baseDate = ifsTypeFilter === 'first_service' ? item.baseDateDO : item.baseDateWO;
+            const priorityMilestone = ifsTypeFilter === 'first_service' ? item.priorityDO : item.priorityWO;
+
+            // Last entry date filter (tanggal terakhir masuk / DO)
+            if (ifsLastEntryFilter !== 'Semua') {
+                if (baseDate instanceof Date && !isNaN(baseDate.getTime())) {
+                    const itemTime = baseDate.getTime();
+                    
+                    if (ifsLastEntryFilter === '1_3_months') {
+                        const threeMonthsAgo = new Date();
+                        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+                        threeMonthsAgo.setHours(0, 0, 0, 0);
+                        
+                        const oneMonthAgo = new Date();
+                        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+                        oneMonthAgo.setHours(23, 59, 59, 999);
+                        
+                        if (itemTime < threeMonthsAgo.getTime() || itemTime > oneMonthAgo.getTime()) {
+                            return false;
+                        }
+                    } else if (ifsLastEntryFilter === 'custom') {
+                        if (ifsLastEntryStart) {
+                            const startDate = new Date(ifsLastEntryStart);
+                            startDate.setHours(0, 0, 0, 0);
+                            if (itemTime < startDate.getTime()) {
+                                return false;
+                            }
+                        }
+                        if (ifsLastEntryEnd) {
+                            const endDate = new Date(ifsLastEntryEnd);
+                            endDate.setHours(23, 59, 59, 999);
+                            if (itemTime > endDate.getTime()) {
+                                return false;
+                            }
+                        }
+                    }
+                } else {
                     return false;
                 }
             }
+
+            // Milestone period filter
+            if (ifsMilestoneFilter !== 'Semua') {
+                if (priorityMilestone !== ifsMilestoneFilter) {
+                    return false;
+                }
+            }
+
+            // Search filter
             if (ifsSearchInput) {
                 const q = ifsSearchInput.toLowerCase();
                 return (
@@ -468,12 +564,27 @@ export default function FollowupPanel({ user, handleLogout, isNavbarVisible, ini
                     item.plat.toLowerCase().includes(q)
                 );
             }
+
+            // Priority check
             if (ifsOnlyPriority) {
-                return item.priorityMilestone !== null;
+                return priorityMilestone !== null;
             }
             return true;
         });
-    }, [ifsData, ifsSearchInput, ifsOnlyPriority, ifsMilestoneFilter]);
+
+        // Sorting: sorting from early milestone date to late milestone date
+        if (ifsOnlyPriority) {
+            result.sort((a, b) => {
+                const dateA = ifsTypeFilter === 'first_service' ? a.priorityTargetDateDO : a.priorityTargetDateWO;
+                const dateB = ifsTypeFilter === 'first_service' ? b.priorityTargetDateDO : b.priorityTargetDateWO;
+                const timeA = dateA ? new Date(dateA).getTime() : 0;
+                const timeB = dateB ? new Date(dateB).getTime() : 0;
+                return timeA - timeB;
+            });
+        }
+
+        return result;
+    }, [ifsData, ifsSearchInput, ifsOnlyPriority, ifsMilestoneFilter, ifsLastEntryFilter, ifsLastEntryStart, ifsLastEntryEnd, ifsTypeFilter]);
 
     const paginatedIfsData = useMemo(() => {
         const totalPages = Math.ceil(filteredIfsData.length / ifsRowsPerPage) || 1;
@@ -2122,6 +2233,17 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                         Prioritas Harus Datang Bulan Ini
                                     </label>
                                     <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-bold text-zinc-400 uppercase">Kategori:</span>
+                                        <select
+                                            value={ifsTypeFilter}
+                                            onChange={(e) => { setIfsTypeFilter(e.target.value); setIfsMilestoneFilter('Semua'); setIfsActivePage(1); }}
+                                            className="p-1 border border-zinc-300 rounded text-xs bg-white font-bold focus:outline-none"
+                                        >
+                                            <option value="first_service">Free Service Pertama (DO)</option>
+                                            <option value="regular_service">Service Berkala</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex items-center gap-2">
                                         <span className="text-[10px] font-bold text-zinc-400 uppercase">Filter Timeline:</span>
                                         <select
                                             value={ifsMilestoneFilter}
@@ -2129,12 +2251,52 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                             className="p-1 border border-zinc-300 rounded text-xs bg-white font-bold focus:outline-none"
                                         >
                                             <option value="Semua">Semua Milestone</option>
-                                            <option value="6 Bulan">6 Bulan</option>
-                                            <option value="1 Tahun">1 Tahun</option>
-                                            <option value="2 Tahun">2 Tahun</option>
-                                            <option value="3 Tahun">3 Tahun</option>
+                                            {ifsTypeFilter === 'first_service' ? (
+                                                <>
+                                                    <option value="1 Bulan">1 Bulan</option>
+                                                    <option value="3 Bulan">3 Bulan</option>
+                                                    <option value="6 Bulan">6 Bulan</option>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <option value="6 Bulan">6 Bulan</option>
+                                                    <option value="1 Tahun">1 Tahun</option>
+                                                    <option value="2 Tahun">2 Tahun</option>
+                                                    <option value="3 Tahun">3 Tahun</option>
+                                                    <option value="4 Tahun">4 Tahun</option>
+                                                </>
+                                            )}
                                         </select>
                                     </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-bold text-zinc-400 uppercase">Terakhir Masuk:</span>
+                                        <select
+                                            value={ifsLastEntryFilter}
+                                            onChange={(e) => { setIfsLastEntryFilter(e.target.value); setIfsActivePage(1); }}
+                                            className="p-1 border border-zinc-300 rounded text-xs bg-white font-bold focus:outline-none"
+                                        >
+                                            <option value="Semua">Semua Tanggal</option>
+                                            <option value="1_3_months">1 - 3 Bulan Lalu</option>
+                                            <option value="custom">Custom Tanggal</option>
+                                        </select>
+                                    </div>
+                                    {ifsLastEntryFilter === 'custom' && (
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="date"
+                                                value={ifsLastEntryStart}
+                                                onChange={(e) => { setIfsLastEntryStart(e.target.value); setIfsActivePage(1); }}
+                                                className="p-1 border border-zinc-300 rounded text-xs bg-white text-zinc-900 font-bold focus:outline-none"
+                                            />
+                                            <span className="text-zinc-400 text-xs font-bold">-</span>
+                                            <input
+                                                type="date"
+                                                value={ifsLastEntryEnd}
+                                                onChange={(e) => { setIfsLastEntryEnd(e.target.value); setIfsActivePage(1); }}
+                                                className="p-1 border border-zinc-300 rounded text-xs bg-white text-zinc-900 font-bold focus:outline-none"
+                                            />
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="flex items-center gap-3 w-full md:w-auto">
@@ -2149,7 +2311,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                         />
                                     </div>
                                     <button
-                                        onClick={fetchIfsReport}
+                                        onClick={() => fetchIfsReport(true)}
                                         disabled={ifsLoading}
                                         className="p-2 border border-zinc-300 bg-white rounded-xl text-zinc-700 hover:bg-zinc-50 transition-colors shrink-0"
                                         title="Muat ulang data"
@@ -2178,7 +2340,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                                 <th className="py-3 px-3 w-10 text-center">No</th>
                                                 <th className="py-3 px-3 w-[20%]">Customer & Unit</th>
                                                 <th className="py-3 px-3 w-[26%]">Histori Terakhir (WO & DO)</th>
-                                                <th className="py-3 px-3 w-[31%]">Milestones (6m, 1y, 2y, 3y)</th>
+                                                <th className="py-3 px-3 w-[31%]">{ifsTypeFilter === 'first_service' ? 'Milestones (1m, 3m, 6m)' : 'Milestones (1y, 2y, 3y)'}</th>
                                                 <th className="py-3 px-3 w-[10%] text-center">Prioritas & WA</th>
                                                 <th className="py-3 px-3 w-[13%] text-center">Status Follow Up</th>
                                             </tr>
@@ -2186,11 +2348,38 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                         <tbody className="divide-y divide-zinc-100">
                                             {paginatedIfsData.map((item, idx) => {
                                                 const foState = ifsFollowupMap[item.vin] || { status: 'Belum Follow Up', comment: '', bookingDate: '' };
-                                                const isFollowedUp = foState.status === 'Sudah Follow Up';
                                                 const globalIdx = (ifsActivePage - 1) * ifsRowsPerPage + idx + 1;
+                                                const priorityMilestone = ifsTypeFilter === 'first_service' ? item.priorityDO : item.priorityWO;
+
+                                                const isAlreadyServicedThisMonth = (() => {
+                                                    if (!item.wktMasuk || item.wktMasuk === '-') return false;
+                                                    const lastWoDate = parseIndonesianDate(item.wktMasuk);
+                                                    if (!lastWoDate || isNaN(lastWoDate.getTime())) return false;
+                                                    const now = new Date();
+                                                    return lastWoDate.getMonth() === now.getMonth() && lastWoDate.getFullYear() === now.getFullYear();
+                                                })();
+
+                                                const currentStatus = (foState.status === 'Belum Follow Up' && isAlreadyServicedThisMonth) ? 'Sudah Datang' : foState.status;
+
+                                                // Helper to check if a milestone date falls in the current running month/year
+                                                const isCurrentMonth = (base, months) => {
+                                                    if (!base || base.getTime() === 0) return false;
+                                                    const mDate = new Date(base);
+                                                    mDate.setMonth(mDate.getMonth() + months);
+                                                    const now = new Date();
+                                                    return mDate.getMonth() === now.getMonth() && mDate.getFullYear() === now.getFullYear();
+                                                };
+
+                                                const is1mCurrent = isCurrentMonth(item.baseDateDO, 1);
+                                                const is3mCurrent = isCurrentMonth(item.baseDateDO, 3);
+                                                const is6mCurrent = isCurrentMonth(item.baseDateDO, 6);
+
+                                                const is1yCurrent = isCurrentMonth(item.baseDateWO, 12);
+                                                const is2yCurrent = isCurrentMonth(item.baseDateWO, 24);
+                                                const is3yCurrent = isCurrentMonth(item.baseDateWO, 36);
                                                 
                                                 return (
-                                                    <tr key={item.vin} className={`hover:bg-zinc-50/50 transition-colors align-top ${item.priorityMilestone ? 'bg-amber-50/20' : ''}`}>
+                                                    <tr key={item.vin} className={`hover:bg-zinc-50/50 transition-colors align-top ${priorityMilestone ? 'bg-amber-50/20' : ''}`}>
                                                         <td className="py-4 px-3 text-center font-bold text-zinc-400">{globalIdx}</td>
                                                         <td className="py-4 px-3">
                                                             <div className="font-black text-zinc-900 text-sm leading-tight mb-1">{item.nama}</div>
@@ -2199,7 +2388,7 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                                         </td>
                                                         <td className="py-4 px-3">
                                                             <div className="font-black text-zinc-800 text-[11px] mb-1">{item.woNo}</div>
-                                                            <div className="text-[10px] font-bold text-zinc-500 mb-0.5">Masuk: {item.wktMasuk}</div>
+                                                            <div className="text-[10px] font-bold text-zinc-500 mb-0.5">Terakhir Service: {item.wktMasuk}</div>
                                                             <div className="text-[10px] font-bold text-zinc-500 mb-0.5">No DO: <span className="text-zinc-700 font-mono">{item.noDo}</span></div>
                                                             <div className="text-[10px] font-bold text-zinc-500 mb-0.5">Tgl DO: {item.tglDo}</div>
                                                             <div className="text-[10px] font-bold text-emerald-700 mb-1">Expected: {item.expectedService}</div>
@@ -2211,27 +2400,90 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                                         </td>
                                                         <td className="py-4 px-3">
                                                             <div className="grid grid-cols-2 gap-2 text-[10px]">
-                                                                <div className={`p-1.5 rounded-lg border ${item.priorityMilestone === '6 Bulan' ? 'bg-amber-100 border-amber-300 text-amber-900 font-black' : 'bg-zinc-50 border-zinc-150 text-zinc-600 font-medium'}`}>
-                                                                    <span className="block text-[8px] uppercase text-zinc-400 font-bold mb-0.5">6 Bulan</span>
-                                                                    {item.milestone6m}
-                                                                </div>
-                                                                <div className={`p-1.5 rounded-lg border ${item.priorityMilestone === '1 Tahun' ? 'bg-amber-100 border-amber-300 text-amber-900 font-black' : 'bg-zinc-50 border-zinc-150 text-zinc-600 font-medium'}`}>
-                                                                    <span className="block text-[8px] uppercase text-zinc-400 font-bold mb-0.5">1 Tahun</span>
-                                                                    {item.milestone1y}
-                                                                </div>
-                                                                <div className={`p-1.5 rounded-lg border ${item.priorityMilestone === '2 Tahun' ? 'bg-amber-100 border-amber-300 text-amber-900 font-black' : 'bg-zinc-50 border-zinc-150 text-zinc-600 font-medium'}`}>
-                                                                    <span className="block text-[8px] uppercase text-zinc-400 font-bold mb-0.5">2 Tahun</span>
-                                                                    {item.milestone2y}
-                                                                </div>
-                                                                <div className={`p-1.5 rounded-lg border ${item.priorityMilestone === '3 Tahun' ? 'bg-amber-100 border-amber-300 text-amber-900 font-black' : 'bg-zinc-50 border-zinc-150 text-zinc-600 font-medium'}`}>
-                                                                    <span className="block text-[8px] uppercase text-zinc-400 font-bold mb-0.5">3 Tahun</span>
-                                                                    {item.milestone3y}
-                                                                </div>
+                                                                {ifsTypeFilter === 'first_service' ? (
+                                                                    <>
+                                                                        {(ifsMilestoneFilter === 'Semua' || ifsMilestoneFilter === '1 Bulan') && (
+                                                                            <div className={`p-1.5 rounded-lg border ${
+                                                                                is1mCurrent 
+                                                                                    ? 'bg-emerald-100 border-emerald-300 text-emerald-950 font-black' 
+                                                                                    : priorityMilestone === '1 Bulan' 
+                                                                                        ? 'bg-amber-100 border-amber-300 text-amber-900 font-black' 
+                                                                                        : 'bg-zinc-50 border-zinc-150 text-zinc-600 font-medium'
+                                                                            }`}>
+                                                                                <span className="block text-[8px] uppercase text-zinc-400 font-bold mb-0.5">1 Bulan</span>
+                                                                                {item.milestone1m}
+                                                                            </div>
+                                                                        )}
+                                                                        {(ifsMilestoneFilter === 'Semua' || ifsMilestoneFilter === '3 Bulan') && (
+                                                                            <div className={`p-1.5 rounded-lg border ${
+                                                                                is3mCurrent 
+                                                                                    ? 'bg-emerald-100 border-emerald-300 text-emerald-950 font-black' 
+                                                                                    : priorityMilestone === '3 Bulan' 
+                                                                                        ? 'bg-amber-100 border-amber-300 text-amber-900 font-black' 
+                                                                                        : 'bg-zinc-50 border-zinc-150 text-zinc-600 font-medium'
+                                                                            }`}>
+                                                                                <span className="block text-[8px] uppercase text-zinc-400 font-bold mb-0.5">3 Bulan</span>
+                                                                                {item.milestone3m}
+                                                                            </div>
+                                                                        )}
+                                                                        {(ifsMilestoneFilter === 'Semua' || ifsMilestoneFilter === '6 Bulan') && (
+                                                                            <div className={`p-1.5 rounded-lg border ${
+                                                                                is6mCurrent 
+                                                                                    ? 'bg-emerald-100 border-emerald-300 text-emerald-950 font-black' 
+                                                                                    : priorityMilestone === '6 Bulan' 
+                                                                                        ? 'bg-amber-100 border-amber-300 text-amber-900 font-black' 
+                                                                                        : 'bg-zinc-50 border-zinc-150 text-zinc-600 font-medium'
+                                                                            }`}>
+                                                                                <span className="block text-[8px] uppercase text-zinc-400 font-bold mb-0.5">6 Bulan</span>
+                                                                                {item.milestone6m_DO}
+                                                                            </div>
+                                                                        )}
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        {(ifsMilestoneFilter === 'Semua' || ifsMilestoneFilter === '1 Tahun') && (
+                                                                            <div className={`p-1.5 rounded-lg border ${
+                                                                                is1yCurrent 
+                                                                                    ? 'bg-emerald-100 border-emerald-300 text-emerald-950 font-black' 
+                                                                                    : priorityMilestone === '1 Tahun' 
+                                                                                        ? 'bg-amber-100 border-amber-300 text-amber-900 font-black' 
+                                                                                        : 'bg-zinc-50 border-zinc-150 text-zinc-600 font-medium'
+                                                                            }`}>
+                                                                                <span className="block text-[8px] uppercase text-zinc-400 font-bold mb-0.5">1 Tahun</span>
+                                                                                {item.milestone1y}
+                                                                            </div>
+                                                                        )}
+                                                                        {(ifsMilestoneFilter === 'Semua' || ifsMilestoneFilter === '2 Tahun') && (
+                                                                            <div className={`p-1.5 rounded-lg border ${
+                                                                                is2yCurrent 
+                                                                                    ? 'bg-emerald-100 border-emerald-300 text-emerald-950 font-black' 
+                                                                                    : priorityMilestone === '2 Tahun' 
+                                                                                        ? 'bg-amber-100 border-amber-300 text-amber-900 font-black' 
+                                                                                        : 'bg-zinc-50 border-zinc-150 text-zinc-600 font-medium'
+                                                                            }`}>
+                                                                                <span className="block text-[8px] uppercase text-zinc-400 font-bold mb-0.5">2 Tahun</span>
+                                                                                {item.milestone2y}
+                                                                            </div>
+                                                                        )}
+                                                                        {(ifsMilestoneFilter === 'Semua' || ifsMilestoneFilter === '3 Tahun') && (
+                                                                            <div className={`p-1.5 rounded-lg border ${
+                                                                                is3yCurrent 
+                                                                                    ? 'bg-emerald-100 border-emerald-300 text-emerald-950 font-black' 
+                                                                                    : priorityMilestone === '3 Tahun' 
+                                                                                        ? 'bg-amber-100 border-amber-300 text-amber-900 font-black' 
+                                                                                        : 'bg-zinc-50 border-zinc-150 text-zinc-600 font-medium'
+                                                                            }`}>
+                                                                                <span className="block text-[8px] uppercase text-zinc-400 font-bold mb-0.5">3 Tahun</span>
+                                                                                {item.milestone3y}
+                                                                            </div>
+                                                                        )}
+                                                                    </>
+                                                                )}
                                                             </div>
                                                         </td>
                                                         <td className="py-4 px-3 text-center">
                                                             <div className="flex flex-col items-center gap-1.5">
-                                                                {item.priorityMilestone ? (
+                                                                {priorityMilestone ? (
                                                                     <span className="px-2 py-0.5 bg-red-100 border border-red-200 text-red-750 font-black text-[9px] uppercase tracking-wider rounded-lg">
                                                                         Harus Datang
                                                                     </span>
@@ -2257,12 +2509,14 @@ Kami tunggu kedatangannya. Terima kasih atas kepercayaannya!`;
                                                                 <button
                                                                     onClick={() => handleIfsFollowupClick(item)}
                                                                     className={`px-3 py-1.5 text-xs font-bold rounded-xl shadow-sm transition-all duration-150 active:scale-[0.98] ${
-                                                                        isFollowedUp 
-                                                                            ? 'bg-zinc-100 text-zinc-700 border border-zinc-200 hover:bg-zinc-200' 
-                                                                            : 'bg-black text-white hover:bg-zinc-800'
+                                                                        currentStatus === 'Sudah Datang'
+                                                                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200' 
+                                                                            : currentStatus === 'Sudah Follow Up'
+                                                                                ? 'bg-zinc-100 text-zinc-700 border border-zinc-200 hover:bg-zinc-200' 
+                                                                                : 'bg-black text-white hover:bg-zinc-800'
                                                                     }`}
                                                                 >
-                                                                    {ifsStatusInput === 'Sudah Follow Up' && isFollowedUp ? 'Sudah Follow Up' : foState.status}
+                                                                    {currentStatus}
                                                                 </button>
                                                                 {foState.comment && (
                                                                     <span className="text-[10px] text-zinc-450 italic max-w-[120px] font-bold truncate block" title={foState.comment}>

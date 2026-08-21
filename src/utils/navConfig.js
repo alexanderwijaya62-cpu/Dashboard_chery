@@ -89,6 +89,7 @@ export const NAV_CONFIG = {
     { id: 'owner-epc', icon: Car, label: 'E-Katalog EPCM', page: 'owner-epc', ariaLabel: 'E-Katalog EPCM' },
     { id: 'owner-sparepart-cost', icon: DollarSign, label: 'Sparepart Cost', page: 'owner-sparepart-cost', ariaLabel: 'Sparepart Cost' },
     { id: 'owner-warranty', icon: ShieldCheck, label: 'Warranty Search', page: 'owner-warranty', ariaLabel: 'Warranty Search' },
+    { id: 'owner-stock-opname', icon: RefreshCw, label: 'Stock Opname', page: 'owner-stock-opname', ariaLabel: 'Stock Opname' },
     { id: 'owner-users', icon: Users, label: 'Manajemen User', page: 'owner-users', ariaLabel: 'Manajemen User' },
     { id: 'owner-sound', icon: Settings, label: 'Settings', page: 'owner-sound', ariaLabel: 'Settings' },
     { id: 'owner-deleted', icon: Trash2, label: 'Riwayat Hapus Booking', page: 'owner-deleted', ariaLabel: 'Riwayat Hapus Booking' },
@@ -120,6 +121,10 @@ export const NAV_CONFIG = {
   spv: [
     { id: 'spv-booking', icon: Calendar, label: 'Booking', page: 'spv-booking', ariaLabel: 'SPV Booking' },
   ],
+  partshop: [
+    { id: 'partshop-epc', icon: Car, label: 'E-Katalog EPCM', page: 'partshop-epc', ariaLabel: 'E-Katalog EPCM' },
+    { id: 'partshop-estimasi-history', icon: History, label: 'Riwayat Estimasi', page: 'partshop-estimasi-history', ariaLabel: 'Riwayat Estimasi' },
+  ],
 };
 
 /**
@@ -138,6 +143,7 @@ export const DEFAULT_PAGES = {
   warranty: 'warranty',
   sales: 'sales-booking',
   spv: 'spv-booking',
+  partshop: 'partshop-epc',
 };
 
 /**

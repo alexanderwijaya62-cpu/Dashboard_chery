@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Moon, Users, User, Monitor, Smartphone, Wifi, WifiOff,
   LogOut, LogIn, RefreshCw, Globe, MapPin, Clock, Lock,
@@ -105,6 +105,18 @@ export default function OwnerPanel({
   const [isManualSearching, setIsManualSearching] = useState(false);
   const [modalModelFilter, setModalModelFilter] = useState(''); // Filter model di dalam modal edit
 
+  // EPCM Token Lifespan Tracker States
+  const [epcTokenStatus, setEpcTokenStatus] = useState('unknown');
+  const [epcTokenValidSince, setEpcTokenValidSince] = useState(null);
+  const [epcTokenExpiredAt, setEpcTokenExpiredAt] = useState(null);
+  const [epcTokenActiveDuration, setEpcTokenActiveDuration] = useState(0);
+  const [epcTokenHistory, setEpcTokenHistory] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('chery_epcm_token_history')) || [];
+    } catch { return []; }
+  });
+  const prevTokenRef = useRef(epcmToken);
+
   // Sparepart Cost Calculator States
   const [costSearchQuery, setCostSearchQuery] = useState('');
   const [costResults, setCostResults] = useState([]);
@@ -182,6 +194,114 @@ export default function OwnerPanel({
   const [ueLoading, setUeLoading] = useState(false);
   const [ueData, setUeData] = useState([]); // Array of { month, monthName, internalCount, dmsCount, totalUnits, vehicles }
   const [selectedUeMonth, setSelectedUeMonth] = useState(null);
+
+  // Stock Opname States
+  const [soItems, setSoItems] = useState([]);
+  const [soSearch, setSoSearch] = useState('');
+  const [soLoading, setSoLoading] = useState(false);
+  const [soHistory, setSoHistory] = useState([]);
+  const [soSelectedHistory, setSoSelectedHistory] = useState(null);
+  const [soNo, setSoNo] = useState('');
+  const [soStatus, setSoStatus] = useState('draft');
+  const [soDrafts, setSoDrafts] = useState([]);
+  const [soPage, setSoPage] = useState(1);
+  const [soSubTab, setSoSubTab] = useState('riwayat');
+  const [soActionModal, setSoActionModal] = useState({ show: false, report: null });
+
+  // Load active stock opname session caching from localStorage on mount
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem('chery_active_stock_opname');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.soNo) setSoNo(parsed.soNo);
+        if (parsed.soItems) setSoItems(parsed.soItems);
+        if (parsed.soStatus) setSoStatus(parsed.soStatus);
+        if (parsed.soPage) setSoPage(parsed.soPage);
+        if (parsed.soSubTab) setSoSubTab(parsed.soSubTab);
+      }
+    } catch (e) {
+      console.error('Failed to load stock opname cache:', e);
+    }
+  }, []);
+
+  // Save active stock opname session caching to localStorage on change
+  useEffect(() => {
+    try {
+      if (soNo) {
+        const cacheData = { soNo, soItems, soStatus, soPage, soSubTab };
+        localStorage.setItem('chery_active_stock_opname', JSON.stringify(cacheData));
+      } else {
+        localStorage.removeItem('chery_active_stock_opname');
+      }
+    } catch (e) {
+      console.error('Failed to save stock opname cache:', e);
+    }
+  }, [soNo, soItems, soStatus, soPage, soSubTab]);
+
+  // Autosave to draft on change (5 seconds debounce)
+  useEffect(() => {
+    if (!soNo || soStatus !== 'draft' || soItems.length === 0) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const payload = {
+          opname_no: soNo,
+          checker: user?.name || user?.username || 'Owner',
+          status: 'draft',
+          items: soItems
+        };
+        await db.upsert('stock_opname', payload, { onConflict: 'opname_no' });
+        const { data } = await db.select('stock_opname', { order: { column: 'created_at', ascending: false } });
+        if (data) {
+          setSoHistory(data);
+          setSoDrafts(data.filter(r => r.status === 'draft'));
+        }
+      } catch (e) {
+        console.error('Autosave failed:', e);
+      }
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, [soItems, soNo, soStatus, user]);
+
+  // Keepalive backup save on window close or navigation
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (soNo && soStatus === 'draft' && soItems.length > 0) {
+        const payload = {
+          opname_no: soNo,
+          checker: user?.name || user?.username || 'Owner',
+          status: 'draft',
+          items: soItems
+        };
+        let authUsername = '';
+        try {
+          const savedUser = localStorage.getItem('chery_auth_user');
+          if (savedUser) {
+            authUsername = JSON.parse(savedUser).username || '';
+          }
+        } catch {}
+
+        fetch('/api/db', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Auth-Username': authUsername,
+          },
+          body: JSON.stringify({
+            table: 'stock_opname',
+            action: 'upsert',
+            data: { values: payload, upsertOptions: { onConflict: 'opname_no' } }
+          }),
+          keepalive: true
+        });
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [soItems, soNo, soStatus, user]);
 
   const fetchUnitEntryData = useCallback(async (year) => {
     setUeLoading(true);
@@ -437,25 +557,6 @@ export default function OwnerPanel({
   };
 
   const handleFetchEpcmToken = async () => {
-    setIsFetchingEpcmToken(true);
-    try {
-      const resp = await fetch('/api/chery_epc?action=get-active-token', {
-        headers: {
-          'X-Auth-Username': user?.username || '',
-          'X-Auth-Session-Id': localStorage.getItem('chery_session_id') || ''
-        }
-      });
-      const data = await resp.json();
-      if (data.success && data.token) {
-        setEpcmToken(data.token);
-        Toastify({ text: "✅ Token EPCM Berhasil Diambil!", style: { background: '#10b981' } }).showToast();
-        setIsFetchingEpcmToken(false);
-        return;
-      }
-    } catch (_) {}
-
-    setIsFetchingEpcmToken(false);
-    // Fallback: Open EPCM session endpoint directly in a new tab so user can copy token without CORS limitations
     window.open('https://qrepcm.mychery.com/api/rest/base/auth/current', '_blank');
     Toastify({ 
       text: "🔑 Salin token dari tab baru yang terbuka, lalu tempel di kolom EPCM Token!", 
@@ -466,7 +567,7 @@ export default function OwnerPanel({
 
   const BOOKMARKLET_CODE = `javascript:(async function(){try{let r=await fetch('/api/rest/base/auth/current');let d=await r.json();if(d.success&&d.data?.token){window.open('${window.location.origin}/?epcmToken='+encodeURIComponent(d.data.token),'_blank')}else{alert('Gagal ambil token: '+d.message)}}catch(e){alert('Error: '+e.message)}})();`;
 
-  // Simpan ke localStorage otomatis saat token diubah
+  // Simpan ke localStorage otomatis saat token diubah & daftarkan secara global ke server
   useEffect(() => {
     localStorage.setItem('chery_epcm_token', epcmToken);
     
@@ -490,12 +591,168 @@ export default function OwnerPanel({
     const urlParams = new URLSearchParams(window.location.search);
     const tokenFromUrl = urlParams.get('epcmToken');
     if (tokenFromUrl) {
-      setEpcmToken(tokenFromUrl);
+      let cleanToken = tokenFromUrl;
+      if (cleanToken.startsWith('Bearer ')) {
+        cleanToken = cleanToken.substring(7);
+      }
+      setEpcmToken(cleanToken);
       // Hapus token dari URL agar bersih
       window.history.replaceState({}, document.title, window.location.pathname);
       Toastify({ text: "✅ Token EPCM Diperbarui!", style: { background: '#10b981' } }).showToast();
+      
+      // Save globally
+      const authUsername = user?.username || '';
+      const authSessionId = localStorage.getItem('chery_session_id') || '';
+      fetch(`/api/chery_epc?action=save-token&token=${encodeURIComponent(cleanToken)}`, {
+        headers: {
+          'X-Auth-Username': authUsername,
+          'X-Auth-Session-Id': authSessionId
+        }
+      });
     }
   }, []);
+
+  // Monitor ketika token berubah untuk mereset data validasi waktu aktif
+  useEffect(() => {
+    if (prevTokenRef.current !== epcmToken) {
+      prevTokenRef.current = epcmToken;
+      setEpcTokenValidSince(epcmToken ? new Date() : null);
+      setEpcTokenExpiredAt(null);
+      setEpcTokenActiveDuration(0);
+      setEpcTokenStatus(epcmToken ? 'valid' : 'unknown');
+    }
+  }, [epcmToken]);
+
+  // Pelacak masa aktif token EPCM (check random 1-2 menit)
+  useEffect(() => {
+    if (!epcmToken) {
+      setEpcTokenStatus('unknown');
+      setEpcTokenValidSince(null);
+      setEpcTokenExpiredAt(null);
+      setEpcTokenActiveDuration(0);
+      return;
+    }
+
+    if (!epcTokenValidSince) {
+      setEpcTokenValidSince(new Date());
+      setEpcTokenExpiredAt(null);
+      setEpcTokenStatus('valid');
+    }
+
+    let isDestroyed = false;
+    let timerId = null;
+
+    const checkTokenLifecycle = async () => {
+      if (!epcmToken || isDestroyed) return;
+      try {
+        const testUrl = `${CHERY_EPC_URL}?path=${encodeURIComponent('/api/rest/search/fastSearch/part?keywordNumber=T11-2901010&page=1&pageSize=1')}`;
+        const resp = await fetch(testUrl, { headers: { 'token': epcmToken } });
+        const result = await resp.json();
+        
+        if (result.success === false) {
+          setEpcTokenStatus('expired');
+          const now = new Date();
+          setEpcTokenExpiredAt(now);
+          
+          setEpcTokenHistory(prev => {
+            const currentTokenShort = epcmToken.slice(0, 10) + '...';
+            if (prev.some(h => h.token === currentTokenShort && h.status === 'expired')) {
+              return prev;
+            }
+            const started = epcTokenValidSince ? new Date(epcTokenValidSince) : now;
+            const diffSec = Math.round((now - started) / 1000);
+            const newHistory = [
+              {
+                token: currentTokenShort,
+                startedAt: started.toISOString(),
+                endedAt: now.toISOString(),
+                status: 'expired',
+                duration: diffSec
+              },
+              ...prev
+            ].slice(0, 15);
+            localStorage.setItem('chery_epcm_token_history', JSON.stringify(newHistory));
+            return newHistory;
+          });
+          
+          Toastify({ 
+            text: "⚠️ Token EPCM terdeteksi Kedaluwarsa / Expired!", 
+            style: { background: "#ef4444" },
+            duration: 5000 
+          }).showToast();
+        } else {
+          setEpcTokenStatus('valid');
+          if (epcTokenValidSince) {
+            const diffSec = Math.round((new Date() - new Date(epcTokenValidSince)) / 1000);
+            setEpcTokenActiveDuration(diffSec);
+          }
+        }
+      } catch (e) {
+        console.error("Token lifecycle validation error:", e);
+      }
+
+      if (!isDestroyed && epcTokenStatus !== 'expired') {
+        const randomMs = Math.floor(Math.random() * (120000 - 60000 + 1)) + 60000;
+        timerId = setTimeout(checkTokenLifecycle, randomMs);
+      }
+    };
+
+    checkTokenLifecycle();
+
+    const secTimer = setInterval(() => {
+      if (epcTokenStatus === 'valid' && epcTokenValidSince) {
+        const diffSec = Math.round((new Date() - new Date(epcTokenValidSince)) / 1000);
+        setEpcTokenActiveDuration(diffSec);
+      }
+    }, 1000);
+
+    return () => {
+      isDestroyed = true;
+      if (timerId) clearTimeout(timerId);
+      clearInterval(secTimer);
+    };
+  }, [epcmToken, epcTokenStatus, epcTokenValidSince]);
+
+  // Fetch active EPCM token from backend on mount & listen for window.postMessage
+  useEffect(() => {
+    if (user) {
+      const fetchActiveToken = async () => {
+        try {
+          const resp = await fetch('/api/chery_epc?action=get-active-token', {
+            headers: {
+              'X-Auth-Username': user.username || '',
+              'X-Auth-Session-Id': localStorage.getItem('chery_session_id') || ''
+            }
+          });
+          const data = await resp.json();
+          if (data.success && data.token) {
+            setEpcmToken(data.token);
+            localStorage.setItem('chery_epcm_token', data.token);
+          }
+        } catch (e) {}
+      };
+      fetchActiveToken();
+
+      const handleTokenMessage = (e) => {
+        if (e.data && e.data.type === 'EPCM_TOKEN' && e.data.token) {
+          let cleanToken = e.data.token.replace('Bearer ', '');
+          setEpcmToken(cleanToken);
+          localStorage.setItem('chery_epcm_token', cleanToken);
+          // Save globally
+          fetch(`/api/chery_epc?action=save-token&token=${encodeURIComponent(cleanToken)}`, {
+            headers: {
+              'X-Auth-Username': user?.username || '',
+              'X-Auth-Session-Id': localStorage.getItem('chery_session_id') || ''
+            }
+          });
+          Toastify({ text: "✅ EPCM Connected secara global!", style: { background: "#10b981" } }).showToast();
+          window.dispatchEvent(new Event('epcm_token_updated'));
+        }
+      };
+      window.addEventListener('message', handleTokenMessage);
+      return () => window.removeEventListener('message', handleTokenMessage);
+    }
+  }, [user]);
 
   // Listener untuk Silent Sync dari Bookmarklet (Tanpa Refresh)
   useEffect(() => {
@@ -1418,6 +1675,307 @@ export default function OwnerPanel({
 
 
 
+  const fetchStockOpnameHistory = useCallback(async () => {
+    try {
+      const { data, error } = await db.select('stock_opname', { order: { column: 'created_at', ascending: false } });
+      if (error) throw error;
+      setSoHistory(data || []);
+      setSoDrafts((data || []).filter(r => r.status === 'draft'));
+    } catch (e) {
+      console.error('Error fetching stock opname history:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'stock_opname') {
+      fetchStockOpnameHistory();
+    }
+  }, [activeTab, fetchStockOpnameHistory]);
+
+  const handleStartNewOpname = async () => {
+    const d = new Date();
+    const generatedNo = `SO-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`;
+    setSoNo(generatedNo);
+    setSoStatus('draft');
+    setSoSelectedHistory(null);
+    setSoPage(1);
+    Toastify({ text: "📝 Opname Baru Dimulai!", style: { background: "#10b981" } }).showToast();
+
+    setSoLoading(true);
+    try {
+      const resp = await fetch(`/api/chery_dms?endpoint=internal-part-stocks&draw=1&start=0&length=2000`);
+      const json = await resp.json();
+      const list = json?.data || [];
+      const totalInDms = list.length;
+      const formatted = list
+        .map(item => ({
+          part_no: item.part_no_stok,
+          part_name: item.part_name_stok,
+          category: item.kategori_stok || 'General',
+          qty_system: parseInt(item.saldo_akhir_stok) || 0,
+          qty_gudang: '',
+          check_time: '-',
+          status: '-'
+        }))
+        .filter(item => item.qty_system > 0);
+      const sorted = formatted.sort((a, b) => b.qty_system - a.qty_system);
+      setSoItems(sorted);
+      const zeroQtyCount = totalInDms - sorted.length;
+      Toastify({ text: `📦 Loaded ${sorted.length} entries have qty, other ${zeroQtyCount} entries are 0`, style: { background: "#10b981" } }).showToast();
+    } catch (e) {
+      console.error(e);
+      Toastify({ text: "❌ Gagal memuat stock dari DMS", style: { background: "#ef4444" } }).showToast();
+      setSoItems([]);
+    } finally {
+      setSoLoading(false);
+    }
+  };
+
+  const handleLoadSystemStocks = async () => {
+    setSoLoading(true);
+    setSoPage(1);
+    try {
+      const resp = await fetch(`/api/chery_dms?endpoint=internal-part-stocks&draw=1&start=0&length=2000`);
+      const json = await resp.json();
+      const list = json?.data || [];
+      const totalInDms = list.length;
+      const formatted = list
+        .map(item => ({
+          part_no: item.part_no_stok,
+          part_name: item.part_name_stok,
+          category: item.kategori_stok || 'General',
+          qty_system: parseInt(item.saldo_akhir_stok) || 0,
+          qty_gudang: '',
+          check_time: '-',
+          status: '-'
+        }))
+        .filter(item => item.qty_system > 0);
+      const sorted = formatted.sort((a, b) => b.qty_system - a.qty_system);
+      setSoItems(sorted);
+      const zeroQtyCount = totalInDms - sorted.length;
+      Toastify({ text: `📦 Loaded ${sorted.length} entries have qty, other ${zeroQtyCount} entries are 0`, style: { background: "#10b981" } }).showToast();
+    } catch (e) {
+      console.error(e);
+      Toastify({ text: "❌ Gagal memuat stock dari DMS", style: { background: "#ef4444" } }).showToast();
+    } finally {
+      setSoLoading(false);
+    }
+  };
+
+
+
+  const handleUpdateDmsSparepart = async () => {
+    setSoLoading(true);
+    try {
+      const resp = await fetch('/api/chery_dms?endpoint=part-update-sparepart');
+      const json = await resp.json();
+      Toastify({ text: `🔄 DMS Stock Update Triggered: ${json.message || 'Sukses'}`, style: { background: "#10b981" } }).showToast();
+      if (soItems.length > 0) {
+        await handleLoadSystemStocks();
+      }
+    } catch (e) {
+      console.error(e);
+      Toastify({ text: "❌ Gagal men-trigger update sparepart DMS", style: { background: "#ef4444" } }).showToast();
+    } finally {
+      setSoLoading(false);
+    }
+  };
+
+  const handleInputPhysicalQty = (partNo, val) => {
+    setSoItems(prev => prev.map((item) => {
+      if (item.part_no !== partNo) return item;
+      const physicalQty = val === '' ? '' : parseInt(val);
+      let status = '-';
+      let checkTime = '-';
+      if (val !== '') {
+        const diff = physicalQty - item.qty_system;
+        if (diff === 0) status = 'sesuai';
+        else if (diff > 0) status = 'berlebih';
+        else status = 'minus';
+
+        const d = new Date();
+        const HH = String(d.getHours()).padStart(2, '0');
+        const min = String(d.getMinutes()).padStart(2, '0');
+        const DD = String(d.getDate()).padStart(2, '0');
+        const MM = String(d.getMonth() + 1).padStart(2, '0');
+        const YYYY = d.getFullYear();
+        checkTime = `${HH}:${min} - ${DD} - ${MM} - ${YYYY}`;
+      }
+      return {
+        ...item,
+        qty_gudang: physicalQty,
+        status,
+        check_time: checkTime
+      };
+    }));
+  };
+
+  const handleSaveOpnameDraft = async () => {
+    if (!soNo) return;
+    setSoLoading(true);
+    try {
+      const payload = {
+        opname_no: soNo,
+        checker: user?.name || user?.username || 'Owner',
+        status: 'draft',
+        items: soItems
+      };
+      const { error } = await db.upsert('stock_opname', payload, { onConflict: 'opname_no' });
+      if (error) throw error;
+      Toastify({ text: "💾 Draft Stock Opname Berhasil Disimpan!", style: { background: "#10b981" } }).showToast();
+      fetchStockOpnameHistory();
+    } catch (e) {
+      console.error(e);
+      Toastify({ text: "❌ Gagal menyimpan draft", style: { background: "#ef4444" } }).showToast();
+    } finally {
+      setSoLoading(false);
+    }
+  };
+
+  const handleConfirmOpname = async () => {
+    if (!soNo) return;
+    
+    // Check if any items are not filled yet
+    const emptyItems = soItems.filter(item => item.qty_gudang === '' || item.qty_gudang === undefined || item.qty_gudang === null);
+    if (emptyItems.length > 0) {
+      const uncompletedList = emptyItems.slice(0, 3).map(item => item.part_no).join(', ');
+      const extraMsg = emptyItems.length > 3 ? ` dan ${emptyItems.length - 3} lainnya` : '';
+      alert(`⚠️ Konfirmasi ditolak! Terdapat ${emptyItems.length} item yang belum diinput qty gudang: [${uncompletedList}${extraMsg}]. Harap isi terlebih dahulu.`);
+      
+      // Auto-navigate to first empty item page
+      const firstEmptyIndex = soItems.findIndex(item => item.qty_gudang === '' || item.qty_gudang === undefined || item.qty_gudang === null);
+      if (firstEmptyIndex !== -1) {
+        const targetPage = Math.floor(firstEmptyIndex / 10) + 1;
+        setSoPage(targetPage);
+      }
+      return;
+    }
+
+    if (!window.confirm("Konfirmasi Stock Opname ini? Setelah dikonfirmasi, data akan dikunci secara permanen dan tidak dapat diedit kembali.")) return;
+    setSoLoading(true);
+    try {
+      const payload = {
+        opname_no: soNo,
+        checker: user?.name || user?.username || 'Owner',
+        status: 'confirmed',
+        items: soItems,
+        confirmed_at: new Date().toISOString()
+      };
+      const { error } = await db.upsert('stock_opname', payload, { onConflict: 'opname_no' });
+      if (error) throw error;
+      setSoStatus('confirmed');
+      Toastify({ text: "🔒 Stock Opname Berhasil Dikonfirmasi & Dikunci!", style: { background: "#10b981" } }).showToast();
+      fetchStockOpnameHistory();
+    } catch (e) {
+      console.error(e);
+      Toastify({ text: "❌ Gagal mengonfirmasi stock opname", style: { background: "#ef4444" } }).showToast();
+    } finally {
+      setSoLoading(false);
+    }
+  };
+
+  const handleSelectPastOpname = (report) => {
+    setSoNo(report.opname_no);
+    setSoItems(report.items || []);
+    setSoStatus(report.status);
+    setSoSelectedHistory(report);
+    setSoPage(1);
+    setSoSubTab('pencatatan');
+  };
+
+  const handleDeleteOpname = async (opnameNo) => {
+    if (!window.confirm(`Apakah Anda yakin ingin menghapus draft ${opnameNo}?`)) return;
+    setSoLoading(true);
+    try {
+      const { error } = await db.delete('stock_opname', { eq: { opname_no: opnameNo } });
+      if (error) throw error;
+      Toastify({ text: "🗑️ Draft Berhasil Dihapus!", style: { background: "#ef4444" } }).showToast();
+      if (soNo === opnameNo) {
+        setSoNo('');
+        setSoItems([]);
+        setSoStatus('draft');
+        setSoSelectedHistory(null);
+      }
+      fetchStockOpnameHistory();
+    } catch (e) {
+      console.error(e);
+      Toastify({ text: "❌ Gagal menghapus draft", style: { background: "#ef4444" } }).showToast();
+    } finally {
+      setSoLoading(false);
+    }
+  };
+
+  const handleExportOpnamePdf = (report) => {
+    const doc = new jsPDF('portrait');
+    const tableData = [];
+    const items = report.items || [];
+
+    items.forEach((item, idx) => {
+      tableData.push([
+        idx + 1,
+        item.part_no,
+        item.part_name,
+        item.qty_system,
+        item.qty_gudang !== '' ? item.qty_gudang : '-',
+        item.check_time,
+        item.status ? item.status.toUpperCase() : '-'
+      ]);
+    });
+
+    doc.setFontSize(18);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 58, 138);
+    doc.text("LAPORAN STOCK OPNAME GUDANG", 14, 20);
+
+    doc.setFontSize(10);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Nomor Opname : ${report.opname_no}`, 14, 28);
+    doc.text(`Checker      : ${report.checker}`, 14, 34);
+    doc.text(`Waktu Cek    : ${new Date(report.created_at || Date.now()).toLocaleString('id-ID')}`, 14, 40);
+    doc.text(`Status       : ${report.status.toUpperCase()}`, 14, 46);
+
+    autoTable(doc, {
+      startY: 52,
+      head: [['No', 'Part Number', 'Part Name', 'Qty Sistem', 'Qty Gudang', 'Waktu Cek', 'Status']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [30, 58, 138], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 12 },
+      bodyStyles: { fontSize: 12 },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 35, fontStyle: 'bold', fontSize: 12 },
+        2: { cellWidth: 45, fontStyle: 'bold', fontSize: 12 },
+        3: { cellWidth: 20, halign: 'center' },
+        4: { cellWidth: 20, halign: 'center' },
+        5: { cellWidth: 35, halign: 'center' },
+        6: { cellWidth: 20, halign: 'center' }
+      }
+    });
+
+    doc.save(`Stock_Opname_${report.opname_no}.pdf`);
+    Toastify({ text: "✅ PDF Berhasil diunduh!", style: { background: "#10b981" } }).showToast();
+  };
+
+  const handleExportOpnameExcel = (report) => {
+    const items = report.items || [];
+    const rows = items.map((item, idx) => ({
+      'No': idx + 1,
+      'Part Number': item.part_no,
+      'Part Name': item.part_name,
+      'Kategori': item.category,
+      'Qty Sistem': item.qty_system,
+      'Qty Gudang (Fisik)': item.qty_gudang !== '' ? item.qty_gudang : '-',
+      'Waktu Cek': item.check_time,
+      'Status': item.status ? item.status.toUpperCase() : '-'
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Stock Opname");
+    XLSX.writeFile(wb, `Stock_Opname_${report.opname_no}.xlsx`);
+    Toastify({ text: "✅ Excel Berhasil diexport!", style: { background: "#10b981" } }).showToast();
+  };
+
   const fetchDeletedBookings = useCallback(async () => {
     try {
       const { data, error } = await db.select('booking', { select: 'id, tanggal, jam, noPlat, namaCustomer, tipeMobil, status, bookingVia, noTelp, keperluanService, deleted_by, deleted_by_role, deleted_at', eq: { status: 'deleted' }, order: { column: 'deleted_at', ascending: false } });
@@ -1745,7 +2303,7 @@ export default function OwnerPanel({
       {/* Main Content - no internal sidebar */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Topbar */}
-        {activeTab !== 'e_katalog_epcm' && (
+        {activeTab !== 'e_katalog_epcm' && activeTab !== 'stock_opname' && (
           <header className="bg-white border-b border-zinc-200 px-4 md:px-8 h-20 flex items-center justify-between shrink-0 box-border">
             <div className="flex items-center gap-3">
               <div>
@@ -1786,7 +2344,9 @@ export default function OwnerPanel({
                                   ? 'Analisis Trend Unit Entry Bulanan & Deduplikasi VIN'
                                   : activeTab === 'laporan_wo'
                                     ? 'Rincian transaksi pekerjaan & spare part Work Order'
-                                    : `${deletedBookings.length} data yang terhapus`}
+                                    : activeTab === 'stock_opname'
+                                      ? 'Pencatatan & riwayat stock opname gudang sparepart'
+                                      : `${deletedBookings.length} data yang terhapus`}
                 </p>
               </div>
             </div>
@@ -1805,10 +2365,12 @@ export default function OwnerPanel({
                   </button>
                 </>
               )}
-              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-md">
-                <div className="w-2 h-2 bg-black rounded-full animate-pulse"></div>
-                <span className="text-[10px] font-black text-black uppercase tracking-widest">Realtime Active</span>
-              </div>
+              {activeTab !== 'stock_opname' && (
+                <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-md">
+                  <div className="w-2 h-2 bg-black rounded-full animate-pulse"></div>
+                  <span className="text-[10px] font-black text-black uppercase tracking-widest">Realtime Active</span>
+                </div>
+              )}
             </div>
           </header>
         )}
@@ -2029,6 +2591,62 @@ export default function OwnerPanel({
           {/* ====== TAB: E-KATALOG EPCM ====== */}
           {activeTab === 'e_katalog_epcm' && (
             <div className="w-full animate-in fade-in duration-500">
+              {/* EPCM Token Lifespan & History Tracker */}
+              {epcmToken && (
+                <div className="bg-white border border-zinc-200 rounded-lg p-4 shadow-sm mb-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Clock size={16} className="text-zinc-650" />
+                      <h3 className="font-black text-xs uppercase tracking-widest text-zinc-900">Analisis & Pelacakan Daur Hidup Token</h3>
+                    </div>
+                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                      epcTokenStatus === 'valid' ? 'bg-emerald-100 text-emerald-700 animate-pulse' :
+                      epcTokenStatus === 'expired' ? 'bg-rose-100 text-rose-700' :
+                      'bg-zinc-100 text-zinc-600'
+                    }`}>
+                      {epcTokenStatus === 'valid' ? 'Token Aktif' :
+                       epcTokenStatus === 'expired' ? 'Token Expired' : 'Belum Dicek'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs font-semibold text-zinc-700">
+                    <div className="bg-zinc-50 border border-zinc-150 p-3 rounded-lg">
+                      <span className="text-[8.5px] font-black text-zinc-400 uppercase tracking-widest block">Waktu Validasi</span>
+                      <span className="font-bold text-zinc-900 mt-1 block">
+                        {epcTokenValidSince ? new Date(epcTokenValidSince).toLocaleTimeString('id-ID') : '-'}
+                      </span>
+                    </div>
+                    <div className="bg-zinc-50 border border-zinc-150 p-3 rounded-lg">
+                      <span className="text-[8.5px] font-black text-zinc-400 uppercase tracking-widest block">Total Masa Aktif</span>
+                      <span className="font-mono font-black text-zinc-900 mt-1 block">
+                        {epcTokenStatus === 'valid' ? `${Math.floor(epcTokenActiveDuration / 60)}m ${epcTokenActiveDuration % 60}s` :
+                         epcTokenExpiredAt ? `Bertahan ${Math.floor(epcTokenActiveDuration / 60)}m ${epcTokenActiveDuration % 60}s sebelum mati` : '-'}
+                      </span>
+                    </div>
+                    <div className="bg-zinc-50 border border-zinc-150 p-3 rounded-lg col-span-2 md:col-span-1">
+                      <span className="text-[8.5px] font-black text-zinc-400 uppercase tracking-widest block">Random Health Check</span>
+                      <span className="font-bold text-zinc-600 mt-1 block flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                        Aktif (Setiap 1-2 menit)
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {epcTokenHistory.length > 0 && (
+                    <div className="space-y-2 pt-2 border-t border-zinc-200">
+                      <div className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Riwayat Eksperimen Token</div>
+                      <div className="max-h-24 overflow-y-auto divide-y divide-zinc-150 text-[10px] text-zinc-650 pr-1 custom-scrollbar">
+                        {epcTokenHistory.map((hist, idx) => (
+                          <div key={idx} className="py-1.5 flex justify-between items-center">
+                            <span className="font-mono text-zinc-900 font-bold">{hist.token}</span>
+                            <span className="text-zinc-500">Masa aktif: <span className="font-mono font-black text-rose-600">{Math.floor(hist.duration / 60)}m {hist.duration % 60}s</span></span>
+                            <span className="text-[8.5px] text-zinc-400">{new Date(hist.endedAt).toLocaleTimeString('id-ID')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               <EpcExplorer 
                 user={user}
                 epcmToken={epcmToken}
@@ -2111,6 +2729,63 @@ export default function OwnerPanel({
                    </button>
                 </div>
               </div>
+
+              {/* EPCM Token Lifespan & History Tracker */}
+              {epcmToken && (
+                <div className="bg-white border border-zinc-200 rounded-lg p-4 shadow-sm space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Clock size={16} className="text-zinc-650" />
+                      <h3 className="font-black text-xs uppercase tracking-widest text-zinc-900">Analisis & Pelacakan Daur Hidup Token</h3>
+                    </div>
+                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                      epcTokenStatus === 'valid' ? 'bg-emerald-100 text-emerald-700 animate-pulse' :
+                      epcTokenStatus === 'expired' ? 'bg-rose-100 text-rose-700' :
+                      'bg-zinc-100 text-zinc-600'
+                    }`}>
+                      {epcTokenStatus === 'valid' ? 'Token Aktif' :
+                       epcTokenStatus === 'expired' ? 'Token Expired' : 'Belum Dicek'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs font-semibold text-zinc-700">
+                    <div className="bg-zinc-50 border border-zinc-150 p-3 rounded-lg">
+                      <span className="text-[8.5px] font-black text-zinc-400 uppercase tracking-widest block">Waktu Validasi</span>
+                      <span className="font-bold text-zinc-900 mt-1 block">
+                        {epcTokenValidSince ? new Date(epcTokenValidSince).toLocaleTimeString('id-ID') : '-'}
+                      </span>
+                    </div>
+                    <div className="bg-zinc-50 border border-zinc-150 p-3 rounded-lg">
+                      <span className="text-[8.5px] font-black text-zinc-400 uppercase tracking-widest block">Total Masa Aktif</span>
+                      <span className="font-mono font-black text-zinc-900 mt-1 block">
+                        {epcTokenStatus === 'valid' ? `${Math.floor(epcTokenActiveDuration / 60)}m ${epcTokenActiveDuration % 60}s` :
+                         epcTokenExpiredAt ? `Bertahan ${Math.floor(epcTokenActiveDuration / 60)}m ${epcTokenActiveDuration % 60}s sebelum mati` : '-'}
+                      </span>
+                    </div>
+                    <div className="bg-zinc-50 border border-zinc-150 p-3 rounded-lg col-span-2 md:col-span-1">
+                      <span className="text-[8.5px] font-black text-zinc-400 uppercase tracking-widest block">Random Health Check</span>
+                      <span className="font-bold text-zinc-600 mt-1 block flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                        Aktif (Setiap 1-2 menit)
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {epcTokenHistory.length > 0 && (
+                    <div className="space-y-2 pt-2 border-t border-zinc-200">
+                      <div className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Riwayat Eksperimen Token</div>
+                      <div className="max-h-24 overflow-y-auto divide-y divide-zinc-150 text-[10px] text-zinc-650 pr-1 custom-scrollbar">
+                        {epcTokenHistory.map((hist, idx) => (
+                          <div key={idx} className="py-1.5 flex justify-between items-center">
+                            <span className="font-mono text-zinc-900 font-bold">{hist.token}</span>
+                            <span className="text-zinc-500">Masa aktif: <span className="font-mono font-black text-rose-600">{Math.floor(hist.duration / 60)}m {hist.duration % 60}s</span></span>
+                            <span className="text-[8.5px] text-zinc-400">{new Date(hist.endedAt).toLocaleTimeString('id-ID')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Search Controls & Bulk */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -4192,8 +4867,381 @@ export default function OwnerPanel({
               )}
             </div>
           )}
+
+          {/* ====== TAB: STOCK OPNAME ====== */}
+          {activeTab === 'stock_opname' && (
+            <div className="space-y-6 animate-in fade-in duration-500 pb-16">
+              {/* Header card with quick controls */}
+              <div className="bg-white border border-zinc-200 rounded-lg p-6 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h3 className="text-lg font-black text-zinc-900 tracking-tight">Stock Opname Gudang</h3>
+                  <p className="text-xs text-zinc-500 font-medium">Bandingkan fisik stok gudang dengan saldo sistem DMS secara mobile-friendly.</p>
+                  {soNo && (
+                    <div className="mt-2 flex flex-wrap gap-2 items-center">
+                      <span className="px-2.5 py-1 bg-zinc-900 text-white font-mono font-black text-xs rounded-md shadow-sm">
+                        No Opname: {soNo}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${
+                        soStatus === 'confirmed' ? 'bg-zinc-100 border-zinc-300 text-black' : 'bg-yellow-50 border-yellow-200 text-yellow-700'
+                      }`}>
+                        {soStatus.toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                  <button
+                    onClick={handleStartNewOpname}
+                    className="flex-1 md:flex-none px-4 py-2.5 bg-black text-white hover:bg-zinc-800 rounded-md text-xs font-black uppercase tracking-wider transition-all shadow-sm active:scale-95"
+                  >
+                    Opname Baru
+                  </button>
+                  <button
+                    onClick={handleLoadSystemStocks}
+                    disabled={!soNo || soStatus === 'confirmed'}
+                    className="flex-1 md:flex-none px-4 py-2.5 bg-white border border-zinc-300 hover:bg-zinc-50 text-zinc-800 rounded-md text-xs font-black uppercase tracking-wider transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                  >
+                    Muat Stok DMS
+                  </button>
+                  <button
+                    onClick={handleUpdateDmsSparepart}
+                    className="flex-1 md:flex-none px-4 py-2.5 bg-white border border-zinc-300 hover:bg-zinc-50 text-zinc-800 rounded-md text-xs font-black uppercase tracking-wider transition-all shadow-sm active:scale-95"
+                    title="Tarik live update data sparepart dari dms"
+                  >
+                    Sync DMS
+                  </button>
+                </div>
+              </div>
+
+              {/* Sub-tab navigation bar */}
+              <div className="flex border-b border-zinc-200 gap-6 mb-4">
+                <button
+                  onClick={() => setSoSubTab('pencatatan')}
+                  className={`pb-3 text-xs font-black uppercase tracking-widest border-b-2 transition-all flex items-center gap-2 ${
+                    soSubTab === 'pencatatan' ? 'border-black text-black' : 'border-transparent text-zinc-400 hover:text-zinc-600'
+                  }`}
+                >
+                  📝 Pencatatan Stok
+                </button>
+                <button
+                  onClick={() => setSoSubTab('riwayat')}
+                  className={`pb-3 text-xs font-black uppercase tracking-widest border-b-2 transition-all flex items-center gap-2 ${
+                    soSubTab === 'riwayat' ? 'border-black text-black' : 'border-transparent text-zinc-400 hover:text-zinc-600'
+                  }`}
+                >
+                  📜 Riwayat Opname ({soHistory.length})
+                </button>
+              </div>
+
+              {soSubTab === 'pencatatan' ? (
+                <div className="space-y-4">
+                  {soNo ? (
+                    <div className="space-y-4">
+                      {/* Search / Filter Bar */}
+                      <div className="bg-white border border-zinc-200 rounded-lg p-4 shadow-sm">
+                        <input
+                          type="text"
+                          placeholder="🔍 Cari nomor/nama part di dalam list opname ini..."
+                          value={soSearch}
+                          onChange={(e) => {
+                            setSoSearch(e.target.value);
+                            setSoPage(1);
+                          }}
+                          className="w-full bg-zinc-50 border border-zinc-200 rounded-md px-4 py-2.5 text-xs text-zinc-900 font-bold outline-none focus:border-zinc-500 transition-all font-sans"
+                        />
+                      </div>
+
+                      {/* Items Stack/Cards */}
+                      {soItems.length === 0 ? (
+                        <div className="bg-white border border-zinc-200 rounded-lg p-16 text-center text-zinc-400 shadow-sm">
+                          <Package size={48} className="mx-auto mb-4 opacity-25" />
+                          <p className="text-xs font-bold uppercase tracking-wide">Belum ada item opname</p>
+                          <p className="text-[10px] text-zinc-500 mt-1">Gunakan tombol "Muat Stok DMS" di atas untuk memulai.</p>
+                        </div>
+                      ) : (() => {
+                        const filteredItems = soItems.filter(item => 
+                          (item.part_no || '').toLowerCase().includes(soSearch.toLowerCase()) || 
+                          (item.part_name || '').toLowerCase().includes(soSearch.toLowerCase())
+                        );
+                        const itemsPerPage = 10;
+                        const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
+                        const paginatedItems = filteredItems.slice((soPage - 1) * itemsPerPage, soPage * itemsPerPage);
+
+                        if (filteredItems.length === 0) {
+                          return (
+                            <div className="bg-white border border-zinc-200 rounded-lg p-12 text-center text-zinc-400 shadow-sm">
+                              <p className="text-xs font-bold uppercase tracking-wide">Part tidak ditemukan</p>
+                              <p className="text-[10px] text-zinc-500 mt-1">Tidak ada nomor atau nama sparepart yang cocok dengan pencarian Anda.</p>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="space-y-4">
+                            <div className="space-y-3">
+                              {paginatedItems.map((item, idx) => {
+                                const globalIndex = soItems.findIndex(u => u.part_no === item.part_no);
+                                return (
+                                  <div
+                                    key={item.part_no + globalIndex}
+                                    className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm space-y-3 relative overflow-hidden transition-all hover:border-black"
+                                  >
+                                    {/* Card Header */}
+                                    <div className="flex justify-between items-start gap-4">
+                                      <div className="space-y-0.5">
+                                        <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest font-mono">
+                                          No. {globalIndex + 1} · {item.category}
+                                        </span>
+                                        <h4 className="text-zinc-900 font-black text-sm leading-tight uppercase tracking-wider font-mono">
+                                          {item.part_no}
+                                        </h4>
+                                        <p className="text-xs font-bold text-zinc-600">
+                                          {item.part_name}
+                                        </p>
+                                      </div>
+                                      {item.status && item.status !== '-' && (
+                                        <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${
+                                          item.status === 'sesuai' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
+                                          item.status === 'berlebih' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                                          'bg-rose-50 border-rose-200 text-rose-700'
+                                        }`}>
+                                          {item.status}
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Stock Info Row */}
+                                    <div className="grid grid-cols-2 gap-4 pt-2 border-t border-zinc-100">
+                                      <div>
+                                        <p className="text-[8px] font-black text-zinc-400 uppercase tracking-wider">Sistem (DMS)</p>
+                                        <p className="text-base font-black text-zinc-900">{item.qty_system} pcs</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-[8px] font-black text-zinc-400 uppercase tracking-wider mb-1">Gudang (Fisik)</p>
+                                        {soStatus === 'draft' ? (
+                                          <input
+                                            type="number"
+                                            placeholder="Input Qty..."
+                                            value={item.qty_gudang}
+                                            onChange={(e) => handleInputPhysicalQty(item.part_no, e.target.value)}
+                                            className="w-full bg-zinc-50 border border-zinc-200 rounded-md px-3 py-1.5 text-xs text-zinc-900 font-bold outline-none focus:border-zinc-500 transition-all font-mono"
+                                          />
+                                        ) : (
+                                          <p className="text-base font-black text-zinc-900">{item.qty_gudang !== '' ? item.qty_gudang : '-'} pcs</p>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Footer Timestamp */}
+                                    <div className="text-[9px] text-zinc-400 flex items-center justify-between pt-1 font-mono">
+                                      <span>Checked: {item.check_time}</span>
+                                      {soStatus === 'draft' && (
+                                        <button
+                                          onClick={() => setSoItems(prev => prev.filter(u => u.part_no !== item.part_no))}
+                                          className="text-red-500 hover:text-red-600 transition-colors uppercase font-sans font-black text-[9px]"
+                                        >
+                                          Hapus
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* Pagination Controls */}
+                            {totalPages > 1 && (
+                              <div className="flex items-center justify-between pt-4 border-t border-zinc-200">
+                                <button
+                                  disabled={soPage === 1}
+                                  onClick={() => setSoPage(prev => Math.max(prev - 1, 1))}
+                                  className="px-3.5 py-2 bg-white border border-zinc-300 hover:bg-zinc-50 disabled:opacity-50 text-xs font-bold rounded-md transition-all active:scale-95 shadow-sm"
+                                >
+                                  Sebelumnya
+                                </button>
+                                <span className="text-[11px] text-zinc-500 font-bold font-sans">
+                                  Halaman {soPage} dari {totalPages} ({filteredItems.length} hasil)
+                                </span>
+                                <button
+                                  disabled={soPage === totalPages}
+                                  onClick={() => setSoPage(prev => Math.min(prev + 1, totalPages))}
+                                  className="px-3.5 py-2 bg-white border border-zinc-300 hover:bg-zinc-50 disabled:opacity-50 text-xs font-bold rounded-md transition-all active:scale-95 shadow-sm"
+                                >
+                                  Selanjutnya
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Action buttons at bottom of list */}
+                      {soStatus === 'draft' && soItems.length > 0 && (
+                        <div className="flex gap-3">
+                          <button
+                            onClick={handleSaveOpnameDraft}
+                            className="flex-1 py-3 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-black text-xs uppercase tracking-wider rounded-md transition-all shadow-sm active:scale-95"
+                          >
+                            Simpan Draft
+                          </button>
+                          <button
+                            onClick={handleConfirmOpname}
+                            className="flex-1 py-3 bg-black text-white hover:bg-zinc-800 font-black text-xs uppercase tracking-wider rounded-md transition-all shadow-sm active:scale-95"
+                          >
+                            Konfirmasi & Kunci
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-white border border-zinc-200 rounded-lg p-16 text-center text-zinc-400 shadow-sm">
+                      <Layers size={48} className="mx-auto mb-4 opacity-25" />
+                      <p className="text-sm font-bold uppercase tracking-wide">Pilih atau Mulai Stock Opname</p>
+                      <p className="text-xs text-zinc-500 mt-1">Gunakan tombol "Opname Baru" di atas atau pilih riwayat opname di tab Riwayat.</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Drafts Section */}
+                  {soDrafts.length > 0 && (
+                    <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm space-y-4">
+                      <h4 className="text-xs font-black uppercase tracking-widest text-zinc-500">Draft Stock Opname</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                        {soDrafts.map((d) => (
+                          <div
+                            key={d.opname_no}
+                            onClick={() => setSoActionModal({ show: true, report: d })}
+                            className={`p-4 rounded-lg border text-left transition-all hover:bg-zinc-50 hover:border-black cursor-pointer ${
+                              soNo === d.opname_no ? 'border-zinc-900 bg-zinc-50/50 shadow-sm' : 'border-zinc-200 bg-white'
+                            }`}
+                          >
+                            <p className="text-xs font-black text-zinc-900 font-mono leading-tight">{d.opname_no}</p>
+                            <div className="flex items-center justify-between text-[10px] text-zinc-500 font-bold mt-1">
+                              <span>{d.items?.length || 0} item</span>
+                              <span>{new Date(d.created_at).toLocaleDateString('id-ID')}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* History Section */}
+                  <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm space-y-4">
+                    <h4 className="text-xs font-black uppercase tracking-widest text-zinc-500">Riwayat Opname Selesai</h4>
+                    {soHistory.filter(r => r.status === 'confirmed').length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">Belum ada riwayat opname selesai.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                        {soHistory.filter(r => r.status === 'confirmed').map((report) => (
+                          <div
+                            key={report.opname_no}
+                            onClick={() => setSoActionModal({ show: true, report })}
+                            className={`p-4 rounded-lg border text-left transition-all hover:border-black cursor-pointer ${
+                              soNo === report.opname_no ? 'border-zinc-900 bg-zinc-50/50 shadow-sm' : 'border-zinc-200 bg-white'
+                            }`}
+                          >
+                            <p className="text-xs font-black text-zinc-900 font-mono leading-tight">{report.opname_no}</p>
+                            <div className="flex items-center justify-between text-[10px] text-zinc-500 font-bold mt-1">
+                              <span>{report.items?.length || 0} item</span>
+                              <span>{new Date(report.created_at).toLocaleDateString('id-ID')}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </main>
       </div>
+
+      {/* ====== STOCK OPNAME OPTIONS MODAL ====== */}
+      {soActionModal.show && soActionModal.report && (
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-lg p-6 w-full max-w-sm shadow-2xl space-y-4 text-center">
+            <div className="w-12 h-12 bg-zinc-50 border border-zinc-200 rounded-full flex items-center justify-center mx-auto">
+              <span className="text-xl">
+                {soActionModal.report.status === 'draft' ? '📝' : '🔒'}
+              </span>
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-zinc-900 font-black text-sm uppercase tracking-wider font-mono">
+                {soActionModal.report.opname_no}
+              </h3>
+              <p className="text-zinc-500 text-xs font-semibold">
+                Status: <span className="uppercase text-black font-black">{soActionModal.report.status}</span> · {soActionModal.report.items?.length || 0} item
+              </p>
+              <p className="text-zinc-400 text-[10px] font-medium">
+                Checker: {soActionModal.report.checker} · {new Date(soActionModal.report.created_at).toLocaleDateString('id-ID')}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-2">
+              {soActionModal.report.status === 'draft' ? (
+                <>
+                  <button
+                    onClick={() => {
+                      handleSelectPastOpname(soActionModal.report);
+                      setSoActionModal({ show: false, report: null });
+                    }}
+                    className="w-full py-2.5 bg-black hover:bg-zinc-800 text-white rounded-md text-xs font-black uppercase tracking-wider transition-all"
+                  >
+                    ✏️ Buka & Lanjutkan Edit
+                  </button>
+                  <button
+                    onClick={() => {
+                      const rep = soActionModal.report;
+                      setSoActionModal({ show: false, report: null });
+                      handleDeleteOpname(rep.opname_no);
+                    }}
+                    className="w-full py-2.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-md text-xs font-black uppercase tracking-wider transition-all"
+                  >
+                    🗑️ Hapus Draft
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      handleSelectPastOpname(soActionModal.report);
+                      setSoActionModal({ show: false, report: null });
+                    }}
+                    className="w-full py-2.5 bg-black hover:bg-zinc-800 text-white rounded-md text-xs font-black uppercase tracking-wider transition-all"
+                  >
+                    👁️ Buka & Lihat Detail
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleExportOpnamePdf(soActionModal.report);
+                    }}
+                    className="w-full py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-md text-xs font-black uppercase tracking-wider transition-all"
+                  >
+                    📄 Export PDF
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleExportOpnameExcel(soActionModal.report);
+                    }}
+                    className="w-full py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-md text-xs font-black uppercase tracking-wider transition-all"
+                  >
+                    📊 Export Excel
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => setSoActionModal({ show: false, report: null })}
+                className="w-full py-2 bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-500 hover:text-zinc-700 rounded-md text-xs font-bold transition-all mt-1"
+              >
+                Batal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ====== MODALS ====== */}
       {modal.type && (
@@ -4877,11 +5925,29 @@ function WorkshopColumn({ title, items, color, icon: Icon, formatTime, onEdit, o
                     {formatTime(i.estimasi)}
                   </span>
                 )}
-                {color === 'green' && i.waktuSelesai && (
-                   <span className="text-[9px] font-black text-zinc-900 font-mono">
-                      {i.waktuSelesai.split(',').pop().trim()}
-                   </span>
-                )}
+                {color === 'green' && i.waktuSelesai && (() => {
+                  try {
+                    const val = i.waktuSelesai;
+                    if (typeof val === 'string' && (val.includes('T') || val.includes('-') || val.includes(':')) && isNaN(Number(val))) {
+                      return (
+                        <span className="text-[9px] font-black text-zinc-900 font-mono">
+                          {new Date(val).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                        </span>
+                      );
+                    }
+                    return (
+                      <span className="text-[9px] font-black text-zinc-900 font-mono">
+                        {val.split(',').pop().trim()}
+                      </span>
+                    );
+                  } catch {
+                    return (
+                      <span className="text-[9px] font-black text-zinc-900 font-mono">
+                        {i.waktuSelesai}
+                      </span>
+                    );
+                  }
+                })()}
               </div>
               <div className="flex flex-col gap-1">
                 <p className="text-zinc-500 text-[10px] font-bold uppercase truncate">{i.tipe} · {i.category}</p>

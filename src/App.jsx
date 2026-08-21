@@ -3,6 +3,8 @@ import { LayoutDashboard, Settings, Calendar, Plus, Zap, FileText, LogOut, Truck
 import { Button } from '@heroui/react';
 import Toastify from 'toastify-js';
 import "toastify-js/src/toastify.css";
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 import { GAS_URL, GAS_USERS_URL, IS_MAINTENANCE } from './utils/config';
 import { db } from './utils/dbClient';
@@ -32,6 +34,7 @@ import StaffBookingPanel from './components/StaffBookingPanel';
 import BookingSettings from './components/BookingSettings';
 import OwnerPanel from './components/OwnerPanel';
 import EpcExplorer from './components/EpcExplorer';
+import EstimasiHistory from './components/EstimasiHistory';
 import StockComparison from './components/StockComparison';
 import RegisterPage from './components/RegisterPage';
 import BulletinViewer from './components/BulletinViewer';
@@ -131,12 +134,28 @@ const App = () => {
     return localStorage.getItem('chery_last_login_date') || null;
   });
 
-  // --- EPCM Token URL Listener ---
+  const [epcmToken, setEpcmToken] = useState(() => localStorage.getItem('chery_epcm_token') || '');
+  const [selectedParts, setSelectedParts] = useState([]);
+  const [epcOpened, setEpcOpened] = useState(false);
+
+  const isEpcPage = ['mechanic-epc', 'warranty-epc', 'partshop-epc'].includes(currentPage);
+  useEffect(() => {
+    if (isEpcPage && !epcOpened) {
+      setEpcOpened(true);
+    }
+  }, [currentPage, isEpcPage, epcOpened]);
+
+  // --- EPCM Token URL Listener & Global Sync ---
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const epcmToken = urlParams.get('epcmToken');
-    if (epcmToken) {
-      localStorage.setItem('chery_epcm_token', epcmToken);
+    const tokenFromUrl = urlParams.get('epcmToken');
+    if (tokenFromUrl) {
+      let cleanToken = tokenFromUrl;
+      if (cleanToken.startsWith('Bearer ')) {
+        cleanToken = cleanToken.substring(7);
+      }
+      localStorage.setItem('chery_epcm_token', cleanToken);
+      setEpcmToken(cleanToken);
       // Bersihkan URL tanpa refresh
       const newUrl = window.location.origin + window.location.pathname;
       window.history.replaceState({}, '', newUrl);
@@ -147,7 +166,52 @@ const App = () => {
       
       // Kirim event agar komponen yang sedang terbuka bisa update state
       window.dispatchEvent(new Event('epcm_token_updated'));
+
+      // Save globally to backend
+      const authUsername = user?.username || '';
+      const authSessionId = localStorage.getItem('chery_session_id') || '';
+      fetch(`/api/chery_epc?action=save-token&token=${encodeURIComponent(cleanToken)}`, {
+        headers: {
+          'X-Auth-Username': authUsername,
+          'X-Auth-Session-Id': authSessionId
+        }
+      });
     }
+  }, [user]);
+
+  // Sync global EPCM token from backend on user login/load
+  useEffect(() => {
+    if (user) {
+      const fetchGlobalToken = async () => {
+        try {
+          const resp = await fetch('/api/chery_epc?action=get-active-token', {
+            headers: {
+              'X-Auth-Username': user.username || '',
+              'X-Auth-Session-Id': localStorage.getItem('chery_session_id') || ''
+            }
+          });
+          const data = await resp.json();
+          if (data.success && data.token) {
+            setEpcmToken(data.token);
+            localStorage.setItem('chery_epcm_token', data.token);
+            window.dispatchEvent(new Event('epcm_token_updated'));
+          }
+        } catch (e) {}
+      };
+      fetchGlobalToken();
+    }
+  }, [user]);
+
+  // Listen to EPCM token updates across components
+  useEffect(() => {
+    const handleGlobalUpdate = () => {
+      const newToken = localStorage.getItem('chery_epcm_token');
+      if (newToken) {
+        setEpcmToken(newToken);
+      }
+    };
+    window.addEventListener('epcm_token_updated', handleGlobalUpdate);
+    return () => window.removeEventListener('epcm_token_updated', handleGlobalUpdate);
   }, []);
 
   const [queue, setQueue] = useState([]);
@@ -237,6 +301,28 @@ const App = () => {
   }, [pageStack, goBack]);
 
   // Refs
+
+  // EPCM Token Keep-Alive background heartbeat to prevent inactivity expiration
+  useEffect(() => {
+    if (!epcmToken) return;
+
+    const pingEpcServer = async () => {
+      try {
+        await fetch(`/api/chery_epc?path=${encodeURIComponent('/api/rest/base/user/current')}`, {
+          headers: { 'token': epcmToken }
+        });
+        console.log("[EPCM Keep-Alive] Sent ping heartbeat to keep token active.");
+      } catch (e) {
+        console.error("[EPCM Keep-Alive] Failed sending heartbeat ping:", e);
+      }
+    };
+
+    // Ping immediately, then every 3 minutes (180000ms)
+    pingEpcServer();
+    const interval = setInterval(pingEpcServer, 180000);
+
+    return () => clearInterval(interval);
+  }, [epcmToken]);
 
   // --- 2. EFFECTS & LOGIC ---
   useEffect(() => {
@@ -349,7 +435,7 @@ const App = () => {
         if (role === 'display') {
           if (path !== '/display') window.history.replaceState({}, '', '/display');
           setCurrentPage('display');
-        } else if (['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty', 'foreman', 'security', 'sales', 'spv'].includes(role)) {
+        } else if (['admin', 'manager', 'cro', 'sparepart', 'owner', 'warranty', 'foreman', 'security', 'sales', 'spv', 'partshop'].includes(role)) {
           const allowedPages = {
             admin: ['admin', 'admin-booking', 'admin-wo', 'admin-estimasi', 'promo', 'display', 'booking-public', 'sa-booking', 'sparepart-dms-order', 'manager-jasa-pengerjaan'],
             manager: ['manager', 'manager-wo', 'manager-vehicles', 'manager-cro', 'manager-holidays', 'manager-staff', 'manager-laporan-invoice', 'manager-laporan-wo', 'manager-keuntungan-sparepart', 'manager-jasa-pengerjaan', 'display', 'booking-public'],
@@ -359,14 +445,15 @@ const App = () => {
             warranty: ['warranty', 'warranty-wo', 'warranty-search', 'warranty-free-maintenance', 'warranty-proforma', 'warranty-epc', 'warranty-bulletin'],
             foreman: ['foreman', 'booking-public', 'display'],
             security: ['security', 'display', 'booking-public'],
-          sales: ['sales-booking', 'display'],
-          spv: ['spv-booking', 'display'],
+            sales: ['sales-booking', 'display'],
+            spv: ['spv-booking', 'display'],
+            partshop: ['partshop-epc', 'partshop-estimasi-history', 'display'],
           };
 
           if (savedPage && allowedPages[role]?.includes(savedPage)) {
             setCurrentPage(savedPage);
           } else {
-            setCurrentPage(role === 'cro' ? 'cro' : role === 'sparepart' ? 'sparepart-dms-order' : role === 'sales' ? 'sales-booking' : role === 'spv' ? 'spv-booking' : role);
+            setCurrentPage(role === 'cro' ? 'cro' : role === 'sparepart' ? 'sparepart-dms-order' : role === 'sales' ? 'sales-booking' : role === 'spv' ? 'spv-booking' : role === 'partshop' ? 'partshop-epc' : role);
           }
         } else if (role === 'customer') {
           const customerPages = ['customer', 'customer-complaint'];
@@ -2413,6 +2500,175 @@ const App = () => {
     );
   }
 
+  const generatePdf = async (vin = '') => {
+    if (selectedParts.length === 0) {
+      Toastify({ text: "⚠️ Dokumen masih kosong!", style: { background: "#f59e0b" } }).showToast();
+      return;
+    }
+
+    const doc = new jsPDF('landscape'); // Landscape to fit all columns nicely
+    const tableData = [];
+    
+    Toastify({ text: "⏳ Sedang menyiapkan PDF...", duration: 2000 }).showToast();
+
+    // Helper to get Base64 from Image URL
+    const getBase64Image = (url) => {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          resolve(canvas.toDataURL('image/jpeg', 0.7));
+        };
+        img.onerror = (e) => reject(e);
+        img.src = url;
+      });
+    };
+
+    const formatRp = (val) => {
+      if (val === 0) return 'Masih belum ada harga';
+      return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+    };
+    const formatTotalRp = (val) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val || 0);
+
+    for (let i = 0; i < selectedParts.length; i++) {
+      const part = selectedParts[i];
+      let base64 = null;
+      if (part.image) {
+        try {
+          base64 = await getBase64Image(part.image);
+        } catch (e) { console.error("PDF Base64 Error:", e); }
+      }
+      
+      const qty = part.qty || 1;
+      const priceExc = part.priceExc || 0;
+      const ppnVal = (part.price || 0) - priceExc;
+      const jasaVal = part.jasa || 0;
+      const totalWithJasa = (part.price * qty) + jasaVal;
+
+      tableData.push([
+        i + 1,
+        part.code,
+        part.name,
+        part.models || 'OTHER',
+        part.stockStatus || 'NOT READY',
+        qty,
+        formatRp(priceExc),
+        formatRp(ppnVal),
+        formatRp(jasaVal),
+        formatRp(totalWithJasa),
+        base64 ? { content: '', image: base64 } : 'No Image'
+      ]);
+    }
+
+    // Calculate totals for PDF summary row
+    const totalExc = selectedParts.reduce((acc, curr) => acc + ((curr.priceExc || 0) * (curr.qty || 1)), 0);
+    const totalPpn = selectedParts.reduce((acc, curr) => acc + (((curr.price || 0) - (curr.priceExc || 0)) * (curr.qty || 1)), 0);
+    const totalJasa = selectedParts.reduce((acc, curr) => acc + (curr.jasa || 0), 0);
+    const totalAll = selectedParts.reduce((acc, curr) => acc + ((curr.price || 0) * (curr.qty || 1)) + (curr.jasa || 0), 0);
+
+    // Summary row
+    tableData.push([
+      { content: 'TOTAL', colSpan: 6, styles: { fontStyle: 'bold', halign: 'right', fillColor: [239, 246, 255] } },
+      { content: formatTotalRp(totalExc), styles: { fontStyle: 'bold', halign: 'right', fillColor: [239, 246, 255] } },
+      { content: formatTotalRp(totalPpn), styles: { fontStyle: 'bold', halign: 'right', fillColor: [239, 246, 255] } },
+      { content: formatTotalRp(totalJasa), styles: { fontStyle: 'bold', halign: 'right', fillColor: [239, 246, 255] } },
+      { content: formatTotalRp(totalAll), styles: { fontStyle: 'bold', halign: 'right', fillColor: [239, 246, 255] } },
+      { content: '', fillColor: [239, 246, 255] }
+    ]);
+
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 58, 138); // Dark blue
+    doc.text("ESTIMASI SPAREPART CHERY", 14, 20);
+
+    doc.setFontSize(10);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Estimasi : (Nomor VIN yang dicari: ${vin || '-'})`, 14, 28);
+    doc.text(`Nama Pengestimasi : ${user?.name || user?.username || 'Staff'}`, 14, 34);
+    doc.text(`Waktu Estimasi : ${new Date().toLocaleString('id-ID')}`, 14, 40);
+
+    autoTable(doc, {
+      startY: 46,
+      head: [['No', 'Part Number', 'Part Name', 'Model Tipe', 'Stok JKT', 'Qty', 'Harga Non PPN', 'PPN (11%)', 'Jasa', 'Total', 'Preview']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [219, 234, 254], textColor: [30, 58, 138], fontStyle: 'bold', fontSize: 8 },
+      bodyStyles: { fontSize: 7, textColor: [30, 41, 59] },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      didDrawCell: (data) => {
+        if (data.section === 'body' && data.column.index === 10 && data.cell.raw && data.cell.raw.image) {
+          doc.addImage(data.cell.raw.image, 'JPEG', data.cell.x + 2, data.cell.y + 2, 36, 26);
+        }
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 26, fontStyle: 'bold' },
+        2: { cellWidth: 32 },
+        3: { cellWidth: 20 },
+        4: { cellWidth: 18, halign: 'center' },
+        5: { cellWidth: 10, halign: 'center' },
+        6: { cellWidth: 22, halign: 'right' },
+        7: { cellWidth: 22, halign: 'right' },
+        8: { cellWidth: 20, halign: 'right' },
+        9: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+        10: { cellWidth: 35, minCellHeight: 30 }
+      },
+      margin: { left: 14, right: 14 },
+      tableWidth: 'auto'
+    });
+
+    // Footer
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(7);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Page ${i} of ${pageCount}`, doc.internal.pageSize.width - 14, doc.internal.pageSize.height - 10, { align: 'right' });
+      doc.text('Chery Sparepart Quotation System', 14, doc.internal.pageSize.height - 10);
+    }
+
+    // Simpan ke database Supabase tabel partshop_estimations
+    try {
+      await fetch('/api/db', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Auth-Username': user?.username || '',
+          'X-Auth-Session-Id': localStorage.getItem('chery_session_id') || '',
+        },
+        body: JSON.stringify({
+          table: 'partshop_estimations',
+          action: 'insert',
+          data: {
+            username: user?.username || 'unknown',
+            vin: vin || '',
+            total_qty: selectedParts.reduce((acc, curr) => acc + (curr.qty || 1), 0),
+            total_price: totalExc,
+            items: selectedParts.map(p => ({
+              code: p.code,
+              name: p.name,
+              qty: p.qty || 1,
+              price: p.price || 0,
+              priceExc: p.priceExc || 0,
+              image: p.image || null
+            }))
+          }
+        })
+      });
+      console.log("Estimasi berhasil disimpan ke database.");
+    } catch (e) {
+      console.error("Gagal menyimpan estimasi ke database:", e);
+    }
+
+    doc.save(`Quotation_Chery_${new Date().getTime()}.pdf`);
+    Toastify({ text: "✅ PDF Berhasil diunduh!", style: { background: "#10b981" } }).showToast();
+  };
+
   // Determine if navbars should be shown
   const showNavbar = user && currentPage !== 'login' && currentPage !== 'register' && user?.role?.toLowerCase() !== 'display';
   // Check if on a dashboard page (not public)
@@ -2609,6 +2865,9 @@ const App = () => {
       {currentPage === 'owner-unit-entry' && user?.role === 'owner' && (
         <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="unit_entry" />
       )}
+      {currentPage === 'owner-stock-opname' && user?.role === 'owner' && (
+        <OwnerPanel user={user} handleLogout={handleLogout} handleChangePassword={handleChangePassword} processedQueue={processedQueue} rawHistory={rawHistory} formatTime={formatTime} handleSave={handleSave} deleteItem={deleteItem} editItem={editItem} setFormData={setFormData} formData={formData} isEditing={isEditing} setIsEditing={setIsEditing} handleCancelEdit={handleCancelEdit} handleAddTask={handleAddTask} handleRemoveTask={handleRemoveTask} handleToggleTask={handleToggleTask} isLoadingProcess={isLoadingProcess} setCurrentPage={navigate} activeTab="stock_opname" />
+      )}
       {currentPage === 'stock-comparison' && (
         <StockComparison user={user} setCurrentPage={navigate} />
       )}
@@ -2644,17 +2903,108 @@ const App = () => {
       {['admin-bulletin', 'owner-bulletin', 'mechanic-bulletin'].includes(currentPage) && (
         <BulletinViewer user={user} />
       )}
-      {['mechanic-epc', 'warranty-epc'].includes(currentPage) && (
-        <EpcExplorer 
-          user={user} 
-          onAddPart={(part) => {
-            Toastify({ 
-              text: `📋 Kode Part ${part.code} disalin ke clipboard!`, 
-              style: { background: "#10b981" } 
-            }).showToast();
-            navigator.clipboard.writeText(part.code);
-          }} 
-        />
+      {(epcOpened || ['mechanic-epc', 'warranty-epc', 'partshop-epc'].includes(currentPage)) && (
+        <div className={['mechanic-epc', 'warranty-epc', 'partshop-epc'].includes(currentPage) ? 'w-full flex-grow flex flex-col min-h-0' : 'hidden'}>
+          <EpcExplorer 
+            user={user} 
+            epcmToken={epcmToken}
+            setEpcmToken={setEpcmToken}
+            selectedParts={selectedParts}
+            setSelectedParts={setSelectedParts}
+            onAddPart={async (part) => {
+              const partCode = part.code || part.childCode || '';
+              let finalPrice = 0;
+              let finalPriceExc = 0;
+              let webpImage = null;
+
+              if (part.image) {
+                try {
+                  webpImage = await new Promise((resolve) => {
+                    const img = new Image();
+                    img.crossOrigin = 'Anonymous';
+                    img.onload = () => {
+                      const canvas = document.createElement('canvas');
+                      const maxDim = 360;
+                      let w = img.width;
+                      let h = img.height;
+                      if (w > h) {
+                        if (w > maxDim) {
+                          h = Math.round(h * maxDim / w);
+                          w = maxDim;
+                        }
+                      } else {
+                        if (h > maxDim) {
+                          w = Math.round(w * maxDim / h);
+                          h = maxDim;
+                        }
+                      }
+                      canvas.width = w;
+                      canvas.height = h;
+                      const ctx = canvas.getContext('2d');
+                      ctx.drawImage(img, 0, 0, w, h);
+                      resolve(canvas.toDataURL('image/webp', 0.95));
+                    };
+                    img.onerror = () => resolve(null);
+                    img.src = part.image;
+                  });
+                } catch (e) {
+                  console.error("Gagal convert gambar ke webp:", e);
+                }
+              }
+
+              let stockReadyJakarta = false;
+              try {
+                const stockResp = await fetch(`/api/chery_dms?endpoint=jakarta-part-stock&partCode=${encodeURIComponent(partCode.trim())}`);
+                const stockResult = await stockResp.json();
+                const stockContent = stockResult.payload?.content || stockResult.data || [];
+                if (Array.isArray(stockContent) && stockContent.length > 0) {
+                  stockReadyJakarta = stockContent.some(item => item.isDealer === true || item.isDealer === 'true' || item.isDealer === 1);
+                }
+              } catch (e) {
+                console.error("Gagal memeriksa stok Jakarta:", e);
+              }
+
+              try {
+                const resp = await fetch(`/api/chery_dms?pageSize=5&status=1&pageIndex=0&code=${encodeURIComponent(partCode.trim())}`);
+                const result = await resp.json();
+                const dmsData = result.payload?.content || result.data || result.items || [];
+                if (dmsData && dmsData.length > 0) {
+                  const retail = dmsData[0].retailGuidePrice || 0;
+                  const exc = dmsData[0].retailGuidePriceExcludingTax || 0;
+                  finalPrice = retail;
+                  finalPriceExc = exc > 0 ? exc : Math.round(retail / 1.11);
+                }
+              } catch (e) {
+                console.error("Gagal mengambil harga DMS di App.jsx:", e);
+              }
+
+              setSelectedParts(prev => {
+                const existing = prev.find(p => (p.code === partCode || p.childCode === partCode));
+                if (existing) {
+                  return prev.map(p => (p.code === partCode || p.childCode === partCode) ? { ...p, qty: (p.qty || 1) + 1 } : p);
+                } else {
+                  return [...prev, { 
+                    ...part, 
+                    code: partCode, 
+                    qty: 1,
+                    price: finalPrice,
+                    priceExc: finalPriceExc,
+                    image: webpImage || part.image,
+                    stockStatus: stockReadyJakarta ? 'READY' : 'NOT READY'
+                  }];
+                }
+              });
+              Toastify({ 
+                text: `🛒 Part ${partCode} ditambahkan ke daftar pilihan!`, 
+                style: { background: "#10b981" } 
+              }).showToast();
+            }} 
+            generatePdf={generatePdf}
+          />
+        </div>
+      )}
+      {currentPage === 'partshop-estimasi-history' && (
+        <EstimasiHistory user={user} />
       )}
 
       </div>

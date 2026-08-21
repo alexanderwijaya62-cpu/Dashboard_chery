@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Search, RefreshCw, AlertCircle, Clock, FileText, Wrench, Filter, X, ChevronLeft, ChevronRight,
-  Car, User, ChevronDown, ChevronUp, DollarSign, Layers, CheckCircle2, TrendingUp, ShieldCheck, Zap, Star, Activity, FileDown
+  Car, User, ChevronDown, ChevronUp, DollarSign, Layers, CheckCircle2, TrendingUp, ShieldCheck, Zap, Star, Activity, FileDown, Droplet
 } from 'lucide-react';
 import {
   getStatusStyle, getKategoriStyle, formatDate, formatKm, formatRp
@@ -10,6 +10,7 @@ import { WorkOrderDetailView } from './WorkOrderReportPage';
 import { fetchWithCache, getCache } from '../utils/dataCache';
 import * as XLSX from 'xlsx';
 import Toastify from 'toastify-js';
+import { db } from '../utils/dbClient';
 
 // Helper to calculate YYYY-MM-DD string with optional day offset
 function getFormattedDate(daysAgo = 0) {
@@ -43,6 +44,24 @@ function isRowInSelectedRange(row, fromStr, toStr) {
   return true;
 }
 
+const OIL_CODES = ['ZJP-ID5000007', 'XID0000455'];
+const FILTER_CODES = ['480-1012010'];
+
+const getCachedDetail = (id_wo) => {
+  if (!id_wo) return null;
+  try {
+    const cached = localStorage.getItem(`invoice_detail_${id_wo}`);
+    return cached ? JSON.parse(cached) : null;
+  } catch (e) { return null; }
+};
+
+const saveCachedDetail = (id_wo, data) => {
+  if (!id_wo || !data) return;
+  try {
+    localStorage.setItem(`invoice_detail_${id_wo}`, JSON.stringify(data));
+  } catch (e) {}
+};
+
 export default function InvoiceReportPage() {
   const today = getFormattedDate(0);
 
@@ -70,6 +89,74 @@ export default function InvoiceReportPage() {
   const [expandedRow, setExpandedRow] = useState(null);
   const [page, setPage] = useState(0);
   const pageSize = 50;
+
+  // DB-based Oil & Filter records
+  const [dbOilFilterRecords, setDbOilFilterRecords] = useState([]);
+  const [isDbLoading, setIsDbLoading] = useState(false);
+
+  // Scanning states for current month fallback
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [scanCount, setScanCount] = useState(0);
+
+  const fetchDbOilFilterData = useCallback(async () => {
+    setIsDbLoading(true);
+    try {
+      const { data, error } = await db.select('sparepart_revenue', {
+        in: { PartNo: ['ZJP-ID5000007', 'XID0000455', '480-1012010'] },
+        range: { from: 0, to: 99999 }
+      });
+      if (!error && data) {
+        setDbOilFilterRecords(data);
+      }
+    } catch (e) {
+      console.error('Error fetching oil/filter from db:', e);
+    } finally {
+      setIsDbLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDbOilFilterData();
+  }, [fetchDbOilFilterData]);
+
+  // Calculate WOs for selected period that are neither in DB nor in localStorage cache
+  const unscannedWos = useMemo(() => {
+    const dbWoSet = new Set(dbOilFilterRecords.map(r => String(r.NoWO || '').toUpperCase().trim()));
+    return masterClosedList.filter(row => {
+      const woKey = String(row.no_wo || '').toUpperCase().trim();
+      if (dbWoSet.has(woKey)) return false;
+      return !localStorage.getItem(`invoice_detail_${row.id_wo}`);
+    });
+  }, [masterClosedList, dbOilFilterRecords]);
+
+  // Sequentially scan details for the selected period
+  const handleScanDetails = async () => {
+    if (unscannedWos.length === 0) return;
+    setIsScanning(true);
+    setScanProgress(0);
+    setScanCount(0);
+
+    for (let i = 0; i < unscannedWos.length; i++) {
+      const row = unscannedWos[i];
+      try {
+        const res = await fetch(`/api/chery_dms?endpoint=warranty-estimasi-detail&id=${row.id_wo}`);
+        if (res.ok) {
+          const detail = await res.json();
+          if (detail && !detail.error) {
+            localStorage.setItem(`invoice_detail_${row.id_wo}`, JSON.stringify(detail));
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      setScanCount(i + 1);
+      setScanProgress(Math.round(((i + 1) / unscannedWos.length) * 100));
+      await new Promise(r => setTimeout(r, 100));
+    }
+    setIsScanning(false);
+    Toastify({ text: '✅ Selesai menganalisis rincian invoice baru!', style: { background: '#10b981' } }).showToast();
+  };
 
   // Handle Time Preset Buttons
   const handlePresetChange = (preset) => {
@@ -245,6 +332,131 @@ export default function InvoiceReportPage() {
     };
   }, [masterClosedList, categoryFinancials]);
 
+  const parseDbDate = (dateStr) => {
+    if (!dateStr) return null;
+    const s = String(dateStr).trim().split(' ')[0];
+    const parts = s.split(/[-/]/);
+    if (parts.length === 3) {
+      let d = NaN, m = NaN, y = NaN;
+      if (parts[2].length === 4) {
+        d = parseInt(parts[0], 10);
+        m = parseInt(parts[1], 10) - 1;
+        y = parseInt(parts[2], 10);
+      } else if (parts[0].length === 4) {
+        y = parseInt(parts[0], 10);
+        m = parseInt(parts[1], 10) - 1;
+        d = parseInt(parts[2], 10);
+      }
+      if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+        return new Date(y, m, d);
+      }
+    }
+    const rawParse = new Date(dateStr);
+    return isNaN(rawParse.getTime()) ? null : rawParse;
+  };
+
+  const oilFilterMetrics = useMemo(() => {
+    let oilQty = 0;
+    let filterQty = 0;
+    let oilTotalVal = 0;
+    let filterTotalVal = 0;
+
+    const breakdown = {
+      IFS: { oilQty: 0, filterQty: 0, totalVal: 0 },
+      IKC: { oilQty: 0, filterQty: 0, totalVal: 0 },
+      EUR: { oilQty: 0, filterQty: 0, totalVal: 0 }
+    };
+
+    // 1. Process database records
+    dbOilFilterRecords.forEach(r => {
+      const d = parseDbDate(r.Tgl);
+      if (!d) return;
+
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const yyyymmdd = `${y}-${m}-${day}`;
+
+      if (fromDate && yyyymmdd < fromDate) return;
+      if (toDate && yyyymmdd > toDate) return;
+
+      const qty = parseFloat(r.Qty) || 0;
+      const total = parseFloat(r.Total) || 0;
+      const code = String(r.PartNo || '').trim();
+
+      const rawCat = String(r.NoWO || '').split('-')[0].toUpperCase().trim();
+      const cat = ['IFS', 'IKC', 'EUR'].includes(rawCat) ? rawCat : null;
+
+      if (OIL_CODES.includes(code)) {
+        oilQty += qty;
+        oilTotalVal += total;
+        if (cat) {
+          breakdown[cat].oilQty += qty;
+          breakdown[cat].totalVal += total;
+        }
+      } else if (FILTER_CODES.includes(code)) {
+        filterQty += qty;
+        filterTotalVal += total;
+        if (cat) {
+          breakdown[cat].filterQty += qty;
+          breakdown[cat].totalVal += total;
+        }
+      }
+    });
+
+    // 2. Real-time Fallback for current months (e.g. August 2026) using localStorage
+    const dbWoSet = new Set(dbOilFilterRecords.map(r => String(r.NoWO || '').toUpperCase().trim()));
+
+    masterClosedList.forEach(row => {
+      const woKey = String(row.no_wo || '').toUpperCase().trim();
+      if (dbWoSet.has(woKey)) return;
+
+      const cached = localStorage.getItem(`invoice_detail_${row.id_wo}`);
+      if (!cached) return;
+
+      try {
+        const detail = JSON.parse(cached);
+        if (detail && Array.isArray(detail.parts)) {
+          const cat = String(row.kategori || row.no_wo?.split('-')?.[0] || 'LAINNYA').toUpperCase().trim();
+          const targetCat = ['IFS', 'IKC', 'EUR'].includes(cat) ? cat : null;
+
+          detail.parts.forEach(p => {
+            const code = String(p.kode_part || '').trim();
+            const qty = parseFloat(p.jumlah) || 0;
+            const total = parseFloat(p.total || p.sub_total || ((p.harga_jual || 0) * qty)) || 0;
+
+            if (OIL_CODES.includes(code)) {
+              oilQty += qty;
+              oilTotalVal += total;
+              if (targetCat) {
+                breakdown[targetCat].oilQty += qty;
+                breakdown[targetCat].totalVal += total;
+              }
+            } else if (FILTER_CODES.includes(code)) {
+              filterQty += qty;
+              filterTotalVal += total;
+              if (targetCat) {
+                breakdown[targetCat].filterQty += qty;
+                breakdown[targetCat].totalVal += total;
+              }
+            }
+          });
+        }
+      } catch (e) {
+        console.error('Error parsing localStorage backup:', e);
+      }
+    });
+
+    return {
+      oilQty,
+      filterQty,
+      oilTotalVal,
+      filterTotalVal,
+      totalVal: oilTotalVal + filterTotalVal,
+      breakdown
+    };
+  }, [dbOilFilterRecords, masterClosedList, fromDate, toDate]);
+
   const totalRecords = displayFilteredData.length;
   const totalPages = Math.ceil(totalRecords / pageSize);
 
@@ -303,6 +515,35 @@ export default function InvoiceReportPage() {
       const ws = XLSX.utils.json_to_sheet(dataToExport);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Invoices Closed');
+
+      const summaryRows = [
+        {
+          'Kategori / Segmen': 'Oli (Qty Pcs)',
+          'IFS': oilFilterMetrics.breakdown.IFS.oilQty,
+          'IKC': oilFilterMetrics.breakdown.IKC.oilQty,
+          'EUR': oilFilterMetrics.breakdown.EUR.oilQty,
+          'Total Qty (Pcs)': oilFilterMetrics.oilQty,
+          'Total Nilai (Rp)': oilFilterMetrics.oilTotalVal
+        },
+        {
+          'Kategori / Segmen': 'Filter Oli (Qty Pcs)',
+          'IFS': oilFilterMetrics.breakdown.IFS.filterQty,
+          'IKC': oilFilterMetrics.breakdown.IKC.filterQty,
+          'EUR': oilFilterMetrics.breakdown.EUR.filterQty,
+          'Total Qty (Pcs)': oilFilterMetrics.filterQty,
+          'Total Nilai (Rp)': oilFilterMetrics.filterTotalVal
+        },
+        {
+          'Kategori / Segmen': 'Gabungan Oli + Filter',
+          'IFS': '-',
+          'IKC': '-',
+          'EUR': '-',
+          'Total Qty (Pcs)': oilFilterMetrics.oilQty + oilFilterMetrics.filterQty,
+          'Total Nilai (Rp)': oilFilterMetrics.totalVal
+        }
+      ];
+      const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Rangkuman Oli & Filter');
       
       const fileName = `Laporan_Invoice_Closed_${fromDate || 'All'}_to_${toDate || 'All'}.xlsx`;
       XLSX.writeFile(wb, fileName);
@@ -398,6 +639,130 @@ export default function InvoiceReportPage() {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* LAPORAN OLI & OIL FILTER CONTAINER */}
+      <div className="bg-white rounded-2xl border border-zinc-200 p-5 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-100">
+          <div>
+            <h2 className="text-xs font-black uppercase tracking-widest text-zinc-800 flex items-center gap-2">
+              <span className="p-1 bg-blue-50 text-blue-600 rounded-md"><Droplet size={14} fill="currentColor"/></span> Laporan Penggunaan Oli & Filter Oli
+            </h2>
+            <p className="text-[10px] text-zinc-400 font-bold mt-0.5">Dihitung dari transaksi part berkode ZJP-ID5000007, XID0000455 (Oli) & 480-1012010 (Filter Oli)</p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {isDbLoading ? (
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-zinc-400">
+                <RefreshCw size={11} className="animate-spin" /> Menghitung data...
+              </span>
+            ) : unscannedWos.length > 0 ? (
+              <button
+                onClick={handleScanDetails}
+                disabled={isScanning}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider disabled:opacity-50 transition-all shadow-sm cursor-pointer"
+              >
+                {isScanning ? (
+                  <>
+                    <RefreshCw size={12} className="animate-spin" /> Menganalisis ({scanCount}/{unscannedWos.length})...
+                  </>
+                ) : (
+                  `Analisis Rincian Bulan Ini (${unscannedWos.length} WO)`
+                )}
+              </button>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full uppercase">
+                <CheckCircle2 size={11} /> Semua Rincian Ter-analisis
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Progress Bar if scanning */}
+        {isScanning && (
+          <div className="space-y-1.5 p-3 bg-zinc-50 border border-zinc-200 rounded-xl">
+            <div className="w-full bg-zinc-200 h-2 rounded-full overflow-hidden">
+              <div 
+                className="bg-blue-600 h-full transition-all duration-300"
+                style={{ width: `${scanProgress}%` }}
+              ></div>
+            </div>
+            <div className="flex justify-between text-[9px] font-bold text-zinc-450 uppercase">
+              <span>Membaca detail dari DMS...</span>
+              <span>{scanProgress}%</span>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 flex flex-col justify-between">
+            <div>
+              <span className="text-[9px] font-black text-blue-500 uppercase tracking-wider">Total Oli & Filter Oli</span>
+              <p className="text-xl font-black text-blue-600 mt-1">{formatRp(oilFilterMetrics.totalVal)}</p>
+            </div>
+            <div className="flex justify-between text-[10px] text-zinc-500 font-bold border-t border-blue-100 pt-2.5 mt-2.5 uppercase">
+              <span>Oli: {oilFilterMetrics.oilQty} Pcs</span>
+              <span>Filter: {oilFilterMetrics.filterQty} Pcs</span>
+            </div>
+          </div>
+
+          <div className="bg-purple-50/50 border border-purple-100 rounded-xl p-4 flex flex-col justify-between">
+            <div>
+              <span className="text-[9px] font-black text-purple-500 uppercase tracking-wider">Spare Part Murni</span>
+              <p className="text-xl font-black text-purple-600 mt-1">{formatRp(Math.max(0, globalFinancials.totalSparePart - oilFilterMetrics.totalVal))}</p>
+            </div>
+            <div className="text-[10px] text-zinc-500 font-bold border-t border-purple-100 pt-2.5 mt-2.5 uppercase">
+              Total Spare Part dikurangi Oli & Filter
+            </div>
+          </div>
+
+          <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 flex flex-col justify-between">
+            <div>
+              <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider">Rasio Oli vs Sparepart</span>
+              <p className="text-xl font-black text-zinc-700 mt-1">
+                {globalFinancials.totalSparePart > 0 
+                  ? `${((oilFilterMetrics.totalVal / globalFinancials.totalSparePart) * 100).toFixed(1)}%` 
+                  : '0%'}
+              </p>
+            </div>
+            <div className="text-[10px] text-zinc-500 font-bold border-t border-zinc-200 pt-2.5 mt-2.5 uppercase">
+              Porsi Oli & Filter dari Total Sparepart
+            </div>
+          </div>
+        </div>
+
+        {/* Category Breakdown (IFS, IKC, EUR) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-zinc-100">
+          <div className="bg-zinc-50 border border-zinc-200/80 p-3 rounded-xl flex flex-col justify-between">
+            <div>
+              <span className="text-[9px] font-black text-sky-600 uppercase tracking-wider">IFS (Oli & Filter)</span>
+              <p className="text-base font-black text-zinc-800 mt-0.5">{formatRp(oilFilterMetrics.breakdown.IFS.totalVal)}</p>
+            </div>
+            <div className="text-[10px] text-zinc-500 font-bold mt-1.5 uppercase">
+              Oli: {oilFilterMetrics.breakdown.IFS.oilQty} pcs | Filter: {oilFilterMetrics.breakdown.IFS.filterQty} pcs
+            </div>
+          </div>
+
+          <div className="bg-zinc-50 border border-zinc-200/80 p-3 rounded-xl flex flex-col justify-between">
+            <div>
+              <span className="text-[9px] font-black text-emerald-600 uppercase tracking-wider">IKC (Oli & Filter)</span>
+              <p className="text-base font-black text-zinc-800 mt-0.5">{formatRp(oilFilterMetrics.breakdown.IKC.totalVal)}</p>
+            </div>
+            <div className="text-[10px] text-zinc-500 font-bold mt-1.5 uppercase">
+              Oli: {oilFilterMetrics.breakdown.IKC.oilQty} pcs | Filter: {oilFilterMetrics.breakdown.IKC.filterQty} pcs
+            </div>
+          </div>
+
+          <div className="bg-zinc-50 border border-zinc-200/80 p-3 rounded-xl flex flex-col justify-between">
+            <div>
+              <span className="text-[9px] font-black text-rose-600 uppercase tracking-wider">EUR (Oli & Filter)</span>
+              <p className="text-base font-black text-zinc-800 mt-0.5">{formatRp(oilFilterMetrics.breakdown.EUR.totalVal)}</p>
+            </div>
+            <div className="text-[10px] text-zinc-500 font-bold mt-1.5 uppercase">
+              Oli: {oilFilterMetrics.breakdown.EUR.oilQty} pcs | Filter: {oilFilterMetrics.breakdown.EUR.filterQty} pcs
+            </div>
+          </div>
         </div>
       </div>
 

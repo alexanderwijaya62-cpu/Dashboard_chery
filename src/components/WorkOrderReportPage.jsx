@@ -58,11 +58,27 @@ function isRowInSelectedRange(row, fromStr, toStr) {
   return true;
 }
 
-const estimasiDetailCacheStore = new Map();
+const getCachedDetail = (id_wo) => {
+  if (!id_wo) return null;
+  try {
+    const cached = localStorage.getItem(`invoice_detail_${id_wo}`);
+    return cached ? JSON.parse(cached) : null;
+  } catch (e) { return null; }
+};
+
+const saveCachedDetail = (id_wo, data) => {
+  if (!id_wo || !data) return;
+  try {
+    localStorage.setItem(`invoice_detail_${id_wo}`, JSON.stringify(data));
+  } catch (e) {}
+};
 
 export function WorkOrderDetailView({ row, onDetailLoaded }) {
-  const [detailData, setDetailData] = useState(() => estimasiDetailCacheStore.get(row?.id_wo) || null);
-  const [loading, setLoading] = useState(!estimasiDetailCacheStore.has(row?.id_wo));
+  const [detailData, setDetailData] = useState(() => getCachedDetail(row?.id_wo) || null);
+  const [loading, setLoading] = useState(() => {
+    if (!row?.id_wo) return false;
+    return getCachedDetail(row.id_wo) === null;
+  });
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('lc');
   const abortRef = useRef(null);
@@ -70,8 +86,8 @@ export function WorkOrderDetailView({ row, onDetailLoaded }) {
   useEffect(() => {
     if (!row?.id_wo) return;
 
-    if (estimasiDetailCacheStore.has(row.id_wo)) {
-      const cached = estimasiDetailCacheStore.get(row.id_wo);
+    const cached = getCachedDetail(row.id_wo);
+    if (cached) {
       setDetailData(cached);
       setLoading(false);
       if (onDetailLoaded) onDetailLoaded(row.id_wo, cached);
@@ -89,7 +105,7 @@ export function WorkOrderDetailView({ row, onDetailLoaded }) {
       .then(data => {
         if (controller.signal.aborted) return;
         if (data.error) throw new Error(data.error);
-        estimasiDetailCacheStore.set(row.id_wo, data);
+        saveCachedDetail(row.id_wo, data);
         setDetailData(data);
         if (onDetailLoaded) onDetailLoaded(row.id_wo, data);
       })

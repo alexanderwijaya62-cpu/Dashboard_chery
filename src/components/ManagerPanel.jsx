@@ -344,16 +344,24 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
       else if (typeof val === 'number') {
         dObj = new Date(val);
       } else {
-        let str = String(val).trim();
-        // Handle DD/MM/YYYY or DD/MM/YYYY HH:mm
-        if (str.includes('/')) {
-          const cleanStr = str.split(' ')[0];
-          const p = cleanStr.split('/');
-          if (p.length === 3) {
-            if (p[2].length === 4) dObj = new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]));
-            else if (p[0].length === 4) dObj = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
+        const str = String(val).trim().split(' ')[0];
+        const parts = str.split(/[-/]/);
+        if (parts.length === 3) {
+          let d = NaN, m = NaN, y = NaN;
+          if (parts[2].length === 4) {
+            d = parseInt(parts[0], 10);
+            m = parseInt(parts[1], 10) - 1;
+            y = parseInt(parts[2], 10);
+          } else if (parts[0].length === 4) {
+            y = parseInt(parts[0], 10);
+            m = parseInt(parts[1], 10) - 1;
+            d = parseInt(parts[2], 10);
           }
-        } else {
+          if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+            dObj = new Date(y, m, d);
+          }
+        }
+        if (!dObj) {
           if (/^\d{10,13}$/.test(str)) {
              dObj = new Date(parseInt(str));
           } else {
@@ -868,6 +876,11 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
       const date = new Date(dateStr);
       if (date.getFullYear() !== selectedYear) return;
       const m = date.getMonth();
+
+      const code = String(item.PartNo || '').trim();
+      const isOilOrFilter = ['ZJP-ID5000007', 'XID0000455', '480-1012010'].includes(code);
+      if (isOilOrFilter) return; // Exclude oil & filter from pure sparepart workshop data
+
       const p = String(item.Pelanggan || '').trim().toUpperCase();
       const val = Number(item.Total || 0);
 
@@ -910,6 +923,136 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
     });
     return monthly.slice(0, limitMonthIdx + 1);
   }, [sparepartRevenueData, selectedYear, limitMonthIdx]);
+
+  const execOilFilterData = useMemo(() => {
+    const targetYear = selectedYear || 2026;
+    const monthlyData = Array.from({ length: 12 }, () => ({
+      oilQty: 0,
+      filterQty: 0,
+      oilVal: 0,
+      filterVal: 0,
+      totalVal: 0,
+      IFS: { oilQty: 0, filterQty: 0, totalVal: 0 },
+      IKC: { oilQty: 0, filterQty: 0, totalVal: 0 },
+      EUR: { oilQty: 0, filterQty: 0, totalVal: 0 }
+    }));
+
+    sparepartRevenueData.forEach(item => {
+      const code = String(item.PartNo || '').trim();
+      const isOil = ['ZJP-ID5000007', 'XID0000455'].includes(code);
+      const isFilter = ['480-1012010'].includes(code);
+      if (!isOil && !isFilter) return;
+
+      const dateStr = normalizeDateStr(item.Tgl);
+      if (!dateStr) return;
+      const date = new Date(dateStr);
+      if (date.getFullYear() !== targetYear) return;
+      const m = date.getMonth();
+
+      const qty = parseFloat(item.Qty) || 0;
+      const total = parseFloat(item.Total) || 0;
+
+      const rawCat = String(item.NoWO || '').split('-')[0].toUpperCase().trim();
+      const cat = ['IFS', 'IKC', 'EUR'].includes(rawCat) ? rawCat : null;
+
+      if (isOil) {
+        monthlyData[m].oilQty += qty;
+        monthlyData[m].oilVal += total;
+        monthlyData[m].totalVal += total;
+        if (cat) {
+          monthlyData[m][cat].oilQty += qty;
+          monthlyData[m][cat].totalVal += total;
+        }
+      } else if (isFilter) {
+        monthlyData[m].filterQty += qty;
+        monthlyData[m].filterVal += total;
+        monthlyData[m].totalVal += total;
+        if (cat) {
+          monthlyData[m][cat].filterQty += qty;
+          monthlyData[m][cat].totalVal += total;
+        }
+      }
+    });
+
+    const ytdOilQty = monthlyData.reduce((s, m) => s + m.oilQty, 0);
+    const ytdFilterQty = monthlyData.reduce((s, m) => s + m.filterQty, 0);
+    const ytdOilVal = monthlyData.reduce((s, m) => s + m.oilVal, 0);
+    const ytdFilterVal = monthlyData.reduce((s, m) => s + m.filterVal, 0);
+    const ytdTotalVal = ytdOilVal + ytdFilterVal;
+
+    // YTD Breakdown
+    const ytdIFS = {
+      oilQty: monthlyData.reduce((s, m) => s + m.IFS.oilQty, 0),
+      filterQty: monthlyData.reduce((s, m) => s + m.IFS.filterQty, 0),
+      totalVal: monthlyData.reduce((s, m) => s + m.IFS.totalVal, 0)
+    };
+    const ytdIKC = {
+      oilQty: monthlyData.reduce((s, m) => s + m.IKC.oilQty, 0),
+      filterQty: monthlyData.reduce((s, m) => s + m.IKC.filterQty, 0),
+      totalVal: monthlyData.reduce((s, m) => s + m.IKC.totalVal, 0)
+    };
+    const ytdEUR = {
+      oilQty: monthlyData.reduce((s, m) => s + m.EUR.oilQty, 0),
+      filterQty: monthlyData.reduce((s, m) => s + m.EUR.filterQty, 0),
+      totalVal: monthlyData.reduce((s, m) => s + m.EUR.totalVal, 0)
+    };
+
+    return {
+      months: monthlyData.slice(0, limitMonthIdx + 1),
+      ytdOilQty,
+      ytdFilterQty,
+      ytdOilVal,
+      ytdFilterVal,
+      ytdTotalVal,
+      ytdIFS,
+      ytdIKC,
+      ytdEUR
+    };
+  }, [sparepartRevenueData, selectedYear, limitMonthIdx]);
+
+  const execPrcuEurData = useMemo(() => {
+    const targetYear = selectedYear || 2026;
+    const monthlyPartVal = Array(12).fill(0);
+
+    sparepartRevenueData.forEach(item => {
+      const seg = getSegmentHelper(item.Pelanggan);
+      if (seg !== 'Service') return;
+
+      const cat = String(item.NoWO || '').split('-')[0].toUpperCase().trim();
+      if (cat !== 'EUR') return;
+
+      const dateStr = normalizeDateStr(item.Tgl);
+      if (!dateStr) return;
+      const date = new Date(dateStr);
+      if (date.getFullYear() !== targetYear) return;
+      const m = date.getMonth();
+
+      const total = parseFloat(item.Total) || 0;
+      monthlyPartVal[m] += total;
+    });
+
+    const months = Array.from({ length: limitMonthIdx + 1 }, (_, mIdx) => {
+      const partsVal = monthlyPartVal[mIdx] || 0;
+      const unitEntry = execUnitEntryData.months[mIdx]?.uniqueEUR || 0;
+      const prcu = unitEntry > 0 ? Math.round(partsVal / unitEntry) : 0;
+      return {
+        partsVal,
+        unitEntry,
+        prcu
+      };
+    });
+
+    const ytdPartsVal = months.reduce((s, m) => s + m.partsVal, 0);
+    const ytdUnitEntry = execUnitEntryData.ytdTotals?.uniqueEUR || 0;
+    const ytdPrcu = ytdUnitEntry > 0 ? Math.round(ytdPartsVal / ytdUnitEntry) : 0;
+
+    return {
+      months,
+      ytdPartsVal,
+      ytdUnitEntry,
+      ytdPrcu
+    };
+  }, [sparepartRevenueData, selectedYear, limitMonthIdx, execUnitEntryData]);
 
   const execStaffActivityData = useMemo(() => {
     const saMonthly = {};
@@ -1138,6 +1281,7 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
       const chart3_1 = await captureSvgChart('exec-chart-sparepart-workshop');
       const chart3_2 = await captureSvgChart('exec-chart-sparepart-non-workshop');
       const chart4 = await captureSvgChart('exec-chart-csi');
+      const chartOilFilter = await captureSvgChart('exec-chart-oil-filter');
       const gaugeImg = await captureSvgChart('csi-gauge-chart');
       const barImg = await captureSvgChart('csi-bar-chart');
 
@@ -1422,6 +1566,117 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
       if (chart3_2) {
         addImageFitted(doc, chart3_2, contentW, 105, margin, doc.lastAutoTable.finalY + 8);
       }
+
+      // PAGE: Oli & Filter Oli
+      doc.addPage();
+      drawHeader('Laporan Penggunaan Oli & Filter Oli');
+
+      const oilFilterRows = activeMonths.map((m, mIdx) => {
+        const row = execOilFilterData.months[mIdx] || {
+          oilQty: 0, filterQty: 0, oilVal: 0, filterVal: 0, totalVal: 0,
+          IFS: { oilQty: 0, filterQty: 0 },
+          IKC: { oilQty: 0, filterQty: 0 },
+          EUR: { oilQty: 0, filterQty: 0 }
+        };
+        return [
+          m,
+          String(row.IFS?.oilQty || 0),
+          String(row.IKC?.oilQty || 0),
+          String(row.EUR?.oilQty || 0),
+          String(row.oilQty),
+          formatCurrency(row.oilVal).replace(',00', ''),
+          String(row.IFS?.filterQty || 0),
+          String(row.IKC?.filterQty || 0),
+          String(row.EUR?.filterQty || 0),
+          String(row.filterQty),
+          formatCurrency(row.filterVal).replace(',00', ''),
+          formatCurrency(row.totalVal).replace(',00', '')
+        ];
+      });
+
+      // Add Total Row
+      oilFilterRows.push([
+        'Total YTD',
+        String(execOilFilterData.ytdIFS.oilQty),
+        String(execOilFilterData.ytdIKC.oilQty),
+        String(execOilFilterData.ytdEUR.oilQty),
+        String(execOilFilterData.ytdOilQty),
+        formatCurrency(execOilFilterData.ytdOilVal).replace(',00', ''),
+        String(execOilFilterData.ytdIFS.filterQty),
+        String(execOilFilterData.ytdIKC.filterQty),
+        String(execOilFilterData.ytdEUR.filterQty),
+        String(execOilFilterData.ytdFilterQty),
+        formatCurrency(execOilFilterData.ytdFilterVal).replace(',00', ''),
+        formatCurrency(execOilFilterData.ytdTotalVal).replace(',00', '')
+      ]);
+
+      doc.setFontSize(7.5);
+      doc.setTextColor(80, 80, 80);
+      doc.text('Keterangan: IFS (Internal Fleet Service), IKC (Internal Kemitraan Customer), EUR (External Unit Repair)', margin, 29);
+
+      autoTable(doc, {
+        startY: 32,
+        head: [['Bulan', 'Oli IFS', 'Oli IKC', 'Oli EUR', 'Total Oli', 'Rev Oli', 'Fil IFS', 'Fil IKC', 'Fil EUR', 'Total Fil', 'Rev Fil', 'Total Revenue']],
+        body: oilFilterRows,
+        theme: 'grid',
+        headStyles: { fillColor: [24, 24, 27], fontSize: 6.5, halign: 'center' },
+        bodyStyles: { fontSize: 6.5, halign: 'center' },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+        columnStyles: { 0: { fontStyle: 'bold' } },
+        margin: { left: margin, right: margin },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.row.index === data.table.body.length - 1) {
+            data.cell.styles.fillColor = [224, 231, 255];
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.textColor = [30, 27, 75];
+          }
+        }
+      });
+
+      if (chartOilFilter) {
+        addImageFitted(doc, chartOilFilter, contentW, 105, margin, doc.lastAutoTable.finalY + 8);
+      }
+
+      // PAGE: PRCU EUR
+      doc.addPage();
+      drawHeader('Laporan PRCU (Part Revenue per Care Unit) - EUR');
+
+      const prcuRows = activeMonths.map((m, mIdx) => {
+        const row = execPrcuEurData.months[mIdx] || { partsVal: 0, unitEntry: 0, prcu: 0 };
+        return [
+          m,
+          formatCurrency(row.partsVal).replace(',00', ''),
+          `${row.unitEntry} Unit`,
+          `${formatCurrency(row.prcu).replace(',00', '')} / Unit`
+        ];
+      });
+
+      // Add Total Row
+      prcuRows.push([
+        'Total / Rata-rata YTD',
+        formatCurrency(execPrcuEurData.ytdPartsVal).replace(',00', ''),
+        `${execPrcuEurData.ytdUnitEntry} Unit`,
+        `${formatCurrency(execPrcuEurData.ytdPrcu).replace(',00', '')} / Unit`
+      ]);
+
+      autoTable(doc, {
+        startY: 28,
+        head: [['Bulan', 'Workshop Part EUR (Rp)', 'Total Unit Entry EUR', 'PRCU (Rp/Unit)']],
+        body: prcuRows,
+        theme: 'grid',
+        headStyles: { fillColor: [24, 24, 27], fontSize: 8, halign: 'center' },
+        bodyStyles: { fontSize: 8, halign: 'center' },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+        columnStyles: { 0: { fontStyle: 'bold' } },
+        margin: { left: margin, right: margin },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.row.index === data.table.body.length - 1) {
+            data.cell.styles.fillColor = [224, 231, 255];
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.textColor = [30, 27, 75];
+          }
+        }
+      });
 
       // PAGE 4: Staff Activity SA
       doc.addPage();
@@ -1888,8 +2143,67 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
       });
       spNonWorkTotal['Total YTD'] = spNonWorkGrand;
       spNonWorkRows.push(spNonWorkTotal);
-      const ws3_2 = XLSX.utils.json_to_sheet(spNonWorkRows);
-      XLSX.utils.book_append_sheet(workbook, ws3_2, "Sparepart Non Workshop");
+      const ws32 = XLSX.utils.json_to_sheet(spNonWorkRows);
+      XLSX.utils.book_append_sheet(workbook, ws32, "Sparepart Non Workshop");
+
+      // Sheet 3c: Oli & Filter
+      const oilFilterExcelRows = activeMonths.map((m, mIdx) => {
+        const row = execOilFilterData.months[mIdx] || {
+          oilQty: 0, filterQty: 0, oilVal: 0, filterVal: 0, totalVal: 0,
+          IFS: { oilQty: 0, filterQty: 0 },
+          IKC: { oilQty: 0, filterQty: 0 },
+          EUR: { oilQty: 0, filterQty: 0 }
+        };
+        return {
+          'Bulan': m,
+          'Oli IFS (Pcs)': row.IFS?.oilQty || 0,
+          'Oli IKC (Pcs)': row.IKC?.oilQty || 0,
+          'Oli EUR (Pcs)': row.EUR?.oilQty || 0,
+          'Total Oli (Pcs)': row.oilQty,
+          'Revenue Oli (Rp)': row.oilVal,
+          'Filter IFS (Pcs)': row.IFS?.filterQty || 0,
+          'Filter IKC (Pcs)': row.IKC?.filterQty || 0,
+          'Filter EUR (Pcs)': row.EUR?.filterQty || 0,
+          'Total Filter (Pcs)': row.filterQty,
+          'Revenue Filter (Rp)': row.filterVal,
+          'Total Revenue (Rp)': row.totalVal
+        };
+      });
+      oilFilterExcelRows.push({
+        'Bulan': 'Total YTD',
+        'Oli IFS (Pcs)': execOilFilterData.ytdIFS.oilQty,
+        'Oli IKC (Pcs)': execOilFilterData.ytdIKC.oilQty,
+        'Oli EUR (Pcs)': execOilFilterData.ytdEUR.oilQty,
+        'Total Oli (Pcs)': execOilFilterData.ytdOilQty,
+        'Revenue Oli (Rp)': execOilFilterData.ytdOilVal,
+        'Filter IFS (Pcs)': execOilFilterData.ytdIFS.filterQty,
+        'Filter IKC (Pcs)': execOilFilterData.ytdIKC.filterQty,
+        'Filter EUR (Pcs)': execOilFilterData.ytdEUR.filterQty,
+        'Total Filter (Pcs)': execOilFilterData.ytdFilterQty,
+        'Revenue Filter (Rp)': execOilFilterData.ytdFilterVal,
+        'Total Revenue (Rp)': execOilFilterData.ytdTotalVal
+      });
+      const ws3c = XLSX.utils.json_to_sheet(oilFilterExcelRows);
+      XLSX.utils.book_append_sheet(workbook, ws3c, "Oli & Filter");
+
+      // Sheet 3d: PRCU EUR
+      const prcuExcelRows = activeMonths.map((m, mIdx) => {
+        const row = execPrcuEurData.months[mIdx] || { partsVal: 0, unitEntry: 0, prcu: 0 };
+        return {
+          'Bulan': m,
+          'Workshop Part EUR (Rp)': row.partsVal,
+          'Total Unit Entry EUR': row.unitEntry,
+          'PRCU (Rp/Unit)': row.prcu
+        };
+      });
+      prcuExcelRows.push({
+        'Bulan': 'Total / Rata-rata YTD',
+        'Workshop Part EUR (Rp)': execPrcuEurData.ytdPartsVal,
+        'Total Unit Entry EUR': execPrcuEurData.ytdUnitEntry,
+        'PRCU (Rp/Unit)': execPrcuEurData.ytdPrcu
+      });
+      const ws3d = XLSX.utils.json_to_sheet(prcuExcelRows);
+      XLSX.utils.book_append_sheet(workbook, ws3d, "PRCU EUR");
 
       // Sheet 4: Staff Activity
       const staffRows = [];
@@ -3155,6 +3469,214 @@ const ManagerPanel = ({ user, handleLogout, handleChangePassword, queue = [], ra
                           <td className="px-4 py-2 text-right tabular-nums bg-indigo-100/60 font-black">
                             {formatCurrency(execSparepartNonWorkshopData.reduce((acc, d) => acc + (d.Total || 0), 0))}
                           </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <hr className="border-zinc-100" />
+
+                {/* 3c. Laporan Penggunaan Oli & Filter Oli */}
+                <div className="space-y-4 pt-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">3c. Laporan Penggunaan Oli & Filter Oli</h3>
+                    <span className="text-[10px] bg-zinc-100 px-2 py-0.5 rounded text-zinc-500 font-bold uppercase">Source: Detail Estimasi DMS (Laporan Invoice)</span>
+                  </div>
+
+                  {/* Oil KPI Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg text-center">
+                      <p className="text-[9px] font-bold text-blue-600 uppercase tracking-wider">Qty Oli Terjual</p>
+                      <p className="text-lg font-black text-blue-950 mt-1">{execOilFilterData.ytdOilQty} Pcs</p>
+                    </div>
+                    <div className="bg-purple-50 border border-purple-200 p-3 rounded-lg text-center">
+                      <p className="text-[9px] font-bold text-purple-600 uppercase tracking-wider">Qty Filter Oli Terjual</p>
+                      <p className="text-lg font-black text-purple-950 mt-1">{execOilFilterData.ytdFilterQty} Pcs</p>
+                    </div>
+                    <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-lg text-center">
+                      <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider">Revenue Oli & Filter</p>
+                      <p className="text-lg font-black text-emerald-950 mt-1">{formatCurrency(execOilFilterData.ytdTotalVal)}</p>
+                    </div>
+                    <div className="bg-zinc-900 p-3 rounded-lg text-center text-white">
+                      <p className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider">Total Nilai Oli YTD</p>
+                      <p className="text-lg font-black text-emerald-400 mt-1">{formatCurrency(execOilFilterData.ytdOilVal)}</p>
+                    </div>
+                  </div>
+
+                  {/* Category Breakdown Sub-Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="bg-zinc-50 border border-zinc-200/85 p-3 rounded-lg">
+                      <p className="text-[10px] font-black text-sky-600 uppercase tracking-wider text-center">IFS (Oli & Filter)</p>
+                      <p className="text-sm font-black text-zinc-900 mt-1 text-center">{formatCurrency(execOilFilterData.ytdIFS.totalVal)}</p>
+                      <p className="text-[9px] text-zinc-400 font-semibold text-center mt-0.5">Oli: {execOilFilterData.ytdIFS.oilQty} Pcs | Filter: {execOilFilterData.ytdIFS.filterQty} Pcs</p>
+                    </div>
+                    <div className="bg-zinc-50 border border-zinc-200/85 p-3 rounded-lg">
+                      <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider text-center">IKC (Oli & Filter)</p>
+                      <p className="text-sm font-black text-zinc-900 mt-1 text-center">{formatCurrency(execOilFilterData.ytdIKC.totalVal)}</p>
+                      <p className="text-[9px] text-zinc-400 font-semibold text-center mt-0.5">Oli: {execOilFilterData.ytdIKC.oilQty} Pcs | Filter: {execOilFilterData.ytdIKC.filterQty} Pcs</p>
+                    </div>
+                    <div className="bg-zinc-50 border border-zinc-200/85 p-3 rounded-lg">
+                      <p className="text-[10px] font-black text-rose-600 uppercase tracking-wider text-center">EUR (Oli & Filter)</p>
+                      <p className="text-sm font-black text-zinc-900 mt-1 text-center">{formatCurrency(execOilFilterData.ytdEUR.totalVal)}</p>
+                      <p className="text-[9px] text-zinc-400 font-semibold text-center mt-0.5">Oli: {execOilFilterData.ytdEUR.oilQty} Pcs | Filter: {execOilFilterData.ytdEUR.filterQty} Pcs</p>
+                    </div>
+                  </div>
+                  {/* Monthly Trend Chart */}
+                  <div className="w-full h-[240px] border border-zinc-100 rounded-lg p-3 bg-white" id="exec-chart-oil-filter">
+                    <ReactApexChart
+                      options={{
+                        chart: { type: 'line', toolbar: { show: false }, zoom: { enabled: false } },
+                        colors: ['#3b82f6', '#8b5cf6', '#10b981'],
+                        stroke: { curve: 'smooth', width: 3 },
+                        markers: { size: 4 },
+                        dataLabels: {
+                          enabled: true,
+                          formatter: (val) => {
+                            if (!val) return '';
+                            return 'Rp ' + new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(val);
+                          },
+                          style: { fontSize: '8px', fontWeight: 'bold' }
+                        },
+                        xaxis: { categories: activeMonths, labels: { style: { colors: '#71717a', fontWeight: 650, fontSize: '10px' } } },
+                        yaxis: { labels: { style: { colors: '#71717a', fontWeight: 700 }, formatter: (v) => formatCurrency(v).replace(',00', '') } },
+                        grid: { borderColor: '#e4e4e7', strokeDashArray: 4 },
+                        legend: { show: true, position: 'top', labels: { colors: '#71717a' }, fontWeight: 700 },
+                        tooltip: { theme: 'light', y: { formatter: (v) => formatCurrency(v) } }
+                      }}
+                      series={[
+                        { name: 'Revenue Oli', data: execOilFilterData.months.map(d => d.oilVal) },
+                        { name: 'Revenue Filter Oli', data: execOilFilterData.months.map(d => d.filterVal) },
+                        { name: 'Total Oli & Filter', data: execOilFilterData.months.map(d => d.totalVal) }
+                      ]}
+                      type="line"
+                      height="100%"
+                    />
+                  </div>
+
+                  {/* Monthly Table Breakdown */}
+                  <div className="overflow-x-auto border border-zinc-200 rounded-lg">
+                    <table className="w-full text-xs text-left min-w-[1000px]">
+                      <thead>
+                        <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-bold uppercase text-[9px]">
+                          <th className="px-3 py-2 border-r border-zinc-250" rowSpan="2">Bulan</th>
+                          <th className="px-2 py-1 text-center border-b border-r border-zinc-250" colSpan="5">Oli (Pcs)</th>
+                          <th className="px-2 py-1 text-center border-b border-r border-zinc-250" colSpan="5">Filter Oli (Pcs)</th>
+                          <th className="px-3 py-2 text-right" rowSpan="2">Total Revenue</th>
+                        </tr>
+                        <tr className="bg-zinc-50/80 border-b border-zinc-200 text-zinc-400 font-bold uppercase text-[8px]">
+                          <th className="px-1 py-1 text-center">IFS</th>
+                          <th className="px-1 py-1 text-center">IKC</th>
+                          <th className="px-1 py-1 text-center">EUR</th>
+                          <th className="px-1 py-1 text-center font-black text-blue-650 bg-blue-50/50">Total</th>
+                          <th className="px-2 py-1 text-right border-r border-zinc-250">Revenue</th>
+                          <th className="px-1 py-1 text-center">IFS</th>
+                          <th className="px-1 py-1 text-center">IKC</th>
+                          <th className="px-1 py-1 text-center">EUR</th>
+                          <th className="px-1 py-1 text-center font-black text-purple-650 bg-purple-50/50">Total</th>
+                          <th className="px-2 py-1 text-right border-r border-zinc-250">Revenue</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100 font-medium text-[11px]">
+                        {activeMonths.map((m, mIdx) => {
+                          const row = execOilFilterData.months[mIdx] || {
+                            oilQty: 0, filterQty: 0, oilVal: 0, filterVal: 0, totalVal: 0,
+                            IFS: { oilQty: 0, filterQty: 0 },
+                            IKC: { oilQty: 0, filterQty: 0 },
+                            EUR: { oilQty: 0, filterQty: 0 }
+                          };
+                          return (
+                            <tr key={m} className="hover:bg-zinc-50/50">
+                              <td className="px-3 py-2 font-bold text-zinc-900 border-r border-zinc-100">{m}</td>
+                              <td className="px-1 py-2 text-center tabular-nums text-zinc-600">{row.IFS?.oilQty || 0}</td>
+                              <td className="px-1 py-2 text-center tabular-nums text-zinc-600">{row.IKC?.oilQty || 0}</td>
+                              <td className="px-1 py-2 text-center tabular-nums text-zinc-600">{row.EUR?.oilQty || 0}</td>
+                              <td className="px-1 py-2 text-center tabular-nums font-bold text-blue-700 bg-blue-50/20">{row.oilQty}</td>
+                              <td className="px-2 py-2 text-right font-mono text-zinc-650 border-r border-zinc-100">{formatCurrency(row.oilVal).replace(',00', '')}</td>
+                              <td className="px-1 py-2 text-center tabular-nums text-zinc-600">{row.IFS?.filterQty || 0}</td>
+                              <td className="px-1 py-2 text-center tabular-nums text-zinc-600">{row.IKC?.filterQty || 0}</td>
+                              <td className="px-1 py-2 text-center tabular-nums text-zinc-600">{row.EUR?.filterQty || 0}</td>
+                              <td className="px-1 py-2 text-center tabular-nums font-bold text-purple-700 bg-purple-50/20">{row.filterQty}</td>
+                              <td className="px-2 py-2 text-right font-mono text-zinc-650 border-r border-zinc-100">{formatCurrency(row.filterVal).replace(',00', '')}</td>
+                              <td className="px-3 py-2 text-right font-bold text-zinc-950 font-mono bg-zinc-50/30">{formatCurrency(row.totalVal)}</td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="bg-blue-50/70 font-black border-t border-blue-100 text-blue-950">
+                          <td className="px-3 py-2 border-r border-blue-100">Total YTD</td>
+                          <td className="px-1 py-2 text-center tabular-nums">{execOilFilterData.ytdIFS.oilQty}</td>
+                          <td className="px-1 py-2 text-center tabular-nums">{execOilFilterData.ytdIKC.oilQty}</td>
+                          <td className="px-1 py-2 text-center tabular-nums">{execOilFilterData.ytdEUR.oilQty}</td>
+                          <td className="px-1 py-2 text-center tabular-nums text-blue-700 bg-blue-100/30">{execOilFilterData.ytdOilQty}</td>
+                          <td className="px-2 py-2 text-right font-mono border-r border-blue-100">{formatCurrency(execOilFilterData.ytdOilVal)}</td>
+                          <td className="px-1 py-2 text-center tabular-nums">{execOilFilterData.ytdIFS.filterQty}</td>
+                          <td className="px-1 py-2 text-center tabular-nums">{execOilFilterData.ytdIKC.filterQty}</td>
+                          <td className="px-1 py-2 text-center tabular-nums">{execOilFilterData.ytdEUR.filterQty}</td>
+                          <td className="px-1 py-2 text-center tabular-nums text-purple-700 bg-purple-100/30">{execOilFilterData.ytdFilterQty}</td>
+                          <td className="px-2 py-2 text-right font-mono border-r border-blue-100">{formatCurrency(execOilFilterData.ytdFilterVal)}</td>
+                          <td className="px-3 py-2 text-right font-mono bg-blue-100/60 font-black">{formatCurrency(execOilFilterData.ytdTotalVal)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <hr className="border-zinc-100" />
+
+                {/* 3d. Laporan PRCU (Part Revenue per Care Unit) - EUR */}
+                <div className="space-y-4 pt-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-black text-zinc-900 uppercase tracking-widest">3d. Laporan PRCU (Part Revenue per Care Unit) - EUR</h3>
+                    <span className="text-[10px] bg-zinc-100 px-2 py-0.5 rounded text-zinc-500 font-bold uppercase">Formula: Total Part EUR / Total Unit Entry EUR</span>
+                  </div>
+
+                  {/* PRCU YTD Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="bg-rose-50 border border-rose-200 p-4 rounded-lg text-center">
+                      <p className="text-[10px] font-bold text-rose-600 uppercase tracking-wider">Total Part EUR YTD</p>
+                      <p className="text-lg font-black text-rose-950 mt-1">{formatCurrency(execPrcuEurData.ytdPartsVal)}</p>
+                      <p className="text-[9px] text-zinc-400 font-semibold mt-0.5">Termasuk Oli & Filter tipe EUR</p>
+                    </div>
+                    <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-lg text-center">
+                      <p className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider">Total Unit Entry EUR YTD</p>
+                      <p className="text-lg font-black text-zinc-950 mt-1">{execPrcuEurData.ytdUnitEntry} Unit</p>
+                      <p className="text-[9px] text-zinc-400 font-semibold mt-0.5">Jumlah mobil unik berkategori EUR</p>
+                    </div>
+                    <div className="bg-zinc-900 p-4 rounded-lg text-center text-white">
+                      <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">PRCU EUR YTD</p>
+                      <p className="text-lg font-black text-white mt-1">{formatCurrency(execPrcuEurData.ytdPrcu)} / Unit</p>
+                      <p className="text-[9px] text-zinc-300 font-semibold mt-0.5">Rata-rata belanja part per mobil EUR</p>
+                    </div>
+                  </div>
+
+                  {/* PRCU Monthly Table Breakdown */}
+                  <div className="overflow-x-auto border border-zinc-200 rounded-lg">
+                    <table className="w-full text-xs text-left min-w-[700px]">
+                      <thead>
+                        <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-bold uppercase text-[9px]">
+                          <th className="px-4 py-2">Bulan</th>
+                          <th className="px-2 py-2 text-right">Workshop Part EUR (Rp)</th>
+                          <th className="px-2 py-2 text-center">Total Unit Entry EUR</th>
+                          <th className="px-4 py-2 text-right">PRCU (Rp/Unit)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100 font-medium">
+                        {activeMonths.map((m, mIdx) => {
+                          const row = execPrcuEurData.months[mIdx] || { partsVal: 0, unitEntry: 0, prcu: 0 };
+                          return (
+                            <tr key={m} className="hover:bg-zinc-50/50">
+                              <td className="px-4 py-2 font-bold text-zinc-900">{m}</td>
+                              <td className="px-2 py-2 text-right font-mono">{formatCurrency(row.partsVal).replace(',00', '')}</td>
+                              <td className="px-2 py-2 text-center tabular-nums">{row.unitEntry} Unit</td>
+                              <td className="px-4 py-2 text-right font-black text-rose-600 font-mono bg-zinc-50/30">{formatCurrency(row.prcu)} / Unit</td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="bg-rose-50/70 font-black border-t border-rose-100 text-rose-950">
+                          <td className="px-4 py-2">Total / Rata-rata YTD</td>
+                          <td className="px-2 py-2 text-right font-mono">{formatCurrency(execPrcuEurData.ytdPartsVal)}</td>
+                          <td className="px-2 py-2 text-center tabular-nums">{execPrcuEurData.ytdUnitEntry} Unit</td>
+                          <td className="px-4 py-2 text-right font-mono bg-rose-100/60 font-black">{formatCurrency(execPrcuEurData.ytdPrcu)} / Unit</td>
                         </tr>
                       </tbody>
                     </table>
